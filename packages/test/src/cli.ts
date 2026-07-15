@@ -199,9 +199,6 @@ async function main(): Promise<number> {
 					console.log(
 						`  ${theme.tip("exit 137 = macOS OOM — isolated subprocesses (AGENT_TEST_NO_ISOLATE=1 to disable)")}`,
 					);
-					console.log(
-						`  ${theme.tip("color: FORCE_COLOR=1 or AGENT_TEST_COLOR=1 (NO_COLOR disables)")}`,
-					);
 				} else if (!args.keepRecordings) {
 					console.log(
 						`  ${theme.tip("traces removed on exit unless --keep-recordings")}`,
