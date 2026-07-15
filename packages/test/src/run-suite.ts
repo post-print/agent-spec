@@ -115,11 +115,14 @@ export interface RunSuiteOptions {
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
-function outputContractForRubric(
+export function outputContractForRubric(
 	rubric: ScenarioRubric,
 ): RoutingContract | undefined {
 	if (rubric.routingBlock) {
 		return "hands-off";
+	}
+	if (rubric.handsOnRouting) {
+		return "hands-on";
 	}
 	return undefined;
 }

@@ -159,6 +159,48 @@ describe("capture", () => {
 		expect(enriched.routing?.tier).toBe("low");
 	});
 
+	it("enriches tier from streamed token chunks without newline joins", () => {
+		const enriched = enrichTrace({
+			messages: [
+				{ role: "assistant", content: "**" },
+				{ role: "assistant", content: "Tier" },
+				{ role: "assistant", content: ":**" },
+				{ role: "assistant", content: " Medium" },
+			],
+			toolCalls: [],
+			shellCommands: [],
+			artifacts: {},
+		});
+		expect(enriched.routing?.tier).toBe("medium");
+	});
+
+	it("finalizes streamed assistant chunks into a contiguous tier match", () => {
+		const trace = buildTraceFromSdkMessages([
+			{
+				type: "assistant",
+				message: { role: "assistant", content: [{ type: "text", text: "## Routing\n- **" }] },
+			},
+			{
+				type: "assistant",
+				message: { role: "assistant", content: [{ type: "text", text: "Tier" }] },
+			},
+			{
+				type: "assistant",
+				message: { role: "assistant", content: [{ type: "text", text: ":**" }] },
+			},
+			{
+				type: "assistant",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: " Medium\n- **Signals:** pr" }],
+				},
+			},
+		]);
+		expect(trace.routing?.tier).toBe("medium");
+		expect(trace.prBody).toContain("## Routing");
+		expect(trace.prBody).toContain("**Tier:** Medium");
+	});
+
 	it("requires tier in assistant prefix before tool calls", () => {
 		const pass: AgentTrace = {
 			messages: [{ role: "assistant", content: "Routing: Low — fix.\n\nReading…" }],

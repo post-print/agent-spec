@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { discoverSuites } from "../discover-suites.js";
-import { shouldPrintSuiteChrome } from "../run-suite.js";
+import { outputContractForRubric, shouldPrintSuiteChrome } from "../run-suite.js";
 
 describe("discoverSuites", () => {
 	it("skips directories without scenarios.json", async () => {
@@ -22,6 +22,26 @@ describe("discoverSuites", () => {
 
 		const paths = await discoverSuites(dir);
 		expect(paths).toEqual([join(dir, "real-suite", "scenarios.json")]);
+	});
+});
+
+describe("outputContractForRubric", () => {
+	it("attaches hands-off for routingBlock rubrics", () => {
+		expect(outputContractForRubric({ routingBlock: true })).toBe("hands-off");
+	});
+
+	it("attaches hands-on for handsOnRouting rubrics", () => {
+		expect(outputContractForRubric({ handsOnRouting: true, tier: "low" })).toBe("hands-on");
+	});
+
+	it("prefers hands-off when both routing flags are set", () => {
+		expect(
+			outputContractForRubric({ routingBlock: true, handsOnRouting: true }),
+		).toBe("hands-off");
+	});
+
+	it("returns undefined when no routing rubric flags are set", () => {
+		expect(outputContractForRubric({ tier: "medium" })).toBeUndefined();
 	});
 });
 
