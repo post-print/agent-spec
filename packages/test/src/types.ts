@@ -1,4 +1,8 @@
-import type { AgentHost, ContextProfile, SkillContextSetting } from "@post-print/agent-harness";
+import type {
+	AgentHost,
+	ContextProfile,
+	SkillContextSetting,
+} from "@post-print/agent-harness";
 
 export type JudgeRubricItem = string | { id?: string; question: string };
 
@@ -49,6 +53,13 @@ export interface AssertionFailure {
 	message: string;
 }
 
+export interface JudgeVerdictResult {
+	id: string;
+	question: string;
+	pass: boolean;
+	rationale: string;
+}
+
 export interface ScenarioResult {
 	suite: string;
 	scenario: string;
@@ -56,6 +67,8 @@ export interface ScenarioResult {
 	failures: AssertionFailure[];
 	skipped?: boolean;
 	durationMs: number;
+	/** LLM judge verdicts when judge criteria were evaluated. */
+	judgeVerdicts?: JudgeVerdictResult[];
 }
 
 export interface SuiteRunReport {

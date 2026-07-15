@@ -13,12 +13,18 @@ export {
 	recordTrace,
 	resolveRecordingPath,
 } from "./record-trace.js";
-export { discoverSuites, type RunSuiteOptions, runAllSuites, runSuite } from "./run-suite.js";
+export {
+	discoverSuites,
+	type RunSuiteOptions,
+	runAllSuites,
+	runSuite,
+} from "./run-suite.js";
 export type {
 	AgentScenario,
 	AgentSuiteFile,
 	AssertionFailure,
 	JudgeRubricItem,
+	JudgeVerdictResult,
 	ScenarioResult,
 	ScenarioRubric,
 	SuiteRunReport,

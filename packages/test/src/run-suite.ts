@@ -26,7 +26,13 @@ import {
 	subprocessFailureMessage,
 } from "./live-isolation.js";
 import { loadSuiteFile } from "./load-suite.js";
-import { formatDuration, logPhase, logProgress, withHeartbeat } from "./progress.js";
+import {
+	formatDuration,
+	logPhase,
+	logProgress,
+	logVerdict,
+	withHeartbeat,
+} from "./progress.js";
 import {
 	getStagingTracePath,
 	loadStagingTrace,
@@ -34,10 +40,12 @@ import {
 	resolveRecordingPath,
 } from "./record-trace.js";
 import { seedScenarioWorktree } from "./scenario-seed.js";
+import { theme } from "./theme.js";
 import type {
 	AgentScenario,
 	AssertionFailure,
 	JudgeRubricItem,
+	JudgeVerdictResult,
 	ScenarioResult,
 	ScenarioRubric,
 	SuiteRunReport,
@@ -45,6 +53,15 @@ import type {
 
 let activeWorktreeCleanup: (() => Promise<void>) | undefined;
 let liveSignalHandlersRegistered = false;
+
+function isChildProcess(): boolean {
+	return process.env.AGENT_TEST_CHILD === "1";
+}
+
+/** Parent process prints suite headers and final verdicts; children only print phases. */
+export function shouldPrintSuiteChrome(): boolean {
+	return !isChildProcess();
+}
 
 /** Best-effort worktree cleanup when live runs are interrupted (SIGINT/SIGTERM). */
 export function registerLiveRunHandlers(): void {
@@ -69,7 +86,8 @@ export function registerLiveRunHandlers(): void {
 }
 
 function releaseLiveMemory(): void {
-	const bunGc = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun?.gc;
+	const bunGc = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun
+		?.gc;
 	if (typeof bunGc === "function") {
 		bunGc(true);
 	}
@@ -97,14 +115,18 @@ export interface RunSuiteOptions {
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
-function outputContractForRubric(rubric: ScenarioRubric): RoutingContract | undefined {
+function outputContractForRubric(
+	rubric: ScenarioRubric,
+): RoutingContract | undefined {
 	if (rubric.routingBlock) {
 		return "hands-off";
 	}
 	return undefined;
 }
 
-function normalizeJudgeCriteria(judge: JudgeRubricItem[] | undefined): JudgeCriterion[] {
+function normalizeJudgeCriteria(
+	judge: JudgeRubricItem[] | undefined,
+): JudgeCriterion[] {
 	if (!judge?.length) {
 		return [];
 	}
@@ -116,12 +138,61 @@ function normalizeJudgeCriteria(judge: JudgeRubricItem[] | undefined): JudgeCrit
 	});
 }
 
-export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport> {
+function questionForCriterion(criteria: JudgeCriterion[], id: string): string {
+	return criteria.find((c) => c.id === id)?.question ?? id;
+}
+
+function toJudgeVerdictResults(
+	trace: AgentTrace,
+	criteria: JudgeCriterion[],
+): JudgeVerdictResult[] {
+	return (trace.judgeVerdicts ?? []).map((verdict) => ({
+		id: verdict.id,
+		question: questionForCriterion(criteria, verdict.id),
+		pass: verdict.pass,
+		rationale: verdict.rationale,
+	}));
+}
+
+function rubricFailuresOnly(failures: AssertionFailure[]): AssertionFailure[] {
+	return failures.filter((f) => !f.matcher.startsWith("judge"));
+}
+
+function emitScenarioVerdict(options: {
+	passed: boolean;
+	index?: number;
+	total?: number;
+	name: string;
+	durationMs: number;
+	judgeVerdicts?: JudgeVerdictResult[];
+	failures: AssertionFailure[];
+}): void {
+	if (!shouldPrintSuiteChrome()) {
+		return;
+	}
+	logVerdict(
+		theme.scenarioVerdict({
+			passed: options.passed,
+			index: options.index,
+			total: options.total,
+			name: options.name,
+			durationMs: options.durationMs,
+			judgeVerdicts: options.judgeVerdicts,
+			rubricFailures: rubricFailuresOnly(options.failures),
+		}),
+	);
+}
+
+export async function runSuite(
+	options: RunSuiteOptions,
+): Promise<SuiteRunReport> {
 	const suite = await loadSuiteFile(options.suitePath);
 	const defaultHost = options.host ?? suite.defaults?.host ?? "replay";
 	const results: ScenarioResult[] = [];
 	const scenarios = options.scenarioFilter
-		? suite.scenarios.filter((scenario) => scenario.name === options.scenarioFilter)
+		? suite.scenarios.filter(
+				(scenario) => scenario.name === options.scenarioFilter,
+			)
 		: suite.scenarios;
 
 	if (options.scenarioFilter && scenarios.length === 0) {
@@ -131,11 +202,16 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 	const total = scenarios.length;
 	const isLiveSuite = defaultHost !== "replay";
 	const isolateLive =
-		isLiveSuite && liveScenarioIsolationEnabled() && !options.scenarioFilter && total > 1;
+		isLiveSuite &&
+		liveScenarioIsolationEnabled() &&
+		!options.scenarioFilter &&
+		total > 1;
 
-	logProgress(`\n${suite.name} (${defaultHost}) — ${total} scenario(s)`);
-	if (isolateLive && total > 1) {
-		logPhase("live isolation: one subprocess per scenario (AGENT_TEST_NO_ISOLATE=1 to disable)");
+	if (shouldPrintSuiteChrome()) {
+		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, total)}`);
+		if (isolateLive && total > 1) {
+			logProgress(`  ${theme.isolationNote()}`);
+		}
 	}
 
 	for (let index = 0; index < scenarios.length; index++) {
@@ -160,6 +236,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 			});
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
+			let judgeVerdicts: JudgeVerdictResult[] | undefined;
 
 			if (exitCode !== 0) {
 				failures.push({
@@ -170,7 +247,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 				if (criteria.length > 0) {
 					releaseLiveMemory();
-					logPhase(`LLM judge (${criteria.length} criterion/criteria)…`);
+					logPhase(theme.judgePhase(criteria.length), { last: true });
 					try {
 						const tracePath = getStagingTracePath(
 							options.stagingSessionId,
@@ -178,29 +255,42 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 							scenario.name,
 						);
 						const trace = await loadStagingTrace(tracePath);
-						const judged = await runJudgeRubric(trace, scenario.rubric, options.cwd);
+						const judged = await runJudgeRubric(
+							trace,
+							scenario.rubric,
+							options.cwd,
+						);
 						failures.push(...judged.failures);
+						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria);
 					} catch (error) {
 						failures.push({
 							matcher: "judge",
 							message:
-								error instanceof Error ? error.message : "failed to load staging trace for judge",
+								error instanceof Error
+									? error.message
+									: "failed to load staging trace for judge",
 						});
 					}
 				}
 			}
 
 			const passed = failures.length === 0;
-			const icon = passed ? "✓" : "✗";
-			logProgress(
-				`${icon} [${index + 1}/${total}] ${scenario.name} (${formatDuration(durationMs)})`,
-			);
+			emitScenarioVerdict({
+				passed,
+				index: index + 1,
+				total,
+				name: scenario.name,
+				durationMs,
+				judgeVerdicts,
+				failures,
+			});
 			results.push({
 				suite: suite.name,
 				scenario: scenario.name,
 				passed,
 				failures,
 				durationMs,
+				judgeVerdicts,
 			});
 			releaseLiveMemory();
 			continue;
@@ -254,13 +344,13 @@ async function runScenario(
 	scenarioTotal?: number,
 ): Promise<ScenarioResult> {
 	const started = performance.now();
-	const label =
-		scenarioIndex !== undefined && scenarioTotal !== undefined
-			? `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`
-			: scenario.name;
 
 	if (scenario.skip) {
-		logProgress(`${label} — skipped`);
+		const skipLabel =
+			scenarioIndex !== undefined && scenarioTotal !== undefined
+				? `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`
+				: scenario.name;
+		logProgress(theme.skipped(skipLabel));
 		return {
 			suite: suiteName,
 			scenario: scenario.name,
@@ -272,42 +362,68 @@ async function runScenario(
 	}
 
 	const host = scenario.host ?? defaultHost;
-	const profile = scenario.profile ?? defaultProfile ?? (host === "cursor" ? "cursor" : "shared");
+	const profile =
+		scenario.profile ??
+		defaultProfile ??
+		(host === "cursor" ? "cursor" : "shared");
 	const skills = scenario.skills ?? defaultSkills;
 	const isLive = host !== "replay";
-	logProgress(`${label} — ${host}`);
 
-	const useWorktree = isLive && worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
-	let worktreeHandle: Awaited<ReturnType<typeof createScenarioWorktree>> | undefined;
-	const callerTreeBefore = useWorktree ? await captureWorkingTreeStatus(cwd) : undefined;
+	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
+		logProgress(
+			theme.scenarioTitle(scenarioIndex, scenarioTotal, scenario.name, host),
+		);
+	} else {
+		logProgress(theme.scenarioLabel(scenario.name, host));
+	}
+
+	const useWorktree =
+		isLive && worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
+	let worktreeHandle:
+		| Awaited<ReturnType<typeof createScenarioWorktree>>
+		| undefined;
+	const callerTreeBefore = useWorktree
+		? await captureWorkingTreeStatus(cwd)
+		: undefined;
 	if (useWorktree) {
-		logPhase("creating git worktree…");
-		worktreeHandle = await createScenarioWorktree(cwd, `${suiteName}-${scenario.name}`);
+		logPhase(theme.phaseDim("creating git worktree…"));
+		worktreeHandle = await createScenarioWorktree(
+			cwd,
+			`${suiteName}-${scenario.name}`,
+		);
 		activeWorktreeCleanup = worktreeHandle.cleanup;
-		logPhase(`worktree → ${worktreeHandle.path}`);
+		logPhase(`worktree → ${theme.path(worktreeHandle.path)}`);
 		if (isLive && scenario.seedPatch) {
-			logPhase(`seeding worktree diff (${scenario.seedPatch})…`);
+			logPhase(`seeding diff ${theme.basename(scenario.seedPatch)}`);
 			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch);
 		}
 	} else if (isLive) {
-		logPhase("worktree disabled — agent may mutate repo cwd (AGENT_TEST_ALLOW_IN_PLACE=1)");
+		logPhase(
+			theme.phaseDim(
+				"worktree disabled — agent may mutate repo cwd (AGENT_TEST_ALLOW_IN_PLACE=1)",
+			),
+		);
 	}
 	const runCwd = worktreeHandle?.path ?? cwd;
 
 	try {
-		logPhase("loading agent context…");
+		logPhase(theme.phaseDim("loading agent context…"));
 		// Live worktree runs code in an isolated checkout; load rules/AGENTS from caller cwd
 		// so uncommitted .cursor/rules and AGENTS.md edits apply during dogfood.
 		const contextRoot = isLive && useWorktree ? cwd : runCwd;
 		const context = await loadContext({ cwd: contextRoot, profile, skills });
 		const useReplay = host === "replay";
 		if (useReplay) {
-			logPhase(`replaying ${scenario.replayTrace ?? "trace"}…`);
+			logPhase(`replaying ${theme.path(scenario.replayTrace ?? "trace")}…`);
 		} else {
-			logPhase("running cursor agent (may take several minutes)…");
+			logPhase(
+				theme.phaseDim("running cursor agent (may take several minutes)…"),
+			);
 		}
 
-		const outputContract = isLive ? outputContractForRubric(scenario.rubric) : undefined;
+		const outputContract = isLive
+			? outputContractForRubric(scenario.rubric)
+			: undefined;
 		const agentStarted = performance.now();
 		const session = await (isLive
 			? withHeartbeat(
@@ -319,7 +435,7 @@ async function runScenario(
 						prompt: scenario.prompt,
 						outputContract,
 					}),
-					{ label: "agent still running", started: agentStarted },
+					{ label: "still running", started: agentStarted },
 				)
 			: runAgent({
 					host,
@@ -332,7 +448,7 @@ async function runScenario(
 
 		if (isLive) {
 			logPhase(
-				`agent finished (${formatDuration(performance.now() - agentStarted)}) — ${session.status}`,
+				`agent finished — ${theme.statusCompleted(session.status)} ${theme.duration(`(${formatDuration(performance.now() - agentStarted)})`)}`,
 			);
 		}
 
@@ -346,8 +462,12 @@ async function runScenario(
 			});
 		}
 
-		logPhase("scoring rubric…");
-		failures.push(...assertRubric(trace, scenario.rubric, { skillsMode: context.skillsMode }));
+		logPhase(theme.phaseDim("scoring rubric…"));
+		failures.push(
+			...assertRubric(trace, scenario.rubric, {
+				skillsMode: context.skillsMode,
+			}),
+		);
 
 		if (useWorktree && callerTreeBefore !== undefined) {
 			const callerTreeAfter = await captureWorkingTreeStatus(cwd);
@@ -369,34 +489,61 @@ async function runScenario(
 				{ repoRoot: cwd, stagingSessionId },
 			);
 			if (resolved) {
-				logPhase("recording trace…");
+				logPhase(theme.phaseDim("recording trace…"));
 				try {
 					const path = await recordTrace(resolved.path, trace);
-					const recordLabel = resolved.kind === "fixture" ? "recorded fixture" : "recorded staging";
-					logPhase(`${recordLabel} → ${path}`);
+					const recordLabel =
+						resolved.kind === "fixture"
+							? "recorded fixture"
+							: "recorded staging";
+					logPhase(`${recordLabel} → ${theme.path(path)}`);
 				} catch (error) {
 					failures.push({
 						matcher: "recordTrace",
-						message: error instanceof Error ? error.message : "failed to record trace",
+						message:
+							error instanceof Error ? error.message : "failed to record trace",
 					});
 				}
 			}
 		}
 
-		const deferJudgeToParent = process.env.AGENT_TEST_CHILD === "1";
+		if (worktreeHandle) {
+			const willJudge =
+				Boolean(judge) &&
+				isLive &&
+				!isChildProcess() &&
+				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
+			logPhase(theme.phaseDim("removing worktree…"), { last: !willJudge });
+			await worktreeHandle.cleanup();
+			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
+				activeWorktreeCleanup = undefined;
+			}
+			worktreeHandle = undefined;
+		}
+
+		const deferJudgeToParent = isChildProcess();
+		let judgeVerdicts: JudgeVerdictResult[] | undefined;
 		if (judge && isLive && !deferJudgeToParent) {
 			const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 			if (criteria.length > 0) {
-				logPhase(`LLM judge (${criteria.length} criterion/criteria)…`);
+				logPhase(theme.judgePhase(criteria.length), { last: true });
 			}
 			const judged = await runJudgeRubric(trace, scenario.rubric, runCwd);
 			failures.push(...judged.failures);
 			trace = judged.trace;
+			judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria);
 		}
 
 		const durationMs = Math.round(performance.now() - started);
-		const icon = failures.length === 0 ? "✓" : "✗";
-		logProgress(`${icon} ${label} (${formatDuration(durationMs)})`);
+		emitScenarioVerdict({
+			passed: failures.length === 0,
+			index: scenarioIndex,
+			total: scenarioTotal,
+			name: scenario.name,
+			durationMs,
+			judgeVerdicts,
+			failures,
+		});
 
 		return {
 			suite: suiteName,
@@ -404,14 +551,15 @@ async function runScenario(
 			passed: failures.length === 0,
 			failures,
 			durationMs,
+			judgeVerdicts,
 		};
 	} finally {
 		if (worktreeHandle) {
-			logPhase("removing worktree…");
-		}
-		await worktreeHandle?.cleanup();
-		if (activeWorktreeCleanup === worktreeHandle?.cleanup) {
-			activeWorktreeCleanup = undefined;
+			logPhase(theme.phaseDim("removing worktree…"), { last: true });
+			await worktreeHandle.cleanup();
+			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
+				activeWorktreeCleanup = undefined;
+			}
 		}
 	}
 }
@@ -430,7 +578,9 @@ async function runJudgeRubric(
 	if (result.skipped) {
 		return {
 			trace,
-			failures: [{ matcher: "judge", message: result.error ?? "judge skipped" }],
+			failures: [
+				{ matcher: "judge", message: result.error ?? "judge skipped" },
+			],
 		};
 	}
 
@@ -467,11 +617,16 @@ export async function runAllSuites(options: {
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
 }): Promise<SuiteRunReport[]> {
-	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
+	const suitePaths = await discoverSuites(
+		resolve(options.cwd, options.suitesDir),
+	);
 	const filtered = options.filter
 		? suitePaths.filter((suitePath) => {
 				const suiteName = suiteNameFromPath(suitePath);
-				return suiteName === options.filter || suitePath.includes(`/${options.filter}/`);
+				return (
+					suiteName === options.filter ||
+					suitePath.includes(`/${options.filter}/`)
+				);
 			})
 		: suitePaths;
 
