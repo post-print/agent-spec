@@ -8,6 +8,7 @@ import {
 
 import { isCliMain } from "./cli-entry.js";
 import { assertLiveDogfoodPreflight } from "./preflight.js";
+import { logProgress } from "./progress.js";
 import {
 	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
@@ -15,6 +16,7 @@ import {
 	getLiveStagingSessionRoot,
 } from "./record-trace.js";
 import { registerLiveRunHandlers, runAllSuites } from "./run-suite.js";
+import { theme } from "./theme.js";
 
 function parseArgs(argv: string[]): {
 	cwd: string;
@@ -126,6 +128,7 @@ async function cleanupLiveRunArtifacts(
 async function main(): Promise<number> {
 	const args = parseArgs(process.argv);
 	const isChild = process.env.AGENT_TEST_CHILD === "1";
+	const verbose = process.env.AGENT_TEST_VERBOSE === "1";
 	const stagingSessionId =
 		args.stagingSessionId?.trim() ||
 		process.env.AGENT_TEST_STAGING_SESSION_ID?.trim() ||
@@ -167,27 +170,34 @@ async function main(): Promise<number> {
 				const removed = await cleanupStaleScenarioWorktrees(args.cwd);
 				if (removed.length > 0) {
 					console.log(
-						`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`,
+						theme.warn(
+							`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`,
+						),
 					);
 				}
+				console.log(theme.banner());
 				console.log(
-					"Live dogfood: cursor SDK → worktree → rubric → judge → $TMPDIR staging (use --record-fixtures to overwrite replay JSON)",
+					theme.bannerDetail(
+						"cursor SDK → worktree → rubric → judge → $TMPDIR staging",
+					),
 				);
 				if (stagingSessionRoot) {
-					console.log(`Live staging session: ${stagingSessionRoot}`);
+					console.log(theme.bannerSession(stagingSessionRoot));
 					if (!args.keepRecordings) {
 						console.log(
-							"Staging traces are removed on exit unless --keep-recordings",
+							`  ${theme.tip("traces removed on exit unless --keep-recordings")}`,
 						);
 					}
 				}
 				if (worktreeDisabled) {
 					console.warn(
-						"Warning: running in repo cwd — agent file edits will persist in your working tree",
+						theme.warn(
+							"running in repo cwd — agent file edits will persist in your working tree",
+						),
 					);
 				} else {
 					console.log(
-						"Tip: exit 137 (Killed) is usually macOS OOM — live runs isolate each scenario in a subprocess by default; set AGENT_TEST_NO_ISOLATE=1 to disable",
+						`  ${theme.tip("tip: exit 137 = macOS OOM — scenarios run in isolated subprocesses (AGENT_TEST_NO_ISOLATE=1 to disable)")}`,
 					);
 				}
 			}
@@ -205,21 +215,30 @@ async function main(): Promise<number> {
 			);
 			if (failed.length > 0) {
 				exitCode = 1;
-				console.log(`\n${report.suite} — failure details`);
+				console.log(`\n${theme.failedScenariosHeader()}`);
 				for (const result of failed) {
-					console.log(`  ✗ ${result.scenario}`);
-					for (const failure of result.failures) {
-						console.log(`      ${failure.matcher}: ${failure.message}`);
+					console.log(theme.failedScenarioName(result.scenario));
+					if (verbose) {
+						for (const failure of result.failures) {
+							console.log(
+								theme.verboseFailure(failure.matcher, failure.message),
+							);
+						}
 					}
 				}
 			}
 			console.log(
-				`${report.suite}: ${report.passed} passed, ${report.failed} failed, ${report.skipped} skipped`,
+				theme.summary(
+					report.suite,
+					report.passed,
+					report.failed,
+					report.skipped,
+				),
 			);
 		}
 
 		if (reports.length === 0) {
-			console.log(`No suites found under ${args.suitesDir}`);
+			logProgress(`No suites found under ${args.suitesDir}`);
 			return 1;
 		}
 

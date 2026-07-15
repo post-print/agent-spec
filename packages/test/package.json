@@ -23,7 +23,8 @@
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {
-		"@post-print/agent-harness": "workspace:*"
+		"@post-print/agent-harness": "workspace:*",
+		"chalk": "5"
 	},
 	"devDependencies": {
 		"@types/node": "^26.1.1",
