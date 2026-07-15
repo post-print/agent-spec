@@ -4,11 +4,15 @@ Jest-shaped agent scenario runner built on `@post-print/agent-harness`.
 
 ## CLI
 
+Works under **Node >= 22** (the published `agent-test` bin):
+
 ```bash
-bunx agent-test --suites-dir agent-suites
-bunx agent-test --suite ambient-routing
-bunx agent-test --live --suite ambient-routing   # CURSOR_API_KEY required
+npx agent-test --suites-dir agent-suites
+npx agent-test --suite ambient-routing
+npx agent-test --live --suite ambient-routing   # CURSOR_API_KEY required
 ```
+
+Bun is fine for local package development (`bun install` / `bun run build` in this monorepo), but consumers do not need Bun to run suites.
 
 Default suites root: `agent-suites/`.
 

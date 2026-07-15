@@ -1,8 +1,8 @@
-import { createAdapter } from "./adapters";
-import { type LoadContextOptions, loadContext } from "./context";
-import type { AgentSession, ContextProfile, RunAgentOptions } from "./types";
+import { createAdapter } from "./adapters/index.js";
+import { type LoadContextOptions, loadContext } from "./context.js";
+import type { AgentSession, ContextProfile, RunAgentOptions } from "./types.js";
 
-export type { SdkMessage } from "./capture";
+export type { SdkMessage } from "./capture.js";
 export type {
 	AgentHost,
 	AgentMessage,
@@ -18,7 +18,7 @@ export type {
 	SkillContextMode,
 	SkillContextOptions,
 	SkillContextSetting,
-} from "./types";
+} from "./types.js";
 
 export { loadContext, type LoadContextOptions };
 export {
@@ -26,7 +26,7 @@ export {
 	CursorAdapter,
 	createAdapter,
 	ReplayAdapter,
-} from "./adapters";
+} from "./adapters/index.js";
 export {
 	assistantPrefixBeforeTools,
 	buildTraceFromSdkMessages,
@@ -43,7 +43,7 @@ export {
 	inferRoutingFromText,
 	mergeSkillsInvoked,
 	routingBlockBeforeTools,
-} from "./capture";
+} from "./capture.js";
 export {
 	assistantTextFromSdkMessages,
 	type CursorRunOptions,
@@ -53,7 +53,7 @@ export {
 	runCursorAgent,
 	runJudgeClassifier,
 	textBlocksFromSdkMessage,
-} from "./cursor-run";
+} from "./cursor-run.js";
 export {
 	type JudgeCriterion,
 	type JudgeTraceOptions,
@@ -64,20 +64,20 @@ export {
 	parseJudgeJsonResponse,
 	parseJudgeLegacyResponse,
 	parseJudgeResponse,
-} from "./judge";
-export { buildRoutingContract } from "./routing-contract";
-export { loadSkillContext, normalizeSkillContext, type SkillCatalogEntry } from "./skills-context";
+} from "./judge.js";
+export { buildRoutingContract } from "./routing-contract.js";
+export { loadSkillContext, normalizeSkillContext, type SkillCatalogEntry } from "./skills-context.js";
 export {
 	captureWorkingTreeStatus,
 	findWorkingTreeLeak,
 	formatWorkingTreeLeak,
-} from "./working-tree-guard";
+} from "./working-tree-guard.js";
 export {
 	cleanupStaleScenarioWorktrees,
 	createScenarioWorktree,
 	SCENARIO_WORKTREE_DIR_PREFIX,
 	type ScenarioWorktree,
-} from "./worktree";
+} from "./worktree.js";
 
 export interface RunAgentInput extends Omit<RunAgentOptions, "context"> {
 	context?: RunAgentOptions["context"];

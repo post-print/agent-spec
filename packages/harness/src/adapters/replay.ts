@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { AgentSession, AgentTrace, HostAdapter, RunAgentOptions } from "../types";
+import type { AgentSession, AgentTrace, HostAdapter, RunAgentOptions } from "../types.js";
 
 function emptyTrace(): AgentTrace {
 	return {

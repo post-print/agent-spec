@@ -4,7 +4,7 @@ import {
 	liveScenarioIsolationEnabled,
 	scenarioSettleMs,
 	subprocessFailureMessage,
-} from "../live-isolation";
+} from "../live-isolation.js";
 
 describe("live-isolation", () => {
 	it("enables isolation by default", () => {

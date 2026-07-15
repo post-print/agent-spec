@@ -11,7 +11,18 @@ Executable specs for coding-agent behavior.
 
 Consumer repos keep suites locally (for example `agent-suites/<suite>/scenarios.json`) and depend on these packages from npm.
 
+## Consumer usage (Node >= 22)
+
+Published packages are native ESM and run under Node (no Bun required at runtime):
+
+```bash
+npx agent-test --suites-dir agent-suites
+npx agent-test --suites-dir agent-suites --live   # CURSOR_API_KEY required
+```
+
 ## Develop
+
+Local builds still use Bun:
 
 ```bash
 bun install
@@ -20,6 +31,8 @@ bun run test
 ```
 
 ## Publish
+
+Merging to `main` (or `workflow_dispatch` on `.github/workflows/publish.yml`) publishes a patch by default. Manual publish:
 
 ```bash
 bun run build

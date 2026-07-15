@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildRoutingContract } from "../routing-contract";
+import { buildRoutingContract } from "../routing-contract.js";
 
 describe("buildRoutingContract", () => {
 	it("includes hands-on tier announce guidance", () => {

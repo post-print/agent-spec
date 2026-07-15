@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { textBlocksFromSdkMessage } from "./cursor-run";
-import type { AgentMessage, AgentToolCall, AgentTrace } from "./types";
+import { textBlocksFromSdkMessage } from "./cursor-run.js";
+import type { AgentMessage, AgentToolCall, AgentTrace } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 

@@ -18,22 +18,22 @@ import {
 	runAgent,
 } from "@post-print/agent-harness";
 
-import { discoverSuites } from "./discover-suites";
-import { assertRubric } from "./expect";
+import { discoverSuites } from "./discover-suites.js";
+import { assertRubric } from "./expect.js";
 import {
 	liveScenarioIsolationEnabled,
 	spawnLiveScenario,
 	subprocessFailureMessage,
-} from "./live-isolation";
-import { loadSuiteFile } from "./load-suite";
-import { formatDuration, logPhase, logProgress, withHeartbeat } from "./progress";
+} from "./live-isolation.js";
+import { loadSuiteFile } from "./load-suite.js";
+import { formatDuration, logPhase, logProgress, withHeartbeat } from "./progress.js";
 import {
 	getStagingTracePath,
 	loadStagingTrace,
 	recordTrace,
 	resolveRecordingPath,
-} from "./record-trace";
-import { seedScenarioWorktree } from "./scenario-seed";
+} from "./record-trace.js";
+import { seedScenarioWorktree } from "./scenario-seed.js";
 import type {
 	AgentScenario,
 	AssertionFailure,
@@ -41,7 +41,7 @@ import type {
 	ScenarioResult,
 	ScenarioRubric,
 	SuiteRunReport,
-} from "./types";
+} from "./types.js";
 
 let activeWorktreeCleanup: (() => Promise<void>) | undefined;
 let liveSignalHandlersRegistered = false;
@@ -497,4 +497,4 @@ export async function runAllSuites(options: {
 	return reports;
 }
 
-export { discoverSuites } from "./discover-suites";
+export { discoverSuites } from "./discover-suites.js";

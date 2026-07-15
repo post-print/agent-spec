@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ReplayAdapter } from "../adapters/replay";
-import { loadContext } from "../context";
+import { ReplayAdapter } from "../adapters/replay.js";
+import { loadContext } from "../context.js";
 
 const INVALID_REPLAY_TRACE = /invalid replay trace/i;
 

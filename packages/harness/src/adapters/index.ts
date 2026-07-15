@@ -1,8 +1,8 @@
-import { captureGitDiff, enrichTrace } from "../capture";
-import { runCursorAgent } from "../cursor-run";
-import { buildRoutingContract } from "../routing-contract";
-import type { AgentSession, HostAdapter, RunAgentOptions } from "../types";
-import { ReplayAdapter } from "./replay";
+import { captureGitDiff, enrichTrace } from "../capture.js";
+import { runCursorAgent } from "../cursor-run.js";
+import { buildRoutingContract } from "../routing-contract.js";
+import type { AgentSession, HostAdapter, RunAgentOptions } from "../types.js";
+import { ReplayAdapter } from "./replay.js";
 
 function emptyFailed(host: "cursor" | "claude", error: string): AgentSession {
 	return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { findWorkingTreeLeak } from "../working-tree-guard";
+import { findWorkingTreeLeak } from "../working-tree-guard.js";
 
 describe("findWorkingTreeLeak", () => {
 	it("returns no lines when status is unchanged", () => {

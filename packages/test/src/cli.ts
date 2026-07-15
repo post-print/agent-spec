@@ -4,14 +4,14 @@ import { fileURLToPath } from "node:url";
 
 import { type AgentHost, cleanupStaleScenarioWorktrees } from "@post-print/agent-harness";
 
-import { assertLiveDogfoodPreflight } from "./preflight";
+import { assertLiveDogfoodPreflight } from "./preflight.js";
 import {
 	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
 	createLiveStagingSessionId,
 	getLiveStagingSessionRoot,
-} from "./record-trace";
-import { registerLiveRunHandlers, runAllSuites } from "./run-suite";
+} from "./record-trace.js";
+import { registerLiveRunHandlers, runAllSuites } from "./run-suite.js";
 
 function parseArgs(argv: string[]): {
 	cwd: string;

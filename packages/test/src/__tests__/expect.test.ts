@@ -1,7 +1,7 @@
 import type { AgentTrace } from "@post-print/agent-harness";
 import { describe, expect, it } from "vitest";
 
-import { assertRubric, expectTrace } from "../expect";
+import { assertRubric, expectTrace } from "../expect.js";
 
 const sampleTrace: AgentTrace = {
 	messages: [

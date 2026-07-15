@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { createScenarioWorktree } from "@post-print/agent-harness";
 import { describe, expect, it } from "vitest";
 
-import { seedScenarioWorktree } from "../scenario-seed";
+import { seedScenarioWorktree } from "../scenario-seed.js";
 
 const execFileAsync = promisify(execFile);
 const SEED_PATCH_NOT_FOUND = /seedPatch not found/;

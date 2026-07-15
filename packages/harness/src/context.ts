@@ -1,8 +1,8 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { loadSkillContext, type SkillContextSetting } from "./skills-context";
-import type { ContextProfile, LoadedContext } from "./types";
+import { loadSkillContext, type SkillContextSetting } from "./skills-context.js";
+import type { ContextProfile, LoadedContext } from "./types.js";
 
 const SHARED_SOURCES = ["AGENTS.md", ".claude/skills/README.md"] as const;
 

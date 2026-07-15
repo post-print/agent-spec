@@ -1,7 +1,7 @@
-export { assertRubric, expectTrace, TraceAssertion } from "./expect";
+export { assertRubric, expectTrace, TraceAssertion } from "./expect.js";
 
-export { loadSuiteFile } from "./load-suite";
-export { assertLiveDogfoodPreflight } from "./preflight";
+export { loadSuiteFile } from "./load-suite.js";
+export { assertLiveDogfoodPreflight } from "./preflight.js";
 export {
 	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
@@ -12,8 +12,8 @@ export {
 	type ResolvedRecordingPath,
 	recordTrace,
 	resolveRecordingPath,
-} from "./record-trace";
-export { discoverSuites, type RunSuiteOptions, runAllSuites, runSuite } from "./run-suite";
+} from "./record-trace.js";
+export { discoverSuites, type RunSuiteOptions, runAllSuites, runSuite } from "./run-suite.js";
 export type {
 	AgentScenario,
 	AgentSuiteFile,
@@ -22,4 +22,4 @@ export type {
 	ScenarioResult,
 	ScenarioRubric,
 	SuiteRunReport,
-} from "./types";
+} from "./types.js";
