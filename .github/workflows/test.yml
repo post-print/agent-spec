@@ -48,6 +48,7 @@ jobs:
       - name: Node can run agent-test via package bin symlink
         run: |
           mkdir -p node_modules/.bin
+          chmod +x packages/test/dist/cli.js
           ln -sfn ../@post-print/agent-test/dist/cli.js node_modules/.bin/agent-test
           node_modules/.bin/agent-test --suites-dir packages/test/fixtures --suite smoke
 
