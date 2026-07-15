@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { suppressNoisyRuntimeWarnings } from "../warnings.js";
 
 describe("suppressNoisyRuntimeWarnings", () => {
-	it("registers a filter that drops SQLite ExperimentalWarning", () => {
+	it("replaces the default printer and drops SQLite ExperimentalWarning", async () => {
 		const seen: string[] = [];
 		const priorError = console.error;
 		console.error = (...args: unknown[]) => {
@@ -11,17 +11,18 @@ describe("suppressNoisyRuntimeWarnings", () => {
 		};
 
 		try {
+			const defaultListeners = process.listenerCount("warning");
+			expect(defaultListeners).toBeGreaterThanOrEqual(1);
+
 			suppressNoisyRuntimeWarnings();
+			expect(process.listenerCount("warning")).toBe(1);
 
-			const sqlite = Object.assign(new Error("SQLite is experimental"), {
-				name: "ExperimentalWarning",
-			});
-			const other = Object.assign(new Error("something else"), {
-				name: "Warning",
-			});
-
-			process.emit("warning", sqlite);
-			process.emit("warning", other);
+			process.emitWarning(
+				"SQLite is an experimental feature",
+				"ExperimentalWarning",
+			);
+			process.emitWarning("something else", "Warning");
+			await new Promise<void>((resolve) => setImmediate(resolve));
 
 			expect(seen.some((line) => /SQLite/i.test(line))).toBe(false);
 			expect(seen.some((line) => /something else/i.test(line))).toBe(true);
