@@ -16,6 +16,18 @@ Bun is fine for local package development (`bun install` / `bun run build` in th
 
 Default suites root: `agent-suites/`.
 
+### Color
+
+Chalk colors follow the usual rules (`NO_COLOR` disables; `FORCE_COLOR=1` forces). Cursor agent shells often set `NO_COLOR=1` — use:
+
+```bash
+FORCE_COLOR=1 npm run agent:test:live -- --suite routing
+# or
+AGENT_TEST_COLOR=1 npm run agent:test:live -- --suite routing
+```
+
+`AGENT_TEST_VERBOSE=1` shows extra tips (OOM isolation, color flags).
+
 ## Live dogfood
 
 Live runs need `CURSOR_API_KEY` and a suites directory. Preflight fails when `--suites-dir` is missing.

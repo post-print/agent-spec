@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { theme, truncatePath, wrapText } from "../theme.js";
+import { configureCliColor, theme, truncatePath, wrapText } from "../theme.js";
 
 describe("truncatePath", () => {
 	afterEach(() => {
@@ -68,6 +68,7 @@ describe("theme.scenarioVerdict", () => {
 			],
 		});
 		const joined = lines.join("\n");
+		expect(joined).toContain("✓");
 		expect(joined).toContain("PASS");
 		expect(joined).toContain("[1/7]");
 		expect(joined).toContain("staged: merge-blockers only");
@@ -102,6 +103,7 @@ describe("theme.scenarioVerdict", () => {
 			],
 		});
 		const joined = lines.join("\n");
+		expect(joined).toContain("✗");
 		expect(joined).toContain("FAIL");
 		expect(joined).toContain("judge");
 		expect(joined).toContain("Did not mention the auth bypass.");
@@ -125,5 +127,65 @@ describe("theme.summary", () => {
 	it("keeps colon-separated suite summary for CLI regex compatibility", () => {
 		chalk.level = 0;
 		expect(theme.summary("smoke", 1, 0, 0)).toMatch(/smoke:.*1 passed/);
+	});
+});
+
+describe("theme.banner", () => {
+	it("prints a tight live banner without dogfood", () => {
+		chalk.level = 0;
+		expect(theme.banner("live")).toBe("agent-test  live");
+		expect(theme.banner("live")).not.toContain("dogfood");
+	});
+});
+
+describe("theme.suiteHeader", () => {
+	it("uses compact host/count separators", () => {
+		chalk.level = 0;
+		expect(theme.suiteHeader("routing", "cursor", 4)).toBe(
+			"routing  ·  cursor  ·  4 scenarios",
+		);
+	});
+});
+
+describe("configureCliColor", () => {
+	const priorLevel = chalk.level;
+	const priorNoColor = process.env.NO_COLOR;
+	const priorForce = process.env.FORCE_COLOR;
+	const priorAgentColor = process.env.AGENT_TEST_COLOR;
+
+	afterEach(() => {
+		chalk.level = priorLevel;
+		if (priorNoColor === undefined) {
+			delete process.env.NO_COLOR;
+		} else {
+			process.env.NO_COLOR = priorNoColor;
+		}
+		if (priorForce === undefined) {
+			delete process.env.FORCE_COLOR;
+		} else {
+			process.env.FORCE_COLOR = priorForce;
+		}
+		if (priorAgentColor === undefined) {
+			delete process.env.AGENT_TEST_COLOR;
+		} else {
+			process.env.AGENT_TEST_COLOR = priorAgentColor;
+		}
+	});
+
+	it("forces basic color when AGENT_TEST_COLOR=1 and NO_COLOR unset", () => {
+		delete process.env.NO_COLOR;
+		delete process.env.FORCE_COLOR;
+		process.env.AGENT_TEST_COLOR = "1";
+		chalk.level = 0;
+		configureCliColor();
+		expect(chalk.level).toBeGreaterThan(0);
+	});
+
+	it("respects NO_COLOR even when AGENT_TEST_COLOR=1", () => {
+		process.env.NO_COLOR = "1";
+		process.env.AGENT_TEST_COLOR = "1";
+		chalk.level = 0;
+		configureCliColor();
+		expect(chalk.level).toBe(0);
 	});
 });

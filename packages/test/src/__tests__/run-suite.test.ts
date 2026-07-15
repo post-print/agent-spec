@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { discoverSuites } from "../discover-suites.js";
-import { outputContractForRubric, shouldPrintSuiteChrome } from "../run-suite.js";
+import {
+	outputContractForRubric,
+	shouldPrintSuiteChrome,
+} from "../run-suite.js";
 
 describe("discoverSuites", () => {
 	it("skips directories without scenarios.json", async () => {
@@ -31,7 +34,9 @@ describe("outputContractForRubric", () => {
 	});
 
 	it("attaches hands-on for handsOnRouting rubrics", () => {
-		expect(outputContractForRubric({ handsOnRouting: true, tier: "low" })).toBe("hands-on");
+		expect(outputContractForRubric({ handsOnRouting: true, tier: "low" })).toBe(
+			"hands-on",
+		);
 	});
 
 	it("prefers hands-off when both routing flags are set", () => {

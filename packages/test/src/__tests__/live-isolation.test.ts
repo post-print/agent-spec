@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildLiveScenarioCommand,
 	liveScenarioIsolationEnabled,
+	parentScenarioCounters,
 	scenarioSettleMs,
 	subprocessFailureMessage,
 } from "../live-isolation.js";
@@ -40,7 +41,7 @@ describe("live-isolation", () => {
 	});
 
 	it("builds a Node subprocess command, not bun", () => {
-		const { command, args } = buildLiveScenarioCommand({
+		const { command, args, execArgv } = buildLiveScenarioCommand({
 			cwd: "/repo",
 			suiteName: "smoke",
 			scenarioName: "hello",
@@ -53,5 +54,23 @@ describe("live-isolation", () => {
 		expect(args).toContain("--scenario");
 		expect(args).toContain("hello");
 		expect(args).toContain("--no-judge");
+		expect(execArgv).toContain("--disable-warning=ExperimentalWarning");
+	});
+
+	it("reads parent scenario counters from env", () => {
+		const priorIndex = process.env.AGENT_TEST_SCENARIO_INDEX;
+		const priorTotal = process.env.AGENT_TEST_SCENARIO_TOTAL;
+		process.env.AGENT_TEST_SCENARIO_INDEX = "2";
+		process.env.AGENT_TEST_SCENARIO_TOTAL = "4";
+		expect(parentScenarioCounters()).toEqual({ index: 2, total: 4 });
+		delete process.env.AGENT_TEST_SCENARIO_INDEX;
+		delete process.env.AGENT_TEST_SCENARIO_TOTAL;
+		expect(parentScenarioCounters()).toBeUndefined();
+		if (priorIndex !== undefined) {
+			process.env.AGENT_TEST_SCENARIO_INDEX = priorIndex;
+		}
+		if (priorTotal !== undefined) {
+			process.env.AGENT_TEST_SCENARIO_TOTAL = priorTotal;
+		}
 	});
 });

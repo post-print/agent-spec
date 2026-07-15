@@ -16,7 +16,11 @@ import {
 	getLiveStagingSessionRoot,
 } from "./record-trace.js";
 import { registerLiveRunHandlers, runAllSuites } from "./run-suite.js";
-import { theme } from "./theme.js";
+import { configureCliColor, theme } from "./theme.js";
+import { suppressNoisyRuntimeWarnings } from "./warnings.js";
+
+suppressNoisyRuntimeWarnings();
+configureCliColor();
 
 function parseArgs(argv: string[]): {
 	cwd: string;
@@ -175,19 +179,9 @@ async function main(): Promise<number> {
 						),
 					);
 				}
-				console.log(theme.banner());
-				console.log(
-					theme.bannerDetail(
-						"cursor SDK → worktree → rubric → judge → $TMPDIR staging",
-					),
-				);
+				console.log(theme.banner("live"));
 				if (stagingSessionRoot) {
 					console.log(theme.bannerSession(stagingSessionRoot));
-					if (!args.keepRecordings) {
-						console.log(
-							`  ${theme.tip("traces removed on exit unless --keep-recordings")}`,
-						);
-					}
 				}
 				if (worktreeDisabled) {
 					console.warn(
@@ -195,9 +189,22 @@ async function main(): Promise<number> {
 							"running in repo cwd — agent file edits will persist in your working tree",
 						),
 					);
-				} else {
+				}
+				if (process.env.AGENT_TEST_VERBOSE === "1") {
+					if (!args.keepRecordings) {
+						console.log(
+							`  ${theme.tip("traces removed on exit unless --keep-recordings")}`,
+						);
+					}
 					console.log(
-						`  ${theme.tip("tip: exit 137 = macOS OOM — scenarios run in isolated subprocesses (AGENT_TEST_NO_ISOLATE=1 to disable)")}`,
+						`  ${theme.tip("exit 137 = macOS OOM — isolated subprocesses (AGENT_TEST_NO_ISOLATE=1 to disable)")}`,
+					);
+					console.log(
+						`  ${theme.tip("color: FORCE_COLOR=1 or AGENT_TEST_COLOR=1 (NO_COLOR disables)")}`,
+					);
+				} else if (!args.keepRecordings) {
+					console.log(
+						`  ${theme.tip("traces removed on exit unless --keep-recordings")}`,
 					);
 				}
 			}
@@ -209,32 +216,40 @@ async function main(): Promise<number> {
 		});
 
 		let exitCode = 0;
-		for (const report of reports) {
-			const failed = report.results.filter(
-				(result) => !result.passed && !result.skipped,
-			);
-			if (failed.length > 0) {
-				exitCode = 1;
-				console.log(`\n${theme.failedScenariosHeader()}`);
-				for (const result of failed) {
-					console.log(theme.failedScenarioName(result.scenario));
-					if (verbose) {
-						for (const failure of result.failures) {
-							console.log(
-								theme.verboseFailure(failure.matcher, failure.message),
-							);
+		if (!isChild) {
+			for (const report of reports) {
+				const failed = report.results.filter(
+					(result) => !result.passed && !result.skipped,
+				);
+				if (failed.length > 0) {
+					exitCode = 1;
+					console.log(`\n${theme.failedScenariosHeader()}`);
+					for (const result of failed) {
+						console.log(theme.failedScenarioName(result.scenario));
+						if (verbose) {
+							for (const failure of result.failures) {
+								console.log(
+									theme.verboseFailure(failure.matcher, failure.message),
+								);
+							}
 						}
 					}
 				}
+				console.log(
+					theme.summary(
+						report.suite,
+						report.passed,
+						report.failed,
+						report.skipped,
+					),
+				);
 			}
-			console.log(
-				theme.summary(
-					report.suite,
-					report.passed,
-					report.failed,
-					report.skipped,
-				),
-			);
+		} else {
+			for (const report of reports) {
+				if (report.failed > 0) {
+					exitCode = 1;
+				}
+			}
 		}
 
 		if (reports.length === 0) {
