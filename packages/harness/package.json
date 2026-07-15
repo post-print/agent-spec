@@ -1,6 +1,6 @@
 {
 	"name": "@post-print/agent-harness",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -32,7 +32,7 @@
 	},
 	"devDependencies": {
 		"@cursor/sdk": "^1.0.23",
-		"@types/node": "^22.10.0",
+		"@types/node": "^26.1.1",
 		"typescript": "~7.0.2",
 		"vitest": "^4.0.17"
 	},
