@@ -23,11 +23,11 @@
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {
-		"@post-print/agent-harness": "0.1.0"
+		"@post-print/agent-harness": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/node": "^26.1.1",
-		"typescript": "~6.0.2",
+		"typescript": "~7.0.2",
 		"vitest": "^4.0.17"
 	},
 	"description": "Scenario runner and CLI for agent-spec suites",
