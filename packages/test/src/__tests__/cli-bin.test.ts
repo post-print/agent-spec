@@ -41,7 +41,7 @@ describe("cli bin symlink smoke", () => {
 					{ cwd: repoRoot },
 				);
 
-				const output = `${stdout}${stderr}`;
+				const output = `${stdout}${stderr}`.replace(/\u001b\[[0-9;]*m/g, "");
 				expect(output).toMatch(/smoke:.*passed/);
 				expect(output).not.toMatch(/No suites found/);
 			} finally {
