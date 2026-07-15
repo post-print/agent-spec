@@ -1,6 +1,6 @@
-# @agent-spec/test
+# @post-print/agent-test
 
-Jest-shaped agent scenario runner built on `@agent-spec/harness`.
+Jest-shaped agent scenario runner built on `@post-print/agent-harness`.
 
 ## CLI
 
@@ -21,5 +21,5 @@ Passing live runs write staging traces under `$TMPDIR/agent-spec/sessions/<pid>-
 ## Library
 
 ```ts
-import { runAllSuites, expectTrace } from "@agent-spec/test";
+import { runAllSuites, expectTrace } from "@post-print/agent-test";
 ```

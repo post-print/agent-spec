@@ -10,7 +10,7 @@
       },
     },
     "packages/harness": {
-      "name": "@agent-spec/harness",
+      "name": "@post-print/agent-harness",
       "version": "0.1.0",
       "devDependencies": {
         "@cursor/sdk": "^1.0.23",
@@ -26,13 +26,13 @@
       ],
     },
     "packages/test": {
-      "name": "@agent-spec/test",
+      "name": "@post-print/agent-test",
       "version": "0.1.0",
       "bin": {
         "agent-test": "./dist/cli.js",
       },
       "dependencies": {
-        "@agent-spec/harness": "workspace:*",
+        "@post-print/agent-harness": "file:../harness",
       },
       "devDependencies": {
         "@types/node": "^22.10.0",
@@ -42,10 +42,6 @@
     },
   },
   "packages": {
-    "@agent-spec/harness": ["@agent-spec/harness@workspace:packages/harness"],
-
-    "@agent-spec/test": ["@agent-spec/test@workspace:packages/test"],
-
     "@bufbuild/protobuf": ["@bufbuild/protobuf@1.10.0", "", {}, "sha512-QDdVFLoN93Zjg36NoQPZfsVH9tZew7wKDKyV5qRdj8ntT4wQCOradQjRaTdwMhWUYsgKsvCINKKm87FdEk96Ag=="],
 
     "@connectrpc/connect": ["@connectrpc/connect@1.7.0", "", { "peerDependencies": { "@bufbuild/protobuf": "^1.10.0" } }, "sha512-iNKdJRi69YP3mq6AePRT8F/HrxWCewrhxnLMNm0vpqXAR8biwzRtO6Hjx80C6UvtKJ5sFmffQT7I4Baecz389w=="],
@@ -79,6 +75,10 @@
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.6", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.139.0", "", {}, "sha512-r9gHphtCs+1M7J0pw6Sn/hh/Wpa/iQrOOkrNAlVLF/gHq+/CJmHIWKKUUhdWjcD6CIa8idarspCsASiXCXvFUw=="],
+
+    "@post-print/agent-harness": ["@post-print/agent-harness@workspace:packages/harness"],
+
+    "@post-print/agent-test": ["@post-print/agent-test@workspace:packages/test"],
 
     "@rolldown/binding-android-arm64": ["@rolldown/binding-android-arm64@1.1.5", "", { "os": "android", "cpu": "arm64" }, "sha512-lZg8fqIv2v7FF237bwMgzGZEJvGL79/s5knJ/i6FmsGF4XXlzccZ4jb+TrFIxtSSxFtIpdsgrPZeMk1I9AFcyQ=="],
 

@@ -6,8 +6,8 @@ Executable specs for coding-agent behavior.
 
 | Package | Purpose |
 | --- | --- |
-| [`@agent-spec/harness`](packages/harness) | Host-agnostic agent runtime: context load, replay, Cursor adapter, capture, judge |
-| [`@agent-spec/test`](packages/test) | Scenario runner + `agent-test` CLI |
+| [`@post-print/agent-harness`](packages/harness) | Host-agnostic agent runtime: context load, replay, Cursor adapter, capture, judge |
+| [`@post-print/agent-test`](packages/test) | Scenario runner + `agent-test` CLI |
 
 Consumer repos keep suites locally (for example `agent-suites/<suite>/scenarios.json`) and depend on these packages from npm.
 

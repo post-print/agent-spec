@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { createScenarioWorktree } from "@agent-spec/harness";
+import { createScenarioWorktree } from "@post-print/agent-harness";
 import { describe, expect, it } from "vitest";
 
 import { seedScenarioWorktree } from "../scenario-seed";

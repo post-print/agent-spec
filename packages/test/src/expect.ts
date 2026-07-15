@@ -5,7 +5,7 @@ import {
 	inferRoutingFromText,
 	routingBlockBeforeTools,
 	type SkillContextMode,
-} from "@agent-spec/harness";
+} from "@post-print/agent-harness";
 
 import type { AssertionFailure, ScenarioRubric } from "./types";
 

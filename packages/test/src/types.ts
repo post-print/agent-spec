@@ -1,4 +1,4 @@
-import type { AgentHost, ContextProfile, SkillContextSetting } from "@agent-spec/harness";
+import type { AgentHost, ContextProfile, SkillContextSetting } from "@post-print/agent-harness";
 
 export type JudgeRubricItem = string | { id?: string; question: string };
 

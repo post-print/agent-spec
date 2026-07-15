@@ -36,7 +36,7 @@ function sleep(ms: number): Promise<void> {
 /** Run one live scenario in a fresh bun subprocess; inherit stdio for live progress. */
 export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Promise<number> {
 	const cliPath =
-		process.argv[1] ?? resolve(options.cwd, "node_modules/@agent-spec/test/dist/cli.js");
+		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
 	const args = [cliPath, "--live", "--scenario", options.scenarioName];
 	if (options.suiteFilter) {
 		args.push("--suite", options.suiteFilter);

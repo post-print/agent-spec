@@ -2,7 +2,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type AgentHost, cleanupStaleScenarioWorktrees } from "@agent-spec/harness";
+import { type AgentHost, cleanupStaleScenarioWorktrees } from "@post-print/agent-harness";
 
 import { assertLiveDogfoodPreflight } from "./preflight";
 import {

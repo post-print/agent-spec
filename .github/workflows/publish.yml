@@ -1,0 +1,122 @@
+name: publish
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (e.g. 0.2.0). Leave empty to auto-bump.
+        required: false
+      bump_type:
+        description: Bump type when version is empty (manual dispatch only)
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+          scope: "@post-print"
+
+      - name: Install npm (OIDC provenance)
+        run: npm install -g npm@latest
+
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version and tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ inputs.version }}" ]; then
+              NEW_VERSION="${{ inputs.version }}"
+              npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version --prefix packages/harness
+              npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version --prefix packages/test
+            else
+              npm version "${{ inputs.bump_type }}" --no-git-tag-version --prefix packages/harness
+              NEW_VERSION=$(node -p "require('./packages/harness/package.json').version")
+              npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version --prefix packages/test
+            fi
+          else
+            LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+            if echo "$LABELS" | grep -q "major"; then
+              BUMP_TYPE="major"
+            elif echo "$LABELS" | grep -q "minor"; then
+              BUMP_TYPE="minor"
+            else
+              BUMP_TYPE="patch"
+            fi
+            npm version "$BUMP_TYPE" --no-git-tag-version --prefix packages/harness
+            NEW_VERSION=$(node -p "require('./packages/harness/package.json').version")
+            npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version --prefix packages/test
+          fi
+
+          echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          git add packages/harness/package.json packages/test/package.json
+          git commit -m "chore: release v$NEW_VERSION [skip ci]"
+          git tag "v$NEW_VERSION"
+
+      - run: bun run build
+
+      - name: Push release commit and tag
+        run: git push origin HEAD:main --follow-tags
+
+      - name: Publish @post-print/agent-harness
+        working-directory: packages/harness
+        run: npm publish --access public --provenance
+
+      - name: Publish @post-print/agent-test
+        working-directory: packages/test
+        run: |
+          npm pkg set "dependencies.@post-print/agent-harness=${{ steps.version.outputs.NEW_VERSION }}"
+          npm publish --access public --provenance
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.NEW_VERSION }}
+          name: v${{ steps.version.outputs.NEW_VERSION }}
+          body: |
+            ## @post-print/agent-harness@${{ steps.version.outputs.NEW_VERSION }}
+            ## @post-print/agent-test@${{ steps.version.outputs.NEW_VERSION }}
+
+            Published after ${{ github.event_name == 'workflow_dispatch' && 'manual workflow dispatch' || format('PR #{0} merge', github.event.pull_request.number) }}.
+
+            ### npm
+            ```bash
+            npm install @post-print/agent-harness@${{ steps.version.outputs.NEW_VERSION }}
+            npm install -D @post-print/agent-test@${{ steps.version.outputs.NEW_VERSION }}
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

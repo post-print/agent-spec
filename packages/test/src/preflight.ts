@@ -14,7 +14,7 @@ export async function assertLiveDogfoodPreflight(
 			[
 				`Live dogfood requires a suites directory (missing ${suitesDir}).`,
 				"Pass --suites-dir <path> or create agent-suites/<suite>/scenarios.json in the repo.",
-				"See @agent-spec/test README § Live dogfood.",
+				"See @post-print/agent-test README § Live dogfood.",
 			].join("\n"),
 		);
 	}

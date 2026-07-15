@@ -2,8 +2,8 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import type { AgentTrace } from "@agent-spec/harness";
-import { enrichTrace } from "@agent-spec/harness";
+import type { AgentTrace } from "@post-print/agent-harness";
+import { enrichTrace } from "@post-print/agent-harness";
 
 export const LIVE_STAGING_DIR_NAME = "agent-spec";
 

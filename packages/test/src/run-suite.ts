@@ -6,7 +6,7 @@ import type {
 	JudgeCriterion,
 	RoutingContract,
 	SkillContextSetting,
-} from "@agent-spec/harness";
+} from "@post-print/agent-harness";
 import {
 	captureWorkingTreeStatus,
 	createScenarioWorktree,
@@ -16,7 +16,7 @@ import {
 	judgeTrace,
 	loadContext,
 	runAgent,
-} from "@agent-spec/harness";
+} from "@post-print/agent-harness";
 
 import { discoverSuites } from "./discover-suites";
 import { assertRubric } from "./expect";

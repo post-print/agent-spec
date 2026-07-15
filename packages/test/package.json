@@ -1,5 +1,5 @@
 {
-	"name": "@agent-spec/test",
+	"name": "@post-print/agent-test",
 	"version": "0.1.0",
 	"type": "module",
 	"bin": {
@@ -23,7 +23,7 @@
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {
-		"@agent-spec/harness": "file:../harness"
+		"@post-print/agent-harness": "0.1.0"
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.0",

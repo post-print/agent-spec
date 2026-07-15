@@ -1,4 +1,4 @@
-import type { AgentTrace } from "@agent-spec/harness";
+import type { AgentTrace } from "@post-print/agent-harness";
 import { describe, expect, it } from "vitest";
 
 import { assertRubric, expectTrace } from "../expect";
