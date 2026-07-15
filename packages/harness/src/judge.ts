@@ -1,5 +1,5 @@
-import { runJudgeClassifier } from "./cursor-run";
-import type { AgentTrace } from "./types";
+import { runJudgeClassifier } from "./cursor-run.js";
+import type { AgentTrace } from "./types.js";
 
 const JSON_FENCE_PATTERN = /```(?:json)?\s*([\s\S]*?)```/i;
 const JSON_OBJECT_PATTERN = /\{[\s\S]*\}/;

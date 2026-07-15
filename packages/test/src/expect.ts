@@ -7,7 +7,7 @@ import {
 	type SkillContextMode,
 } from "@post-print/agent-harness";
 
-import type { AssertionFailure, ScenarioRubric } from "./types";
+import type { AssertionFailure, ScenarioRubric } from "./types.js";
 
 export interface RubricAssertOptions {
 	/** How skills were loaded for this run — affects mustInvokeSkill strictness. */

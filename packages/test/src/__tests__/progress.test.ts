@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDuration } from "../progress";
+import { formatDuration } from "../progress.js";
 
 describe("formatDuration", () => {
 	it("formats sub-second durations in ms", () => {

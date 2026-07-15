@@ -1,11 +1,11 @@
 export type AgentHost = "cursor" | "claude" | "replay";
 
-import type { RoutingContract } from "./routing-contract";
-import type { SkillContextMode } from "./skills-context";
+import type { RoutingContract } from "./routing-contract.js";
+import type { SkillContextMode } from "./skills-context.js";
 
-export type { RoutingContract } from "./routing-contract";
+export type { RoutingContract } from "./routing-contract.js";
 
-export type { SkillContextMode, SkillContextOptions, SkillContextSetting } from "./skills-context";
+export type { SkillContextMode, SkillContextOptions, SkillContextSetting } from "./skills-context.js";
 
 /** Which entry router to inject alongside shared skills context. */
 export type ContextProfile = "shared" | "cursor" | "claude";

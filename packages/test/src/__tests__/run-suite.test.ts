@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { discoverSuites } from "../discover-suites";
+import { discoverSuites } from "../discover-suites.js";
 
 describe("discoverSuites", () => {
 	it("skips directories without scenarios.json", async () => {

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { AgentScenario, AgentSuiteFile } from "./types";
+import type { AgentScenario, AgentSuiteFile } from "./types.js";
 
 export async function loadSuiteFile(path: string): Promise<AgentSuiteFile> {
 	const raw = await readFile(path, "utf8");

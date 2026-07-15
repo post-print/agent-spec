@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { loadSkillContext, normalizeSkillContext } from "../skills-context";
+import { loadSkillContext, normalizeSkillContext } from "../skills-context.js";
 
 async function fixtureRepo(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "skills-ctx-"));

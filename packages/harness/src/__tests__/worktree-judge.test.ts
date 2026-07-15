@@ -6,8 +6,8 @@ import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
-import { parseJudgeJsonResponse, parseJudgeResponse } from "../judge";
-import { cleanupStaleScenarioWorktrees, createScenarioWorktree } from "../worktree";
+import { parseJudgeJsonResponse, parseJudgeResponse } from "../judge.js";
+import { cleanupStaleScenarioWorktrees, createScenarioWorktree } from "../worktree.js";
 
 const execFileAsync = promisify(execFile);
 

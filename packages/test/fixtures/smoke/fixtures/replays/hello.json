@@ -1,0 +1,11 @@
+{
+	"messages": [
+		{
+			"role": "assistant",
+			"content": "smoke suite ok — Node can load the published ESM CLI."
+		}
+	],
+	"toolCalls": [],
+	"shellCommands": [],
+	"artifacts": {}
+}

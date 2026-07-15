@@ -3,8 +3,8 @@ import {
 	createTraceAccumulator,
 	finalizeTraceAccumulator,
 	type SdkMessage,
-} from "./capture";
-import type { AgentTrace } from "./types";
+} from "./capture.js";
+import type { AgentTrace } from "./types.js";
 
 /** Default local agent model; override with CURSOR_AGENT_MODEL or options.model. */
 const DEFAULT_CURSOR_MODEL = "auto";

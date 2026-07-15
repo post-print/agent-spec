@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { assertLiveDogfoodPreflight } from "../preflight";
+import { assertLiveDogfoodPreflight } from "../preflight.js";
 
 const MISSING_SUITES_PATTERN = /Live dogfood requires a suites directory/;
 

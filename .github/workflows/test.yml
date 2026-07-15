@@ -22,6 +22,29 @@ jobs:
       - run: bun run test
       - run: bun run build
 
+  node-esm-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
+      - name: Node can import published harness ESM
+        run: node -e "import('@post-print/agent-harness').then(() => console.log('harness ok'))"
+
+      - name: Node can run agent-test CLI smoke suite
+        run: node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
+
   security:
     runs-on: ubuntu-latest
     steps:

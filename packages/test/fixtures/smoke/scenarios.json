@@ -1,0 +1,19 @@
+{
+	"name": "smoke",
+	"description": "Minimal replay suite for Node ESM smoke tests",
+	"defaults": {
+		"host": "replay",
+		"profile": "cursor",
+		"skills": "none"
+	},
+	"scenarios": [
+		{
+			"name": "hello replay",
+			"prompt": "Say hello and confirm the smoke suite ran.",
+			"replayTrace": "packages/test/fixtures/smoke/fixtures/replays/hello.json",
+			"rubric": {
+				"must": ["smoke suite ok"]
+			}
+		}
+	]
+}

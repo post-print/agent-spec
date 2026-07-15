@@ -16,8 +16,8 @@ import {
 	inferReviewDepthFromText,
 	inferRoutingFromText,
 	routingBlockBeforeTools,
-} from "../capture";
-import type { AgentTrace } from "../types";
+} from "../capture.js";
+import type { AgentTrace } from "../types.js";
 
 describe("capture", () => {
 	it("extracts validate commands from prose", () => {

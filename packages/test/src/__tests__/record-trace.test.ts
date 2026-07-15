@@ -9,7 +9,7 @@ import {
 	cleanupStagingSession,
 	getLiveStagingSessionRoot,
 	resolveRecordingPath,
-} from "../record-trace";
+} from "../record-trace.js";
 
 describe("resolveRecordingPath", () => {
 	it("returns repo fixture path when recordFixtures is true", () => {
