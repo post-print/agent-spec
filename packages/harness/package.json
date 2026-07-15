@@ -33,7 +33,7 @@
 	"devDependencies": {
 		"@cursor/sdk": "^1.0.23",
 		"@types/node": "^22.10.0",
-		"typescript": "~6.0.2",
+		"typescript": "~7.0.2",
 		"vitest": "^4.0.17"
 	},
 	"description": "Host-agnostic agent runtime for capture, replay, and judging",
