@@ -4,6 +4,7 @@ import {
 	finalizeTraceAccumulator,
 	type SdkMessage,
 } from "./capture.js";
+import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import type { AgentTrace } from "./types.js";
 
 /** Default local agent model; override with CURSOR_AGENT_MODEL or options.model. */
@@ -22,7 +23,9 @@ function judgeModelSelection(override?: JudgeClassifierOptions["model"]): {
 	return params ? { id, params } : { id };
 }
 
-function judgeModelParamsFromEnv(): Array<{ id: string; value: string }> | undefined {
+function judgeModelParamsFromEnv():
+	| Array<{ id: string; value: string }>
+	| undefined {
 	const raw = process.env.CURSOR_JUDGE_TEMPERATURE ?? "0";
 	if (!raw.trim()) {
 		return undefined;
@@ -35,6 +38,7 @@ export interface CursorRunOptions {
 	prompt: string;
 	apiKey?: string;
 	model?: { id: string; params?: Array<{ id: string; value: string }> };
+	mcpServers?: Record<string, McpServerConfig>;
 }
 
 export interface JudgeClassifierOptions {
@@ -56,22 +60,31 @@ export interface CursorRunResult {
 
 /** Map Cursor SDK terminal status to harness run status. */
 export function normalizeSdkRunStatus(status: string): "completed" | "failed" {
-	return status === "finished" || status === "completed" ? "completed" : "failed";
+	return status === "finished" || status === "completed"
+		? "completed"
+		: "failed";
 }
 
 /** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
-export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
+export async function runCursorAgent(
+	options: CursorRunOptions,
+): Promise<CursorRunResult> {
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
 	if (!apiKey) {
 		throw new Error("CURSOR_API_KEY not set");
 	}
 
 	const sdkModule = await import("@cursor/sdk");
-	const modelId = options.model?.id ?? process.env.CURSOR_AGENT_MODEL ?? DEFAULT_CURSOR_MODEL;
+	const modelId =
+		options.model?.id ?? process.env.CURSOR_AGENT_MODEL ?? DEFAULT_CURSOR_MODEL;
+	const mcpServers = resolveMcpServers(options.mcpServers, {
+		cwd: options.cwd,
+	});
 	await using agent = await sdkModule.Agent.create({
 		apiKey,
 		model: { id: modelId },
 		local: { cwd: options.cwd },
+		...(mcpServers ? { mcpServers } : {}),
 	});
 
 	const run = await agent.send(options.prompt);
@@ -116,7 +129,10 @@ export function assistantTextFromSdkMessages(messages: SdkMessage[]): string {
 	const chunks: string[] = [];
 	for (const event of messages) {
 		const text = textBlocksFromSdkMessage(event);
-		if (text.length > 0 && (event.type === "assistant" || event.message?.role === "assistant")) {
+		if (
+			text.length > 0 &&
+			(event.type === "assistant" || event.message?.role === "assistant")
+		) {
 			chunks.push(text);
 		}
 	}
@@ -136,7 +152,9 @@ export function textBlocksFromSdkMessage(event: SdkMessage): string {
 
 	if (event.tool?.input !== undefined) {
 		parts.push(
-			typeof event.tool.input === "string" ? event.tool.input : JSON.stringify(event.tool.input),
+			typeof event.tool.input === "string"
+				? event.tool.input
+				: JSON.stringify(event.tool.input),
 		);
 	}
 	if (event.tool?.output) {

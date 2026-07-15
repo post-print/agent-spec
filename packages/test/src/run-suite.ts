@@ -4,6 +4,7 @@ import type {
 	AgentHost,
 	AgentTrace,
 	JudgeCriterion,
+	McpServerConfig,
 	RoutingContract,
 	SkillContextSetting,
 } from "@post-print/agent-harness";
@@ -15,6 +16,7 @@ import {
 	formatWorkingTreeLeak,
 	judgeTrace,
 	loadContext,
+	mergeMcpServers,
 	runAgent,
 } from "@post-print/agent-harness";
 
@@ -317,6 +319,7 @@ export async function runSuite(
 				defaultHost,
 				suite.defaults?.profile,
 				suite.defaults?.skills,
+				suite.defaults?.mcpServers,
 				options.record,
 				options.recordFixtures,
 				options.judge,
@@ -348,6 +351,7 @@ async function runScenario(
 	defaultHost: AgentHost,
 	defaultProfile?: AgentScenario["profile"],
 	defaultSkills?: SkillContextSetting,
+	defaultMcpServers?: Record<string, McpServerConfig>,
 	record?: boolean,
 	recordFixtures?: boolean,
 	judge?: boolean,
@@ -380,6 +384,7 @@ async function runScenario(
 		defaultProfile ??
 		(host === "cursor" ? "cursor" : "shared");
 	const skills = scenario.skills ?? defaultSkills;
+	const mcpServers = mergeMcpServers(defaultMcpServers, scenario.mcpServers);
 	const isLive = host !== "replay";
 
 	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
@@ -447,6 +452,7 @@ async function runScenario(
 						profile,
 						prompt: scenario.prompt,
 						outputContract,
+						mcpServers,
 					}),
 					{ started: agentStarted },
 				)
@@ -457,6 +463,7 @@ async function runScenario(
 					profile,
 					prompt: scenario.prompt,
 					replayTracePath: useReplay ? scenario.replayTrace : undefined,
+					mcpServers,
 				}));
 
 		if (isLive) {

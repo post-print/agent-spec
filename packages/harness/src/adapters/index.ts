@@ -36,6 +36,7 @@ export class CursorAdapter implements HostAdapter {
 			const { trace: streamedTrace, status } = await runCursorAgent({
 				cwd: options.cwd,
 				prompt,
+				mcpServers: options.mcpServers,
 			});
 			const gitDiff = await captureGitDiff(options.cwd);
 			const trace = enrichTrace({ ...streamedTrace, gitDiff });
@@ -45,10 +46,14 @@ export class CursorAdapter implements HostAdapter {
 				status: status === "completed" ? "completed" : "failed",
 				trace,
 				durationMs: Math.round(performance.now() - started),
-				error: status !== "completed" ? `cursor run status: ${status}` : undefined,
+				error:
+					status !== "completed" ? `cursor run status: ${status}` : undefined,
 			};
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Failed to load or run @cursor/sdk";
+			const message =
+				error instanceof Error
+					? error.message
+					: "Failed to load or run @cursor/sdk";
 			return emptyFailed(this.host, message);
 		}
 	}

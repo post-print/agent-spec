@@ -1,8 +1,11 @@
 import type {
 	AgentHost,
 	ContextProfile,
+	McpServerConfig,
 	SkillContextSetting,
 } from "@post-print/agent-harness";
+
+export type { McpServerConfig } from "@post-print/agent-harness";
 
 export type JudgeRubricItem = string | { id?: string; question: string };
 
@@ -13,6 +16,12 @@ export interface ScenarioRubric {
 	must?: string[];
 	mustNot?: string[];
 	mustRun?: string[];
+	/**
+	 * Tool name substring, or `name:argFragment` where argFragment must appear in JSON args.
+	 * Matches built-in and MCP tool calls recorded on the trace.
+	 */
+	mustCallTool?: string[];
+	mustNotCallTool?: string[];
 	/** Skill folder names the agent must read via SKILL.md (e.g. grill, crystallize). */
 	mustInvokeSkill?: string[];
 	mustNotInvokeSkill?: string[];
@@ -29,6 +38,8 @@ export interface AgentScenario {
 	profile?: ContextProfile;
 	/** Override suite defaults for skill catalog loading. */
 	skills?: SkillContextSetting;
+	/** Inline MCP servers for live Cursor (merged over suite defaults by server name). */
+	mcpServers?: Record<string, McpServerConfig>;
 	/** Live-only: apply patch + commit in worktree so pr-mode branch diff exists. */
 	seedPatch?: string;
 	replayTrace?: string;
@@ -44,6 +55,8 @@ export interface AgentSuiteFile {
 		profile?: ContextProfile;
 		/** none | catalog | full — ambient-routing uses full for IDE parity. */
 		skills?: SkillContextSetting;
+		/** Inline MCP servers for live Cursor runs. */
+		mcpServers?: Record<string, McpServerConfig>;
 	};
 	scenarios: AgentScenario[];
 }

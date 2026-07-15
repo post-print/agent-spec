@@ -12,6 +12,7 @@ export type {
 	ContextProfile,
 	HostAdapter,
 	LoadedContext,
+	McpServerConfig,
 	RoutingContract,
 	RunAgentOptions,
 	RunStatus,
@@ -65,8 +66,17 @@ export {
 	parseJudgeLegacyResponse,
 	parseJudgeResponse,
 } from "./judge.js";
+export {
+	expandEnvPlaceholders,
+	mergeMcpServers,
+	resolveMcpServers,
+} from "./mcp.js";
 export { buildRoutingContract } from "./routing-contract.js";
-export { loadSkillContext, normalizeSkillContext, type SkillCatalogEntry } from "./skills-context.js";
+export {
+	loadSkillContext,
+	normalizeSkillContext,
+	type SkillCatalogEntry,
+} from "./skills-context.js";
 export {
 	captureWorkingTreeStatus,
 	findWorkingTreeLeak,
@@ -87,7 +97,8 @@ export interface RunAgentInput extends Omit<RunAgentOptions, "context"> {
 /** Run an agent session via the selected host adapter. */
 export async function runAgent(input: RunAgentInput): Promise<AgentSession> {
 	const context =
-		input.context ?? (await loadContext({ cwd: input.cwd, profile: input.profile ?? "shared" }));
+		input.context ??
+		(await loadContext({ cwd: input.cwd, profile: input.profile ?? "shared" }));
 	const adapter = createAdapter(input.host);
 	return adapter.run({ ...input, context });
 }

@@ -25,6 +25,7 @@ export type {
 	AssertionFailure,
 	JudgeRubricItem,
 	JudgeVerdictResult,
+	McpServerConfig,
 	ScenarioResult,
 	ScenarioRubric,
 	SuiteRunReport,

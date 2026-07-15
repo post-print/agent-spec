@@ -15,4 +15,6 @@ const session = await runAgent({
 });
 ```
 
+Live Cursor runs accept inline `mcpServers` (stdio or HTTP/SSE), passed through to `Agent.create`. Replay ignores them and scores committed `toolCalls` only. Ambient MCP via `local.settingSources` is not enabled.
+
 Consumer: `@post-print/agent-test`.

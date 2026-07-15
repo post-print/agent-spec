@@ -1,11 +1,17 @@
 export type AgentHost = "cursor" | "claude" | "replay";
 
+import type { McpServerConfig } from "./mcp.js";
 import type { RoutingContract } from "./routing-contract.js";
 import type { SkillContextMode } from "./skills-context.js";
 
+export type { McpServerConfig } from "./mcp.js";
 export type { RoutingContract } from "./routing-contract.js";
 
-export type { SkillContextMode, SkillContextOptions, SkillContextSetting } from "./skills-context.js";
+export type {
+	SkillContextMode,
+	SkillContextOptions,
+	SkillContextSetting,
+} from "./skills-context.js";
 
 /** Which entry router to inject alongside shared skills context. */
 export type ContextProfile = "shared" | "cursor" | "claude";
@@ -18,6 +24,8 @@ export interface AgentMessage {
 export interface AgentToolCall {
 	name: string;
 	args?: Record<string, unknown>;
+	/** Tool output when the SDK stream includes it (including MCP tools). */
+	result?: string;
 }
 
 export interface AgentTrace {
@@ -64,6 +72,8 @@ export interface RunAgentOptions {
 	outputContract?: RoutingContract;
 	/** Required when host is replay. */
 	replayTracePath?: string;
+	/** Inline MCP servers for live Cursor runs (ignored by replay). */
+	mcpServers?: Record<string, McpServerConfig>;
 	env?: Record<string, string>;
 }
 
