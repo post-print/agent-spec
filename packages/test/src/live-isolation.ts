@@ -32,11 +32,16 @@ export interface SpawnLiveScenarioOptions {
 	recordFixtures?: boolean;
 	worktree?: boolean;
 	judge?: boolean;
+	/** 1-based index in the full suite (for child CLI counters). */
+	scenarioIndex?: number;
+	/** Total scenarios in the full suite (for child CLI counters). */
+	scenarioTotal?: number;
 }
 
 export interface LiveScenarioCommand {
 	command: string;
 	args: string[];
+	execArgv: string[];
 }
 
 /** Build the Node subprocess command for one live scenario (same CLI entry as the parent). */
@@ -68,7 +73,11 @@ export function buildLiveScenarioCommand(
 	// Isolated child: agent + rubric only; parent runs judge (avoids OOM after heavy council runs).
 	args.push("--no-judge");
 
-	return { command: process.execPath, args };
+	return {
+		command: process.execPath,
+		args,
+		execArgv: ["--disable-warning=ExperimentalWarning"],
+	};
 }
 
 function sleep(ms: number): Promise<void> {
@@ -81,12 +90,23 @@ function sleep(ms: number): Promise<void> {
 export async function spawnLiveScenario(
 	options: SpawnLiveScenarioOptions,
 ): Promise<number> {
-	const { command, args } = buildLiveScenarioCommand(options);
+	const { command, args, execArgv } = buildLiveScenarioCommand(options);
+
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		AGENT_TEST_CHILD: "1",
+	};
+	if (options.scenarioIndex !== undefined) {
+		env.AGENT_TEST_SCENARIO_INDEX = String(options.scenarioIndex);
+	}
+	if (options.scenarioTotal !== undefined) {
+		env.AGENT_TEST_SCENARIO_TOTAL = String(options.scenarioTotal);
+	}
 
 	const exitCode = await new Promise<number>((resolveExit, reject) => {
-		const child = spawn(command, args, {
+		const child = spawn(command, [...execArgv, ...args], {
 			cwd: options.cwd,
-			env: { ...process.env, AGENT_TEST_CHILD: "1" },
+			env,
 			stdio: "inherit",
 		});
 		child.on("error", reject);
@@ -111,4 +131,21 @@ export function subprocessFailureMessage(exitCode: number): string {
 		return "subprocess killed (137) — macOS OOM; close heavy apps or increase AGENT_TEST_SCENARIO_SETTLE_MS";
 	}
 	return `live scenario subprocess exited ${exitCode}`;
+}
+
+/** Parent-provided counters for isolated child runs (1-based index). */
+export function parentScenarioCounters():
+	| { index: number; total: number }
+	| undefined {
+	const index = Number(process.env.AGENT_TEST_SCENARIO_INDEX);
+	const total = Number(process.env.AGENT_TEST_SCENARIO_TOTAL);
+	if (
+		Number.isInteger(index) &&
+		index > 0 &&
+		Number.isInteger(total) &&
+		total > 0
+	) {
+		return { index, total };
+	}
+	return undefined;
 }

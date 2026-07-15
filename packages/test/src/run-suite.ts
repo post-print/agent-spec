@@ -22,6 +22,7 @@ import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
 import {
 	liveScenarioIsolationEnabled,
+	parentScenarioCounters,
 	spawnLiveScenario,
 	subprocessFailureMessage,
 } from "./live-isolation.js";
@@ -202,17 +203,21 @@ export async function runSuite(
 		throw new Error(`Scenario not found: ${options.scenarioFilter}`);
 	}
 
-	const total = scenarios.length;
+	const filteredTotal = scenarios.length;
+	const parentCounters = parentScenarioCounters();
+	const displayTotal = parentCounters?.total ?? filteredTotal;
 	const isLiveSuite = defaultHost !== "replay";
 	const isolateLive =
 		isLiveSuite &&
 		liveScenarioIsolationEnabled() &&
 		!options.scenarioFilter &&
-		total > 1;
+		filteredTotal > 1;
 
 	if (shouldPrintSuiteChrome()) {
-		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, total)}`);
-		if (isolateLive && total > 1) {
+		logProgress(
+			`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal)}`,
+		);
+		if (isolateLive) {
 			logProgress(`  ${theme.isolationNote()}`);
 		}
 	}
@@ -222,6 +227,9 @@ export async function runSuite(
 		if (!scenario) {
 			continue;
 		}
+
+		const scenarioIndex = parentCounters?.index ?? index + 1;
+		const scenarioTotal = displayTotal;
 
 		if (isolateLive) {
 			const started = performance.now();
@@ -236,6 +244,8 @@ export async function runSuite(
 				recordFixtures: options.recordFixtures,
 				worktree: options.worktree,
 				judge: options.judge,
+				scenarioIndex: index + 1,
+				scenarioTotal: filteredTotal,
 			});
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
@@ -281,7 +291,7 @@ export async function runSuite(
 			emitScenarioVerdict({
 				passed,
 				index: index + 1,
-				total,
+				total: filteredTotal,
 				name: scenario.name,
 				durationMs,
 				judgeVerdicts,
@@ -312,8 +322,8 @@ export async function runSuite(
 				options.judge,
 				options.worktree,
 				options.stagingSessionId,
-				index + 1,
-				total,
+				scenarioIndex,
+				scenarioTotal,
 			),
 		);
 		if (isLiveSuite) {
@@ -389,39 +399,39 @@ async function runScenario(
 		? await captureWorkingTreeStatus(cwd)
 		: undefined;
 	if (useWorktree) {
-		logPhase(theme.phaseDim("creating git worktree…"));
 		worktreeHandle = await createScenarioWorktree(
 			cwd,
 			`${suiteName}-${scenario.name}`,
 		);
 		activeWorktreeCleanup = worktreeHandle.cleanup;
-		logPhase(`worktree → ${theme.path(worktreeHandle.path)}`);
+		logPhase(theme.phase("worktree", theme.path(worktreeHandle.path)));
 		if (isLive && scenario.seedPatch) {
-			logPhase(`seeding diff ${theme.basename(scenario.seedPatch)}`);
+			logPhase(theme.phase("seed", theme.basename(scenario.seedPatch)));
 			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch);
 		}
 	} else if (isLive) {
 		logPhase(
-			theme.phaseDim(
-				"worktree disabled — agent may mutate repo cwd (AGENT_TEST_ALLOW_IN_PLACE=1)",
+			theme.phase(
+				"worktree",
+				theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)"),
 			),
 		);
 	}
 	const runCwd = worktreeHandle?.path ?? cwd;
 
 	try {
-		logPhase(theme.phaseDim("loading agent context…"));
+		logPhase(theme.phase("context"));
 		// Live worktree runs code in an isolated checkout; load rules/AGENTS from caller cwd
 		// so uncommitted .cursor/rules and AGENTS.md edits apply during dogfood.
 		const contextRoot = isLive && useWorktree ? cwd : runCwd;
 		const context = await loadContext({ cwd: contextRoot, profile, skills });
 		const useReplay = host === "replay";
 		if (useReplay) {
-			logPhase(`replaying ${theme.path(scenario.replayTrace ?? "trace")}…`);
-		} else {
 			logPhase(
-				theme.phaseDim("running cursor agent (may take several minutes)…"),
+				theme.phase("replay", theme.path(scenario.replayTrace ?? "trace")),
 			);
+		} else {
+			logPhase(theme.phase("agent"));
 		}
 
 		const outputContract = isLive
@@ -438,7 +448,7 @@ async function runScenario(
 						prompt: scenario.prompt,
 						outputContract,
 					}),
-					{ label: "still running", started: agentStarted },
+					{ started: agentStarted },
 				)
 			: runAgent({
 					host,
@@ -451,7 +461,10 @@ async function runScenario(
 
 		if (isLive) {
 			logPhase(
-				`agent finished — ${theme.statusCompleted(session.status)} ${theme.duration(`(${formatDuration(performance.now() - agentStarted)})`)}`,
+				theme.phase(
+					"agent",
+					`${theme.statusCompleted(session.status)} ${theme.duration(formatDuration(performance.now() - agentStarted))}`,
+				),
 			);
 		}
 
@@ -465,7 +478,7 @@ async function runScenario(
 			});
 		}
 
-		logPhase(theme.phaseDim("scoring rubric…"));
+		logPhase(theme.phase("rubric"));
 		failures.push(
 			...assertRubric(trace, scenario.rubric, {
 				skillsMode: context.skillsMode,
@@ -492,14 +505,10 @@ async function runScenario(
 				{ repoRoot: cwd, stagingSessionId },
 			);
 			if (resolved) {
-				logPhase(theme.phaseDim("recording trace…"));
 				try {
 					const path = await recordTrace(resolved.path, trace);
-					const recordLabel =
-						resolved.kind === "fixture"
-							? "recorded fixture"
-							: "recorded staging";
-					logPhase(`${recordLabel} → ${theme.path(path)}`);
+					const recordLabel = resolved.kind === "fixture" ? "fixture" : "trace";
+					logPhase(theme.phase(recordLabel, theme.path(path)));
 				} catch (error) {
 					failures.push({
 						matcher: "recordTrace",
@@ -516,7 +525,7 @@ async function runScenario(
 				isLive &&
 				!isChildProcess() &&
 				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
-			logPhase(theme.phaseDim("removing worktree…"), { last: !willJudge });
+			logPhase(theme.phase("cleanup"), { last: !willJudge });
 			await worktreeHandle.cleanup();
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;
@@ -558,7 +567,7 @@ async function runScenario(
 		};
 	} finally {
 		if (worktreeHandle) {
-			logPhase(theme.phaseDim("removing worktree…"), { last: true });
+			logPhase(theme.phase("cleanup"), { last: true });
 			await worktreeHandle.cleanup();
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;

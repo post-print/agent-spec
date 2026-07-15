@@ -3,6 +3,25 @@ import chalk from "chalk";
 
 const RATIONALE_WRAP_COLS = 72;
 
+/** Configure chalk for CLI use. Respects NO_COLOR; AGENT_TEST_COLOR=1 forces basic color. */
+export function configureCliColor(): void {
+	if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== "") {
+		return;
+	}
+	if (
+		process.env.AGENT_TEST_COLOR === "1" ||
+		process.env.AGENT_TEST_COLOR === "true"
+	) {
+		if (chalk.level === 0) {
+			chalk.level = 1;
+		}
+		return;
+	}
+	if (process.env.FORCE_COLOR !== undefined) {
+		return;
+	}
+}
+
 export function colorEnabled(): boolean {
 	return chalk.level > 0;
 }
@@ -76,7 +95,7 @@ function criterionLabel(count: number): string {
 export const theme = {
 	suiteHeader(name: string, host: string, count: number): string {
 		const scenarios = count === 1 ? "1 scenario" : `${count} scenarios`;
-		return `${chalk.bold.cyan(name)}${chalk.dim(` (${host})`)}  ${chalk.dim(scenarios)}`;
+		return `${chalk.bold.cyan(name)}  ${chalk.dim("·")}  ${chalk.dim(host)}  ${chalk.dim("·")}  ${chalk.dim(scenarios)}`;
 	},
 
 	scenarioTitle(
@@ -85,12 +104,12 @@ export const theme = {
 		name: string,
 		host: string,
 	): string {
-		return `${chalk.bold(`[${index}/${total}]`)} ${chalk.bold.white(name)}${chalk.dim(` (${host})`)}`;
+		return `${chalk.bold(`[${index}/${total}]`)} ${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}`;
 	},
 
 	scenarioLabel(name: string, host?: string): string {
 		return host
-			? `${chalk.bold.white(name)}${chalk.dim(` (${host})`)}`
+			? `${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}`
 			: chalk.bold.white(name);
 	},
 
@@ -114,6 +133,13 @@ export const theme = {
 		return chalk.dim(message);
 	},
 
+	phase(label: string, detail?: string): string {
+		if (!detail) {
+			return chalk.dim(label);
+		}
+		return `${chalk.dim(label)}  ${detail}`;
+	},
+
 	statusCompleted(status: string): string {
 		return status === "completed" ? chalk.green(status) : chalk.red(status);
 	},
@@ -126,8 +152,8 @@ export const theme = {
 		return `${chalk.yellow("⚠")} ${chalk.yellow(message)}`;
 	},
 
-	banner(): string {
-		return `${chalk.bold.cyan("agent-test")} ${chalk.dim("live dogfood")}`;
+	banner(mode = "live"): string {
+		return `${chalk.bold.cyan("agent-test")}  ${chalk.dim(mode)}`;
 	},
 
 	bannerDetail(message: string): string {
@@ -168,11 +194,11 @@ export const theme = {
 	},
 
 	judgePhase(count: number): string {
-		return `LLM judge ${chalk.dim(`(${criterionLabel(count)})`)}…`;
+		return theme.phase("judge", chalk.dim(`(${criterionLabel(count)})`));
 	},
 
 	isolationNote(): string {
-		return chalk.dim.italic("live isolation: one subprocess per scenario");
+		return chalk.dim.italic("isolated subprocesses");
 	},
 
 	skipped(label: string): string {
@@ -180,6 +206,7 @@ export const theme = {
 	},
 
 	scenarioVerdict(options: ScenarioVerdictOptions): string[] {
+		const mark = options.passed ? chalk.bold.green("✓") : chalk.bold.red("✗");
 		const status = options.passed
 			? chalk.bold.green("PASS")
 			: chalk.bold.red("FAIL");
@@ -192,7 +219,7 @@ export const theme = {
 		);
 		const lines: string[] = [
 			`  ${chalk.dim("│")}`,
-			`  ${chalk.dim("│")}  ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}`,
+			`  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}`,
 		];
 
 		for (const verdict of options.judgeVerdicts ?? []) {
