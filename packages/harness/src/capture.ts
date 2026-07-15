@@ -383,9 +383,11 @@ export function finalizeTraceAccumulator(
 	acc: TraceAccumulator,
 	options?: { gitDiff?: string },
 ): AgentTrace {
+	// Join stream token chunks with "" — "\n" breaks markdown like **Tier:** into
+	// **\nTier\n:** which collapseTraceWhitespace cannot repair for regex matching.
 	const combined = [
 		...new Set([...acc.inferenceChunks, ...acc.textChunks, ...acc.toolOutputChunks]),
-	].join("\n");
+	].join("");
 	const routing = inferRoutingFromText(combined);
 	const prBody = inferPrBodyFromText(combined);
 	const shellFromText = extractShellCommands(combined, ...acc.toolOutputChunks);
@@ -423,7 +425,8 @@ export function buildTraceFromSdkMessages(
 
 /** Fill routing / PR body from transcript when live runs omit structured fields. */
 export function enrichTrace(trace: AgentTrace): AgentTrace {
-	const combined = [...trace.messages.map((m) => m.content), trace.prBody ?? ""].join("\n");
+	// Join stream token chunks with "" — see finalizeTraceAccumulator.
+	const combined = [...trace.messages.map((m) => m.content), trace.prBody ?? ""].join("");
 
 	return {
 		...trace,
