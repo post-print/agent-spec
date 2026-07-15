@@ -1,0 +1,49 @@
+{
+	"name": "@agent-spec/harness",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "bunx tsc --build",
+		"typecheck": "bunx tsc --build",
+		"lint": "bunx biome check .",
+		"lint:fix": "bunx biome check . --write",
+		"test": "vitest run --passWithNoTests",
+		"clean": "rm -rf dist tsconfig.tsbuildinfo"
+	},
+	"dependencies": {},
+	"peerDependencies": {
+		"@cursor/sdk": ">=0.1.0"
+	},
+	"peerDependenciesMeta": {
+		"@cursor/sdk": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@cursor/sdk": "^1.0.23",
+		"@types/node": "^22.10.0",
+		"typescript": "~6.0.2",
+		"vitest": "^4.0.17"
+	},
+	"description": "Host-agnostic agent runtime for capture, replay, and judging",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/post-print/agent-spec.git",
+		"directory": "packages/harness"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	}
+}

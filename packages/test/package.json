@@ -1,0 +1,45 @@
+{
+	"name": "@agent-spec/test",
+	"version": "0.1.0",
+	"type": "module",
+	"bin": {
+		"agent-test": "./dist/cli.js"
+	},
+	"files": [
+		"dist"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "bunx tsc --build",
+		"typecheck": "bunx tsc --build",
+		"lint": "bunx biome check .",
+		"lint:fix": "bunx biome check . --write",
+		"test": "vitest run",
+		"clean": "rm -rf dist tsconfig.tsbuildinfo"
+	},
+	"dependencies": {
+		"@agent-spec/harness": "0.1.0"
+	},
+	"devDependencies": {
+		"@types/node": "^22.10.0",
+		"typescript": "~6.0.2",
+		"vitest": "^4.0.17"
+	},
+	"description": "Scenario runner and CLI for agent-spec suites",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/post-print/agent-spec.git",
+		"directory": "packages/test"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts"
+}
