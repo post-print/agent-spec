@@ -3,23 +3,9 @@ import chalk from "chalk";
 
 const RATIONALE_WRAP_COLS = 72;
 
-/** Configure chalk for CLI use. Respects NO_COLOR; AGENT_TEST_COLOR=1 forces basic color. */
+/** Always enable ANSI color — agent-test is a human CLI, not a pipe filter. */
 export function configureCliColor(): void {
-	if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== "") {
-		return;
-	}
-	if (
-		process.env.AGENT_TEST_COLOR === "1" ||
-		process.env.AGENT_TEST_COLOR === "true"
-	) {
-		if (chalk.level === 0) {
-			chalk.level = 1;
-		}
-		return;
-	}
-	if (process.env.FORCE_COLOR !== undefined) {
-		return;
-	}
+	chalk.level = 3;
 }
 
 export function colorEnabled(): boolean {

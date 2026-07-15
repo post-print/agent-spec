@@ -149,43 +149,18 @@ describe("theme.suiteHeader", () => {
 
 describe("configureCliColor", () => {
 	const priorLevel = chalk.level;
-	const priorNoColor = process.env.NO_COLOR;
-	const priorForce = process.env.FORCE_COLOR;
-	const priorAgentColor = process.env.AGENT_TEST_COLOR;
 
 	afterEach(() => {
 		chalk.level = priorLevel;
-		if (priorNoColor === undefined) {
-			delete process.env.NO_COLOR;
-		} else {
-			process.env.NO_COLOR = priorNoColor;
-		}
-		if (priorForce === undefined) {
-			delete process.env.FORCE_COLOR;
-		} else {
-			process.env.FORCE_COLOR = priorForce;
-		}
-		if (priorAgentColor === undefined) {
-			delete process.env.AGENT_TEST_COLOR;
-		} else {
-			process.env.AGENT_TEST_COLOR = priorAgentColor;
-		}
 	});
 
-	it("forces basic color when AGENT_TEST_COLOR=1 and NO_COLOR unset", () => {
-		delete process.env.NO_COLOR;
-		delete process.env.FORCE_COLOR;
-		process.env.AGENT_TEST_COLOR = "1";
-		chalk.level = 0;
-		configureCliColor();
-		expect(chalk.level).toBeGreaterThan(0);
-	});
-
-	it("respects NO_COLOR even when AGENT_TEST_COLOR=1", () => {
+	it("always enables color, including when NO_COLOR is set", () => {
 		process.env.NO_COLOR = "1";
-		process.env.AGENT_TEST_COLOR = "1";
+		delete process.env.FORCE_COLOR;
+		delete process.env.AGENT_TEST_COLOR;
 		chalk.level = 0;
 		configureCliColor();
-		expect(chalk.level).toBe(0);
+		expect(chalk.level).toBe(3);
+		delete process.env.NO_COLOR;
 	});
 });
