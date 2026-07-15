@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	buildLiveScenarioCommand,
 	liveScenarioIsolationEnabled,
 	scenarioSettleMs,
 	subprocessFailureMessage,
@@ -36,5 +37,21 @@ describe("live-isolation", () => {
 	it("maps exit 137 to OOM guidance", () => {
 		expect(subprocessFailureMessage(137)).toContain("137");
 		expect(subprocessFailureMessage(1)).toContain("exited 1");
+	});
+
+	it("builds a Node subprocess command, not bun", () => {
+		const { command, args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "smoke",
+			scenarioName: "hello",
+			suitesDir: "agent-suites",
+		});
+		expect(command).toBe(process.execPath);
+		expect(command).not.toBe("bun");
+		expect(args[0]).toBe(process.argv[1]);
+		expect(args).toContain("--live");
+		expect(args).toContain("--scenario");
+		expect(args).toContain("hello");
+		expect(args).toContain("--no-judge");
 	});
 });

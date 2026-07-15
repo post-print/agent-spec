@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type AgentHost, cleanupStaleScenarioWorktrees } from "@post-print/agent-harness";
+import {
+	type AgentHost,
+	cleanupStaleScenarioWorktrees,
+} from "@post-print/agent-harness";
 
+import { isCliMain } from "./cli-entry.js";
 import { assertLiveDogfoodPreflight } from "./preflight.js";
 import {
 	cleanupLegacyRepoRecordings,
@@ -114,7 +117,9 @@ async function cleanupLiveRunArtifacts(
 
 	const legacyRemoved = await cleanupLegacyRepoRecordings(cwd);
 	if (legacyRemoved.length > 0) {
-		console.log(`Removed legacy in-repo recording dir(s):\n  ${legacyRemoved.join("\n  ")}`);
+		console.log(
+			`Removed legacy in-repo recording dir(s):\n  ${legacyRemoved.join("\n  ")}`,
+		);
 	}
 }
 
@@ -124,7 +129,9 @@ async function main(): Promise<number> {
 	const stagingSessionId =
 		args.stagingSessionId?.trim() ||
 		process.env.AGENT_TEST_STAGING_SESSION_ID?.trim() ||
-		(args.live || (args.record && !args.recordFixtures) ? createLiveStagingSessionId() : undefined);
+		(args.live || (args.record && !args.recordFixtures)
+			? createLiveStagingSessionId()
+			: undefined);
 	const stagingSessionRoot = stagingSessionId
 		? getLiveStagingSessionRoot(stagingSessionId)
 		: undefined;
@@ -159,7 +166,9 @@ async function main(): Promise<number> {
 				registerLiveRunHandlers();
 				const removed = await cleanupStaleScenarioWorktrees(args.cwd);
 				if (removed.length > 0) {
-					console.log(`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`);
+					console.log(
+						`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`,
+					);
 				}
 				console.log(
 					"Live dogfood: cursor SDK → worktree → rubric → judge → $TMPDIR staging (use --record-fixtures to overwrite replay JSON)",
@@ -167,7 +176,9 @@ async function main(): Promise<number> {
 				if (stagingSessionRoot) {
 					console.log(`Live staging session: ${stagingSessionRoot}`);
 					if (!args.keepRecordings) {
-						console.log("Staging traces are removed on exit unless --keep-recordings");
+						console.log(
+							"Staging traces are removed on exit unless --keep-recordings",
+						);
 					}
 				}
 				if (worktreeDisabled) {
@@ -189,7 +200,9 @@ async function main(): Promise<number> {
 
 		let exitCode = 0;
 		for (const report of reports) {
-			const failed = report.results.filter((result) => !result.passed && !result.skipped);
+			const failed = report.results.filter(
+				(result) => !result.passed && !result.skipped,
+			);
 			if (failed.length > 0) {
 				exitCode = 1;
 				console.log(`\n${report.suite} — failure details`);
@@ -213,15 +226,18 @@ async function main(): Promise<number> {
 		return exitCode;
 	} finally {
 		if (stagingSessionId && !isChild) {
-			await cleanupLiveRunArtifacts(args.cwd, stagingSessionRoot, args.keepRecordings);
+			await cleanupLiveRunArtifacts(
+				args.cwd,
+				stagingSessionRoot,
+				args.keepRecordings,
+			);
 		}
 	}
 }
 
 const entry = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(entry);
 
-if (isMain) {
+if (isCliMain(process.argv[1], entry)) {
 	void main()
 		.then((code) => process.exit(code))
 		.catch((error: unknown) => {

@@ -45,6 +45,9 @@ jobs:
       - name: Node can run agent-test CLI smoke suite
         run: node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
 
+      - name: Node can run agent-test via package bin symlink
+        run: node_modules/.bin/agent-test --suites-dir packages/test/fixtures --suite smoke
+
   security:
     runs-on: ubuntu-latest
     steps:

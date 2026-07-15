@@ -5,13 +5,20 @@ const DEFAULT_SCENARIO_SETTLE_MS = 5000;
 
 /** Child process per live scenario (default) — avoids macOS OOM (exit 137) across council runs. */
 export function liveScenarioIsolationEnabled(): boolean {
-	return process.env.AGENT_TEST_CHILD !== "1" && process.env.AGENT_TEST_NO_ISOLATE !== "1";
+	return (
+		process.env.AGENT_TEST_CHILD !== "1" &&
+		process.env.AGENT_TEST_NO_ISOLATE !== "1"
+	);
 }
 
 export function scenarioSettleMs(): number {
-	const raw = process.env.AGENT_TEST_SCENARIO_SETTLE_MS ?? String(DEFAULT_SCENARIO_SETTLE_MS);
+	const raw =
+		process.env.AGENT_TEST_SCENARIO_SETTLE_MS ??
+		String(DEFAULT_SCENARIO_SETTLE_MS);
 	const parsed = Number(raw);
-	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_SCENARIO_SETTLE_MS;
+	return Number.isFinite(parsed) && parsed >= 0
+		? parsed
+		: DEFAULT_SCENARIO_SETTLE_MS;
 }
 
 export interface SpawnLiveScenarioOptions {
@@ -27,16 +34,18 @@ export interface SpawnLiveScenarioOptions {
 	judge?: boolean;
 }
 
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolveSleep) => {
-		setTimeout(resolveSleep, ms);
-	});
+export interface LiveScenarioCommand {
+	command: string;
+	args: string[];
 }
 
-/** Run one live scenario in a fresh bun subprocess; inherit stdio for live progress. */
-export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Promise<number> {
+/** Build the Node subprocess command for one live scenario (same CLI entry as the parent). */
+export function buildLiveScenarioCommand(
+	options: SpawnLiveScenarioOptions,
+): LiveScenarioCommand {
 	const cliPath =
-		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
+		process.argv[1] ??
+		resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
 	const args = [cliPath, "--live", "--scenario", options.scenarioName];
 	if (options.suiteFilter) {
 		args.push("--suite", options.suiteFilter);
@@ -59,8 +68,23 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 	// Isolated child: agent + rubric only; parent runs judge (avoids OOM after heavy council runs).
 	args.push("--no-judge");
 
+	return { command: process.execPath, args };
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolveSleep) => {
+		setTimeout(resolveSleep, ms);
+	});
+}
+
+/** Run one live scenario in a fresh Node subprocess; inherit stdio for live progress. */
+export async function spawnLiveScenario(
+	options: SpawnLiveScenarioOptions,
+): Promise<number> {
+	const { command, args } = buildLiveScenarioCommand(options);
+
 	const exitCode = await new Promise<number>((resolveExit, reject) => {
-		const child = spawn("bun", args, {
+		const child = spawn(command, args, {
 			cwd: options.cwd,
 			env: { ...process.env, AGENT_TEST_CHILD: "1" },
 			stdio: "inherit",
