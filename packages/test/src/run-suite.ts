@@ -342,7 +342,11 @@ async function maybeWriteDebugBundle(options: {
 				timeoutMs: options.timeoutMs,
 				noTimeout: options.timeoutMs === 0,
 				allowUserInput: options.allowUserInput,
-				debugDir: options.debugDir,
+				// Match child-spawn resolution (buildLiveScenarioCommand): fall back
+				// to the process-global staging override so a parent rewrite of the
+				// bundle never drops --debug-dir for library callers that set the
+				// override without an explicit debugDir.
+				debugDir: options.debugDir ?? getLiveStagingRootOverride(),
 				keepRecordings: options.keepRecordings ?? true,
 			},
 		});

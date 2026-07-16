@@ -171,6 +171,13 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 		try {
 			const parsed: unknown = JSON.parse(candidate);
 			if (parsed === null || typeof parsed !== "object") {
+				// Whole-text/fenced JSON primitives (`"yes"`, `42`, `true`, `null`)
+				// are contract attempts that violate the object contract — refuse
+				// and latch so callers do not YES/NO-salvage a quoted verdict.
+				// Non-primary peels are incidental prose blobs; keep salvage there.
+				if (primary) {
+					return { result: { ...INVALID_JUDGE_JSON }, structured: true };
+				}
 				continue;
 			}
 			if (Array.isArray(parsed)) {

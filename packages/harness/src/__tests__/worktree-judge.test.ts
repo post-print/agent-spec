@@ -176,6 +176,36 @@ describe("parseJudgeJsonResponse", () => {
 		expect(parsed.valid).toBe(false);
 		expect(parsed.pass).toBe(false);
 	});
+
+	it("does not salvage YES/NO from whole-text JSON string primitives", () => {
+		for (const raw of ['"yes"', '"no"', '  "YES"  ', '"YES."']) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(false);
+			expect(parsed.pass).toBe(false);
+		}
+	});
+
+	it("does not salvage YES/NO from fenced JSON string primitives", () => {
+		for (const raw of ['```\n"yes"\n```', '```json\n"yes"\n```', '```\n"no"\n```']) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(false);
+			expect(parsed.pass).toBe(false);
+		}
+	});
+
+	it("does not salvage from whole-text non-string JSON primitives", () => {
+		for (const raw of ["42", "true", "null"]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(false);
+			expect(parsed.pass).toBe(false);
+		}
+	});
+
+	it("still salvages YES/NO when prose incidentally contains a quoted verdict", () => {
+		const parsed = parseJudgeResponse('YES\nThe answer is "yes" clearly.');
+		expect(parsed.valid).toBe(true);
+		expect(parsed.pass).toBe(true);
+	});
 });
 
 describe("createScenarioWorktree", () => {
