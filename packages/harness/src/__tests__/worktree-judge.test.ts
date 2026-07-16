@@ -290,6 +290,34 @@ describe("parseJudgeJsonResponse", () => {
 			expect(parsed.pass, raw).toBe(pass);
 		}
 	});
+
+	it("refuses salvage for prose-prefixed yes/no string arrays", () => {
+		for (const raw of [
+			'Here is my answer:\n["yes"]',
+			'Sure:\n["yes"]',
+			'Answer:\n["YES"]',
+			'Answer:\n["yes","no"]',
+			'Answer:\n["no"]',
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
+			expect(parsed.rationale, raw).toMatch(/invalid JSON/i);
+		}
+	});
+
+	it("refuses salvage for prose-prefixed schema objects without verdict", () => {
+		for (const raw of [
+			'Here is my answer:\n{"evidence":[],"rationale":"YES clearly"}',
+			'Analysis:\n{"evidence":[],"rationale":"YES clearly"}',
+			'Answer:\n\n{"evidence":[],"rationale":"YES"}',
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
+			expect(parsed.rationale, raw).toMatch(/invalid JSON/i);
+		}
+	});
 });
 
 describe("createScenarioWorktree", () => {

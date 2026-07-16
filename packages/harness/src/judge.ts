@@ -179,13 +179,28 @@ const INVALID_JUDGE_JSON: ParsedJudgeJson = {
 };
 
 function arrayLooksLikeJudgeContract(parsed: unknown[]): boolean {
-	return parsed.some(
-		(item) =>
-			item !== null &&
-			typeof item === "object" &&
-			!Array.isArray(item) &&
-			"verdict" in (item as Record<string, unknown>),
+	if (
+		parsed.some(
+			(item) =>
+				item !== null &&
+				typeof item === "object" &&
+				!Array.isArray(item) &&
+				"verdict" in (item as Record<string, unknown>),
+		)
+	) {
+		return true;
+	}
+	// Wrong-shaped contract answers like `["yes"]` / `["no"]` — not incidental
+	// lists such as `[1,2,3]` or `["intro","summary"]`.
+	return (
+		parsed.length > 0 &&
+		parsed.every((item) => typeof item === "string" && normalizeVerdict(item) !== undefined)
 	);
+}
+
+/** Peeled objects with judge-schema keys but no `verdict` are contract attempts. */
+function objectLooksLikeJudgeSchema(record: Record<string, unknown>): boolean {
+	return "evidence" in record || "rationale" in record;
 }
 
 /**
@@ -246,18 +261,21 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 				continue;
 			}
 			if (Array.isArray(parsed)) {
-				// Whole-text/fenced arrays are contract attempts; arrays peeled out
-				// of prose only count when they carry verdict-shaped objects —
-				// incidental lists (e.g. `Scores: [1,2,3]`) allow YES/NO salvage.
+				// Whole-text/fenced arrays are contract attempts; peeled arrays count
+				// when verdict-shaped or yes/no string arrays (`["yes"]`). Incidental
+				// lists (e.g. `Scores: [1,2,3]`) still allow YES/NO salvage.
 				if (primary || arrayLooksLikeJudgeContract(parsed)) {
 					return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 				}
 				continue;
 			}
 			const record = parsed as Record<string, unknown>;
-			// Objects without `verdict` are incidental blobs (e.g. evidence quotes),
-			// not judge-contract attempts — keep scanning / allow YES/NO salvage.
+			// Objects without `verdict`: schema-shaped peels (`evidence`/`rationale`)
+			// are failed contract attempts; bare quote blobs stay incidental.
 			if (!("verdict" in record)) {
+				if (primary || objectLooksLikeJudgeSchema(record)) {
+					return { result: { ...INVALID_JUDGE_JSON }, structured: true };
+				}
 				continue;
 			}
 			structured = true;
