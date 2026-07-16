@@ -279,6 +279,29 @@ describe("parseJudgeJsonResponse", () => {
 		}
 	});
 
+	it("still salvages YES/NO from digit/bool/null + comma English prose", () => {
+		for (const [raw, pass] of [
+			["3, findings support this.\nYES", true],
+			["12, files changed.\nNO", false],
+			["1, 2, and 3 findings.\nYES", true],
+			["true, the agent greeted.\nYES", true],
+			["false, but it did greet.\nYES", true],
+			["null, nothing relevant.\nNO", false],
+		] as const) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(true);
+			expect(parsed.pass, raw).toBe(pass);
+		}
+	});
+
+	it("still latches digit/bool/null + comma contract junk", () => {
+		for (const raw of ["42,", "3, YES", "true,\nYES", "null, NO"]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
+		}
+	});
+
 	it("still salvages YES/NO from English true/false/null-prefixed prose", () => {
 		for (const [raw, pass] of [
 			["true story:\nYES", true],
@@ -298,6 +321,21 @@ describe("parseJudgeJsonResponse", () => {
 			'Answer:\n["YES"]',
 			'Answer:\n["yes","no"]',
 			'Answer:\n["no"]',
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
+			expect(parsed.rationale, raw).toMatch(/invalid JSON/i);
+		}
+	});
+
+	it("refuses salvage for prose-prefixed yes/no string peels and truncated arrays", () => {
+		for (const raw of [
+			'Answer:\n"yes"',
+			'Here is my answer:\n"no"',
+			'Answer:\n"yes" clearly',
+			'Answer:\n["yes"',
+			'Answer:\n"yes',
 		]) {
 			const parsed = parseJudgeResponse(raw);
 			expect(parsed.valid, raw).toBe(false);

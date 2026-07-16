@@ -93,7 +93,8 @@ const MARKDOWN_FENCE_STRIP_PATTERN = /```[^\n`]*\s*[\s\S]*?(?:```|$)/g;
  * After a complete JSON number/bool/null token: whether the remainder is
  * contract junk (latch) vs English continuation (allow YES/NO salvage).
  *
- * `true\nYES` / `3 YES` / `42,` → latch. `true story` / `3 findings` → salvage.
+ * `true\nYES` / `3 YES` / `42,` / `3, YES` → latch.
+ * `true story` / `3 findings` / `3, findings` / `true, the agent` → salvage.
  */
 function jsonPrimitiveRemainderIsContract(rest: string): boolean {
 	if (rest === "") {
@@ -101,6 +102,22 @@ function jsonPrimitiveRemainderIsContract(rest: string): boolean {
 	}
 	const restTrim = rest.trimStart();
 	if (restTrim === "") {
+		return true;
+	}
+	// Comma after a primitive is JSON-ish only when nothing English follows
+	// (`42,` / `3, YES`). List/prose continuations (`3, findings`, `1, 2, and 3`)
+	// must still reach YES/NO salvage.
+	if (restTrim.startsWith(",")) {
+		const afterComma = restTrim.slice(1).trimStart();
+		if (afterComma === "") {
+			return true;
+		}
+		if (/^(?:yes|no)\b/i.test(afterComma)) {
+			return true;
+		}
+		if (/[A-Za-z]/.test(afterComma)) {
+			return false;
+		}
 		return true;
 	}
 	const firstWord = /^([A-Za-z]+)/.exec(restTrim)?.[1]?.toLowerCase();
@@ -127,7 +144,7 @@ function looksLikeJudgeJsonAttempt(text: string): boolean {
 	if (JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed)) {
 		return true;
 	}
-	if (/^["{\[]/.test(trimmed)) {
+	if (/^["{[]/.test(trimmed)) {
 		return true;
 	}
 
@@ -238,6 +255,27 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 		}
 	}
 
+	// Line-leading `"…` / `[…` bodies under a prose preamble are contract peels
+	// (`Answer:\n"yes"`). Mid-line quotes and fenced interiors
+	// (`YES` + ```js\n"yes"\n```) stay incidental — fence bodies are handled
+	// via `fencedBody` / whole-reply fence primary above.
+	const lineLeadingJsonValues = new Set<string>();
+	let insideFence = false;
+	for (const line of trimmed.split("\n")) {
+		const lineTrim = line.trim();
+		if (lineTrim.startsWith("```")) {
+			insideFence = !insideFence;
+			continue;
+		}
+		if (insideFence) {
+			continue;
+		}
+		if (lineTrim.startsWith('"') || lineTrim.startsWith("[")) {
+			candidates.push(lineTrim);
+			lineLeadingJsonValues.add(lineTrim);
+		}
+	}
+
 	let structured = false;
 	let failedJsonShape = false;
 	// Only whole-reply fences are primary contract attempts. Mid-prose fences
@@ -248,14 +286,20 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 		const primary =
 			candidateTrim === trimmed ||
 			(wholeReplyFence && fencedBody !== undefined && candidateTrim === fencedBody);
+		const lineLeading = lineLeadingJsonValues.has(candidateTrim);
 		try {
 			const parsed: unknown = JSON.parse(candidate);
 			if (parsed === null || typeof parsed !== "object") {
 				// Whole-text/fenced JSON primitives (`"yes"`, `42`, `true`, `null`)
 				// are contract attempts that violate the object contract — refuse
 				// and latch so callers do not YES/NO-salvage a quoted verdict.
-				// Non-primary peels are incidental prose blobs; keep salvage there.
-				if (primary) {
+				// Line-leading yes/no strings under a preamble (`Answer:\n"yes"`)
+				// are the same wrong-shaped contract; mid-line quote peels stay
+				// incidental.
+				if (
+					primary ||
+					(lineLeading && typeof parsed === "string" && normalizeVerdict(parsed) !== undefined)
+				) {
 					return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 				}
 				continue;
@@ -299,8 +343,9 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 			// the whole/fenced body is a JSON value (object/array/primitive),
 			// including trailing junk after a primitive (`"yes" clearly`), or a
 			// peeled candidate carries a `"verdict":` key (truncated contract).
-			// Mid-prose incidental peels (e.g. `Evidence: {"quote":"hello"`)
-			// keep YES/NO salvage available.
+			// Line-leading string/array peels (`Answer:\n"yes" clearly`,
+			// `Answer:\n["yes"`) latch the same way. Mid-prose incidental peels
+			// (e.g. `Evidence: {"quote":"hello"`) keep YES/NO salvage available.
 			if (primary) {
 				if (looksLikeJudgeJsonAttempt(candidateTrim)) {
 					failedJsonShape = true;
@@ -309,6 +354,8 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 				(candidateTrim.startsWith("{") || candidateTrim.startsWith("[")) &&
 				JUDGE_VERDICT_KEY_PATTERN.test(candidateTrim)
 			) {
+				failedJsonShape = true;
+			} else if (lineLeading && looksLikeJudgeJsonAttempt(candidateTrim)) {
 				failedJsonShape = true;
 			}
 		}
