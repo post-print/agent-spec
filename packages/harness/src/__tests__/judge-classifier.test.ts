@@ -148,4 +148,30 @@ describe("judgeTrace infra errors", () => {
 		expect(verdict?.infraError).toMatch(/invalid JSON/i);
 		expect(verdict?.infraError).toContain('{"verdict":"yes"');
 	});
+
+	it("marks array-wrapped judge JSON as infra errors (no inner-object salvage)", async () => {
+		agentPrompt.mockResolvedValue({
+			status: "finished",
+			result: '[{"verdict":"yes","evidence":[],"rationale":"yes"}]',
+		});
+
+		const { judgeTrace } = await import("../judge.js");
+		const result = await judgeTrace(
+			{
+				messages: [{ role: "assistant", content: "hello" }],
+				toolCalls: [],
+				shellCommands: [],
+				artifacts: {},
+			},
+			[{ id: "c1", question: "Did the agent greet?" }],
+			{ cwd: process.cwd(), apiKey: "test-key" },
+		);
+
+		expect(result.skipped).toBe(false);
+		expect(result.verdicts).toHaveLength(1);
+		const verdict = result.verdicts[0];
+		expect(verdict?.pass).toBe(false);
+		expect(verdict?.infraError).toBeTruthy();
+		expect(verdict?.infraError).toMatch(/invalid JSON/i);
+	});
 });

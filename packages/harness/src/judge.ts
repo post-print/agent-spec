@@ -92,6 +92,30 @@ function looksLikeJudgeJsonAttempt(text: string): boolean {
 }
 
 /**
+ * True when the JSON contract body is array-shaped (`[` before any `{`),
+ * including truncated arrays. Object-extraction must not peel an inner
+ * `{…}` out of those replies.
+ */
+function isArrayShapedJudgeJson(text: string): boolean {
+	const trimmed = text.trim();
+	const fenced = trimmed.match(JSON_FENCE_PATTERN);
+	const body = fenced?.[1]?.trim() ?? trimmed;
+	const bracket = body.indexOf("[");
+	if (bracket === -1) {
+		return false;
+	}
+	const brace = body.indexOf("{");
+	return brace === -1 || bracket < brace;
+}
+
+const INVALID_JUDGE_JSON: ParsedJudgeJson = {
+	pass: false,
+	rationale: "judge returned invalid JSON (expected { verdict, evidence, rationale })",
+	evidence: [],
+	valid: false,
+};
+
+/**
  * Try structured judge JSON. `structured` is set when any candidate parsed as an
  * object/array, or when the text still looks like a JSON contract attempt —
  * callers must not fall back to YES/NO prose salvage in that case.
@@ -105,9 +129,13 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 		candidates.unshift(fenced[1].trim());
 	}
 
-	const objectMatch = trimmed.match(JSON_OBJECT_PATTERN);
-	if (objectMatch?.[0]) {
-		candidates.push(objectMatch[0]);
+	// Prose-prefixed single objects may still use greedy `{…}` extraction.
+	// Array-shaped replies (including truncated `[{…}`) must not.
+	if (!isArrayShapedJudgeJson(trimmed)) {
+		const objectMatch = trimmed.match(JSON_OBJECT_PATTERN);
+		if (objectMatch?.[0]) {
+			candidates.push(objectMatch[0]);
+		}
 	}
 
 	let structured = false;
@@ -119,7 +147,7 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 			}
 			structured = true;
 			if (Array.isArray(parsed)) {
-				continue;
+				return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 			}
 			const record = parsed as Record<string, unknown>;
 			const verdict = normalizeVerdict(record.verdict);
@@ -142,12 +170,7 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 	}
 
 	return {
-		result: {
-			pass: false,
-			rationale: "judge returned invalid JSON (expected { verdict, evidence, rationale })",
-			evidence: [],
-			valid: false,
-		},
+		result: { ...INVALID_JUDGE_JSON },
 		structured: structured || looksLikeJudgeJsonAttempt(trimmed),
 	};
 }

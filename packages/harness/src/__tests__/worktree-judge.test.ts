@@ -67,6 +67,21 @@ describe("parseJudgeJsonResponse", () => {
 		expect(parsed.pass).toBe(false);
 	});
 
+	it("does not extract inner objects from array-wrapped verdicts", () => {
+		for (const raw of [
+			'[{"verdict":"yes"}]',
+			'[{"verdict":"no","rationale":"nope"}]',
+			'[\n {"verdict":"yes","rationale":"looks good"}\n]',
+			'Here is my answer:\n[{"verdict":"yes"}]',
+			'```json\n[{"verdict":"yes"}]\n```',
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(false);
+			expect(parsed.pass).toBe(false);
+			expect(parsed.rationale).toMatch(/invalid JSON/i);
+		}
+	});
+
 	it("does not salvage YES/NO from truncated JSON objects", () => {
 		for (const raw of ['{"verdict":"yes"', '{"verdict":"no"', '```json\n{"verdict":"yes"\n```']) {
 			const parsed = parseJudgeResponse(raw);
@@ -74,6 +89,27 @@ describe("parseJudgeJsonResponse", () => {
 			expect(parsed.pass).toBe(false);
 			expect(parsed.rationale).toMatch(/invalid JSON/i);
 		}
+	});
+
+	it("does not extract inner objects from truncated JSON arrays", () => {
+		for (const raw of [
+			'[{"verdict":"yes"}',
+			'[{"verdict":"no"',
+			'```json\n[{"verdict":"yes"\n```',
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(false);
+			expect(parsed.pass).toBe(false);
+			expect(parsed.rationale).toMatch(/invalid JSON/i);
+		}
+	});
+
+	it("still accepts prose-prefixed single JSON objects", () => {
+		const parsed = parseJudgeResponse(
+			'Here is my answer:\n{"verdict":"yes","evidence":[],"rationale":"ok"}',
+		);
+		expect(parsed.valid).toBe(true);
+		expect(parsed.pass).toBe(true);
 	});
 });
 
