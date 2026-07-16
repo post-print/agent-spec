@@ -1,12 +1,44 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
+import { assertionFailure } from "./failures.js";
 import {
 	LIVE_SUBPROCESS_SETUP_MAX_MS,
 	LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS,
 	LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
 	liveSubprocessTimeoutMs,
 } from "./live-timeout.js";
-import { getStagingAgentStartPath, readAgentStartMarker } from "./record-trace.js";
+import {
+	getLiveStagingRootOverride,
+	getStagingAgentStartPath,
+	readAgentStartMarker,
+} from "./record-trace.js";
+import type { AssertionFailure, FailureCategory } from "./types.js";
+
+function categoryFromLegacyFailure(failure: {
+	matcher: string;
+	message: string;
+	category?: FailureCategory;
+}): FailureCategory {
+	if (failure.category) {
+		return failure.category;
+	}
+	if (failure.matcher === "workingTreeLeak") {
+		return "worktree_leak";
+	}
+	if (failure.matcher === "recordTrace") {
+		return "recording_error";
+	}
+	if (failure.matcher === "runAgent" || failure.matcher === "liveScenario") {
+		return "agent_runtime";
+	}
+	if (failure.matcher === "judge" || failure.matcher.startsWith("judge:")) {
+		return failure.message.includes("judge run status") ||
+			failure.message.includes("CURSOR_API_KEY")
+			? "judge_infra"
+			: "rubric_miss";
+	}
+	return "rubric_miss";
+}
 
 const DEFAULT_SCENARIO_SETTLE_MS = 5000;
 
@@ -42,6 +74,8 @@ export interface SpawnLiveScenarioOptions {
 	noTimeout?: boolean;
 	/** Allow AskQuestion-style tools (default false — live is single-shot). */
 	allowUserInput?: boolean;
+	debug?: boolean;
+	debugDir?: string;
 }
 
 export interface LiveScenarioCommand {
@@ -80,6 +114,15 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	}
 	if (options.allowUserInput) {
 		args.push("--allow-user-input");
+	}
+	if (options.debug) {
+		args.push("--debug");
+	}
+	// Prefer explicit debugDir; fall back to process-global staging override so
+	// library callers of setLiveStagingRootOverride stay parent/child aligned.
+	const debugDir = options.debugDir ?? getLiveStagingRootOverride();
+	if (debugDir) {
+		args.push("--debug-dir", debugDir);
 	}
 	// Isolated child: agent + rubric only; parent runs judge (avoids OOM after heavy council runs).
 	args.push("--no-judge");
@@ -249,32 +292,35 @@ export function subprocessFailureMessage(exitCode: number): string {
 
 export interface LiveSubprocessStagingResult {
 	passed: boolean;
-	failures: Array<{ matcher: string; message: string }>;
+	failures: AssertionFailure[];
 }
 
 /**
  * Map isolated child exit + optional staging sidecar to parent failures.
- * A persisted pass sidecar wins over a late timeout kill (exit 124).
+ * A persisted pass sidecar wins only over a late timeout kill (exit 124).
+ * Other non-zero exits (cleanup failure, OOM 137, crashes) fail closed.
  */
 export function failuresForLiveSubprocessExit(
 	exitCode: number,
 	childResult: LiveSubprocessStagingResult | undefined,
-): Array<{ matcher: string; message: string }> {
+): AssertionFailure[] {
 	if (exitCode === 0) {
 		return [];
 	}
 	if (childResult?.failures.length) {
-		return [...childResult.failures];
+		return childResult.failures.map((failure) =>
+			assertionFailure(
+				failure.matcher,
+				failure.message,
+				categoryFromLegacyFailure(failure),
+				failure.evidence,
+			),
+		);
 	}
-	if (childResult?.passed === true) {
+	if (exitCode === 124 && childResult?.passed === true) {
 		return [];
 	}
-	return [
-		{
-			matcher: "liveScenario",
-			message: subprocessFailureMessage(exitCode),
-		},
-	];
+	return [assertionFailure("liveScenario", subprocessFailureMessage(exitCode), "agent_runtime")];
 }
 
 /** Parent-provided counters for isolated child runs (1-based index). */

@@ -52,13 +52,31 @@ export interface AgentSuiteFile {
 export interface AssertionFailure {
 	matcher: string;
 	message: string;
+	/** Normalized failure class for console, bundles, and CI consumers. */
+	category: FailureCategory;
+	/** Optional diagnostic detail (printed in --debug). */
+	evidence?: string;
 }
+
+export type FailureCategory =
+	| "rubric_miss"
+	| "judge_infra"
+	| "agent_runtime"
+	| "worktree_leak"
+	| "recording_error";
 
 export interface JudgeVerdictResult {
 	id: string;
 	question: string;
 	pass: boolean;
 	rationale: string;
+	infraError?: string;
+	rawSdkStatus?: string;
+	sdkError?: { message?: string; code?: string };
+	attempt?: number;
+	durationMs?: number;
+	transcriptChars?: number;
+	promptChars?: number;
 }
 
 export interface ScenarioResult {
@@ -70,8 +88,10 @@ export interface ScenarioResult {
 	durationMs: number;
 	/** LLM judge verdicts when judge criteria were evaluated. */
 	judgeVerdicts?: JudgeVerdictResult[];
-	/** Full agent transcript when available (for HTML reports). */
+	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
+	/** Absolute path to the debug bundle directory when --debug wrote one. */
+	debugBundleDir?: string;
 }
 
 export interface SuiteRunReport {

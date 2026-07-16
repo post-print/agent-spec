@@ -41,6 +41,7 @@ See repo-root `.env.example`. Common knobs:
 | Variable                                    | Purpose                                          |
 | ------------------------------------------- | ------------------------------------------------ |
 | `CURSOR_API_KEY`                            | Required for `--live` and judge classifiers      |
+| `AGENT_TEST_DEBUG`                          | Same as `--debug` when `1`/`true`                |
 | `AGENT_TEST_VERBOSE`                        | Extra tips (e.g. OOM isolation) when `1`         |
 | `AGENT_TEST_VERBOSE_PATHS`                  | Print full paths when `1`                        |
 | `AGENT_TEST_QUIET`                          | Suppress progress when `1`                       |
@@ -51,6 +52,37 @@ See repo-root `.env.example`. Common knobs:
 | `AGENT_TEST_SCENARIO_SETTLE_MS`             | Settle delay between live scenarios              |
 | `CURSOR_AGENT_MODEL` / `CURSOR_JUDGE_MODEL` | Optional model overrides                         |
 | `CURSOR_JUDGE_TEMPERATURE`                  | Optional judge temperature                       |
+
+## Debug mode
+
+```bash
+npx agent-test --suites-dir agent-suites --suite smoke --debug
+npx agent-test --suites-dir agent-suites --live --debug --debug-dir ./agent-test-debug
+```
+
+`--debug` (or `AGENT_TEST_DEBUG=1`) implies `--keep-recordings`, verbose failure detail, and full paths. Failed scenarios write a bundle under the session root:
+
+```
+sessions/<id>/<suite>/<scenario>.debug/
+  transcript.md
+  trace.json
+  failures.json          # includes category + evidence
+  judge-debug.json       # when judge criteria ran (SDK status/error, sizes, attempt)
+  environment.json       # versions/models/timeout/isolation; CURSOR_API_KEY only as boolean
+  rerun.sh               # shell-quoted exact re-run command (export CURSOR_API_KEY yourself)
+```
+
+`--debug-dir <path>` replaces `$TMPDIR/agent-spec` as the sessions parent (`<path>/sessions/<id>/…`).
+
+Failure categories printed on FAIL lines and in `failures.json`:
+
+| Category | Meaning |
+| --- | --- |
+| `rubric_miss` | Assertion/judge criterion miss |
+| `judge_infra` | Judge SDK/API failure (not a criterion miss) |
+| `agent_runtime` | Agent session error, timeout, AskQuestion, subprocess exit |
+| `worktree_leak` | Live agent mutated the caller working tree |
+| `recording_error` | Failed to persist a staging/fixture trace |
 
 ## Live dogfood
 
