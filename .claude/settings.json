@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node node_modules/@csark0812/skeleton/dist/cli.js hook customize"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node node_modules/@csark0812/skeleton/dist/cli.js hook customize"
+          }
+        ]
+      }
+    ]
+  }
+}

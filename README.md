@@ -1,13 +1,17 @@
 # agent-spec
 
+**Source of truth for** package overview.
+
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+
 Executable specs for coding-agent behavior.
 
 ## Packages
 
-| Package | Purpose |
-| --- | --- |
+| Package                                         | Purpose                                                                           |
+| ----------------------------------------------- | --------------------------------------------------------------------------------- |
 | [`@post-print/agent-harness`](packages/harness) | Host-agnostic agent runtime: context load, replay, Cursor adapter, capture, judge |
-| [`@post-print/agent-test`](packages/test) | Scenario runner + `agent-test` CLI |
+| [`@post-print/agent-test`](packages/test)       | Scenario runner + `agent-test` CLI                                                |
 
 Consumer repos keep suites locally (for example `agent-suites/<suite>/scenarios.json`) and depend on these packages from npm.
 

@@ -1,5 +1,9 @@
 # @post-print/agent-test
 
+**Source of truth for** agent-test package.
+
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+
 Jest-shaped agent scenario runner built on `@post-print/agent-harness`.
 
 ## CLI

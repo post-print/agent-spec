@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=node_modules/@csark0812/skeleton/schemas/config.schema.json
+
+scan:
+  include:
+    - "README.md"
+    - "AGENTS.md"
+    - "packages/*/README.md"
+    - ".skeleton/registry.md"
+  exclude:
+    - ".agents/skills/**"
+    - ".claude/skills/**"
+    - "**/references/**"
+    - "**/node_modules/**"
+  banned: []
+  retiredSkills: []
+
+daysUntilStale: 180
+
+skillOwnership:
+  lockfile: skills-lock.json
+
+# Optional: basenames under .skeleton/customize/ appended on every skill inject
+# customize:
+#   alwaysInclude:
+#     - shared-agent-references.md
+
+# Optional: plugin `.ts` entries relative to .skeleton/ (built sibling `.mjs` required)
+# plugins: []
+# Optional: draft-marker allow-list prefixes (plus `_draft-*.md` filenames)
+# draftPathPrefixes: []

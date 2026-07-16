@@ -1,9 +1,18 @@
 # @post-print/agent-harness
 
+**Source of truth for** agent-harness package.
+
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+
 Host-agnostic agent runtime for capture, replay, and judging.
 
 ```ts
-import { runAgent, loadContext, judgeTrace, createScenarioWorktree } from "@post-print/agent-harness";
+import {
+  runAgent,
+  loadContext,
+  judgeTrace,
+  createScenarioWorktree,
+} from "@post-print/agent-harness";
 
 const context = await loadContext({ cwd: process.cwd(), profile: "cursor" });
 const session = await runAgent({
