@@ -23,19 +23,20 @@ Not for: PR description/body authoring (separate skill), Cursor `/review-bugbot`
 
 ## Quick reference
 
-| Need                            | Reference                                                                                                   |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Modes, diff, depth, escalation  | [references/modes.md](references/modes.md)                                                                  |
-| Default filing (merge-blockers) | [references/merge-blockers.md](references/merge-blockers.md)                                                |
-| Council dispatch + spawn        | [references/council-dispatch.md](references/council-dispatch.md) · [`multi`](../multi/SKILL.md) kernel      |
-| Agent selection                 | [references/agent-selection.md](references/agent-selection.md)                                              |
-| Review synthesis                | [references/synthesis.md](references/synthesis.md)                                                          |
-| Output                          | [references/output.md](references/output.md) — scannable finding-block shape (not Cursor `bugbot` subagent) |
-| Fix-loop convergence            | [references/fix-loop-ledger.md](references/fix-loop-ledger.md) — stable themes, invariant matrix, exit gate |
+| Need                            | Reference                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Modes, diff, depth, escalation  | [references/modes.md](references/modes.md)                                                                    |
+| Default filing (merge-blockers) | [references/merge-blockers.md](references/merge-blockers.md)                                                  |
+| Council dispatch + spawn        | [references/council-dispatch.md](references/council-dispatch.md) · [`multi`](../multi/SKILL.md) kernel        |
+| Agent selection                 | [references/agent-selection.md](references/agent-selection.md)                                                |
+| Review synthesis                | [references/synthesis.md](references/synthesis.md)                                                            |
+| Output                          | [references/output.md](references/output.md) — scannable finding-block shape (not Cursor `bugbot` subagent)   |
+| Anti-thrash preflight           | [references/anti-thrash.md](references/anti-thrash.md) — detect, reconstruct, classify before dispatch        |
+| Fix-loop continuity             | [references/fix-loop-ledger.md](references/fix-loop-ledger.md) — themes, matrix, exit gate; findings-first UI |
 
 ## Workflow
 
-1. **Anti-thrash preflight + mode + depth** — explicit or auto-detect mode ([modes.md](references/modes.md)). **Before any council dispatch**, run the [anti-thrash preflight](#anti-thrash-preflight). Apply pr/merge escalation, then calibrate fix-loop depth per [modes.md](references/modes.md) § Contextual re-review (targeted closure vs Full). When prior Action findings exist, reconstruct and carry the stable-theme ledger from [fix-loop-ledger.md](references/fix-loop-ledger.md); derive applicable invariant-matrix rows and each theme’s sweep plan before dispatch. **Filing mode:** default **merge-blockers only** ([merge-blockers.md](references/merge-blockers.md)) unless user said include improvements / full audit / hardening pass / polish / test inventory / exhaustive triggers. Record depth **and** pass class (`first-baseline` / `closure-re-review` / `new-scope-review`) in synthesis header per [output.md](references/output.md) § Status line.
+1. **Anti-thrash preflight + mode + depth** — explicit or auto-detect mode ([modes.md](references/modes.md)). **Before any council dispatch**, run [anti-thrash.md](references/anti-thrash.md). Apply pr/merge escalation, then calibrate fix-loop depth per [modes.md](references/modes.md) § Contextual re-review (targeted closure vs Full). When prior Action findings exist, reconstruct and carry the stable-theme ledger from [fix-loop-ledger.md](references/fix-loop-ledger.md); derive applicable invariant-matrix rows and each theme’s sweep plan before dispatch. **Filing mode:** default **merge-blockers only** ([merge-blockers.md](references/merge-blockers.md)) unless user said include improvements / full audit / hardening pass / polish / test inventory / exhaustive triggers. Record depth **and** pass class (`first-baseline` / `closure-re-review` / `new-scope-review`) in synthesis header per [output.md](references/output.md) § Status line.
 2. **Diff** — per modes.md (`pr`/`merge` → [shared.md](references/shared.md)).
 3. **Council dispatch (mandatory spawn)** — parallel council per [council-dispatch.md](references/council-dispatch.md) ([`multi`](../multi/SKILL.md) kernel) → [synthesis.md](references/synthesis.md) → [output.md](references/output.md).
 
@@ -46,34 +47,11 @@ Not for: PR description/body authoring (separate skill), Cursor `/review-bugbot`
    - [`multi` Fit check](../multi/SKILL.md#fit-check) does **not** apply once this skill is running — this entry skill already chose parallel council.
    - **Mandatory before spawn:** append [task-prompt-review.md](references/task-prompt-review.md) § Default filing overlay to **every** member prompt (and coordinator plan). When consumer overlay context was injected on skill read, prefer that overlay set (Filing gate / product-intent / Baseline / Contextual Full) over portable `task-prompt-review.md` thinned sections alone. Missing injected overlay when one is configured = incomplete dispatch.
 
-4. **Chat handoff** — when fix-loop applies: if fix pass, end with the updated ledger (copy-pasteable `## Fix-loop ledger` block **and** durable `_agent/review/REVIEW_LEDGER.md`), validation evidence, and hotspot list. Re-review must reconcile every candidate to a stable theme and include **Baseline contradictions** when prior synthesis exists.
+4. **Chat handoff** — default user output is findings-first per [output.md](references/output.md): header → Action finding blocks with `Theme: …` → at most one `Continuity:` line when themes remain open/reopened → synthesis. Carry the full theme table + sweeps in **member prompts** ([fix-loop-ledger.md](references/fix-loop-ledger.md)), not in default chat. Leave out `## Fix-loop` / theme tables / `## Baseline contradictions` unless the user asked `include continuity` / `show ledger`. On green: omit Continuity; if an old leftover review ledger file is present, delete it. Re-review reconciles every candidate to a stable theme.
 
-**Order when fix-loop applies:** council → synthesis → chat findings → handoff if fix pass → end turn.
+**Order when fix-loop applies:** council → synthesis → findings (+ Continuity if open) → cleanup leftover file if green → end turn.
 
 **Merge gate (human):** Merge-ready / “final blockers” language is allowed only when the [fix-loop exit gate](references/fix-loop-ledger.md#exit-gate) passes. Zero findings alone is insufficient.
-
-## Anti-thrash preflight
-
-Run this before step 3 on every `pr`, `review vs main`, and `merge` review — **not** only when this chat already has prior review output:
-
-1. **Detect repeated review** — MUST treat as repeated when any is true:
-   - Same branch/thread as a prior `Review · …` pass, or user asked to re-review after fixes.
-   - Bare prompts (`review`, `review vs main`, `check the PR`) with **no** in-message ledger.
-   - Same branch with recent review-fix commits after a Full/Thorough Action pass.
-   - Prior `Review ·` synthesis, ledger block, or fix-loop handoff in commit messages, PR body, or `_agent/review/REVIEW_LEDGER.md` (legacy: repo-root `REVIEW_LEDGER.md`).
-2. **Reconstruct the ledger** — rebuild the stable-theme table from, in order ([fix-loop-ledger.md](references/fix-loop-ledger.md)):
-   1. In-message synthesis / chat handoff (if present).
-   2. `_agent/review/REVIEW_LEDGER.md` (if present); else legacy repo-root `REVIEW_LEDGER.md` (migrate into `_agent/review/` on next write).
-   3. Prior synthesis embedded in PR body (if present).
-   4. Recent commit messages containing a ledger or `Review ·` block.
-      Do not reset closed themes. Missing chat context alone MUST NOT imply `first-baseline`.
-3. **Classify the request** (record in dispatch plan and synthesis header as `Pass class:`):
-   - `first-baseline` — no prior Action findings for this diff/PR **and** no recoverable ledger from step 2.
-   - `fix-implementation` — user asked to implement/address findings (not a re-review yet).
-   - `closure-re-review` — re-review after fixes; recent review-fix commits and/or recoverable ledger; latest diff only touches prior themes / their sweep surfaces. **Default** when step 1 detects repeated review and ledger recovery succeeds.
-   - `new-scope-review` — re-review where scope materially expanded (new subsystems, new boundaries outside the ledger), ledger unrecoverable after step 2, or contradictions unresolved.
-4. **Choose depth lane** — `closure-re-review` → MUST prefer [targeted contextual re-review](references/modes.md#contextual-re-review) over another Full baseline council. Whole-branch file/line size thresholds MUST NOT alone promote to Full on this lane ([modes.md](references/modes.md)). Promote to Full contextual only when [modes.md](references/modes.md) § Contextual re-review lists a qualifying reason **other than** size alone. `new-scope-review` and `first-baseline` follow normal escalation.
-5. **Thrash signal** — if the prior pass filed **two or more** Action blockers in the same subsystem / theme family, or the same `theme_id` **reopened** on pass 2+, MUST NOT spawn a symptom-hunting Full council. Require a [same-invariant sweep](references/fix-loop-ledger.md#same-invariant-sweep) for that family before filing more Action blocks; MUST NOT claim merge-ready until variant coverage is explicit.
 
 **Routing:** PR description / body → separate authoring skill. Review / check / analyze → here.
 
@@ -81,7 +59,7 @@ Run this before step 3 on every `pr`, `review vs main`, and `merge` review — *
 
 Project-specific injected context is appended on skill read. Do not edit synced copies in place.
 
-**Fix implementation:** User "address all" / "fix all" / "yes" to ship-blockers → read prior synthesis and ledger (including `_agent/review/REVIEW_LEDGER.md` if present) before coding; implement invariant-complete theme batches; add regression evidence; run the repo’s authoritative validation lane; end with copy-pasteable ledger handoff **and** updated `_agent/review/REVIEW_LEDGER.md` (never commit).
+**Fix implementation:** User "address all" / "fix all" / "yes" to ship-blockers → read prior synthesis and themes (findings / git archaeology) before coding; implement invariant-complete theme batches; add regression evidence; run the repo’s authoritative validation lane; end with findings + Continuity line if themes remain open (full theme table only if user asked `show ledger` / `include continuity`). On green, delete any leftover review ledger file if present.
 
 ## Output format
 

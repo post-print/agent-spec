@@ -37,14 +37,14 @@ Agent budget table: [agent-selection.md](agent-selection.md).
 
 ### Contextual re-review
 
-Pass 2+ is **not** an automatic Full council. After [anti-thrash preflight](../SKILL.md#anti-thrash-preflight), choose a lane:
+Pass 2+ is **not** an automatic Full council. After [anti-thrash preflight](anti-thrash.md), choose a lane:
 
 **Prefer targeted contextual re-review** (`closure-re-review`) when all are true:
 
-- A stable-theme ledger exists from a prior pass (recovered from chat, `_agent/review/REVIEW_LEDGER.md`, PR body, or git — not only in-message).
-- The latest fix commit / diff only touches prior themes and their [sweep surfaces](fix-loop-ledger.md#same-invariant-sweep).
+- Stable themes exist from a prior pass **or** were reconstructed via anti-thrash archaeology (finding `Theme:` lines, PR body, git log / commit-stack hotspots; old leftover file read once if present).
+- The latest fix commit / tip stack only touches prior themes, their [sweep surfaces](fix-loop-ledger.md#same-invariant-sweep), or multi-pass hotspots (including when themes look `closed` but tip is another narrow patch on that hotspot — verify exit gate).
 - No unresolved baseline contradictions.
-- Scope did not materially expand (no new subsystems / public-contract surfaces outside the ledger).
+- Scope did not materially expand (no new subsystems / public-contract surfaces outside reconstructed / provisional themes).
 - Whole-branch `main...HEAD` exceeds file/line size thresholds — **does not** override this lane when classified `closure-re-review`. Record the carve-out in the synthesis header.
 
 Targeted lane rules:
@@ -56,7 +56,7 @@ Targeted lane rules:
 
 **Promote to Full contextual re-review** when any:
 
-- Ledger missing or corrupted **after** ordered recovery ([SKILL.md anti-thrash preflight](../SKILL.md#anti-thrash-preflight) step 2).
+- Themes cannot be bounded after ordered recovery ([anti-thrash.md](anti-thrash.md) step 2) — chat, PR, git archaeology, and any legacy leftover all fail. A missing durable ledger file alone is **not** enough when tip history shows a micro-fix trail on known hotspots.
 - Unresolved baseline contradictions.
 - Diff introduces new subsystems, boundaries, or auth/security/API/schema paths **outside** the recovered ledger scope.
 - User explicitly asked for Full / exhaustive / include improvements on this re-review.

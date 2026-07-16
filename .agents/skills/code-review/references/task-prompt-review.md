@@ -84,21 +84,23 @@ Do **not** hardcode consumer repo paths in this toolbox file.
 ## Contextual ledger overlay (pass 2+)
 
 When prior Action findings exist — including when the coordinator **recovered**
-the ledger from `_agent/review/REVIEW_LEDGER.md`, PR body, or git rather than the user
-message — append to the coordinator plan and every member prompt in addition
-to any consumer overlay. Record recovery source in the dispatch plan. Use the
-matching depth lane:
+themes from finding `Theme:` lines, PR body, git archaeology, or an old leftover
+file rather than the user message — append to the coordinator plan and every
+member prompt in addition to any consumer overlay. Record recovery source in the
+dispatch plan. Use the matching depth lane:
 
 ```
 Fix-loop: contextual re-review
 Pass lane: <targeted contextual | Full contextual>
-Ledger recovery source: <chat | _agent/review/REVIEW_LEDGER.md | PR body | git log>
-Prior synthesis + ledger: <paste current stable-theme ledger>
+Theme recovery source: <chat findings | PR body | git log | commit-stack archaeology | legacy leftover | none>
+Prior synthesis + themes: <paste current stable-theme table for members>
 Sweep plans: <paste Sweep · theme-id blocks>
 Depth: <Standard|Quick|Full>; diff: whole branch + sweep surfaces
+User output: findings + Theme ids; Continuity one-liner if open; full theme table only if user asked show ledger.
 
 Reject sibling Action themes for adjacent variants — extend/reopen the existing theme_id.
 If the same theme_id reopened on pass 2+, complete the same-invariant sweep before filing more Action blocks in that family.
+For parser/classifier (high-dimensional) themes: refuse closed until fix-loop-ledger.md § High-dimensional contract themes checklist is complete.
 
 Read the assigned scope independently, then reconcile every candidate:
 1. Same theme, incomplete fix → reopen existing theme_id.
@@ -109,9 +111,12 @@ Read the assigned scope independently, then reconcile every candidate:
 Reject fresh Action blocks for adjacent variants unless the root invariant differs.
 For every theme marked closed or newly fixed, ask: what other variants of this
 invariant would fail if this fix is too narrow? Check fix-loop-ledger.md
-§ Same-invariant sweep, § Variant coverage before closure, and the applicable matrix rows.
+§ Same-invariant sweep, § Variant coverage before closure, § High-dimensional
+contract themes, and the applicable matrix rows.
 
-Thrash signal: if 2+ blockers share a subsystem/theme family, stop filing symptoms and perform a holistic invariant audit under one theme_id.
+Thrash signal: if 2+ blockers share a subsystem/theme family, or tip is another
+micro-fix on a multi-pass hotspot, stop filing symptoms and perform a holistic
+invariant audit under one theme_id.
 
 Identify files/subsystems changed in 2+ fix passes and review those hotspots holistically.
 Do not claim merge-ready or "final blockers" unless fix-loop-ledger.md § Exit gate passes.
