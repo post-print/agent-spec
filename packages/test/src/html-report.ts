@@ -87,7 +87,7 @@ function renderMessages(trace: AgentTrace | undefined): string {
 function renderJudgeVerdicts(result: ScenarioResult): string {
 	const verdicts = result.judgeVerdicts;
 	if (!verdicts || verdicts.length === 0) {
-		return `<p class="muted">No judge verdicts.</p>`;
+		return "";
 	}
 
 	const items = verdicts
@@ -110,7 +110,7 @@ function renderJudgeVerdicts(result: ScenarioResult): string {
 
 function renderFailures(result: ScenarioResult): string {
 	if (result.failures.length === 0) {
-		return `<p class="muted">No assertion failures.</p>`;
+		return "";
 	}
 
 	const items = result.failures
@@ -128,6 +128,15 @@ function renderFailures(result: ScenarioResult): string {
 
 function renderScenario(result: ScenarioResult): string {
 	const open = result.passed || result.skipped ? "" : " open";
+	const failures = renderFailures(result);
+	const judgeVerdicts = renderJudgeVerdicts(result);
+	const diagnostics =
+		failures || judgeVerdicts
+			? `<div class="diagnostics">
+    ${failures ? `<section><h3>Failures</h3>${failures}</section>` : ""}
+    ${judgeVerdicts ? `<section><h3>Judge</h3>${judgeVerdicts}</section>` : ""}
+  </div>`
+			: "";
 	return `
 <details class="scenario ${statusClass(result)}"${open}>
   <summary>
@@ -135,18 +144,13 @@ function renderScenario(result: ScenarioResult): string {
     <span class="scenario-name">${escapeHtml(result.scenario)}</span>
     <span class="duration">${escapeHtml(formatDuration(result.durationMs))}</span>
   </summary>
-  <section>
-    <h3>Failures</h3>
-    ${renderFailures(result)}
-  </section>
-  <section>
-    <h3>Judge</h3>
-    ${renderJudgeVerdicts(result)}
-  </section>
-  <section>
+  <div class="scenario-body">
+  ${diagnostics}
+  <section class="conversation">
     <h3>Conversation</h3>
     ${renderMessages(result.trace)}
   </section>
+  </div>
 </details>`;
 }
 
@@ -154,10 +158,10 @@ function renderSuite(report: SuiteRunReport): string {
 	const scenarios = report.results.map(renderScenario).join("\n");
 	return `
 <section class="suite">
-  <h2>${escapeHtml(report.suite)} <span class="muted">(${escapeHtml(report.host)})</span></h2>
-  <p class="suite-counts">
-    ${report.passed} passed · ${report.failed} failed · ${report.skipped} skipped
-  </p>
+  <header class="suite-header">
+    <div><h2>${escapeHtml(report.suite)}</h2><span class="host">${escapeHtml(report.host)}</span></div>
+    <p class="suite-counts">${report.passed} passed · ${report.failed} failed · ${report.skipped} skipped</p>
+  </header>
   ${scenarios}
 </section>`;
 }
@@ -199,76 +203,100 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
     background: var(--bg);
     color: var(--text);
-    line-height: 1.5;
+    line-height: 1.45;
   }
-  main { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
-  h1 { font-size: 1.6rem; margin: 0 0 0.35rem; }
-  h2 { font-size: 1.25rem; margin: 2rem 0 0.5rem; }
-  h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
-  h4 { font-size: 0.9rem; margin: 1rem 0 0.35rem; color: var(--muted); }
+  main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+  h1 { font-size: 1.45rem; margin: 0; letter-spacing: -0.02em; }
+  h2 { font-size: 1.1rem; margin: 0; }
+  h3 { font-size: 0.78rem; margin: 0 0 0.45rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+  h4 { font-size: 0.78rem; margin: 0.8rem 0 0.3rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .muted { color: var(--muted); }
+  .report-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }
+  .report-kicker { color: var(--muted); font-size: 0.78rem; }
   .summary {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 1rem 1.15rem;
+    padding: 0.7rem 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
   }
+  .stats { display: flex; gap: 0.45rem; align-items: center; }
+  .stat { padding: 0.3rem 0.55rem; border-radius: 6px; background: #111923; font-size: 0.8rem; }
+  .stat strong { font-size: 1rem; margin-right: 0.25rem; }
+  .stat-pass strong { color: var(--pass); }
+  .stat-fail strong { color: var(--fail); }
+  .stat-skip strong { color: var(--skip); }
   .summary dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.25rem 1rem;
-    margin: 0.75rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.15rem 1rem;
+    margin: 0;
+    font-size: 0.78rem;
   }
-  .summary dt { color: var(--muted); }
+  .summary dt { color: var(--muted); margin-right: -0.7rem; }
   .summary dd { margin: 0; }
-  .suite-counts { color: var(--muted); margin: 0 0 1rem; }
+  .suite { margin-top: 1.25rem; }
+  .suite-header { display: flex; align-items: end; justify-content: space-between; margin: 0 0 0.5rem; padding: 0 0.2rem; }
+  .suite-header > div { display: flex; align-items: center; gap: 0.5rem; }
+  .host { color: var(--muted); font-size: 0.72rem; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.4rem; }
+  .suite-counts { color: var(--muted); margin: 0; font-size: 0.78rem; }
   details.scenario {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 10px;
-    margin: 0.65rem 0;
-    padding: 0.65rem 0.9rem 0.9rem;
+    margin: 0.45rem 0;
+    overflow: hidden;
   }
   details.scenario summary {
     cursor: pointer;
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem 0.75rem;
+    gap: 0.45rem 0.65rem;
     align-items: center;
     list-style: none;
+    padding: 0.55rem 0.7rem;
   }
+  details.scenario[open] summary { border-bottom: 1px solid var(--border); background: #17202d; }
   details.scenario summary::-webkit-details-marker { display: none; }
-  .scenario-name { font-weight: 600; }
+  .scenario-name { font-weight: 600; font-size: 0.9rem; }
   .duration { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
   .badge {
     display: inline-block;
-    font-size: 0.75rem;
+    font-size: 0.66rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    padding: 0.15rem 0.45rem;
+    padding: 0.1rem 0.4rem;
     border-radius: 999px;
     border: 1px solid transparent;
   }
   .status-passed, .badge-pass { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); }
   .status-failed, .badge-fail { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
   .status-skipped { color: var(--skip); border-color: color-mix(in srgb, var(--skip) 40%, transparent); }
-  .failures, .tool-calls, .shell-commands { margin: 0; padding-left: 1.1rem; }
-  .failures li, .tool-calls li, .shell-commands li { margin: 0.35rem 0; }
+  .scenario-body { padding: 0.7rem; }
+  .diagnostics { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.7rem; margin-bottom: 0.7rem; }
+  .diagnostics section { background: #141c28; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; min-width: 0; }
+  .conversation { min-width: 0; }
+  .failures, .tool-calls, .shell-commands { margin: 0; padding-left: 1rem; }
+  .failures li, .tool-calls li, .shell-commands li { margin: 0.25rem 0; }
   pre {
     white-space: pre-wrap;
     word-break: break-word;
     background: #0b1017;
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 0.65rem 0.75rem;
-    margin: 0.35rem 0 0;
-    font-size: 0.85rem;
+    padding: 0.5rem 0.6rem;
+    margin: 0.25rem 0 0;
+    font-size: 0.8rem;
   }
   .message {
     border: 1px solid var(--border);
     border-radius: 8px;
-    margin: 0.55rem 0;
+    margin: 0.4rem 0;
     overflow: hidden;
   }
   .message header {
@@ -276,7 +304,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    padding: 0.35rem 0.65rem;
+    padding: 0.25rem 0.55rem;
     background: #121a26;
   }
   .message.role-user header { color: var(--user); }
@@ -287,20 +315,34 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   .verdict {
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 0.65rem 0.75rem;
-    margin: 0.55rem 0;
+    padding: 0.5rem 0.6rem;
+    margin: 0.35rem 0;
   }
   .verdict header { display: flex; gap: 0.5rem; align-items: center; }
-  .question { margin: 0.4rem 0 0; }
-  .rationale { margin-top: 0.5rem; }
+  .question { margin: 0.3rem 0 0; font-size: 0.88rem; }
+  .rationale { margin-top: 0.35rem; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+  @media (max-width: 720px) {
+    main { padding: 0.75rem; }
+    .summary { align-items: flex-start; flex-direction: column; }
+    .summary dl { justify-content: flex-start; }
+    .suite-header { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
+    .diagnostics { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 <main>
-  <h1>agent-test report</h1>
+  <header class="report-header">
+    <h1>agent-test report</h1>
+    <span class="report-kicker">${reports.length} suite${reports.length === 1 ? "" : "s"}</span>
+  </header>
   <div class="summary">
-    <p>${totalPassed} passed · ${totalFailed} failed · ${totalSkipped} skipped</p>
+    <div class="stats">
+      <span class="stat stat-pass"><strong>${totalPassed}</strong> passed</span>
+      <span class="stat stat-fail"><strong>${totalFailed}</strong> failed</span>
+      <span class="stat stat-skip"><strong>${totalSkipped}</strong> skipped</span>
+    </div>
     <dl>
       <dt>Host</dt><dd>${escapeHtml(String(host))}</dd>
       <dt>Generated</dt><dd>${escapeHtml(generatedAt.toISOString())}</dd>
