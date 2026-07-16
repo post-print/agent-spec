@@ -77,24 +77,26 @@ export function normalizeSdkRunStatus(status: string): "completed" | "failed" {
 	return status === "finished" || status === "completed" ? "completed" : "failed";
 }
 
-async function cancelSdkRun(run: CancellableSdkRun | undefined): Promise<void> {
+function cancelSdkRun(run: CancellableSdkRun | undefined): void {
 	if (!run) {
 		return;
 	}
 
-	try {
-		if (typeof run.supports === "function" && run.supports("cancel")) {
-			await run.cancel?.();
+	void (async () => {
+		try {
+			if (typeof run.supports === "function" && run.supports("cancel")) {
+				await run.cancel?.();
+			}
+		} catch {
+			// best-effort
 		}
-	} catch {
-		// best-effort
-	}
 
-	try {
-		await run.wait();
-	} catch {
-		// expected after cancel or timeout
-	}
+		try {
+			await run.wait();
+		} catch {
+			// expected after cancel or timeout
+		}
+	})();
 }
 
 /** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
@@ -121,7 +123,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 		const run = (await agent.send(options.prompt)) as CancellableSdkRun;
 		activeRun = run;
 		if (timedOut) {
-			await cancelSdkRun(run);
+			cancelSdkRun(run);
 			throw new AgentRunTimeoutError(options.timeoutMs ?? 0);
 		}
 
@@ -141,7 +143,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 				trace: finalizeTraceAccumulator(acc),
 			};
 		} catch (error) {
-			await cancelSdkRun(run);
+			cancelSdkRun(run);
 			throw error;
 		} finally {
 			activeRun = undefined;
@@ -150,9 +152,9 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 
 	if (options.timeoutMs && options.timeoutMs > 0) {
 		return withRunTimeout(execute, options.timeoutMs, {
-			onTimeout: async () => {
+			onTimeout: () => {
 				timedOut = true;
-				await cancelSdkRun(activeRun);
+				cancelSdkRun(activeRun);
 			},
 		});
 	}

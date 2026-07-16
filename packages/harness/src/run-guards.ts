@@ -62,14 +62,8 @@ export async function withRunTimeout<T>(
 			operationPromise,
 			new Promise<T>((_, reject) => {
 				timeoutId = setTimeout(() => {
-					void (async () => {
-						try {
-							await options?.onTimeout?.();
-						} catch {
-							// best-effort
-						}
-						reject(new AgentRunTimeoutError(timeoutMs));
-					})();
+					void options?.onTimeout?.();
+					reject(new AgentRunTimeoutError(timeoutMs));
 				}, timeoutMs);
 			}),
 		]);

@@ -67,6 +67,24 @@ describe("withRunTimeout", () => {
 		expect(onTimeout).toHaveBeenCalledOnce();
 		vi.useRealTimers();
 	});
+
+	it("rejects on deadline even when onTimeout does not settle", async () => {
+		vi.useFakeTimers();
+		const onTimeout = vi.fn(() => new Promise<void>(() => {}));
+		const late = withRunTimeout(
+			() =>
+				new Promise<string>((resolve) => {
+					setTimeout(() => resolve("late"), 200);
+				}),
+			50,
+			{ onTimeout },
+		);
+		const expectation = expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
+		await vi.advanceTimersByTimeAsync(50);
+		await expectation;
+		expect(onTimeout).toHaveBeenCalledOnce();
+		vi.useRealTimers();
+	});
 });
 
 describe("UserInputRequiredError", () => {
