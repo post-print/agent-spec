@@ -194,6 +194,9 @@ describe("parseJudgeJsonResponse", () => {
 			'```typescript\n"yes"\n```',
 			'```jsonc\n"yes"\n```',
 			'```python\n"no"\n```',
+			'Answer:\n```json\n"yes"\n```',
+			'Here is my verdict:\n```json\n"no"\n```',
+			'Answer:\n```js\n"yes"\n```',
 		]) {
 			const parsed = parseJudgeResponse(raw);
 			expect(parsed.valid, raw).toBe(false);
@@ -261,6 +264,18 @@ describe("parseJudgeJsonResponse", () => {
 			const parsed = parseJudgeResponse(raw);
 			expect(parsed.valid, raw).toBe(true);
 			expect(parsed.pass, raw).toBe(true);
+		}
+	});
+
+	it("still salvages YES/NO from digit-prefixed English prose", () => {
+		for (const [raw, pass] of [
+			["3 findings support this.\nYES", true],
+			["12 files changed.\nNO", false],
+			["1 finding:\nYES", true],
+		] as const) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(true);
+			expect(parsed.pass, raw).toBe(pass);
 		}
 	});
 

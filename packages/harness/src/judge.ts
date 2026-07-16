@@ -86,6 +86,32 @@ const JUDGE_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
 /** Complete JSON number token (rejects bare `1.` with no fractional digits). */
 const JUDGE_JSON_NUMBER_TOKEN = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/;
 const JUDGE_JSON_BOOL_NULL_TOKEN = /^(?:true|false|null)/i;
+/** Closed fences, or a trailing unclosed fence (prose preamble + open contract). */
+const MARKDOWN_FENCE_STRIP_PATTERN = /```[^\n`]*\s*[\s\S]*?(?:```|$)/g;
+
+/**
+ * After a complete JSON number/bool/null token: whether the remainder is
+ * contract junk (latch) vs English continuation (allow YES/NO salvage).
+ *
+ * `true\nYES` / `3 YES` / `42,` → latch. `true story` / `3 findings` → salvage.
+ */
+function jsonPrimitiveRemainderIsContract(rest: string): boolean {
+	if (rest === "") {
+		return true;
+	}
+	const restTrim = rest.trimStart();
+	if (restTrim === "") {
+		return true;
+	}
+	const firstWord = /^([A-Za-z]+)/.exec(restTrim)?.[1]?.toLowerCase();
+	if (firstWord === "yes" || firstWord === "no") {
+		return true;
+	}
+	if (/^[A-Za-z]/.test(restTrim)) {
+		return false;
+	}
+	return true;
+}
 
 /**
  * Detect truncated/unparseable JSON-shaped contract attempts. Only replies
@@ -93,8 +119,8 @@ const JUDGE_JSON_BOOL_NULL_TOKEN = /^(?:true|false|null)/i;
  * mention of ```json or an incidental blob is not a contract attempt.
  *
  * Number/bool/null prefixes latch only for a complete JSON token (optionally
- * with trailing junk). Numbered-list prose (`1. …`) and English uses of
- * true/false/null (`true story`) must not latch — YES/NO salvage still applies.
+ * with trailing junk). Numbered-list prose (`1. …`) and English continuations
+ * (`true story`, `3 findings`) must not latch — YES/NO salvage still applies.
  */
 function looksLikeJudgeJsonAttempt(text: string): boolean {
 	const trimmed = text.trim();
@@ -112,32 +138,20 @@ function looksLikeJudgeJsonAttempt(text: string): boolean {
 		if (/^[.)]/.test(rest)) {
 			return false;
 		}
-		return true;
+		return jsonPrimitiveRemainderIsContract(rest);
 	}
 
 	const boolNull = JUDGE_JSON_BOOL_NULL_TOKEN.exec(trimmed);
 	if (boolNull) {
-		const rest = trimmed.slice(boolNull[0].length);
-		if (rest === "") {
-			return true;
-		}
-		const restTrim = rest.trimStart();
-		if (restTrim === "") {
-			return true;
-		}
-		// `true\nYES` / `null YES` — token plus legacy verdict junk → refuse.
-		// `true story` / `null findings` — English word continuation → salvage.
-		const firstWord = /^([A-Za-z]+)/.exec(restTrim)?.[1]?.toLowerCase();
-		if (firstWord === "yes" || firstWord === "no") {
-			return true;
-		}
-		if (/^[A-Za-z]/.test(restTrim)) {
-			return false;
-		}
-		return true;
+		return jsonPrimitiveRemainderIsContract(trimmed.slice(boolNull[0].length));
 	}
 
 	return false;
+}
+
+/** Drop fenced bodies so legacy YES/NO does not match inside quoted JSON strings. */
+function stripMarkdownFencesForLegacy(text: string): string {
+	return text.replace(MARKDOWN_FENCE_STRIP_PATTERN, "\n");
 }
 
 /**
@@ -380,7 +394,9 @@ export function parseJudgeResponse(text: string): ParsedJudgeJson {
 	if (result.valid || structured) {
 		return result;
 	}
-	return parseJudgeLegacyResponse(text);
+	// Strip fences so preamble + ```json\n"yes"\n``` cannot salvage from the
+	// quoted primitive; outer YES/NO beside incidental fences still works.
+	return parseJudgeLegacyResponse(stripMarkdownFencesForLegacy(text));
 }
 
 function buildJudgePrompt(transcript: string, question: string): string {
