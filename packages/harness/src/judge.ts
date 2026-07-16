@@ -83,6 +83,8 @@ type JudgeJsonParseAttempt = {
 // (`json`, `js`, `typescript`, bare, …). Mid-prose fence mentions do not match.
 const JUDGE_JSON_FENCE_OPEN_PATTERN = /^```/;
 const JUDGE_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
+/** Same prefixes legacy YES/NO strips — gate same-line JSON peels. */
+const JUDGE_VERDICT_PREFIX_PATTERN = /^(?:answer|verdict|line\s*1)\s*:\s*/i;
 /** Complete JSON number token (rejects bare `1.` with no fractional digits). */
 const JUDGE_JSON_NUMBER_TOKEN = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/;
 const JUDGE_JSON_BOOL_NULL_TOKEN = /^(?:true|false|null)/i;
@@ -255,12 +257,36 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 		}
 	}
 
-	// Line-leading `"…` / `[…` bodies under a prose preamble are contract peels
-	// (`Answer:\n"yes"`). Mid-line quotes and fenced interiors
-	// (`YES` + ```js\n"yes"\n```) stay incidental — fence bodies are handled
-	// via `fencedBody` / whole-reply fence primary above.
+	// Contract peels under a prose preamble (not mid-prose incidental quotes):
+	// - line-leading `"…` / `[…` (`Answer:\n"yes"`)
+	// - line-leading JSON number/bool/null (`Answer:\n42\nYES`)
+	// - same-line after answer|verdict|line 1: (`Answer: "yes"`, `Verdict: 42`)
+	// Mid-line quotes without that prefix (`YES` + ```js\n"yes"\n```) stay
+	// incidental — fence bodies use `fencedBody` / whole-reply fence primary.
 	const lineLeadingJsonValues = new Set<string>();
 	let insideFence = false;
+
+	const pushContractPeel = (value: string): void => {
+		const peel = value.trim();
+		if (!peel) {
+			return;
+		}
+		candidates.push(peel);
+		lineLeadingJsonValues.add(peel);
+	};
+
+	const isLineLeadingJsonPrimitive = (lineTrim: string): boolean => {
+		if (lineTrim.startsWith('"') || lineTrim.startsWith("[")) {
+			return true;
+		}
+		// Complete number/bool/null lines (optional contract junk) — not English
+		// (`3 findings`, `true story`) which looksLikeJudgeJsonAttempt rejects.
+		return (
+			looksLikeJudgeJsonAttempt(lineTrim) &&
+			(JUDGE_JSON_NUMBER_TOKEN.test(lineTrim) || JUDGE_JSON_BOOL_NULL_TOKEN.test(lineTrim))
+		);
+	};
+
 	for (const line of trimmed.split("\n")) {
 		const lineTrim = line.trim();
 		if (lineTrim.startsWith("```")) {
@@ -270,9 +296,20 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 		if (insideFence) {
 			continue;
 		}
-		if (lineTrim.startsWith('"') || lineTrim.startsWith("[")) {
-			candidates.push(lineTrim);
-			lineLeadingJsonValues.add(lineTrim);
+		if (isLineLeadingJsonPrimitive(lineTrim)) {
+			pushContractPeel(lineTrim);
+		}
+		const prefix = JUDGE_VERDICT_PREFIX_PATTERN.exec(lineTrim);
+		if (prefix) {
+			const remainder = lineTrim.slice(prefix[0].length).trim();
+			if (
+				remainder.startsWith('"') ||
+				remainder.startsWith("[") ||
+				remainder.startsWith("{") ||
+				isLineLeadingJsonPrimitive(remainder)
+			) {
+				pushContractPeel(remainder);
+			}
 		}
 	}
 
@@ -293,13 +330,10 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 				// Whole-text/fenced JSON primitives (`"yes"`, `42`, `true`, `null`)
 				// are contract attempts that violate the object contract — refuse
 				// and latch so callers do not YES/NO-salvage a quoted verdict.
-				// Line-leading yes/no strings under a preamble (`Answer:\n"yes"`)
-				// are the same wrong-shaped contract; mid-line quote peels stay
-				// incidental.
-				if (
-					primary ||
-					(lineLeading && typeof parsed === "string" && normalizeVerdict(parsed) !== undefined)
-				) {
+				// Preamble peels (`Answer:\n"yes"`, `Answer: "yes"`, `Answer:\n42`)
+				// are the same wrong-shaped contract; mid-line incidental quote
+				// peels stay out of `lineLeadingJsonValues`.
+				if (primary || lineLeading) {
 					return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 				}
 				continue;
@@ -373,7 +407,6 @@ export function parseJudgeJsonResponse(text: string): ParsedJudgeJson {
 }
 
 const JUDGE_MARKDOWN_TRIM_PATTERN = /^\*+\s*|\s*\*+$/g;
-const JUDGE_VERDICT_PREFIX_PATTERN = /^(?:answer|verdict|line\s*1)\s*:\s*/i;
 const JUDGE_TRAILING_PUNCT_PATTERN = /[.:!]+$/g;
 const JUDGE_TAIL_VERDICT_PATTERN = /\b(YES|NO)\.?\s*$/i;
 const JUDGE_INLINE_VERDICT_PATTERN = /\b(YES|NO)\b/i;

@@ -344,6 +344,64 @@ describe("parseJudgeJsonResponse", () => {
 		}
 	});
 
+	it("refuses salvage for same-line JSON peels after answer/verdict/line 1 prefixes", () => {
+		for (const raw of [
+			'Answer: "yes"',
+			'Answer: "YES"',
+			'Answer: "no"',
+			'Verdict: "no"',
+			'Verdict: "yes"',
+			'Line 1: "yes"',
+			'line 1: "NO"',
+			'Answer: ["yes"',
+			'Answer: ["yes"]',
+			'Verdict: ["no"]',
+			'Answer: "yes" clearly',
+			"Answer: 42",
+			"Answer: true",
+			"Answer: null",
+			"Answer: 42\nYES",
+			"Verdict: true\nYES",
+			"Line 1: null\nNO",
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
+			expect(parsed.rationale, raw).toMatch(/invalid JSON/i);
+		}
+	});
+
+	it("refuses salvage for prose-prefixed number/bool/null then YES/NO", () => {
+		for (const raw of [
+			"Answer:\n42\nYES",
+			"Answer:\ntrue\nYES",
+			"Answer:\nfalse\nYES",
+			"Answer:\nnull\nNO",
+			"Verdict:\n42\nYES",
+			"Sure:\n42\nYES",
+			"Here is my answer:\ntrue\nYES",
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
+			expect(parsed.rationale, raw).toMatch(/invalid JSON/i);
+		}
+	});
+
+	it("still salvages unquoted Answer/Verdict YES/NO and incidental quote prose", () => {
+		for (const [raw, pass] of [
+			["Answer: YES", true],
+			["Verdict: NO", false],
+			["Line 1: YES\nEvidence follows.", true],
+			['The answer is "yes" clearly.', true],
+			['YES\nThe answer is "yes" clearly.', true],
+		] as const) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(true);
+			expect(parsed.pass, raw).toBe(pass);
+		}
+	});
+
 	it("refuses salvage for prose-prefixed schema objects without verdict", () => {
 		for (const raw of [
 			'Here is my answer:\n{"evidence":[],"rationale":"YES clearly"}',
