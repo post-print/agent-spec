@@ -66,6 +66,15 @@ describe("parseJudgeJsonResponse", () => {
 		expect(parsed.valid).toBe(false);
 		expect(parsed.pass).toBe(false);
 	});
+
+	it("does not salvage YES/NO from truncated JSON objects", () => {
+		for (const raw of ['{"verdict":"yes"', '{"verdict":"no"', '```json\n{"verdict":"yes"\n```']) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(false);
+			expect(parsed.pass).toBe(false);
+			expect(parsed.rationale).toMatch(/invalid JSON/i);
+		}
+	});
 });
 
 describe("createScenarioWorktree", () => {

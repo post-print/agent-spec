@@ -68,13 +68,33 @@ function normalizeVerdict(value: unknown): "yes" | "no" | undefined {
 
 type JudgeJsonParseAttempt = {
 	result: ParsedJudgeJson;
-	/** True when a JSON object/array was parsed (even if the verdict contract failed). */
+	/**
+	 * True when the reply is a JSON contract attempt (successfully parsed
+	 * object/array, or truncated/unparseable JSON-shaped text). Callers must
+	 * not fall back to YES/NO prose salvage in that case.
+	 */
 	structured: boolean;
 };
 
+const JUDGE_JSON_FENCE_OPEN_PATTERN = /```(?:json)?\b/i;
+const JUDGE_JSON_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
+
+/** Detect JSON-contract attempts that failed to parse (truncated objects, etc.). */
+function looksLikeJudgeJsonAttempt(text: string): boolean {
+	const trimmed = text.trim();
+	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+		return true;
+	}
+	if (JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed)) {
+		return true;
+	}
+	return JUDGE_JSON_VERDICT_KEY_PATTERN.test(trimmed);
+}
+
 /**
  * Try structured judge JSON. `structured` is set when any candidate parsed as an
- * object/array — callers must not fall back to YES/NO prose salvage in that case.
+ * object/array, or when the text still looks like a JSON contract attempt —
+ * callers must not fall back to YES/NO prose salvage in that case.
  */
 function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 	const trimmed = text.trim();
@@ -128,7 +148,7 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 			evidence: [],
 			valid: false,
 		},
-		structured,
+		structured: structured || looksLikeJudgeJsonAttempt(trimmed),
 	};
 }
 
@@ -215,8 +235,9 @@ export function parseJudgeLegacyResponse(text: string): ParsedJudgeJson {
 
 /**
  * Parse structured JSON first, then legacy YES/NO prose.
- * Once a JSON object/array is found, never salvage YES/NO from the body —
- * invalid contracts are infra failures, not rubric answers.
+ * Once a JSON contract attempt is detected (parsed object/array or truncated
+ * JSON-shaped text), never salvage YES/NO from the body — invalid contracts
+ * are infra failures, not rubric answers.
  */
 export function parseJudgeResponse(text: string): ParsedJudgeJson {
 	const { result, structured } = tryParseJudgeJson(text);
