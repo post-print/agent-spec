@@ -78,6 +78,11 @@ export function shellQuote(value: string): string {
 	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/** Flatten text for a single `# …` shell comment (no newline breakout). */
+export function shellCommentText(value: string): string {
+	return value.replace(/[\r\n]+/g, " ").trim();
+}
+
 export function buildRerunCommand(options: DebugRerunOptions): string {
 	const args = [options.cliPath];
 	if (options.live) {
@@ -342,7 +347,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 	const rerunBody = [
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
-		`# Re-run failed scenario ${scenario.name}`,
+		`# Re-run failed scenario ${shellCommentText(scenario.name)}`,
 		`# Requires CURSOR_API_KEY in the environment for --live.`,
 		`cd ${shellQuote(rerun.cwd)}`,
 		buildRerunCommand(rerun),

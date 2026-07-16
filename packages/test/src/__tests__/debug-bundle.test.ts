@@ -8,6 +8,7 @@ import {
 	buildRerunCommand,
 	collectDebugEnvironment,
 	getDebugBundleDir,
+	shellCommentText,
 	shellQuote,
 	writeDebugBundle,
 } from "../debug-bundle.js";
@@ -27,6 +28,57 @@ describe("debug-bundle", () => {
 		expect(shellQuote("simple")).toBe("simple");
 		expect(shellQuote("has space")).toBe("'has space'");
 		expect(shellQuote("it's")).toBe("'it'\\''s'");
+	});
+
+	it("flattens newlines in shell comment text", () => {
+		expect(shellCommentText("foo\nrm -rf ~")).toBe("foo rm -rf ~");
+		expect(shellCommentText("a\r\nb")).toBe("a b");
+	});
+
+	it("keeps newline scenario names inside a single rerun.sh comment", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-debug-comment-"));
+		dirs.push(dir);
+
+		const scenario: AgentScenario = {
+			name: "evil\nrm -rf /tmp/pwned",
+			prompt: "x",
+			rubric: { must: ["x"] },
+		};
+		const result: ScenarioResult = {
+			suite: "smoke",
+			scenario: scenario.name,
+			passed: false,
+			durationMs: 1,
+			failures: [{ matcher: "mustInclude", message: "miss", category: "rubric_miss" }],
+		};
+
+		await writeDebugBundle({
+			dir,
+			result,
+			scenario,
+			environment: collectDebugEnvironment({
+				suite: "smoke",
+				scenario: scenario.name,
+				packageVersion: "0.0.0-test",
+			}),
+			rerun: {
+				cliPath: "/cli.js",
+				cwd: "/repo",
+				suitesDir: "fixtures",
+				suite: "smoke",
+				scenario: scenario.name,
+				live: false,
+			},
+		});
+
+		const rerun = await readFile(join(dir, "rerun.sh"), "utf8");
+		const lines = rerun.split("\n");
+		expect(lines.some((line) => line === "rm -rf /tmp/pwned")).toBe(false);
+		expect(lines.some((line) => line.startsWith("# Re-run failed scenario evil rm -rf"))).toBe(
+			true,
+		);
+		// --scenario arg remains shell-quoted (executable path is safe via shellQuote).
+		expect(rerun).toContain("'evil\nrm -rf /tmp/pwned'");
 	});
 
 	it("builds a rerun command with debug flags", () => {
