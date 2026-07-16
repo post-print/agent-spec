@@ -74,6 +74,50 @@ describe("html-report", () => {
 		expect(html).toContain("2026-07-16T12:00:00.000Z");
 	});
 
+	it("interleaves messages and tool calls chronologically when seq is recorded", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					trace: {
+						messages: [
+							{ role: "user", content: "Please read the config first.", seq: 0 },
+							{ role: "assistant", content: "Config confirms port 8080.", seq: 2 },
+						],
+						toolCalls: [{ name: "Read", args: { path: "config.json" }, seq: 1 }],
+						shellCommands: [],
+						artifacts: {},
+					},
+				}),
+			]),
+		]);
+
+		const userIdx = html.indexOf("Please read the config first.");
+		const toolIdx = html.indexOf("Read");
+		const assistantIdx = html.indexOf("Config confirms port 8080.");
+		expect(userIdx).toBeGreaterThan(-1);
+		expect(toolIdx).toBeGreaterThan(userIdx);
+		expect(assistantIdx).toBeGreaterThan(toolIdx);
+	});
+
+	it("falls back to grouped sections when seq is missing", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					trace: {
+						messages: [{ role: "assistant", content: "Legacy trace message" }],
+						toolCalls: [{ name: "Shell", args: { command: "echo hi" } }],
+						shellCommands: [],
+						artifacts: {},
+					},
+				}),
+			]),
+		]);
+
+		expect(html).toContain("Emission order wasn't recorded");
+		expect(html).toContain("Legacy trace message");
+		expect(html).toContain("Tool calls");
+	});
+
 	it("handles missing trace and skipped scenarios", () => {
 		const html = renderHtmlReport([
 			makeReport([

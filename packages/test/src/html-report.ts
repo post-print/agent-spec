@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { AgentTrace } from "@post-print/agent-harness";
+import type { AgentMessage, AgentToolCall, AgentTrace } from "@post-print/agent-harness";
 
 import type { ScenarioResult, SuiteRunReport } from "./types.js";
 
@@ -88,38 +88,91 @@ const ROLE_META: Record<string, { label: string; side: "left" | "right" | "cente
 	tool: { label: "Tool", side: "center" },
 };
 
+function renderMessageBubble(message: AgentMessage): string {
+	const meta = ROLE_META[message.role] ?? { label: message.role, side: "center" };
+	return `
+<div class="chat-row side-${meta.side}">
+  <div class="bubble role-${escapeHtml(message.role)}">
+    <div class="bubble-label">${escapeHtml(meta.label)}</div>
+    <div class="bubble-text">${escapeHtml(message.content)}</div>
+  </div>
+</div>`;
+}
+
+function renderToolCallChip(call: AgentToolCall): string {
+	const args =
+		call.args === undefined ? "" : `<code>${escapeHtml(JSON.stringify(call.args))}</code>`;
+	return `
+<div class="chat-row side-center">
+  <div class="tool-chip">
+    <span class="tool-name">${escapeHtml(call.name)}</span>${args}
+  </div>
+</div>`;
+}
+
+type TimelineItem =
+	| { kind: "message"; seq: number; message: AgentMessage }
+	| { kind: "tool"; seq: number; call: AgentToolCall };
+
+/** Interleave messages and tool calls chronologically when the trace recorded emission order. */
+function buildOrderedTimeline(trace: AgentTrace): TimelineItem[] | undefined {
+	const items: TimelineItem[] = [
+		...trace.messages.map((message) =>
+			message.seq === undefined
+				? undefined
+				: ({ kind: "message", seq: message.seq, message } as const),
+		),
+		...trace.toolCalls.map((call) =>
+			call.seq === undefined ? undefined : ({ kind: "tool", seq: call.seq, call } as const),
+		),
+	].filter((item): item is TimelineItem => item !== undefined);
+
+	const totalItems = trace.messages.length + trace.toolCalls.length;
+	if (items.length !== totalItems || totalItems === 0) {
+		return undefined;
+	}
+
+	return items.sort((a, b) => a.seq - b.seq);
+}
+
 function renderChat(trace: AgentTrace | undefined): string {
 	if (!trace) {
 		return `<p class="empty">No transcript recorded for this scenario.</p>`;
 	}
 
 	const parts: string[] = [];
+	const timeline = buildOrderedTimeline(trace);
 
-	if (trace.messages.length > 0) {
+	if (timeline) {
 		parts.push(`<div class="chat">`);
-		for (const message of trace.messages) {
-			const meta = ROLE_META[message.role] ?? { label: message.role, side: "center" };
-			parts.push(`
-<div class="chat-row side-${meta.side}">
-  <div class="bubble role-${escapeHtml(message.role)}">
-    <div class="bubble-label">${escapeHtml(meta.label)}</div>
-    <div class="bubble-text">${escapeHtml(message.content)}</div>
-  </div>
-</div>`);
+		for (const item of timeline) {
+			parts.push(
+				item.kind === "message" ? renderMessageBubble(item.message) : renderToolCallChip(item.call),
+			);
 		}
 		parts.push(`</div>`);
+	} else if (trace.messages.length > 0 || trace.toolCalls.length > 0) {
+		parts.push(
+			`<p class="empty note">Emission order wasn't recorded for this trace — messages and tool calls are shown in separate groups below.</p>`,
+		);
+		if (trace.messages.length > 0) {
+			parts.push(`<div class="chat">`);
+			for (const message of trace.messages) {
+				parts.push(renderMessageBubble(message));
+			}
+			parts.push(`</div>`);
+		}
+		if (trace.toolCalls.length > 0) {
+			parts.push(`<h4>Tool calls</h4><ul class="tool-calls">`);
+			for (const call of trace.toolCalls) {
+				const args =
+					call.args === undefined ? "" : `<code>${escapeHtml(JSON.stringify(call.args))}</code>`;
+				parts.push(`<li><span class="tool-name">${escapeHtml(call.name)}</span>${args}</li>`);
+			}
+			parts.push(`</ul>`);
+		}
 	} else {
 		parts.push(`<p class="empty">No messages in transcript.</p>`);
-	}
-
-	if (trace.toolCalls.length > 0) {
-		parts.push(`<h4>Tool calls</h4><ul class="tool-calls">`);
-		for (const call of trace.toolCalls) {
-			const args =
-				call.args === undefined ? "" : `<code>${escapeHtml(JSON.stringify(call.args))}</code>`;
-			parts.push(`<li><span class="tool-name">${escapeHtml(call.name)}</span>${args}</li>`);
-		}
-		parts.push(`</ul>`);
 	}
 
 	if (trace.shellCommands.length > 0) {
@@ -260,6 +313,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   h4 { font-size: 0.72rem; margin: 0.9rem 0 0.35rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .muted { color: var(--muted); }
   .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; margin: 0; }
+  .empty.note { margin-bottom: 0.5rem; }
   .report-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }
   .report-kicker { color: var(--muted); font-size: 0.78rem; }
   .summary {
@@ -358,6 +412,19 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   .bubble.role-user { background: var(--user-bubble); border-top-right-radius: 3px; }
   .bubble.role-assistant { background: var(--assistant-bubble); border-top-left-radius: 3px; }
   .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.8rem; max-width: 90%; }
+  .tool-chip {
+    max-width: 90%;
+    border-radius: 999px;
+    padding: 0.3rem 0.65rem;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.76rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .tool-chip .tool-name { color: var(--text); }
 
   .tool-calls, .shell-commands { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
   .tool-calls li, .shell-commands li { font-size: 0.8rem; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.5rem; }

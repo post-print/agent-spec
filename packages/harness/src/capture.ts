@@ -336,6 +336,8 @@ export interface TraceAccumulator {
 	toolCalls: AgentToolCall[];
 	preToolAssistantChunks: string[];
 	hasSeenTool: boolean;
+	/** Shared counter for AgentMessage.seq / AgentToolCall.seq — preserves stream order across both arrays. */
+	nextSeq: number;
 }
 
 export function createTraceAccumulator(): TraceAccumulator {
@@ -347,6 +349,7 @@ export function createTraceAccumulator(): TraceAccumulator {
 		toolCalls: [],
 		preToolAssistantChunks: [],
 		hasSeenTool: false,
+		nextSeq: 0,
 	};
 }
 
@@ -358,7 +361,7 @@ export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): vo
 	}
 	if (event.type === "assistant" || event.message?.role === "assistant") {
 		if (text) {
-			acc.agentMessages.push({ role: "assistant", content: text });
+			acc.agentMessages.push({ role: "assistant", content: text, seq: acc.nextSeq++ });
 			acc.textChunks.push(text);
 			if (!acc.hasSeenTool) {
 				acc.preToolAssistantChunks.push(text);
@@ -374,7 +377,7 @@ export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): vo
 		const toolCall = toolCallFromEvent(event);
 		if (toolCall) {
 			acc.hasSeenTool = true;
-			acc.toolCalls.push(toolCall);
+			acc.toolCalls.push({ ...toolCall, seq: acc.nextSeq++ });
 		}
 	}
 }
