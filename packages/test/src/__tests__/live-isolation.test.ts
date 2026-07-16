@@ -6,6 +6,7 @@ import {
 	parentScenarioCounters,
 	scenarioSettleMs,
 	subprocessFailureMessage,
+	subprocessKillDelayMs,
 } from "../live-isolation.js";
 
 describe("live-isolation", () => {
@@ -108,5 +109,12 @@ describe("live-isolation", () => {
 		if (priorTotal !== undefined) {
 			process.env.AGENT_TEST_SCENARIO_TOTAL = priorTotal;
 		}
+	});
+
+	it("arms parent kill from agent-start marker plus harness deadline", () => {
+		const agentStart = Date.now() - 5_000;
+		const delay = subprocessKillDelayMs(agentStart, 60_000);
+		expect(delay).toBeGreaterThan(54_000);
+		expect(delay).toBeLessThanOrEqual(60_000 + 30_000);
 	});
 });

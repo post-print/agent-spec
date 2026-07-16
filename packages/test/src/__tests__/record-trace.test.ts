@@ -8,10 +8,13 @@ import {
 	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
 	getLiveStagingSessionRoot,
+	getStagingAgentStartPath,
 	getStagingResultPath,
 	getStagingTracePath,
 	loadStagingResult,
+	readAgentStartMarker,
 	resolveRecordingPath,
+	writeAgentStartMarker,
 	writeStagingResult,
 } from "../record-trace.js";
 
@@ -98,6 +101,20 @@ describe("staging result sidecar", () => {
 
 		await writeStagingResult(path, payload);
 		await expect(loadStagingResult(path)).resolves.toEqual(payload);
+
+		await cleanupStagingSession(getLiveStagingSessionRoot(sessionId));
+	});
+});
+
+describe("agent start marker", () => {
+	it("round-trips epoch ms for parent subprocess kill alignment", async () => {
+		const sessionId = `agent-start-${Date.now()}`;
+		const path = getStagingAgentStartPath(sessionId, "routing", "seeded");
+		const before = Date.now();
+		await writeAgentStartMarker(path);
+		const marker = await readAgentStartMarker(path);
+		expect(marker).toBeGreaterThanOrEqual(before);
+		expect(marker).toBeLessThanOrEqual(Date.now());
 
 		await cleanupStagingSession(getLiveStagingSessionRoot(sessionId));
 	});

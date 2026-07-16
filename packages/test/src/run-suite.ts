@@ -37,15 +37,18 @@ import {
 	withHeartbeat,
 } from "./progress.js";
 import {
+	getStagingAgentStartPath,
 	getStagingTracePath,
 	loadStagingTrace,
 	loadStagingResult,
 	recordTrace,
 	resolveRecordingPath,
+	writeAgentStartMarker,
 	writeStagingResult,
 	getStagingResultPath,
 } from "./record-trace.js";
 import {
+	type CallerHeadSnapshot,
 	captureCallerHead,
 	restoreCallerHeadIfSeedCommit,
 	seedScenarioWorktree,
@@ -62,7 +65,30 @@ import type {
 } from "./types.js";
 
 let activeWorktreeCleanup: (() => Promise<void>) | undefined;
+let activeCallerHeadRestore:
+	| { cwd: string; snapshot: CallerHeadSnapshot }
+	| undefined;
 let liveSignalHandlersRegistered = false;
+
+function setCallerHeadRestore(
+	cwd: string,
+	snapshot: CallerHeadSnapshot,
+): void {
+	activeCallerHeadRestore = { cwd, snapshot };
+}
+
+function clearCallerHeadRestore(): void {
+	activeCallerHeadRestore = undefined;
+}
+
+async function restoreActiveCallerHead(): Promise<void> {
+	if (!activeCallerHeadRestore) {
+		return;
+	}
+	const { cwd, snapshot } = activeCallerHeadRestore;
+	await restoreCallerHeadIfSeedCommit(cwd, snapshot);
+	clearCallerHeadRestore();
+}
 
 function isChildProcess(): boolean {
 	return process.env.AGENT_TEST_CHILD === "1";
@@ -82,12 +108,23 @@ export function registerLiveRunHandlers(): void {
 
 	const interrupt = (code: number) => {
 		const cleanup = activeWorktreeCleanup;
-		if (!cleanup) {
+		const headRestore = activeCallerHeadRestore;
+		if (!cleanup && !headRestore) {
 			process.exit(code);
 			return;
 		}
-		void cleanup()
-			.catch(() => undefined)
+		void Promise.resolve()
+			.then(async () => {
+				if (cleanup) {
+					await cleanup().catch(() => undefined);
+				}
+				if (headRestore) {
+					await restoreCallerHeadIfSeedCommit(
+						headRestore.cwd,
+						headRestore.snapshot,
+					).catch(() => undefined);
+				}
+			})
 			.finally(() => process.exit(code));
 	};
 
@@ -454,6 +491,7 @@ async function runScenario(
 	if (useWorktree) {
 		if (isLive && scenario.seedPatch) {
 			callerHeadBefore = await captureCallerHead(cwd);
+			setCallerHeadRestore(cwd, callerHeadBefore);
 		}
 		worktreeHandle = await createScenarioWorktree(
 			cwd,
@@ -493,6 +531,15 @@ async function runScenario(
 		const outputContract = isLive
 			? outputContractForRubric(scenario.rubric)
 			: undefined;
+		if (isChildProcess() && isLive && stagingSessionId) {
+			await writeAgentStartMarker(
+				getStagingAgentStartPath(
+					stagingSessionId,
+					suiteName,
+					scenario.name,
+				),
+			);
+		}
 		const agentStarted = performance.now();
 		const session = await (isLive
 			? withHeartbeat(
@@ -587,23 +634,6 @@ async function runScenario(
 			}
 		}
 
-		if (worktreeHandle) {
-			const willJudge =
-				Boolean(judge) &&
-				isLive &&
-				!isChildProcess() &&
-				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
-			logPhase(theme.phase("cleanup"), { last: !willJudge });
-			await worktreeHandle.cleanup();
-			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
-				activeWorktreeCleanup = undefined;
-			}
-			if (callerHeadBefore) {
-				await restoreCallerHeadIfSeedCommit(cwd, callerHeadBefore);
-			}
-			worktreeHandle = undefined;
-		}
-
 		const deferJudgeToParent = isChildProcess();
 		let judgeVerdicts: JudgeVerdictResult[] | undefined;
 		if (judge && isLive && !deferJudgeToParent) {
@@ -618,15 +648,6 @@ async function runScenario(
 		}
 
 		const durationMs = Math.round(performance.now() - started);
-		emitScenarioVerdict({
-			passed: failures.length === 0,
-			index: scenarioIndex,
-			total: scenarioTotal,
-			name: scenario.name,
-			durationMs,
-			judgeVerdicts,
-			failures,
-		});
 
 		if (isChildProcess() && isLive && stagingSessionId) {
 			await writeStagingResult(
@@ -638,6 +659,33 @@ async function runScenario(
 				},
 			);
 		}
+
+		if (worktreeHandle) {
+			const willJudge =
+				Boolean(judge) &&
+				isLive &&
+				!isChildProcess() &&
+				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
+			logPhase(theme.phase("cleanup"), { last: !willJudge });
+			await worktreeHandle.cleanup();
+			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
+				activeWorktreeCleanup = undefined;
+			}
+			if (callerHeadBefore) {
+				await restoreActiveCallerHead();
+			}
+			worktreeHandle = undefined;
+		}
+
+		emitScenarioVerdict({
+			passed: failures.length === 0,
+			index: scenarioIndex,
+			total: scenarioTotal,
+			name: scenario.name,
+			durationMs,
+			judgeVerdicts,
+			failures,
+		});
 
 		return {
 			suite: suiteName,
@@ -655,8 +703,8 @@ async function runScenario(
 				activeWorktreeCleanup = undefined;
 			}
 		}
-		if (callerHeadBefore) {
-			await restoreCallerHeadIfSeedCommit(cwd, callerHeadBefore);
+		if (activeCallerHeadRestore) {
+			await restoreActiveCallerHead().catch(() => undefined);
 		}
 	}
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_LIVE_TIMEOUT_MS,
 	liveSubprocessTimeoutMs,
+	LIVE_SUBPROCESS_SETUP_MAX_MS,
 	LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
 	resolveLiveTimeoutMs,
 } from "../live-timeout.js";
@@ -53,5 +54,11 @@ describe("liveSubprocessTimeoutMs", () => {
 		expect(liveSubprocessTimeoutMs(600_000)).toBe(
 			600_000 + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
 		);
+	});
+});
+
+describe("LIVE_SUBPROCESS_SETUP_MAX_MS", () => {
+	it("allows generous worktree and seed setup before parent setup-timeout", () => {
+		expect(LIVE_SUBPROCESS_SETUP_MAX_MS).toBeGreaterThanOrEqual(300_000);
 	});
 });

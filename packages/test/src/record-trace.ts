@@ -44,6 +44,38 @@ export function getStagingTracePath(
 	);
 }
 
+/** Parent arms subprocess kill from this marker (epoch ms) once the child enters runAgent. */
+export function getStagingAgentStartPath(
+	stagingSessionId: string,
+	suiteName: string,
+	scenarioName: string,
+): string {
+	return join(
+		getLiveStagingSessionRoot(stagingSessionId),
+		suiteName,
+		`${stagingScenarioBasename(scenarioName)}.agent-start`,
+	);
+}
+
+/** Child writes when the harness agent deadline clock starts (before runAgent). */
+export async function writeAgentStartMarker(path: string): Promise<void> {
+	await mkdir(dirname(path), { recursive: true });
+	await writeFile(path, `${Date.now()}\n`, "utf8");
+}
+
+/** Parent reads agent-start epoch ms from staging; undefined when absent or invalid. */
+export async function readAgentStartMarker(
+	path: string,
+): Promise<number | undefined> {
+	try {
+		const raw = (await readFile(path, "utf8")).trim();
+		const parsed = Number(raw);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Parent reads rubric failures from isolated child runs when exit code is non-zero. */
 export function getStagingResultPath(
 	stagingSessionId: string,

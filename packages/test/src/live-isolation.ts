@@ -1,7 +1,16 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
-import { liveSubprocessTimeoutMs, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS } from "./live-timeout.js";
+import {
+	getStagingAgentStartPath,
+	readAgentStartMarker,
+} from "./record-trace.js";
+import {
+	LIVE_SUBPROCESS_SETUP_MAX_MS,
+	LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS,
+	LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
+	liveSubprocessTimeoutMs,
+} from "./live-timeout.js";
 
 const DEFAULT_SCENARIO_SETTLE_MS = 5000;
 
@@ -102,6 +111,32 @@ function sleep(ms: number): Promise<void> {
 	});
 }
 
+async function waitForAgentStartMarker(
+	path: string,
+	deadlineMs: number,
+	pollMs = 100,
+): Promise<number | undefined> {
+	const started = Date.now();
+	while (Date.now() - started < deadlineMs) {
+		const marker = await readAgentStartMarker(path);
+		if (marker !== undefined) {
+			return marker;
+		}
+		await sleep(pollMs);
+	}
+	return undefined;
+}
+
+/** Delay from agent-start marker until parent SIGTERM (harness deadline + cleanup slack). */
+export function subprocessKillDelayMs(
+	agentStartMs: number,
+	agentTimeoutMs: number,
+): number {
+	return (
+		agentStartMs + agentTimeoutMs + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS - Date.now()
+	);
+}
+
 /** Run one live scenario in a fresh Node subprocess; inherit stdio for live progress. */
 export async function spawnLiveScenario(
 	options: SpawnLiveScenarioOptions,
@@ -119,7 +154,8 @@ export async function spawnLiveScenario(
 		env.AGENT_TEST_SCENARIO_TOTAL = String(options.scenarioTotal);
 	}
 
-	const subprocessTimeoutMs = liveSubprocessTimeoutMs(options.timeoutMs);
+	const agentTimeoutMs = options.timeoutMs;
+	const subprocessTimeoutMs = liveSubprocessTimeoutMs(agentTimeoutMs);
 
 	const exitCode = await new Promise<number>((resolveExit, reject) => {
 		const child = spawn(command, [...execArgv, ...args], {
@@ -140,15 +176,50 @@ export async function spawnLiveScenario(
 				sigkillId = undefined;
 			}
 		};
-		if (subprocessTimeoutMs !== undefined) {
-			timeoutId = setTimeout(() => {
-				killedForTimeout = true;
-				child.kill("SIGTERM");
-				sigkillId = setTimeout(() => {
-					child.kill("SIGKILL");
-				}, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS);
-			}, subprocessTimeoutMs);
+		const killChildForTimeout = () => {
+			if (killedForTimeout) {
+				return;
+			}
+			killedForTimeout = true;
+			child.kill("SIGTERM");
+			sigkillId = setTimeout(() => {
+				child.kill("SIGKILL");
+			}, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS);
+		};
+		const armKillTimer = (delayMs: number) => {
+			if (delayMs <= 0) {
+				killChildForTimeout();
+				return;
+			}
+			timeoutId = setTimeout(killChildForTimeout, delayMs);
+		};
+
+		if (
+			agentTimeoutMs &&
+			agentTimeoutMs > 0 &&
+			options.stagingSessionId &&
+			!options.noTimeout
+		) {
+			const markerPath = getStagingAgentStartPath(
+				options.stagingSessionId,
+				options.suiteName,
+				options.scenarioName,
+			);
+			void (async () => {
+				const agentStartMs = await waitForAgentStartMarker(
+					markerPath,
+					LIVE_SUBPROCESS_SETUP_MAX_MS,
+				);
+				if (agentStartMs === undefined) {
+					killChildForTimeout();
+					return;
+				}
+				armKillTimer(subprocessKillDelayMs(agentStartMs, agentTimeoutMs));
+			})();
+		} else if (subprocessTimeoutMs !== undefined) {
+			armKillTimer(subprocessTimeoutMs);
 		}
+
 		child.on("error", (error) => {
 			clearKillTimers();
 			reject(error);

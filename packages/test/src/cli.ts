@@ -187,8 +187,8 @@ async function main(): Promise<number> {
 				return 1;
 			}
 
+			registerLiveRunHandlers();
 			if (!isChild) {
-				registerLiveRunHandlers();
 				const removed = await cleanupStaleScenarioWorktrees(args.cwd);
 				if (removed.length > 0) {
 					console.log(
