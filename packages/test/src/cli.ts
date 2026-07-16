@@ -5,6 +5,7 @@ import { type AgentHost, cleanupStaleScenarioWorktrees } from "@post-print/agent
 
 import { isCliMain } from "./cli-entry.js";
 import { runDoctor } from "./doctor.js";
+import { writeHtmlReport } from "./html-report.js";
 import { assertLiveDogfoodPreflight } from "./preflight.js";
 import { logProgress } from "./progress.js";
 import {
@@ -37,6 +38,7 @@ function parseArgs(argv: string[]): {
 	noTimeout: boolean;
 	allowUserInput: boolean;
 	doctor: boolean;
+	htmlReport: boolean;
 } {
 	const cwd = process.cwd();
 	let suitesDir = "agent-suites";
@@ -54,6 +56,7 @@ function parseArgs(argv: string[]): {
 	let noTimeout = false;
 	let allowUserInput = false;
 	let doctor = false;
+	let htmlReport = true;
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -93,6 +96,8 @@ function parseArgs(argv: string[]): {
 			allowUserInput = true;
 		} else if (token === "--doctor") {
 			doctor = true;
+		} else if (token === "--no-html-report") {
+			htmlReport = false;
 		} else if (token && !token.startsWith("-")) {
 			filter = token;
 		}
@@ -122,6 +127,7 @@ function parseArgs(argv: string[]): {
 		noTimeout,
 		allowUserInput,
 		doctor,
+		htmlReport,
 	};
 }
 
@@ -247,6 +253,22 @@ async function main(): Promise<number> {
 					}
 				}
 				console.log(theme.summary(report.suite, report.passed, report.failed, report.skipped));
+			}
+
+			if (args.htmlReport && reports.length > 0) {
+				try {
+					const reportPath = await writeHtmlReport(reports, {
+						host: args.host,
+						suitesDir: args.suitesDir,
+					});
+					console.log(`\n${theme.tip(`HTML report: ${reportPath}`)}`);
+				} catch (error) {
+					console.warn(
+						theme.warn(
+							`HTML report failed: ${error instanceof Error ? error.message : String(error)}`,
+						),
+					);
+				}
 			}
 		} else {
 			for (const report of reports) {

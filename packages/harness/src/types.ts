@@ -17,11 +17,15 @@ export type ContextProfile = "shared" | "cursor" | "claude";
 export interface AgentMessage {
 	role: "user" | "assistant" | "system" | "tool";
 	content: string;
+	/** Monotonic emission order shared with toolCalls, for chronological interleaving. Absent on legacy/replay traces. */
+	seq?: number;
 }
 
 export interface AgentToolCall {
 	name: string;
 	args?: Record<string, unknown>;
+	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy/replay traces. */
+	seq?: number;
 }
 
 export interface AgentTrace {

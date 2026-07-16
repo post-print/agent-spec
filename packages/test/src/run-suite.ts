@@ -291,6 +291,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
+			let scenarioTrace: AgentTrace | undefined;
 
 			if (exitCode !== 0) {
 				const childResult =
@@ -301,20 +302,23 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 						: undefined;
 				failures.push(...failuresForLiveSubprocessExit(exitCode, childResult));
 			}
-			if (failures.length === 0 && options.judge !== false && options.stagingSessionId) {
+			if (options.stagingSessionId) {
+				const tracePath = getStagingTracePath(options.stagingSessionId, suite.name, scenario.name);
+				try {
+					scenarioTrace = await loadStagingTrace(tracePath);
+				} catch {
+					// Trace may be missing when the child crashed before recording.
+				}
+			}
+			if (failures.length === 0 && options.judge !== false && scenarioTrace) {
 				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 				if (criteria.length > 0) {
 					releaseLiveMemory();
 					logPhase(theme.judgePhase(criteria.length), { last: true });
 					try {
-						const tracePath = getStagingTracePath(
-							options.stagingSessionId,
-							suite.name,
-							scenario.name,
-						);
-						const trace = await loadStagingTrace(tracePath);
-						const judged = await runJudgeRubric(trace, scenario.rubric, options.cwd);
+						const judged = await runJudgeRubric(scenarioTrace, scenario.rubric, options.cwd);
 						failures.push(...judged.failures);
+						scenarioTrace = judged.trace;
 						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria);
 					} catch (error) {
 						failures.push({
@@ -343,6 +347,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 				failures,
 				durationMs,
 				judgeVerdicts,
+				trace: scenarioTrace,
 			});
 			releaseLiveMemory();
 			continue;
@@ -617,6 +622,7 @@ async function runScenario(
 			failures,
 			durationMs,
 			judgeVerdicts,
+			trace,
 		};
 	} finally {
 		if (worktreeHandle) {

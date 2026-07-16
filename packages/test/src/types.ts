@@ -1,4 +1,9 @@
-import type { AgentHost, ContextProfile, SkillContextSetting } from "@post-print/agent-harness";
+import type {
+	AgentHost,
+	AgentTrace,
+	ContextProfile,
+	SkillContextSetting,
+} from "@post-print/agent-harness";
 
 export type JudgeRubricItem = string | { id?: string; question: string };
 
@@ -65,6 +70,8 @@ export interface ScenarioResult {
 	durationMs: number;
 	/** LLM judge verdicts when judge criteria were evaluated. */
 	judgeVerdicts?: JudgeVerdictResult[];
+	/** Full agent transcript when available (for HTML reports). */
+	trace?: AgentTrace;
 }
 
 export interface SuiteRunReport {

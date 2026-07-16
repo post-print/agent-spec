@@ -69,7 +69,7 @@ describe("capture", () => {
 		expect(finalizeTraceAccumulator(acc)).toEqual(trace);
 		expect(trace.skillsInvoked).toContain("grill");
 		expect(trace.toolCalls).toEqual([
-			{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" } },
+			{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" }, seq: 1 },
 		]);
 	});
 
@@ -109,7 +109,7 @@ describe("capture", () => {
 			},
 		]);
 		expect(trace.shellCommands.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
-		expect(trace.toolCalls).toEqual([{ name: "shell", args: undefined }]);
+		expect(trace.toolCalls).toEqual([{ name: "shell", args: undefined, seq: 1 }]);
 	});
 
 	it("infers tier from routing prose", () => {
