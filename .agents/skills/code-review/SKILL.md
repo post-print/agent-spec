@@ -7,7 +7,7 @@ description: Multi-lens code review for PR, commit, unstaged, staged, merge, and
 
 **Source of truth for** portable council code-review workflow.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-16 -->
 
 Consumer overlays arrive as project-specific injected context on skill read.
 
@@ -46,7 +46,7 @@ Not for: PR description/body authoring (separate skill), Cursor `/review-bugbot`
    - [`multi` Fit check](../multi/SKILL.md#fit-check) does **not** apply once this skill is running — this entry skill already chose parallel council.
    - **Mandatory before spawn:** append [task-prompt-review.md](references/task-prompt-review.md) § Default filing overlay to **every** member prompt (and coordinator plan). When consumer overlay context was injected on skill read, prefer that overlay set (Filing gate / product-intent / Baseline / Contextual Full) over portable `task-prompt-review.md` thinned sections alone. Missing injected overlay when one is configured = incomplete dispatch.
 
-4. **Chat handoff** — when fix-loop applies: if fix pass, end with the updated ledger (copy-pasteable `## Fix-loop ledger` block **and** durable `REVIEW_LEDGER.md` at repo root), validation evidence, and hotspot list. Re-review must reconcile every candidate to a stable theme and include **Baseline contradictions** when prior synthesis exists.
+4. **Chat handoff** — when fix-loop applies: if fix pass, end with the updated ledger (copy-pasteable `## Fix-loop ledger` block **and** durable `_agent/review/REVIEW_LEDGER.md`), validation evidence, and hotspot list. Re-review must reconcile every candidate to a stable theme and include **Baseline contradictions** when prior synthesis exists.
 
 **Order when fix-loop applies:** council → synthesis → chat findings → handoff if fix pass → end turn.
 
@@ -60,10 +60,10 @@ Run this before step 3 on every `pr`, `review vs main`, and `merge` review — *
    - Same branch/thread as a prior `Review · …` pass, or user asked to re-review after fixes.
    - Bare prompts (`review`, `review vs main`, `check the PR`) with **no** in-message ledger.
    - Same branch with recent review-fix commits after a Full/Thorough Action pass.
-   - Prior `Review ·` synthesis, ledger block, or fix-loop handoff in commit messages, PR body, or repo-root `REVIEW_LEDGER.md`.
+   - Prior `Review ·` synthesis, ledger block, or fix-loop handoff in commit messages, PR body, or `_agent/review/REVIEW_LEDGER.md` (legacy: repo-root `REVIEW_LEDGER.md`).
 2. **Reconstruct the ledger** — rebuild the stable-theme table from, in order ([fix-loop-ledger.md](references/fix-loop-ledger.md)):
    1. In-message synthesis / chat handoff (if present).
-   2. `REVIEW_LEDGER.md` at branch tip (if present).
+   2. `_agent/review/REVIEW_LEDGER.md` (if present); else legacy repo-root `REVIEW_LEDGER.md` (migrate into `_agent/review/` on next write).
    3. Prior synthesis embedded in PR body (if present).
    4. Recent commit messages containing a ledger or `Review ·` block.
       Do not reset closed themes. Missing chat context alone MUST NOT imply `first-baseline`.
@@ -81,7 +81,7 @@ Run this before step 3 on every `pr`, `review vs main`, and `merge` review — *
 
 Project-specific injected context is appended on skill read. Do not edit synced copies in place.
 
-**Fix implementation:** User "address all" / "fix all" / "yes" to ship-blockers → read prior synthesis and ledger (including `REVIEW_LEDGER.md` if present) before coding; implement invariant-complete theme batches; add regression evidence; run the repo’s authoritative validation lane; end with copy-pasteable ledger handoff **and** updated `REVIEW_LEDGER.md`.
+**Fix implementation:** User "address all" / "fix all" / "yes" to ship-blockers → read prior synthesis and ledger (including `_agent/review/REVIEW_LEDGER.md` if present) before coding; implement invariant-complete theme batches; add regression evidence; run the repo’s authoritative validation lane; end with copy-pasteable ledger handoff **and** updated `_agent/review/REVIEW_LEDGER.md` (never commit).
 
 ## Output format
 

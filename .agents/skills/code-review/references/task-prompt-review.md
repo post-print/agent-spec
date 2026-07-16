@@ -84,7 +84,7 @@ Do **not** hardcode consumer repo paths in this toolbox file.
 ## Contextual ledger overlay (pass 2+)
 
 When prior Action findings exist — including when the coordinator **recovered**
-the ledger from `REVIEW_LEDGER.md`, PR body, or git rather than the user
+the ledger from `_agent/review/REVIEW_LEDGER.md`, PR body, or git rather than the user
 message — append to the coordinator plan and every member prompt in addition
 to any consumer overlay. Record recovery source in the dispatch plan. Use the
 matching depth lane:
@@ -92,7 +92,7 @@ matching depth lane:
 ```
 Fix-loop: contextual re-review
 Pass lane: <targeted contextual | Full contextual>
-Ledger recovery source: <chat | REVIEW_LEDGER.md | PR body | git log>
+Ledger recovery source: <chat | _agent/review/REVIEW_LEDGER.md | PR body | git log>
 Prior synthesis + ledger: <paste current stable-theme ledger>
 Sweep plans: <paste Sweep · theme-id blocks>
 Depth: <Standard|Quick|Full>; diff: whole branch + sweep surfaces

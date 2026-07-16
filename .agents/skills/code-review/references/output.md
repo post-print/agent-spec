@@ -172,10 +172,11 @@ Required when prior Action findings existed before the pass. Full rules → cons
 
 Required whenever a review has entered a fix loop. Use the schema in
 [fix-loop-ledger.md](fix-loop-ledger.md) and carry the full current ledger in
-the chat handoff **and** update repo-root **`REVIEW_LEDGER.md`** on every fix
-pass. Do not reset closed themes between passes.
+the chat handoff **and** update **`_agent/review/REVIEW_LEDGER.md`** on every fix
+pass (gitignored ephemeral path — never commit; see fix-loop-ledger.md § Durable
+ledger path). Do not reset closed themes between passes.
 
-**Durable handoff file (`REVIEW_LEDGER.md`):** theme table + open/reopened sweep
+**Durable handoff file (`_agent/review/REVIEW_LEDGER.md`):** theme table + open/reopened sweep
 blocks (`### Sweep · \`theme-id\``). Bare `review vs main` in a fresh chat MUST
 recover state from this file (or PR/git per anti-thrash preflight) before
 classifying pass depth.

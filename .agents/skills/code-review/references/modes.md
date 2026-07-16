@@ -41,7 +41,7 @@ Pass 2+ is **not** an automatic Full council. After [anti-thrash preflight](../S
 
 **Prefer targeted contextual re-review** (`closure-re-review`) when all are true:
 
-- A stable-theme ledger exists from a prior pass (recovered from chat, `REVIEW_LEDGER.md`, PR body, or git — not only in-message).
+- A stable-theme ledger exists from a prior pass (recovered from chat, `_agent/review/REVIEW_LEDGER.md`, PR body, or git — not only in-message).
 - The latest fix commit / diff only touches prior themes and their [sweep surfaces](fix-loop-ledger.md#same-invariant-sweep).
 - No unresolved baseline contradictions.
 - Scope did not materially expand (no new subsystems / public-contract surfaces outside the ledger).

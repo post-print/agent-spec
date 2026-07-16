@@ -77,17 +77,21 @@ type JudgeJsonParseAttempt = {
 	structured: boolean;
 };
 
-const JUDGE_JSON_FENCE_OPEN_PATTERN = /^```(?:json)?\b/i;
+// Bare ``` (no language tag) ends with whitespace/EOF — `\b` after backticks
+// does not match, so allow `(?:\s|$)` as well as an optional `json` tag.
+const JUDGE_JSON_FENCE_OPEN_PATTERN = /^```(?:json)?(?:\s|$)/i;
 const JUDGE_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
+/** Primary body starts like a JSON value (`"…"` / number / bool / null / object / array). */
+const JUDGE_JSON_VALUE_PREFIX_PATTERN = /^(?:"|-?\d|true\b|false\b|null\b|\{|\[)/i;
 
 /**
  * Detect truncated/unparseable JSON-shaped contract attempts. Only replies
- * that *are* JSON-shaped (or open with a fence) count — a mid-prose mention
- * of ```json or an incidental blob is not a contract attempt.
+ * that *are* JSON-shaped (value prefix or open with a fence) count — a mid-prose
+ * mention of ```json or an incidental blob is not a contract attempt.
  */
 function looksLikeJudgeJsonAttempt(text: string): boolean {
 	const trimmed = text.trim();
-	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+	if (JUDGE_JSON_VALUE_PREFIX_PATTERN.test(trimmed)) {
 		return true;
 	}
 	return JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed);
@@ -213,13 +217,23 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 			return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 		} catch {
 			// A failed parse latches `structured` only for real contract attempts:
-			// the whole/fenced body is JSON-shaped, or a peeled candidate carries a
-			// `"verdict":` key (truncated contract). Mid-prose incidental peels
-			// (e.g. `Evidence: {"quote":"hello"`) keep YES/NO salvage available.
-			if (candidateTrim.startsWith("{") || candidateTrim.startsWith("[")) {
-				if (primary || JUDGE_VERDICT_KEY_PATTERN.test(candidateTrim)) {
+			// the whole/fenced body is a JSON value (object/array/primitive),
+			// including trailing junk after a primitive (`"yes" clearly`), or a
+			// peeled candidate carries a `"verdict":` key (truncated contract).
+			// Mid-prose incidental peels (e.g. `Evidence: {"quote":"hello"`)
+			// keep YES/NO salvage available.
+			if (primary) {
+				if (
+					JUDGE_JSON_VALUE_PREFIX_PATTERN.test(candidateTrim) ||
+					JUDGE_JSON_FENCE_OPEN_PATTERN.test(candidateTrim)
+				) {
 					failedJsonShape = true;
 				}
+			} else if (
+				(candidateTrim.startsWith("{") || candidateTrim.startsWith("[")) &&
+				JUDGE_VERDICT_KEY_PATTERN.test(candidateTrim)
+			) {
+				failedJsonShape = true;
 			}
 		}
 	}

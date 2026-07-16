@@ -1,12 +1,26 @@
 # Fix-loop ledger
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-16 -->
 
 Portable state for review → fix → re-review convergence. The ledger travels in
-the chat handoff, repo-root **`REVIEW_LEDGER.md`** (durable handoff — write/update
+the chat handoff, **`_agent/review/REVIEW_LEDGER.md`** (durable handoff — write/update
 on every fix pass), and every contextual re-review council prompt. Recover from
 git log or PR body when chat context is missing. Do not rely on line numbers or
 finding order as identity.
+
+## Durable ledger path
+
+Canonical path (repo-relative): **`_agent/review/REVIEW_LEDGER.md`**.
+
+- Same ephemeral workspace as [handoff](../../handoff/SKILL.md) (`_agent/`) —
+  gitignored, inside the workspace so `@`-reference and cold-chat recovery work.
+- **Write only there.** `mkdir -p _agent/review` before write. Do **not** write
+  repo-root `REVIEW_LEDGER.md` (diff bloat / accidental commit).
+- **Do not commit** the ledger. If `_agent/` is missing from `.gitignore`, add
+  `_agent/` (or ensure an equivalent ignore) before writing.
+- **Legacy recovery:** if repo-root `REVIEW_LEDGER.md` still exists from older
+  skill versions, read it once, migrate content into `_agent/review/REVIEW_LEDGER.md`,
+  and prefer deleting (or leaving untracked) the root copy — never stage either.
 
 ## Theme record
 

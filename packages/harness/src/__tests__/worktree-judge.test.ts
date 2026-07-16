@@ -201,6 +201,24 @@ describe("parseJudgeJsonResponse", () => {
 		}
 	});
 
+	it("does not salvage YES/NO from JSON primitives with trailing junk", () => {
+		for (const raw of [
+			'"yes" clearly',
+			'"yes"\nrationale',
+			'"no" because',
+			'"yes",',
+			"42\nYES",
+			"true\nYES",
+			"null YES",
+			'```\n"yes" clearly\n```',
+			'```json\n"yes" clearly\n```',
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
+		}
+	});
+
 	it("still salvages YES/NO when prose incidentally contains a quoted verdict", () => {
 		const parsed = parseJudgeResponse('YES\nThe answer is "yes" clearly.');
 		expect(parsed.valid).toBe(true);
