@@ -192,4 +192,50 @@ describe("runSuite isolateLive", () => {
 			},
 		]);
 	});
+
+	it("honors pass sidecar when timeout kill forces exit 124", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-pass-124-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "isolate-pass-124",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "ok", prompt: "p", rubric: {} },
+					{ name: "late-kill", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(
+			async (options) => (options.scenarioName === "late-kill" ? 124 : 0),
+		);
+		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(
+			async (path) => {
+				if (path.includes("late-kill")) {
+					return {
+						passed: true,
+						durationMs: 40,
+						failures: [],
+					};
+				}
+				return undefined;
+			},
+		);
+
+		const report = await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-pass-124",
+			judge: false,
+		});
+
+		const result = report.results.find((r) => r.scenario === "late-kill");
+		expect(result?.passed).toBe(true);
+		expect(result?.failures).toEqual([]);
+	});
 });

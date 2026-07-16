@@ -115,9 +115,13 @@ async function waitForAgentStartMarker(
 	path: string,
 	deadlineMs: number,
 	pollMs = 100,
+	shouldStop?: () => boolean,
 ): Promise<number | undefined> {
 	const started = Date.now();
 	while (Date.now() - started < deadlineMs) {
+		if (shouldStop?.()) {
+			return undefined;
+		}
 		const marker = await readAgentStartMarker(path);
 		if (marker !== undefined) {
 			return marker;
@@ -163,6 +167,7 @@ export async function spawnLiveScenario(
 			env,
 			stdio: "inherit",
 		});
+		let childClosed = false;
 		let killedForTimeout = false;
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
 		let sigkillId: ReturnType<typeof setTimeout> | undefined;
@@ -177,16 +182,22 @@ export async function spawnLiveScenario(
 			}
 		};
 		const killChildForTimeout = () => {
-			if (killedForTimeout) {
+			if (childClosed || killedForTimeout) {
 				return;
 			}
 			killedForTimeout = true;
 			child.kill("SIGTERM");
 			sigkillId = setTimeout(() => {
+				if (childClosed) {
+					return;
+				}
 				child.kill("SIGKILL");
 			}, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS);
 		};
 		const armKillTimer = (delayMs: number) => {
+			if (childClosed) {
+				return;
+			}
 			if (delayMs <= 0) {
 				killChildForTimeout();
 				return;
@@ -209,7 +220,12 @@ export async function spawnLiveScenario(
 				const agentStartMs = await waitForAgentStartMarker(
 					markerPath,
 					LIVE_SUBPROCESS_SETUP_MAX_MS,
+					100,
+					() => childClosed,
 				);
+				if (childClosed) {
+					return;
+				}
 				if (agentStartMs === undefined) {
 					killChildForTimeout();
 					return;
@@ -221,10 +237,12 @@ export async function spawnLiveScenario(
 		}
 
 		child.on("error", (error) => {
+			childClosed = true;
 			clearKillTimers();
 			reject(error);
 		});
 		child.on("close", (code, signal) => {
+			childClosed = true;
 			clearKillTimers();
 			if (killedForTimeout) {
 				resolveExit(124);
@@ -253,6 +271,36 @@ export function subprocessFailureMessage(exitCode: number): string {
 		return "subprocess killed (137) — macOS OOM; close heavy apps or increase AGENT_TEST_SCENARIO_SETTLE_MS";
 	}
 	return `live scenario subprocess exited ${exitCode}`;
+}
+
+export interface LiveSubprocessStagingResult {
+	passed: boolean;
+	failures: Array<{ matcher: string; message: string }>;
+}
+
+/**
+ * Map isolated child exit + optional staging sidecar to parent failures.
+ * A persisted pass sidecar wins over a late timeout kill (exit 124).
+ */
+export function failuresForLiveSubprocessExit(
+	exitCode: number,
+	childResult: LiveSubprocessStagingResult | undefined,
+): Array<{ matcher: string; message: string }> {
+	if (exitCode === 0) {
+		return [];
+	}
+	if (childResult?.failures.length) {
+		return [...childResult.failures];
+	}
+	if (childResult?.passed === true) {
+		return [];
+	}
+	return [
+		{
+			matcher: "liveScenario",
+			message: subprocessFailureMessage(exitCode),
+		},
+	];
 }
 
 /** Parent-provided counters for isolated child runs (1-based index). */

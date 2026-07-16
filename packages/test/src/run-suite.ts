@@ -22,10 +22,10 @@ import {
 import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
 import {
+	failuresForLiveSubprocessExit,
 	liveScenarioIsolationEnabled,
 	parentScenarioCounters,
 	spawnLiveScenario,
-	subprocessFailureMessage,
 } from "./live-isolation.js";
 import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
@@ -329,15 +329,11 @@ export async function runSuite(
 								),
 							)
 						: undefined;
-				if (childResult?.failures.length) {
-					failures.push(...childResult.failures);
-				} else {
-					failures.push({
-						matcher: "liveScenario",
-						message: subprocessFailureMessage(exitCode),
-					});
-				}
-			} else if (options.judge !== false && options.stagingSessionId) {
+				failures.push(
+					...failuresForLiveSubprocessExit(exitCode, childResult),
+				);
+			}
+			if (failures.length === 0 && options.judge !== false && options.stagingSessionId) {
 				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 				if (criteria.length > 0) {
 					releaseLiveMemory();
