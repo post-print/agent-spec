@@ -43,6 +43,7 @@ describe("cli smoke", () => {
 			const output = `${stdout}${stderr}`.replace(new RegExp(`${ansiEscape}\\[[0-9;]*m`, "g"), "");
 			expect(output).toMatch(/smoke:.*passed/);
 			expect(output).not.toMatch(/No suites found/);
+			expect(output).toMatch(/HTML report:.*agent-test-report-.*report\.html/);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}

@@ -1,5 +1,5 @@
 export { assertRubric, expectTrace, TraceAssertion } from "./expect.js";
-
+export { type HtmlReportMeta, renderHtmlReport, writeHtmlReport } from "./html-report.js";
 export { loadSuiteFile } from "./load-suite.js";
 export { assertLiveDogfoodPreflight } from "./preflight.js";
 export {
