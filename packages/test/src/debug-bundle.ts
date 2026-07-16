@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import type { AgentTrace } from "@post-print/agent-harness";
 
+import { scenarioArtifactSlug } from "./record-trace.js";
 import type {
 	AgentScenario,
 	AssertionFailure,
@@ -116,7 +117,7 @@ export function buildRerunCommand(options: DebugRerunOptions): string {
 	if (options.keepRecordings !== false) {
 		args.push("--keep-recordings");
 	}
-	return [process.execPath, ...args.map(shellQuote)].join(" ");
+	return [shellQuote(process.execPath), ...args.map(shellQuote)].join(" ");
 }
 
 export function collectDebugEnvironment(options: {
@@ -263,13 +264,11 @@ export function getDebugBundleDir(
 	scenarioName: string,
 	getSessionRoot: (sessionId: string) => string,
 ): string {
-	const slug =
-		scenarioName
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, "-")
-			.replace(/^-+|-+$/g, "")
-			.slice(0, 48) || "scenario";
-	return join(getSessionRoot(stagingSessionId), suiteName, `${slug}.debug`);
+	return join(
+		getSessionRoot(stagingSessionId),
+		suiteName,
+		`${scenarioArtifactSlug(scenarioName)}.debug`,
+	);
 }
 
 /** Persist a failed-scenario debug bundle (trace, failures, transcript, judge, env, rerun). */

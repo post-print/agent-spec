@@ -312,37 +312,43 @@ async function maybeWriteDebugBundle(options: {
 	const cliPath =
 		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
 
-	await writeDebugBundle({
-		dir,
-		result: options.result,
-		trace: options.trace ?? options.result.trace,
-		scenario: options.scenario,
-		environment: collectDebugEnvironment({
-			suite: options.suiteName,
-			scenario: options.scenario.name,
-			packageVersion,
-			host: options.host,
-			timeoutMs: options.timeoutMs,
-			worktree: options.worktree,
-			isolateLive: options.live && liveScenarioIsolationEnabled(),
-		}),
-		rerun: {
-			cliPath,
-			cwd: options.cwd,
-			suitesDir: options.suitesDir,
-			suite: options.suiteName,
-			scenario: options.scenario.name,
-			live: options.live,
-			host: options.host,
-			judge: options.judge,
-			worktree: options.worktree,
-			timeoutMs: options.timeoutMs,
-			noTimeout: options.timeoutMs === 0,
-			allowUserInput: options.allowUserInput,
-			debugDir: options.debugDir,
-			keepRecordings: options.keepRecordings ?? true,
-		},
-	});
+	try {
+		await writeDebugBundle({
+			dir,
+			result: options.result,
+			trace: options.trace ?? options.result.trace,
+			scenario: options.scenario,
+			environment: collectDebugEnvironment({
+				suite: options.suiteName,
+				scenario: options.scenario.name,
+				packageVersion,
+				host: options.host,
+				timeoutMs: options.timeoutMs,
+				worktree: options.worktree,
+				isolateLive: options.live && liveScenarioIsolationEnabled(),
+			}),
+			rerun: {
+				cliPath,
+				cwd: options.cwd,
+				suitesDir: options.suitesDir,
+				suite: options.suiteName,
+				scenario: options.scenario.name,
+				live: options.live,
+				host: options.host,
+				judge: options.judge,
+				worktree: options.worktree,
+				timeoutMs: options.timeoutMs,
+				noTimeout: options.timeoutMs === 0,
+				allowUserInput: options.allowUserInput,
+				debugDir: options.debugDir,
+				keepRecordings: options.keepRecordings ?? true,
+			},
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.warn(`agent-test: debug bundle write failed (${dir}): ${message}`);
+		return undefined;
+	}
 
 	if (shouldPrintSuiteChrome()) {
 		logPhase(theme.debugBundlePointer(join(dir, "transcript.md")), { last: true });
@@ -875,7 +881,9 @@ async function runJudgeRubric(
 			);
 		}
 	}
-	if (result.error && !result.verdicts.some((v) => v.infraError)) {
+	// Top-level only when no failing verdict already covers the error (avoids
+	// double-filing parse/infra failures as both judge:<id> and judge).
+	if (result.error && !result.verdicts.some((v) => !v.pass)) {
 		failures.push(assertionFailure("judge", result.error, "judge_infra"));
 	}
 	return { trace: judgedTrace, failures, verdicts: result.verdicts };

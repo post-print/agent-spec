@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -20,14 +21,19 @@ export function getLiveStagingRootOverride(): string | undefined {
 	return liveStagingRootOverride;
 }
 
-function slugifyScenarioName(name: string): string {
-	return (
+/**
+ * Stable filesystem basename for a scenario. Readable slug + short hash so
+ * distinct names that normalize alike (e.g. "Foo Bar" / "foo-bar") never collide.
+ */
+export function scenarioArtifactSlug(name: string): string {
+	const base =
 		name
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, "-")
 			.replace(/^-+|-+$/g, "")
-			.slice(0, 48) || "scenario"
-	);
+			.slice(0, 40) || "scenario";
+	const hash = createHash("sha256").update(name).digest("hex").slice(0, 8);
+	return `${base}-${hash}`;
 }
 
 export function getLiveStagingRoot(): string {
@@ -42,7 +48,7 @@ export function getLiveStagingSessionRoot(sessionId: string): string {
 }
 
 function stagingScenarioBasename(scenarioName: string): string {
-	return slugifyScenarioName(scenarioName);
+	return scenarioArtifactSlug(scenarioName);
 }
 
 /** Staging JSON path for a live scenario trace (matches recordTrace layout). */

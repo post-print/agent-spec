@@ -277,11 +277,13 @@ async function runJudgePrompt(
 		}
 		const parsed = parseJudgeResponse(result.text);
 		if (!parsed.valid) {
+			const rationale = `${parsed.rationale} (raw: ${result.text.slice(0, 160) || "empty"})`;
 			return {
 				pass: false,
-				rationale: `${parsed.rationale} (raw: ${result.text.slice(0, 160) || "empty"})`,
+				rationale,
 				evidence: [],
-				error: parsed.rationale,
+				error: rationale,
+				infraError: rationale,
 				durationMs,
 			};
 		}

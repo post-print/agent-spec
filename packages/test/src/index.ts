@@ -28,6 +28,7 @@ export {
 	type ResolvedRecordingPath,
 	recordTrace,
 	resolveRecordingPath,
+	scenarioArtifactSlug,
 	setLiveStagingRootOverride,
 	writeStagingResult,
 } from "./record-trace.js";

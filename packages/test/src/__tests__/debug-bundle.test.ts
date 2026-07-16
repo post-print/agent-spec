@@ -7,9 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	buildRerunCommand,
 	collectDebugEnvironment,
+	getDebugBundleDir,
 	shellQuote,
 	writeDebugBundle,
 } from "../debug-bundle.js";
+import { scenarioArtifactSlug } from "../record-trace.js";
 import type { AgentScenario, ScenarioResult } from "../types.js";
 
 describe("debug-bundle", () => {
@@ -42,6 +44,40 @@ describe("debug-bundle", () => {
 		expect(cmd).toContain("--debug-dir");
 		expect(cmd).toContain("--keep-recordings");
 		expect(cmd).toContain("'pr: anti-thrash targeted contextual'");
+	});
+
+	it("shell-quotes process.execPath in the rerun command", () => {
+		const original = process.execPath;
+		Object.defineProperty(process, "execPath", {
+			value: "/Users/John Smith/.nvm/versions/node/v22.0.0/bin/node",
+			configurable: true,
+		});
+		try {
+			const cmd = buildRerunCommand({
+				cliPath: "/repo/cli.js",
+				cwd: "/repo",
+				suitesDir: "agent-suites",
+				suite: "smoke",
+				scenario: "hello",
+				live: false,
+			});
+			expect(cmd.startsWith("'/Users/John Smith/.nvm/versions/node/v22.0.0/bin/node' ")).toBe(true);
+		} finally {
+			Object.defineProperty(process, "execPath", {
+				value: original,
+				configurable: true,
+			});
+		}
+	});
+
+	it("keeps distinct debug dirs for names that share a slug prefix", () => {
+		const root = (sessionId: string) => `/tmp/${sessionId}`;
+		const a = getDebugBundleDir("sess", "suite", "Foo Bar", root);
+		const b = getDebugBundleDir("sess", "suite", "foo-bar", root);
+		expect(a).not.toBe(b);
+		expect(a).toContain(scenarioArtifactSlug("Foo Bar"));
+		expect(b).toContain(scenarioArtifactSlug("foo-bar"));
+		expect(scenarioArtifactSlug("Foo Bar")).not.toBe(scenarioArtifactSlug("foo-bar"));
 	});
 
 	it("writes the six debug artifacts and redacts secrets", async () => {

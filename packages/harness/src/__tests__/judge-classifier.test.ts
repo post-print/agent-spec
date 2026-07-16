@@ -93,4 +93,32 @@ describe("judgeTrace infra errors", () => {
 		expect(verdict?.transcriptChars).toBeGreaterThan(0);
 		expect(verdict?.promptChars).toBeGreaterThan(0);
 	});
+
+	it("marks unparseable judge replies as infra errors", async () => {
+		agentPrompt.mockResolvedValue({
+			status: "finished",
+			result: "not-json-at-all",
+		});
+
+		const { judgeTrace } = await import("../judge.js");
+		const result = await judgeTrace(
+			{
+				messages: [{ role: "assistant", content: "hello" }],
+				toolCalls: [],
+				shellCommands: [],
+				artifacts: {},
+			},
+			[{ id: "c1", question: "Did the agent greet?" }],
+			{ cwd: process.cwd(), apiKey: "test-key" },
+		);
+
+		expect(result.skipped).toBe(false);
+		expect(result.error).toBeTruthy();
+		expect(result.verdicts).toHaveLength(1);
+		const verdict = result.verdicts[0];
+		expect(verdict?.pass).toBe(false);
+		expect(verdict?.infraError).toBeTruthy();
+		expect(verdict?.infraError).toContain("not-json-at-all");
+		expect(verdict?.rationale).toBe(verdict?.infraError);
+	});
 });
