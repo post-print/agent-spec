@@ -170,10 +170,14 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 
 	let structured = false;
 	let failedJsonShape = false;
+	// Only whole-reply fences are primary contract attempts. Mid-prose fences
+	// (e.g. YES + ```js\n"yes"\n```) stay incidental like unfenced peels.
+	const wholeReplyFence = JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed);
 	for (const candidate of candidates) {
 		const candidateTrim = candidate.trim();
 		const primary =
-			candidateTrim === trimmed || (fencedBody !== undefined && candidateTrim === fencedBody);
+			candidateTrim === trimmed ||
+			(wholeReplyFence && fencedBody !== undefined && candidateTrim === fencedBody);
 		try {
 			const parsed: unknown = JSON.parse(candidate);
 			if (parsed === null || typeof parsed !== "object") {

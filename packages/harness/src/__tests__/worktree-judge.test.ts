@@ -238,9 +238,17 @@ describe("parseJudgeJsonResponse", () => {
 	});
 
 	it("still salvages YES/NO when prose mentions non-json fences with incidental blobs", () => {
-		const parsed = parseJudgeResponse('YES\n```js\n{"quote":"hello"}\n```');
-		expect(parsed.valid).toBe(true);
-		expect(parsed.pass).toBe(true);
+		for (const raw of [
+			'YES\n```js\n{"quote":"hello"}\n```',
+			'YES\n```js\n"yes"\n```',
+			"YES\n```js\n[1,2,3]\n```",
+			'NO\n```typescript\n"no"\n```',
+			"YES\n```jsonc\n42\n```",
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(true);
+			expect(parsed.pass, raw).toBe(raw.startsWith("YES"));
+		}
 	});
 });
 
