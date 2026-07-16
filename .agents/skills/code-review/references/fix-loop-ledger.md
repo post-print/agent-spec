@@ -3,8 +3,10 @@
 <!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
 
 Portable state for review → fix → re-review convergence. The ledger travels in
-the chat handoff and every contextual re-review council prompt; do not rely on
-line numbers or finding order as identity.
+the chat handoff, repo-root **`REVIEW_LEDGER.md`** (durable handoff — write/update
+on every fix pass), and every contextual re-review council prompt. Recover from
+git log or PR body when chat context is missing. Do not rely on line numbers or
+finding order as identity.
 
 ## Theme record
 
@@ -40,6 +42,7 @@ diff. Add repo-specific dimensions when the changed behavior demands them.
 | Public contracts            | runtime, schema, exported declarations, docs/examples, CLI help, error behavior, generated artifacts                                                                                  |
 | State / cache / persistence | read key, write key, invalidation, migration, retry, stale/concurrent state                                                                                                           |
 | Auth / permissions          | anonymous, least privilege, denied, expired, cross-tenant, partial failure                                                                                                            |
+| Parser / classifier output  | truncated payload, object-in-array, greedy `{…}` extract, salvage YES/NO on malformed JSON, partial token stream, nested vs flat shape                                                |
 
 The matrix is a review aid, not a mandate to file test inventory. Default filing
 remains merge-blockers only.
@@ -85,13 +88,29 @@ Then:
 2. Perform a holistic same-invariant sweep across the shared surfaces.
 3. Collapse symptoms into one `theme_id` (or reopen the existing one).
 4. Prefer targeted contextual re-review after the sweep — not another reflex
-   Full baseline council — unless [modes.md](modes.md) Full promotion triggers
-   match.
+   Full baseline council — unless [modes.md](modes.md) § Contextual re-review
+   lists a qualifying Full reason **other than** whole-branch size alone.
+
+## Premature closure (named failure mode)
+
+Closing a theme after fixing only the reported example, a thin regression for
+that example alone, or without matrix + sweep evidence is **premature closure**.
+Symptoms:
+
+- Ledger marks `closed` but an adjacent variant of the same invariant still fails.
+- Closure evidence lists only the filed example; **variants checked** is missing
+  or names a single row without sweep execution.
+- A regression test covers E1 only while E2/E3 of the same invariant remain reachable.
+
+When premature closure is detected on pass 2+, **reopen** the existing `theme_id`
+(same invariant, new edge). Do not invent a sibling Action theme. Record under
+**Baseline contradictions** when prior synthesis claimed the theme closed.
 
 ## Variant coverage before closure
 
-Do not mark a theme `closed` after fixing only the reported example. Before
-closure evidence is complete:
+A theme MUST NOT move to `closed` unless variant checklist rows are checked or
+explicitly N/A'd. Do not mark a theme `closed` after fixing only the reported
+example. Before closure evidence is complete:
 
 1. List the applicable matrix dimensions for that invariant.
 2. Execute the theme’s sweep plan (or record N/A per surface).
@@ -105,6 +124,20 @@ sibling theme for the adjacent hole.
 
 Ask on every narrow fix: “what other variants of this invariant would fail if
 this fix is too narrow?”
+
+## Reopen on pass 2+ (thrash hardening)
+
+When the **same** `theme_id` reopens on pass 2+ (adjacent edge, premature
+closure, or incomplete prior sweep):
+
+1. MUST complete the same-invariant sweep before filing further Action blocks
+   in that theme family.
+2. MUST NOT claim merge-ready until variant coverage is explicit in closure
+   evidence.
+3. MUST NOT invent a sibling Action theme for the adjacent edge — extend /
+   reopen the existing `theme_id`.
+4. Prefer targeted hotspot council on sweep surfaces — not a reflex Full
+   symptom-hunting pass.
 
 ## Reconciliation
 
@@ -142,6 +175,10 @@ hotspot holistically against its invariant matrix, not only the latest patch.
 Use merge-ready or “final blockers” language only when all are true:
 
 - No ledger theme remains `open` or `reopened`; `wontfix` decisions are explicit.
+- No **premature closure** — every closed theme has variants checked + completed
+  sweep (or N/A reasons) in closure evidence.
+- No reopened theme lacks a completed sweep plan after thrash signal or pass 2+
+  reopen.
 - Baseline contradictions are empty.
 - Repeatedly changed hotspots received aggregate re-review.
 - Every repeated Action theme has variant coverage checked, a completed sweep

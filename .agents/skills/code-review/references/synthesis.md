@@ -33,7 +33,11 @@ After members return:
 11. On high-risk contradiction among Action items, spawn a neutral tiebreaker at **Premium** tier (still parent-aware: Auto parent → `inherit-auto` / omit `model`; named parent → explicit Premium slug per multi routing) or escalate to the user.
 12. Update the ledger, hotspot review status, sweep-plan results, variant-coverage notes, test
     evidence, and validation evidence per [fix-loop-ledger.md](fix-loop-ledger.md).
-13. Write consolidated report per [output.md](output.md). Header must state whether
-    the pass stayed **targeted contextual** or promoted to **Full contextual**, with reason.
+13. Write consolidated report per [output.md](output.md). Header must state
+    `Pass class:` (`first-baseline` | `closure-re-review` | `new-scope-review`),
+    whether the pass stayed **targeted contextual** or promoted to **Full
+    contextual**, with reason (including whole-branch size carve-out when
+    applicable). Reopen same `theme_id` on premature closure — do not file
+    sibling Action themes for adjacent variants.
 
 Fix-loop baseline comparison and **Baseline contradictions** section → consumer review-fix-loop / customize § Baseline comparison. Consumer rules may add context but cannot weaken stable theme identity or the portable exit gate.

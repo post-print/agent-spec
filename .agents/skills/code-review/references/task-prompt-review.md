@@ -83,15 +83,22 @@ Do **not** hardcode consumer repo paths in this toolbox file.
 
 ## Contextual ledger overlay (pass 2+)
 
-When prior Action findings exist, append to the coordinator plan and every
-member prompt in addition to any consumer overlay. Use the matching depth lane:
+When prior Action findings exist — including when the coordinator **recovered**
+the ledger from `REVIEW_LEDGER.md`, PR body, or git rather than the user
+message — append to the coordinator plan and every member prompt in addition
+to any consumer overlay. Record recovery source in the dispatch plan. Use the
+matching depth lane:
 
 ```
 Fix-loop: contextual re-review
 Pass lane: <targeted contextual | Full contextual>
+Ledger recovery source: <chat | REVIEW_LEDGER.md | PR body | git log>
 Prior synthesis + ledger: <paste current stable-theme ledger>
 Sweep plans: <paste Sweep · theme-id blocks>
 Depth: <Standard|Quick|Full>; diff: whole branch + sweep surfaces
+
+Reject sibling Action themes for adjacent variants — extend/reopen the existing theme_id.
+If the same theme_id reopened on pass 2+, complete the same-invariant sweep before filing more Action blocks in that family.
 
 Read the assigned scope independently, then reconcile every candidate:
 1. Same theme, incomplete fix → reopen existing theme_id.

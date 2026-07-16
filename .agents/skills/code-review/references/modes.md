@@ -31,7 +31,7 @@
 | Default (no escalation triggers below)                                                                                 | **Thorough**                       | 4              | Whole branch                        |
 | Auth/security/API/schema; >10 files or >600 lines on shared paths; >20 files or >1200 lines; weak tests on risky paths | **Full** (escalated)               | 5              | Whole branch                        |
 | Fix-loop pass 2+ · `closure-re-review` (diff only prior themes)                                                        | **Standard** (targeted contextual) | 2 (or Quick 1) | Whole branch + theme sweep surfaces |
-| Fix-loop pass 2+ · Full promotion triggers (below)                                                                     | **Full** (contextual re-review)    | 5              | Whole branch                        |
+| Fix-loop pass 2+ · Full promotion triggers (below) — **size thresholds alone do not qualify** on `closure-re-review`   | **Full** (contextual re-review)    | 5              | Whole branch                        |
 
 Agent budget table: [agent-selection.md](agent-selection.md).
 
@@ -41,25 +41,29 @@ Pass 2+ is **not** an automatic Full council. After [anti-thrash preflight](../S
 
 **Prefer targeted contextual re-review** (`closure-re-review`) when all are true:
 
-- A stable-theme ledger exists from a prior pass.
-- The latest diff only touches prior themes and their [sweep surfaces](fix-loop-ledger.md#same-invariant-sweep).
+- A stable-theme ledger exists from a prior pass (recovered from chat, `REVIEW_LEDGER.md`, PR body, or git — not only in-message).
+- The latest fix commit / diff only touches prior themes and their [sweep surfaces](fix-loop-ledger.md#same-invariant-sweep).
 - No unresolved baseline contradictions.
 - Scope did not materially expand (no new subsystems / public-contract surfaces outside the ledger).
+- Whole-branch `main...HEAD` exceeds file/line size thresholds — **does not** override this lane when classified `closure-re-review`. Record the carve-out in the synthesis header.
 
 Targeted lane rules:
 
 - Depth default **Standard** (2 members). Use **Quick** (1) only when a single theme’s hotspot needs independent scrutiny and the coordinator already completed the invariant + matrix sweep.
 - Coordinator reconstructs the ledger, runs hotspot reads, and verifies each open/reopened theme’s sweep plan before synthesizing.
 - Filing stays contextual: no sibling Action blocks for adjacent holes on an existing theme — extend / reopen that `theme_id`.
-- Synthesis header must include `Pass: targeted contextual` and one line why the pass stayed targeted.
+- Synthesis header must include `Pass class: closure-re-review`, `Pass: targeted contextual`, and one line why the pass stayed targeted (including size carve-out when applicable).
 
 **Promote to Full contextual re-review** when any:
 
-- Ledger missing or corrupted.
+- Ledger missing or corrupted **after** ordered recovery ([SKILL.md anti-thrash preflight](../SKILL.md#anti-thrash-preflight) step 2).
 - Unresolved baseline contradictions.
-- Diff introduces new subsystems, boundaries, auth/security/API/schema paths, or other Full escalation triggers.
-- Prior pass hit a [thrash signal](fix-loop-ledger.md#thrash-signal) and still lacks a completed same-invariant sweep.
+- Diff introduces new subsystems, boundaries, or auth/security/API/schema paths **outside** the recovered ledger scope.
 - User explicitly asked for Full / exhaustive / include improvements on this re-review.
+
+**Size thresholds (>10/600, >20/1200) and first-baseline auth/API/schema Full triggers apply to `first-baseline` and `new-scope-review` only.** They MUST NOT alone promote `closure-re-review` to Full contextual. When whole-branch size would have Full-promoted a first baseline but the pass is `closure-re-review`, header MUST record: `Escalation: Stayed targeted contextual (closure-re-review; whole-branch size ignored)`.
+
+**Incomplete thrash sweep:** When a [thrash signal](fix-loop-ledger.md#thrash-signal) fired and the same-invariant sweep is incomplete, MUST NOT reflexively spawn a Full symptom-hunting council. Prefer targeted hotspot council on sweep surfaces from the reconstructed ledger; force sweep completion and [exit gate](fix-loop-ledger.md#exit-gate) block. Promote to Full contextual only when sweep surfaces cannot be bounded from the recovered ledger or a qualifying reason above applies (not size alone).
 
 Full contextual lane still reads the **whole** branch diff, reconciles every candidate to the prior ledger, applies the invariant matrix, and holistically reviews multi-pass hotspots. Header: `Pass: Full contextual` + promotion reason.
 

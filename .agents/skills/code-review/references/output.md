@@ -19,10 +19,16 @@ Match the **scannable finding-block shape** for **Action** items — short imper
 **Required header** (first line of every `pr` / `merge` synthesis, including zero-findings):
 
 ```markdown
-Review · pr · Full · Escalation: Promoted to Full (auth/security, 40 files) · Filing: merge-blockers only
+Review · pr · Full · Pass class: first-baseline · Escalation: Promoted to Full (auth/security, 40 files) · Filing: merge-blockers only
 ```
 
-Format: `Review · {mode} · {depth} · Escalation: {Stayed Thorough|Promoted to Full|Stayed targeted contextual|Promoted to Full contextual} ({brief reason})`. Optional: `Pass: targeted contextual` / `Pass: Full contextual` on fix-loop re-reviews; `Filing: merge-blockers only` (default) or `Filing: merge-blockers + improvements` when user opted in — [merge-blockers.md](merge-blockers.md). Missing escalation line on a `pr` review = **incomplete turn**. Depth regression: if Full triggers in [modes.md](modes.md) apply but header says Thorough/targeted without a recorded carve-out, fix depth before ending the turn.
+Format: `Review · {mode} · {depth} · Pass class: {first-baseline|closure-re-review|new-scope-review} · Escalation: {Stayed Thorough|Promoted to Full|Stayed targeted contextual|Promoted to Full contextual} ({brief reason})`. Required on every `pr` / `merge` review that ran anti-thrash preflight. Optional: `Pass: targeted contextual` / `Pass: Full contextual` on fix-loop re-reviews; `Filing: merge-blockers only` (default) or `Filing: merge-blockers + improvements` when user opted in — [merge-blockers.md](merge-blockers.md). Missing escalation line on a `pr` review = **incomplete turn**. Depth regression: if Full triggers in [modes.md](modes.md) apply but header says Thorough/targeted without a recorded carve-out, fix depth before ending the turn.
+
+**Closure re-review size carve-out example:**
+
+```markdown
+Review · pr · Standard · Pass class: closure-re-review · Escalation: Stayed targeted contextual (closure-re-review; whole-branch size ignored) · Pass: targeted contextual · Filing: merge-blockers only
+```
 
 **Findings count line** (second line):
 
@@ -166,7 +172,13 @@ Required when prior Action findings existed before the pass. Full rules → cons
 
 Required whenever a review has entered a fix loop. Use the schema in
 [fix-loop-ledger.md](fix-loop-ledger.md) and carry the full current ledger in
-the chat handoff. Do not reset closed themes between passes.
+the chat handoff **and** update repo-root **`REVIEW_LEDGER.md`** on every fix
+pass. Do not reset closed themes between passes.
+
+**Durable handoff file (`REVIEW_LEDGER.md`):** theme table + open/reopened sweep
+blocks (`### Sweep · \`theme-id\``). Bare `review vs main` in a fresh chat MUST
+recover state from this file (or PR/git per anti-thrash preflight) before
+classifying pass depth.
 
 ## Closure evidence (repeated themes)
 

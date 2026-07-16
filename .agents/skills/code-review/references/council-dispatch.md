@@ -30,6 +30,7 @@ User model overrides: [none | member=slug, …]
 Loop state:
 
 - Prior themes: [theme_id list or none]
+- Ledger recovery source: [chat | REVIEW_LEDGER.md | PR body | git log | none]
 - Last fix commits/files: [SHAs / paths or n/a]
 - Hotspots (2+ passes): [paths or none]
 - Thrash signal: [none | family + sweep required]
@@ -67,7 +68,7 @@ Dispatch plans for pass 2+ **must** include loop state. Missing prior themes / c
 - [ ] Every member prompt includes Default filing overlay (consumer or portable)
 - [ ] Every member prompt includes Review overlay (mode/depth/diff)
 - [ ] Thorough+ **or** contextual re-review prompts include the invariant overlay and applicable matrix dimensions
-- [ ] Pass 2+ prompts include the current stable-theme ledger, sweep plans, and reconciliation rules
+- [ ] Pass 2+ prompts include the current stable-theme ledger (from chat **or** recovered from `REVIEW_LEDGER.md` / PR / git), sweep plans, reconciliation rules, and explicit “reject sibling Action themes for adjacent variants”
 - [ ] Availability log recorded in dispatch plan
 - [ ] One Task/Subagent completed per SELECTED member (architecture optional-slot omit logged if used; targeted Quick/Standard budget logged)
 - [ ] Injected consumer overlays applied when present (Thorough+ Filing gate, product-intent when paths match, contextual ledger when prior Action findings exist)
