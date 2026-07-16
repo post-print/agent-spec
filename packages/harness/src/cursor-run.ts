@@ -53,6 +53,8 @@ export interface CursorRunOptions {
 	timeoutMs?: number;
 	/** Fail fast when the agent invokes AskQuestion-style tools (default true). */
 	failOnUserInput?: boolean;
+	/** Fires immediately before the harness deadline timer arms (after pre-stream setup). */
+	onDeadlineStart?: () => void | Promise<void>;
 }
 
 export interface JudgeClassifierOptions {
@@ -151,6 +153,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 	};
 
 	if (options.timeoutMs && options.timeoutMs > 0) {
+		await options.onDeadlineStart?.();
 		return withRunTimeout(execute, options.timeoutMs, {
 			onTimeout: () => {
 				timedOut = true;

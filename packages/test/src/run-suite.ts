@@ -531,15 +531,14 @@ async function runScenario(
 		const outputContract = isLive
 			? outputContractForRubric(scenario.rubric)
 			: undefined;
-		if (isChildProcess() && isLive && stagingSessionId) {
-			await writeAgentStartMarker(
-				getStagingAgentStartPath(
-					stagingSessionId,
-					suiteName,
-					scenario.name,
-				),
-			);
-		}
+		const agentStartMarkerPath =
+			isChildProcess() && isLive && stagingSessionId
+				? getStagingAgentStartPath(
+						stagingSessionId,
+						suiteName,
+						scenario.name,
+					)
+				: undefined;
 		const agentStarted = performance.now();
 		const session = await (isLive
 			? withHeartbeat(
@@ -552,6 +551,9 @@ async function runScenario(
 						outputContract,
 						timeoutMs: liveTimeoutMs,
 						failOnUserInput,
+						onDeadlineStart: agentStartMarkerPath
+							? () => writeAgentStartMarker(agentStartMarkerPath)
+							: undefined,
 					}),
 					{ started: agentStarted },
 				)

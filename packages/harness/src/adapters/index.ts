@@ -38,6 +38,7 @@ export class CursorAdapter implements HostAdapter {
 				prompt,
 				timeoutMs: options.timeoutMs,
 				failOnUserInput: options.failOnUserInput,
+				onDeadlineStart: options.onDeadlineStart,
 			});
 			const gitDiff = await captureGitDiff(options.cwd);
 			const trace = enrichTrace({ ...streamedTrace, gitDiff });

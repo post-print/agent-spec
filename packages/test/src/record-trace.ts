@@ -44,7 +44,7 @@ export function getStagingTracePath(
 	);
 }
 
-/** Parent arms subprocess kill from this marker (epoch ms) once the child enters runAgent. */
+/** Parent arms subprocess kill from this marker (epoch ms) when the harness deadline starts. */
 export function getStagingAgentStartPath(
 	stagingSessionId: string,
 	suiteName: string,
@@ -57,7 +57,7 @@ export function getStagingAgentStartPath(
 	);
 }
 
-/** Child writes when the harness agent deadline clock starts (before runAgent). */
+/** Child writes when the harness agent deadline clock starts (after pre-stream SDK setup). */
 export async function writeAgentStartMarker(path: string): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, `${Date.now()}\n`, "utf8");

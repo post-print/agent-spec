@@ -68,6 +68,8 @@ export interface RunAgentOptions {
 	timeoutMs?: number;
 	/** Fail fast when the agent invokes AskQuestion-style tools (default true for live). */
 	failOnUserInput?: boolean;
+	/** Fires when the live harness deadline clock starts (after pre-stream SDK setup). */
+	onDeadlineStart?: () => void | Promise<void>;
 	env?: Record<string, string>;
 }
 
