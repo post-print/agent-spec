@@ -1,4 +1,5 @@
 import {
+	type AgentMessage,
 	type AgentTrace,
 	collapseTraceWhitespace,
 	handsOnTierBeforeTools,
@@ -7,6 +8,7 @@ import {
 	type SkillContextMode,
 } from "@post-print/agent-harness";
 
+import { assertionFailure } from "./failures.js";
 import type { AssertionFailure, ScenarioRubric } from "./types.js";
 
 export interface RubricAssertOptions {
@@ -42,6 +44,47 @@ const FULL_MODE_CRYSTALLIZE_PATTERNS = [
 const ROUTING_HEADING_PATTERN = /(?:^|\n)#+\s*Routing\b/m;
 const ROUTING_BOLD_PATTERN = /\*\*Routing\*\*/;
 
+function snippet(text: string, max = 200): string {
+	const trimmed = text.replace(/\s+/g, " ").trim();
+	if (trimmed.length <= max) {
+		return trimmed;
+	}
+	return `${trimmed.slice(0, max)}…`;
+}
+
+function lineContaining(haystack: string, needle: string): string | undefined {
+	const lowerNeedle = needle.toLowerCase();
+	for (const line of haystack.split("\n")) {
+		if (line.toLowerCase().includes(lowerNeedle)) {
+			return snippet(line.trim(), 240);
+		}
+	}
+	return undefined;
+}
+
+function nearestMissLine(haystack: string, expected: string): string | undefined {
+	const words = expected
+		.toLowerCase()
+		.split(/\s+/)
+		.filter(Boolean)
+		.sort((a, b) => b.length - a.length);
+	for (const word of words) {
+		const hit = lineContaining(haystack, word);
+		if (hit) {
+			return hit;
+		}
+	}
+	return undefined;
+}
+
+function beforeToolsSnippet(trace: AgentTrace): string | undefined {
+	if (trace.assistantTextBeforeTools?.trim()) {
+		return snippet(trace.assistantTextBeforeTools);
+	}
+	const first = trace.messages.find((m: AgentMessage) => m.role === "assistant");
+	return first?.content ? snippet(first.content) : undefined;
+}
+
 export class TraceAssertion {
 	private failures: AssertionFailure[] = [];
 
@@ -76,16 +119,23 @@ export class TraceAssertion {
 		return collapseTraceWhitespace(this.assertionHaystack());
 	}
 
+	private push(matcher: string, message: string, evidence?: string): void {
+		this.failures.push(assertionFailure(matcher, message, "rubric_miss", evidence));
+	}
+
 	toHaveTier(tier: ScenarioRubric["tier"]): this {
 		if (!tier) {
 			return this;
 		}
 		const actual = this.trace.routing?.tier;
 		if (actual !== tier) {
-			this.failures.push({
-				matcher: "toHaveTier",
-				message: `expected tier ${tier}, got ${actual ?? "undefined"}`,
-			});
+			const routing = this.trace.routing ? JSON.stringify(this.trace.routing) : "undefined";
+			const before = beforeToolsSnippet(this.trace);
+			this.push(
+				"toHaveTier",
+				`expected tier ${tier}, got ${actual ?? "undefined"}`,
+				before ? `routing=${routing}; beforeTools=${before}` : `routing=${routing}`,
+			);
 		}
 		return this;
 	}
@@ -98,10 +148,13 @@ export class TraceAssertion {
 		const haystack = this.assertionHaystack();
 		const actual = this.trace.routing?.tier ?? inferRoutingFromText(haystack)?.tier;
 		if (actual !== tier) {
-			this.failures.push({
-				matcher: "toHaveHandsOnTier",
-				message: `expected hands-on tier ${tier}, got ${actual ?? "undefined"}`,
-			});
+			const routing = this.trace.routing ? JSON.stringify(this.trace.routing) : "undefined";
+			const before = beforeToolsSnippet(this.trace);
+			this.push(
+				"toHaveHandsOnTier",
+				`expected hands-on tier ${tier}, got ${actual ?? "undefined"}`,
+				before ? `routing=${routing}; beforeTools=${before}` : `routing=${routing}`,
+			);
 		}
 		return this;
 	}
@@ -112,10 +165,11 @@ export class TraceAssertion {
 		}
 		const pattern = REVIEW_DEPTH_PATTERNS[depth];
 		if (!pattern.test(this.patternHaystack())) {
-			this.failures.push({
-				matcher: "toHaveReviewDepth",
-				message: `expected review depth ${depth}, not found in trace output`,
-			});
+			this.push(
+				"toHaveReviewDepth",
+				`expected review depth ${depth}, not found in trace output`,
+				beforeToolsSnippet(this.trace),
+			);
 		}
 		return this;
 	}
@@ -123,10 +177,18 @@ export class TraceAssertion {
 	toHaveRunCommand(fragment: string): this {
 		const hit = this.trace.shellCommands.some((cmd: string) => cmd.includes(fragment));
 		if (!hit) {
-			this.failures.push({
-				matcher: "toHaveRunCommand",
-				message: `expected shell command containing "${fragment}"`,
-			});
+			const listed = this.trace.shellCommands.slice(0, 10);
+			const more =
+				this.trace.shellCommands.length > 10
+					? ` (+${this.trace.shellCommands.length - 10} more)`
+					: "";
+			this.push(
+				"toHaveRunCommand",
+				`expected shell command containing "${fragment}"`,
+				listed.length > 0
+					? `shellCommands=[${listed.map((c) => JSON.stringify(c)).join(", ")}]${more}`
+					: "shellCommands=[]",
+			);
 		}
 		return this;
 	}
@@ -137,20 +199,14 @@ export class TraceAssertion {
 	 */
 	toHaveCalledTool(spec: string): this {
 		if (!toolSpecMatches(this.trace.toolCalls, spec)) {
-			this.failures.push({
-				matcher: "toHaveCalledTool",
-				message: `expected tool call matching "${spec}"`,
-			});
+			this.push("toHaveCalledTool", `expected tool call matching "${spec}"`);
 		}
 		return this;
 	}
 
 	toHaveNotCalledTool(spec: string): this {
 		if (toolSpecMatches(this.trace.toolCalls, spec)) {
-			this.failures.push({
-				matcher: "toHaveNotCalledTool",
-				message: `forbidden tool call matching "${spec}"`,
-			});
+			this.push("toHaveNotCalledTool", `forbidden tool call matching "${spec}"`);
 		}
 		return this;
 	}
@@ -163,10 +219,11 @@ export class TraceAssertion {
 			!ROUTING_HEADING_PATTERN.test(haystack) &&
 			!ROUTING_BOLD_PATTERN.test(collapsed)
 		) {
-			this.failures.push({
-				matcher: "toIncludeRoutingBlock",
-				message: "expected trace to include ## Routing section",
-			});
+			this.push(
+				"toIncludeRoutingBlock",
+				"expected trace to include ## Routing section",
+				beforeToolsSnippet(this.trace),
+			);
 		}
 		return this;
 	}
@@ -174,11 +231,11 @@ export class TraceAssertion {
 	/** Hands-off PR: ## Routing must appear before the first tool call. */
 	toHaveRoutingBlockBeforeTools(): this {
 		if (!routingBlockBeforeTools(this.trace)) {
-			this.failures.push({
-				matcher: "toHaveRoutingBlockBeforeTools",
-				message:
-					"expected ## Routing block in assistant output before the first tool call (agent-routing.md hands-off)",
-			});
+			this.push(
+				"toHaveRoutingBlockBeforeTools",
+				"expected ## Routing block in assistant output before the first tool call (agent-routing.md hands-off)",
+				beforeToolsSnippet(this.trace),
+			);
 		}
 		return this;
 	}
@@ -189,10 +246,11 @@ export class TraceAssertion {
 			return this;
 		}
 		if (!handsOnTierBeforeTools(this.trace, tier)) {
-			this.failures.push({
-				matcher: "toHaveHandsOnTierBeforeTools",
-				message: `expected hands-on tier ${tier} announced before the first tool call`,
-			});
+			this.push(
+				"toHaveHandsOnTierBeforeTools",
+				`expected hands-on tier ${tier} announced before the first tool call`,
+				beforeToolsSnippet(this.trace),
+			);
 		}
 		return this;
 	}
@@ -201,13 +259,14 @@ export class TraceAssertion {
 		if (this.skillWasInvoked(skillName)) {
 			return this;
 		}
-		this.failures.push({
-			matcher: "toHaveInvokedSkill",
-			message:
-				this.options.skillsMode === "full"
-					? `expected agent to apply ${skillName} skill (read SKILL.md or follow skill session in transcript)`
-					: `expected agent to read ${skillName} skill (SKILL.md)`,
-		});
+		const invoked = this.trace.skillsInvoked ?? [];
+		this.push(
+			"toHaveInvokedSkill",
+			this.options.skillsMode === "full"
+				? `expected agent to apply ${skillName} skill (read SKILL.md or follow skill session in transcript)`
+				: `expected agent to read ${skillName} skill (SKILL.md)`,
+			`skillsInvoked=[${invoked.join(", ")}]`,
+		);
 		return this;
 	}
 
@@ -248,24 +307,41 @@ export class TraceAssertion {
 		return fullModePatterns.some((pattern) => pattern.test(haystack));
 	}
 
+	/** Which full-mode fallback pattern matched (for mustNotInvokeSkill evidence). */
+	private skillMatchHint(skillName: string): string | undefined {
+		const normalized = skillName.toLowerCase();
+		const invoked = this.trace.skillsInvoked ?? [];
+		if (invoked.some((name) => name.toLowerCase() === normalized)) {
+			return `skillsInvoked includes ${skillName}`;
+		}
+		const haystack = this.patternHaystack();
+		if (haystack.toLowerCase().includes(`.claude/skills/${normalized}/skill.md`)) {
+			return "matched SKILL.md path in transcript";
+		}
+		return `skillsInvoked=[${invoked.join(", ")}]`;
+	}
+
 	toHaveNotInvokedSkill(skillName: string): this {
 		if (!this.skillWasInvoked(skillName)) {
 			return this;
 		}
-		this.failures.push({
-			matcher: "toHaveNotInvokedSkill",
-			message: `expected agent not to invoke ${skillName} skill`,
-		});
+		this.push(
+			"toHaveNotInvokedSkill",
+			`expected agent not to invoke ${skillName} skill`,
+			this.skillMatchHint(skillName),
+		);
 		return this;
 	}
 
 	mustInclude(text: string): this {
 		const haystack = this.assertionHaystack();
 		if (!haystack.toLowerCase().includes(text.toLowerCase())) {
-			this.failures.push({
-				matcher: "mustInclude",
-				message: `expected text not found: "${text}"`,
-			});
+			const near = nearestMissLine(haystack, text);
+			this.push(
+				"mustInclude",
+				`expected text not found: "${text}"`,
+				near ? `nearest: ${near}` : undefined,
+			);
 		}
 		return this;
 	}
@@ -273,10 +349,11 @@ export class TraceAssertion {
 	mustNotInclude(text: string): this {
 		const haystack = this.assertionHaystack();
 		if (containsForbiddenPhrase(haystack, text)) {
-			this.failures.push({
-				matcher: "mustNotInclude",
-				message: `forbidden text present: "${text}"`,
-			});
+			this.push(
+				"mustNotInclude",
+				`forbidden text present: "${text}"`,
+				lineContaining(haystack, text),
+			);
 		}
 		return this;
 	}

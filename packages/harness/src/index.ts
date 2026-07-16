@@ -32,6 +32,7 @@ export {
 	type CursorRunResult,
 	type JudgeClassifierOptions,
 	type JudgeClassifierResult,
+	type JudgeSdkError,
 	runCursorAgent,
 	runJudgeClassifier,
 	textBlocksFromSdkMessage,

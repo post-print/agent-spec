@@ -71,6 +71,20 @@ describe("expectTrace", () => {
 		const failures = assertRubric(trace, { mustNot: ["council"] });
 		expect(failures).toHaveLength(1);
 		expect(failures[0]?.matcher).toBe("mustNotInclude");
+		expect(failures[0]?.category).toBe("rubric_miss");
+		expect(failures[0]?.evidence).toContain("dispatch council review");
+	});
+
+	it("attaches evidence for missing mustInclude text", () => {
+		const failures = assertRubric(sampleTrace, { must: ["definitely-missing-token"] });
+		expect(failures[0]?.category).toBe("rubric_miss");
+		expect(failures[0]?.matcher).toBe("mustInclude");
+	});
+
+	it("attaches shellCommands evidence for missing mustRun", () => {
+		const failures = assertRubric(sampleTrace, { mustRun: ["npm test"] });
+		expect(failures[0]?.category).toBe("rubric_miss");
+		expect(failures[0]?.evidence).toContain("shellCommands=");
 	});
 
 	it("passes hands-on tier inferred from one-line announce", () => {

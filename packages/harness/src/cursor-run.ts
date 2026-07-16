@@ -66,9 +66,18 @@ export interface JudgeClassifierOptions {
 	model?: { id: string; params?: Array<{ id: string; value: string }> };
 }
 
+export interface JudgeSdkError {
+	message?: string;
+	code?: string;
+}
+
 export interface JudgeClassifierResult {
 	status: string;
 	text: string;
+	/** Unnormalized SDK terminal status (e.g. `error`, `cancelled`). */
+	rawStatus?: string;
+	/** SDK error payload when the judge run did not finish cleanly. */
+	sdkError?: JudgeSdkError;
 }
 
 export interface CursorRunResult {
@@ -188,11 +197,28 @@ export async function runJudgeClassifier(
 	});
 
 	const text = result.result?.trim() ?? "";
-	const status = result.status === "finished" ? "completed" : result.status;
+	const rawStatus = result.status;
+	const status = rawStatus === "finished" ? "completed" : rawStatus;
+	const sdkError = extractJudgeSdkError(result.error);
 	return {
 		status: normalizeSdkRunStatus(status),
 		text,
+		rawStatus,
+		sdkError,
 	};
+}
+
+function extractJudgeSdkError(error: unknown): JudgeSdkError | undefined {
+	if (!error || typeof error !== "object") {
+		return undefined;
+	}
+	const record = error as { message?: unknown; code?: unknown };
+	const message = typeof record.message === "string" ? record.message : undefined;
+	const code = typeof record.code === "string" ? record.code : undefined;
+	if (!message && !code) {
+		return undefined;
+	}
+	return { message, code };
 }
 
 /** Assistant prose from a Cursor SDK message stream (last assistant block wins for short replies). */

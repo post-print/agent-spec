@@ -1,4 +1,5 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { type AgentHost, cleanupStaleScenarioWorktrees } from "@post-print/agent-harness";
@@ -13,6 +14,7 @@ import {
 	cleanupStagingSession,
 	createLiveStagingSessionId,
 	getLiveStagingSessionRoot,
+	setLiveStagingRootOverride,
 } from "./record-trace.js";
 import { registerLiveRunHandlers, runAllSuites } from "./run-suite.js";
 import { configureCliColor, theme } from "./theme.js";
@@ -21,7 +23,7 @@ import { suppressNoisyRuntimeWarnings } from "./warnings.js";
 suppressNoisyRuntimeWarnings();
 configureCliColor();
 
-function parseArgs(argv: string[]): {
+export interface ParsedCliArgs {
 	cwd: string;
 	suitesDir: string;
 	host?: AgentHost;
@@ -39,7 +41,12 @@ function parseArgs(argv: string[]): {
 	allowUserInput: boolean;
 	doctor: boolean;
 	htmlReport: boolean;
-} {
+	debug: boolean;
+	debugDir?: string;
+}
+
+/** Parse agent-test CLI argv (exported for unit tests). */
+export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	const cwd = process.cwd();
 	let suitesDir = "agent-suites";
 	let host: AgentHost | undefined;
@@ -57,6 +64,8 @@ function parseArgs(argv: string[]): {
 	let allowUserInput = false;
 	let doctor = false;
 	let htmlReport = true;
+	let debug = process.env.AGENT_TEST_DEBUG === "1" || process.env.AGENT_TEST_DEBUG === "true";
+	let debugDir: string | undefined;
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -98,6 +107,15 @@ function parseArgs(argv: string[]): {
 			doctor = true;
 		} else if (token === "--no-html-report") {
 			htmlReport = false;
+		} else if (token === "--debug") {
+			debug = true;
+		} else if (token === "--debug-dir") {
+			const value = argv[++i];
+			if (!value || value.startsWith("-")) {
+				throw new Error("--debug-dir requires a non-empty path argument");
+			}
+			debugDir = value;
+			debug = true;
 		} else if (token && !token.startsWith("-")) {
 			filter = token;
 		}
@@ -108,6 +126,13 @@ function parseArgs(argv: string[]): {
 		record = true;
 		judge = judge ?? true;
 		worktree = worktree ?? true;
+	}
+
+	if (debug) {
+		keepRecordings = true;
+		process.env.AGENT_TEST_DEBUG = "1";
+		process.env.AGENT_TEST_VERBOSE = process.env.AGENT_TEST_VERBOSE ?? "1";
+		process.env.AGENT_TEST_VERBOSE_PATHS = process.env.AGENT_TEST_VERBOSE_PATHS ?? "1";
 	}
 
 	return {
@@ -128,6 +153,8 @@ function parseArgs(argv: string[]): {
 		allowUserInput,
 		doctor,
 		htmlReport,
+		debug,
+		debugDir: debugDir ? resolve(cwd, debugDir) : undefined,
 	};
 }
 
@@ -155,7 +182,14 @@ async function cleanupLiveRunArtifacts(
 }
 
 async function main(): Promise<number> {
-	const args = parseArgs(process.argv);
+	let args: ParsedCliArgs;
+	try {
+		args = parseCliArgs(process.argv);
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : error);
+		return 1;
+	}
+
 	if (args.doctor) {
 		const report = runDoctor();
 		for (const message of report.messages) {
@@ -163,12 +197,20 @@ async function main(): Promise<number> {
 		}
 		return report.ok ? 0 : 1;
 	}
+
+	if (args.debugDir) {
+		setLiveStagingRootOverride(args.debugDir);
+	}
+
 	const isChild = process.env.AGENT_TEST_CHILD === "1";
-	const verbose = process.env.AGENT_TEST_VERBOSE === "1";
+	const verbose =
+		args.debug || process.env.AGENT_TEST_VERBOSE === "1" || process.env.AGENT_TEST_DEBUG === "1";
 	const stagingSessionId =
 		args.stagingSessionId?.trim() ||
 		process.env.AGENT_TEST_STAGING_SESSION_ID?.trim() ||
-		(args.live || (args.record && !args.recordFixtures) ? createLiveStagingSessionId() : undefined);
+		(args.live || args.debug || (args.record && !args.recordFixtures)
+			? createLiveStagingSessionId()
+			: undefined);
 	const stagingSessionRoot = stagingSessionId
 		? getLiveStagingSessionRoot(stagingSessionId)
 		: undefined;
@@ -207,7 +249,7 @@ async function main(): Promise<number> {
 						theme.warn(`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`),
 					);
 				}
-				console.log(theme.banner("live"));
+				console.log(theme.banner(args.debug ? "live debug" : "live"));
 				if (stagingSessionRoot) {
 					console.log(theme.bannerSession(stagingSessionRoot));
 				}
@@ -216,9 +258,11 @@ async function main(): Promise<number> {
 						theme.warn("running in repo cwd — agent file edits will persist in your working tree"),
 					);
 				}
-				if (process.env.AGENT_TEST_VERBOSE === "1") {
+				if (args.debug || process.env.AGENT_TEST_VERBOSE === "1") {
 					if (!args.keepRecordings) {
 						console.log(`  ${theme.tip("traces removed on exit unless --keep-recordings")}`);
+					} else {
+						console.log(`  ${theme.tip("debug: recordings kept")}`);
 					}
 					console.log(
 						`  ${theme.tip("exit 137 = macOS OOM — isolated subprocesses (AGENT_TEST_NO_ISOLATE=1 to disable)")}`,
@@ -227,6 +271,9 @@ async function main(): Promise<number> {
 					console.log(`  ${theme.tip("traces removed on exit unless --keep-recordings")}`);
 				}
 			}
+		} else if (args.debug && !isChild && stagingSessionRoot) {
+			console.log(theme.banner("debug"));
+			console.log(theme.bannerSession(stagingSessionRoot));
 		}
 
 		const reports = await runAllSuites({
@@ -234,6 +281,8 @@ async function main(): Promise<number> {
 			stagingSessionId,
 			timeoutMs: args.timeoutMs,
 			allowUserInput: args.allowUserInput,
+			debug: args.debug,
+			debugDir: args.debugDir,
 		});
 
 		let exitCode = 0;
@@ -247,12 +296,26 @@ async function main(): Promise<number> {
 						console.log(theme.failedScenarioName(result.scenario));
 						if (verbose) {
 							for (const failure of result.failures) {
-								console.log(theme.verboseFailure(failure.matcher, failure.message));
+								console.log(
+									theme.verboseFailure(
+										failure.matcher,
+										failure.message,
+										failure.evidence,
+										failure.category,
+									),
+								);
 							}
+						}
+						if (args.debug && result.debugBundleDir) {
+							console.log(`      ${theme.tip(result.debugBundleDir)}`);
 						}
 					}
 				}
 				console.log(theme.summary(report.suite, report.passed, report.failed, report.skipped));
+			}
+
+			if (args.debug && stagingSessionRoot) {
+				console.log(`\n${theme.tip(`debug session: ${stagingSessionRoot}`)}`);
 			}
 
 			if (args.htmlReport && reports.length > 0) {

@@ -7,13 +7,17 @@ import { describe, expect, it } from "vitest";
 import {
 	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
+	getLiveStagingRoot,
 	getLiveStagingSessionRoot,
 	getStagingAgentStartPath,
 	getStagingResultPath,
 	getStagingTracePath,
 	loadStagingResult,
+	loadStagingTrace,
 	readAgentStartMarker,
+	recordTrace,
 	resolveRecordingPath,
+	setLiveStagingRootOverride,
 	writeAgentStartMarker,
 	writeStagingResult,
 } from "../record-trace.js";
@@ -100,6 +104,39 @@ describe("staging result sidecar", () => {
 		await expect(loadStagingResult(path)).resolves.toEqual(payload);
 
 		await cleanupStagingSession(getLiveStagingSessionRoot(sessionId));
+	});
+});
+
+describe("recordTrace", () => {
+	it("persists assistantTextBeforeTools for parent debug rewrites", async () => {
+		const sessionId = `trace-prefix-${Date.now()}`;
+		const path = getStagingTracePath(sessionId, "smoke", "prefix");
+		await recordTrace(path, {
+			messages: [{ role: "assistant", content: "after tools" }],
+			toolCalls: [{ name: "Shell", input: {} }],
+			shellCommands: [],
+			artifacts: {},
+			assistantTextBeforeTools: "Reading files…",
+		});
+
+		const loaded = await loadStagingTrace(path);
+		expect(loaded.assistantTextBeforeTools).toBe("Reading files…");
+
+		await cleanupStagingSession(getLiveStagingSessionRoot(sessionId));
+	});
+});
+
+describe("setLiveStagingRootOverride", () => {
+	it("remounts the sessions parent used by staging paths", () => {
+		const prior = undefined;
+		const root = join(tmpdir(), `agent-test-debug-dir-${Date.now()}`);
+		try {
+			setLiveStagingRootOverride(root);
+			expect(getLiveStagingRoot()).toBe(join(root, "sessions"));
+			expect(getLiveStagingSessionRoot("sess")).toBe(join(root, "sessions", "sess"));
+		} finally {
+			setLiveStagingRootOverride(prior);
+		}
 	});
 });
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -177,6 +177,7 @@ describe("runSuite isolateLive", () => {
 			{
 				matcher: "toHaveReviewDepth",
 				message: 'expected review depth "thorough"',
+				category: "rubric_miss",
 			},
 		]);
 	});
@@ -223,5 +224,97 @@ describe("runSuite isolateLive", () => {
 		const result = report.results.find((r) => r.scenario === "late-kill");
 		expect(result?.passed).toBe(true);
 		expect(result?.failures).toEqual([]);
+	});
+
+	it("remounts staging root from debugDir for the duration of the suite", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-debug-dir-"));
+		const debugDir = await mkdtemp(join(tmpdir(), "agent-test-debug-root-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "debug-dir-remount",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "a", prompt: "p", rubric: {} },
+					{ name: "b", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		const setSpy = vi.spyOn(recordTrace, "setLiveStagingRootOverride");
+		vi.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+
+		await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-debug-dir",
+			debugDir,
+			judge: false,
+		});
+
+		expect(setSpy).toHaveBeenCalledWith(debugDir);
+		expect(setSpy).toHaveBeenLastCalledWith(undefined);
+		expect(recordTrace.getLiveStagingRootOverride()).toBeUndefined();
+	});
+
+	it("keeps --debug-dir in rerun.sh from the global override when debugDir is unset", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-rerun-override-"));
+		const overrideRoot = await mkdtemp(join(tmpdir(), "agent-test-override-root-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "rerun-override",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "ok", prompt: "p", rubric: {} },
+					{ name: "failing", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async (options) =>
+			options.scenarioName === "failing" ? 1 : 0,
+		);
+		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
+			path.includes("failing")
+				? {
+						passed: false,
+						durationMs: 5,
+						failures: [{ matcher: "toContain", message: "missing", category: "rubric_miss" }],
+					}
+				: undefined,
+		);
+
+		// Library caller sets the process-global override but passes no debugDir.
+		recordTrace.setLiveStagingRootOverride(overrideRoot);
+		try {
+			await runSuite({
+				cwd: dir,
+				suitePath,
+				stagingSessionId: "sess-rerun-override",
+				debug: true,
+				judge: false,
+			});
+
+			const rerunPath = join(
+				recordTrace.getLiveStagingSessionRoot("sess-rerun-override"),
+				"rerun-override",
+				`${recordTrace.scenarioArtifactSlug("failing")}.debug`,
+				"rerun.sh",
+			);
+			const rerun = await readFile(rerunPath, "utf8");
+			expect(rerun).toContain("--debug-dir");
+			expect(rerun).toContain(overrideRoot);
+		} finally {
+			recordTrace.setLiveStagingRootOverride(undefined);
+		}
 	});
 });

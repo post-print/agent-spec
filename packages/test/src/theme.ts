@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import chalk from "chalk";
 
 const RATIONALE_WRAP_COLS = 72;
@@ -14,7 +14,11 @@ export function colorEnabled(): boolean {
 
 /** Truncate long temp/session paths to `…/last` or `…/parent/last`. */
 export function truncatePath(path: string): string {
-	if (process.env.AGENT_TEST_VERBOSE_PATHS === "1") {
+	if (
+		process.env.AGENT_TEST_VERBOSE_PATHS === "1" ||
+		process.env.AGENT_TEST_DEBUG === "1" ||
+		process.env.AGENT_TEST_DEBUG === "true"
+	) {
 		return path;
 	}
 	const parts = path.split("/").filter(Boolean);
@@ -55,6 +59,8 @@ export interface JudgeVerdictDisplay {
 export interface RubricFailureDisplay {
 	matcher: string;
 	message: string;
+	category?: string;
+	evidence?: string;
 }
 
 export interface ScenarioVerdictOptions {
@@ -65,6 +71,11 @@ export interface ScenarioVerdictOptions {
 	durationMs: number;
 	judgeVerdicts?: JudgeVerdictDisplay[];
 	rubricFailures?: RubricFailureDisplay[];
+	/** Primary failure category for the FAIL line. */
+	failureCategory?: string;
+	/** Show evidence and full failure detail (--debug / AGENT_TEST_VERBOSE). */
+	debug?: boolean;
+	debugBundleDir?: string;
 }
 
 export function formatDurationLabel(ms: number): string {
@@ -161,8 +172,17 @@ export const theme = {
 		return `  ${chalk.red("✗")} ${name}`;
 	},
 
-	verboseFailure(matcher: string, message: string): string {
-		return `      ${chalk.dim(matcher)}  ${message}`;
+	verboseFailure(matcher: string, message: string, evidence?: string, category?: string): string {
+		const prefix = category ? `${chalk.dim(category)}  ` : "";
+		const base = `      ${prefix}${chalk.dim(matcher)}  ${message}`;
+		if (!evidence) {
+			return base;
+		}
+		return `${base}\n        ${chalk.dim(evidence)}`;
+	},
+
+	debugBundlePointer(path: string): string {
+		return theme.phase("debug", theme.path(path));
 	},
 
 	judgePhase(count: number): string {
@@ -185,9 +205,15 @@ export const theme = {
 				? `[${options.index}/${options.total}] `
 				: "";
 		const duration = chalk.yellow(`(${formatDurationLabel(options.durationMs)})`);
+		const primaryCategory =
+			!options.passed && options.failureCategory
+				? chalk.yellow(options.failureCategory)
+				: undefined;
 		const lines: string[] = [
 			`  ${chalk.dim("│")}`,
-			`  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}`,
+			primaryCategory
+				? `  ${chalk.dim("│")}  ${mark} ${status}  ${primaryCategory}  ${counter}${chalk.bold.white(options.name)}  ${duration}`
+				: `  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}`,
 		];
 
 		for (const verdict of options.judgeVerdicts ?? []) {
@@ -199,10 +225,22 @@ export const theme = {
 		}
 
 		for (const failure of options.rubricFailures ?? []) {
-			lines.push(`  ${chalk.dim("│")}    ${chalk.yellow("rubric")}  ${chalk.dim(failure.matcher)}`);
+			const category = failure.category ? chalk.yellow(failure.category) : chalk.yellow("rubric");
+			lines.push(`  ${chalk.dim("│")}    ${category}  ${chalk.dim(failure.matcher)}`);
 			for (const wrapped of wrapText(failure.message)) {
 				lines.push(`  ${chalk.dim("│")}           ${chalk.yellow(wrapped)}`);
 			}
+			if (options.debug && failure.evidence) {
+				for (const wrapped of wrapText(failure.evidence)) {
+					lines.push(`  ${chalk.dim("│")}           ${chalk.dim(wrapped)}`);
+				}
+			}
+		}
+
+		if (options.debug && options.debugBundleDir) {
+			lines.push(
+				`  ${chalk.dim("│")}    ${chalk.dim("debug")}  ${chalk.cyan(truncatePath(join(options.debugBundleDir, "transcript.md")))}`,
+			);
 		}
 
 		return lines;

@@ -19,10 +19,22 @@ Match the **scannable finding-block shape** for **Action** items — short imper
 **Required header** (first line of every `pr` / `merge` synthesis, including zero-findings):
 
 ```markdown
-Review · pr · Full · Escalation: Promoted to Full (auth/security, 40 files) · Filing: merge-blockers only
+Review · pr · Full · Pass class: first-baseline · Escalation: Promoted to Full (auth/security, 40 files) · Filing: merge-blockers only
 ```
 
-Format: `Review · {mode} · {depth} · Escalation: {Stayed Thorough|Promoted to Full|Stayed targeted contextual|Promoted to Full contextual} ({brief reason})`. Optional: `Pass: targeted contextual` / `Pass: Full contextual` on fix-loop re-reviews; `Filing: merge-blockers only` (default) or `Filing: merge-blockers + improvements` when user opted in — [merge-blockers.md](merge-blockers.md). Missing escalation line on a `pr` review = **incomplete turn**. Depth regression: if Full triggers in [modes.md](modes.md) apply but header says Thorough/targeted without a recorded carve-out, fix depth before ending the turn.
+Format: `Review · {mode} · {depth} · Pass class: {first-baseline|closure-re-review|new-scope-review} · Escalation: {Stayed Thorough|Promoted to Full|Stayed targeted contextual|Promoted to Full contextual} ({brief reason})`. Required on every `pr` / `merge` review that ran anti-thrash preflight. Optional: `Pass: targeted contextual` / `Pass: Full contextual` on fix-loop re-reviews; `Filing: merge-blockers only` (default) or `Filing: merge-blockers + improvements` when user opted in — [merge-blockers.md](merge-blockers.md). Missing escalation line on a `pr` review = **incomplete turn**. Depth regression: if Full triggers in [modes.md](modes.md) apply but header says Thorough/targeted without a recorded carve-out, fix depth before ending the turn.
+
+**Closure re-review size carve-out example:**
+
+```markdown
+Review · pr · Standard · Pass class: closure-re-review · Escalation: Stayed targeted contextual (closure-re-review; whole-branch size ignored) · Pass: targeted contextual · Filing: merge-blockers only
+```
+
+**Commit-stack / missing-ledger carve-out example:**
+
+```markdown
+Review · pr · Standard · Pass class: closure-re-review · Escalation: Stayed targeted contextual (closure-re-review; commit-stack archaeology; whole-branch size ignored) · Pass: targeted contextual · Filing: merge-blockers only
+```
 
 **Findings count line** (second line):
 
@@ -138,21 +150,63 @@ Do not append as Action findings. Do not block fix-loop exit.
 Required rows below must appear in their stated lifecycle; use optional rows
 only when they add decision value. Keep each section concise.
 
-| Section                     | When                                                                     |
-| --------------------------- | ------------------------------------------------------------------------ |
-| **Baseline contradictions** | Re-review pass when prior synthesis exists — required                    |
-| **Fix-loop ledger**         | Every fix-loop handoff and contextual re-review synthesis — required     |
-| **Closure evidence**        | Closing a theme that spanned 2+ passes — required (may live in ledger)   |
-| **Exit evidence**           | Contextual re-review pass that claims merge-ready — required             |
-| **Open questions**          | Product or backend assumptions block Action severity                     |
-| **Testing gaps**            | Residual coverage not already in Deferred tail                           |
-| **Change summary**          | User asked for overview, or first review on a large PR — max 3 sentences |
+| Section                     | When                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| **Continuity**              | Fix-loop with open/reopened themes — one line after findings (default)                      |
+| **Fix-loop themes**         | Only when user asked `include continuity` / `show ledger`                                   |
+| **Baseline contradictions** | Only with verbose continuity (`show ledger` / `include continuity`) on re-review            |
+| **Closure evidence**        | Closing a theme that spanned 2+ passes — in verbose continuity or merge-ready Exit evidence |
+| **Exit evidence**           | Contextual re-review that claims merge-ready — short bullets                                |
+| **Open questions**          | Product or backend assumptions block Action severity                                        |
+| **Testing gaps**            | Residual coverage not already in Deferred tail                                              |
+| **Change summary**          | User asked for overview, or first review on a large PR — max 3 sentences                    |
 
 Omit **Change summary** by default. Do not restate Action items in tail sections.
+Default user output is findings-first: header → findings → optional Continuity line
+→ synthesis. Carry full theme tables in member prompts
+([fix-loop-ledger.md](fix-loop-ledger.md)).
 
-## Baseline contradictions (re-review only)
+Default chat shape (no `show ledger` / `include continuity`):
 
-Required when prior Action findings existed before the pass. Full rules → consumer review-fix-loop / customize § Baseline comparison.
+```markdown
+Review · pr · Standard · Pass class: closure-re-review · …
+
+## Findings
+
+### …
+
+`path` · Theme: `theme-id` · …
+
+Continuity: theme-id still open on path (reason). Next review stays targeted.
+
+## Review synthesis
+
+…
+```
+
+Leave out `## Fix-loop` / theme tables and `## Baseline contradictions` in that
+default shape. Those sections are opt-in below.
+
+## Continuity (default when themes remain open)
+
+When Action themes remain `open` or `reopened` and the user did **not** ask for
+verbose continuity, end findings with **one** line (before synthesis):
+
+```markdown
+Continuity: query-preservation still open on redirect.ts (hash variant). Next review stays targeted.
+```
+
+Include `theme_id`, hotspot path, and why it remains open. No table. On green /
+zero open themes: omit this line. If an old leftover review ledger file is
+present, delete it.
+
+## Fix-loop themes (opt-in verbose)
+
+Emit the full theme table + open/reopened sweep blocks only when the user asked
+`include continuity`, `show ledger`, or `show fix-loop ledger`. Schema →
+[fix-loop-ledger.md](fix-loop-ledger.md). Also emit **Baseline contradictions**
+on re-review when verbose. Without that ask, prefer the Continuity one-liner and
+omit this section.
 
 ```markdown
 ## Baseline contradictions
@@ -162,17 +216,11 @@ Required when prior Action findings existed before the pass. Full rules → cons
 | host-navigation-lifecycle | fixed           | Same root_cause still broken in App.tsx | Reopen — partial fix |
 ```
 
-## Fix-loop ledger
-
-Required whenever a review has entered a fix loop. Use the schema in
-[fix-loop-ledger.md](fix-loop-ledger.md) and carry the full current ledger in
-the chat handoff. Do not reset closed themes between passes.
-
 ## Closure evidence (repeated themes)
 
-When a theme was open across two or more passes, or when closing after a
-narrow fix, include compact closure evidence in the ledger handoff (and in Exit
-evidence when claiming merge-ready):
+When a theme was open across two or more passes, keep compact closure evidence
+for exit-gate checks (and in verbose continuity / Exit evidence when claiming
+merge-ready):
 
 ```markdown
 ### Closure · `theme-id`
@@ -189,12 +237,11 @@ closure.
 
 ## Exit evidence
 
-Before writing `Merge-ready`, `final blockers`, or equivalent, report:
+Before writing `Merge-ready`, `final blockers`, or equivalent, report short bullets:
 
-- Open/reopened ledger themes: none.
-- Baseline contradictions: none.
-- Repeated hotspots and who reviewed them holistically.
-- For each repeated Action theme: variants checked + regression evidence.
+- Open/reopened themes: none.
+- Repeated hotspots reviewed holistically.
+- Variants / regression evidence for repeated Action themes.
 - Authoritative repository validation command and result.
 
 If validation was not run or any exit-gate row is unknown, state that and do not
