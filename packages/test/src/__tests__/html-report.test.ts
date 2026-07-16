@@ -64,6 +64,7 @@ describe("html-report", () => {
 		expect(html).toContain("failed");
 		expect(html).toContain("Was the reply helpful?");
 		expect(html).toContain("Too curt &amp; vague");
+		expect(html).toContain("Missing requirement");
 		expect(html).toContain("missing &lt;b&gt;tag&lt;/b&gt;");
 		expect(html).toContain("Say hi &lt;script&gt;");
 		expect(html).toContain("Hello &amp; welcome");

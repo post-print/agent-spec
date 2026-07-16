@@ -42,33 +42,82 @@ function statusClass(result: ScenarioResult): string {
 	return result.passed ? "status-passed" : "status-failed";
 }
 
-function renderMessages(trace: AgentTrace | undefined): string {
+/** Human-readable label + one-line explanation for the matcher codes assertRubric/judge emit. */
+const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
+	runAgent: { label: "Agent run", hint: "The agent session itself failed or was cut short." },
+	must: {
+		label: "Missing requirement",
+		hint: "A required behavior did not show up in the transcript.",
+	},
+	mustNot: { label: "Forbidden behavior", hint: "The agent did something it was told not to do." },
+	mustRun: { label: "Missing command", hint: "An expected command never ran." },
+	mustInvokeSkill: {
+		label: "Missing skill",
+		hint: "The agent didn't read a skill it was expected to use.",
+	},
+	mustNotInvokeSkill: {
+		label: "Unexpected skill",
+		hint: "The agent read a skill it should have avoided.",
+	},
+	routingBlock: { label: "Routing", hint: "The routing announcement didn't match expectations." },
+	workingTreeLeak: {
+		label: "Working tree leak",
+		hint: "The agent's edits leaked outside its isolated worktree.",
+	},
+	recordTrace: { label: "Recording failed", hint: "Saving the trace to disk failed." },
+	judge: { label: "Judge", hint: "The LLM judge flagged this scenario." },
+};
+
+function humanizeMatcher(matcher: string): { label: string; hint?: string } {
+	const [base] = matcher.split(":");
+	const known = MATCHER_LABELS[base ?? matcher];
+	if (known) {
+		if (matcher.includes(":")) {
+			const suffix = matcher.slice(matcher.indexOf(":") + 1);
+			return { label: `${known.label} — ${suffix}`, hint: known.hint };
+		}
+		return known;
+	}
+	return { label: matcher };
+}
+
+const ROLE_META: Record<string, { label: string; side: "left" | "right" | "center" }> = {
+	user: { label: "User", side: "right" },
+	assistant: { label: "Agent", side: "left" },
+	system: { label: "System", side: "center" },
+	tool: { label: "Tool", side: "center" },
+};
+
+function renderChat(trace: AgentTrace | undefined): string {
 	if (!trace) {
-		return `<p class="muted">No transcript recorded for this scenario.</p>`;
+		return `<p class="empty">No transcript recorded for this scenario.</p>`;
 	}
 
 	const parts: string[] = [];
 
 	if (trace.messages.length > 0) {
-		parts.push(`<div class="messages">`);
+		parts.push(`<div class="chat">`);
 		for (const message of trace.messages) {
+			const meta = ROLE_META[message.role] ?? { label: message.role, side: "center" };
 			parts.push(`
-<article class="message role-${escapeHtml(message.role)}">
-  <header>${escapeHtml(message.role)}</header>
-  <pre>${escapeHtml(message.content)}</pre>
-</article>`);
+<div class="chat-row side-${meta.side}">
+  <div class="bubble role-${escapeHtml(message.role)}">
+    <div class="bubble-label">${escapeHtml(meta.label)}</div>
+    <div class="bubble-text">${escapeHtml(message.content)}</div>
+  </div>
+</div>`);
 		}
 		parts.push(`</div>`);
 	} else {
-		parts.push(`<p class="muted">No messages in transcript.</p>`);
+		parts.push(`<p class="empty">No messages in transcript.</p>`);
 	}
 
 	if (trace.toolCalls.length > 0) {
 		parts.push(`<h4>Tool calls</h4><ul class="tool-calls">`);
 		for (const call of trace.toolCalls) {
 			const args =
-				call.args === undefined ? "" : ` <code>${escapeHtml(JSON.stringify(call.args))}</code>`;
-			parts.push(`<li><strong>${escapeHtml(call.name)}</strong>${args}</li>`);
+				call.args === undefined ? "" : `<code>${escapeHtml(JSON.stringify(call.args))}</code>`;
+			parts.push(`<li><span class="tool-name">${escapeHtml(call.name)}</span>${args}</li>`);
 		}
 		parts.push(`</ul>`);
 	}
@@ -93,14 +142,11 @@ function renderJudgeVerdicts(result: ScenarioResult): string {
 	const items = verdicts
 		.map((verdict) => {
 			const badge = verdict.pass ? "pass" : "fail";
+			const icon = verdict.pass ? "✓" : "✗";
 			return `
 <article class="verdict verdict-${badge}">
-  <header>
-    <span class="badge badge-${badge}">${badge}</span>
-    <strong>${escapeHtml(verdict.id)}</strong>
-  </header>
-  <p class="question">${escapeHtml(verdict.question)}</p>
-  <pre class="rationale">${escapeHtml(verdict.rationale)}</pre>
+  <p class="question"><span class="verdict-icon">${icon}</span>${escapeHtml(verdict.question)}</p>
+  <p class="rationale">${escapeHtml(verdict.rationale)}</p>
 </article>`;
 		})
 		.join("\n");
@@ -114,13 +160,15 @@ function renderFailures(result: ScenarioResult): string {
 	}
 
 	const items = result.failures
-		.map(
-			(failure) => `
+		.map((failure) => {
+			const { label, hint } = humanizeMatcher(failure.matcher);
+			return `
 <li>
-  <strong>${escapeHtml(failure.matcher)}</strong>
-  <pre>${escapeHtml(failure.message)}</pre>
-</li>`,
-		)
+  <p class="failure-label">${escapeHtml(label)}</p>
+  ${hint ? `<p class="failure-hint">${escapeHtml(hint)}</p>` : ""}
+  <p class="failure-message">${escapeHtml(failure.message)}</p>
+</li>`;
+		})
 		.join("\n");
 
 	return `<ul class="failures">${items}</ul>`;
@@ -133,8 +181,8 @@ function renderScenario(result: ScenarioResult): string {
 	const diagnostics =
 		failures || judgeVerdicts
 			? `<div class="diagnostics">
-    ${failures ? `<section><h3>Failures</h3>${failures}</section>` : ""}
-    ${judgeVerdicts ? `<section><h3>Judge</h3>${judgeVerdicts}</section>` : ""}
+    ${failures ? `<section><h3>What went wrong</h3>${failures}</section>` : ""}
+    ${judgeVerdicts ? `<section><h3>Judge verdict</h3>${judgeVerdicts}</section>` : ""}
   </div>`
 			: "";
 	return `
@@ -148,7 +196,7 @@ function renderScenario(result: ScenarioResult): string {
   ${diagnostics}
   <section class="conversation">
     <h3>Conversation</h3>
-    ${renderMessages(result.trace)}
+    ${renderChat(result.trace)}
   </section>
   </div>
 </details>`;
@@ -186,16 +234,16 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   :root {
     --bg: #0f1419;
     --panel: #1a2332;
+    --panel-2: #141c28;
     --text: #e7ecf3;
     --muted: #8b9bb4;
     --border: #2a3548;
     --pass: #3dd68c;
     --fail: #f07178;
     --skip: #ffcc66;
-    --user: #7aa2f7;
-    --assistant: #9ece6a;
-    --system: #bb9af7;
-    --tool: #e0af68;
+    --user-bubble: #24406b;
+    --assistant-bubble: #1f2f26;
+    --system-bubble: #241f38;
   }
   * { box-sizing: border-box; }
   body {
@@ -208,9 +256,10 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
   h1 { font-size: 1.45rem; margin: 0; letter-spacing: -0.02em; }
   h2 { font-size: 1.1rem; margin: 0; }
-  h3 { font-size: 0.78rem; margin: 0 0 0.45rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
-  h4 { font-size: 0.78rem; margin: 0.8rem 0 0.3rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  h3 { font-size: 0.78rem; margin: 0 0 0.5rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+  h4 { font-size: 0.72rem; margin: 0.9rem 0 0.35rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .muted { color: var(--muted); }
+  .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; margin: 0; }
   .report-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }
   .report-kicker { color: var(--muted); font-size: 0.78rem; }
   .summary {
@@ -274,53 +323,45 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     border-radius: 999px;
     border: 1px solid transparent;
   }
-  .status-passed, .badge-pass { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); }
-  .status-failed, .badge-fail { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
+  .status-passed { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); }
+  .status-failed { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
   .status-skipped { color: var(--skip); border-color: color-mix(in srgb, var(--skip) 40%, transparent); }
   .scenario-body { padding: 0.7rem; }
-  .diagnostics { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.7rem; margin-bottom: 0.7rem; }
-  .diagnostics section { background: #141c28; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; min-width: 0; }
+  .diagnostics { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem; }
+  .diagnostics section { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.7rem; min-width: 0; }
   .conversation { min-width: 0; }
-  .failures, .tool-calls, .shell-commands { margin: 0; padding-left: 1rem; }
-  .failures li, .tool-calls li, .shell-commands li { margin: 0.25rem 0; }
-  pre {
-    white-space: pre-wrap;
-    word-break: break-word;
-    background: #0b1017;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.5rem 0.6rem;
-    margin: 0.25rem 0 0;
-    font-size: 0.8rem;
-  }
-  .message {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin: 0.4rem 0;
-    overflow: hidden;
-  }
-  .message header {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 0.25rem 0.55rem;
-    background: #121a26;
-  }
-  .message.role-user header { color: var(--user); }
-  .message.role-assistant header { color: var(--assistant); }
-  .message.role-system header { color: var(--system); }
-  .message.role-tool header { color: var(--tool); }
-  .message pre { border: 0; border-radius: 0; margin: 0; }
-  .verdict {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.5rem 0.6rem;
-    margin: 0.35rem 0;
-  }
-  .verdict header { display: flex; gap: 0.5rem; align-items: center; }
-  .question { margin: 0.3rem 0 0; font-size: 0.88rem; }
-  .rationale { margin-top: 0.35rem; }
+
+  .failures { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+  .failures li { border-left: 3px solid var(--fail); padding-left: 0.6rem; }
+  .failure-label { margin: 0; font-weight: 600; font-size: 0.85rem; color: var(--fail); }
+  .failure-hint { margin: 0.1rem 0 0; font-size: 0.78rem; color: var(--muted); }
+  .failure-message { margin: 0.3rem 0 0; font-size: 0.82rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.45rem 0.55rem; }
+
+  .verdicts { display: flex; flex-direction: column; gap: 0.55rem; }
+  .verdict { border-left: 3px solid var(--border); padding-left: 0.6rem; }
+  .verdict-pass { border-left-color: var(--pass); }
+  .verdict-fail { border-left-color: var(--fail); }
+  .verdict-icon { display: inline-block; width: 1.1rem; font-weight: 700; }
+  .verdict-pass .verdict-icon { color: var(--pass); }
+  .verdict-fail .verdict-icon { color: var(--fail); }
+  .question { margin: 0; font-size: 0.85rem; font-weight: 600; }
+  .rationale { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--muted); }
+
+  .chat { display: flex; flex-direction: column; gap: 0.5rem; }
+  .chat-row { display: flex; }
+  .chat-row.side-left { justify-content: flex-start; }
+  .chat-row.side-right { justify-content: flex-end; }
+  .chat-row.side-center { justify-content: center; }
+  .bubble { max-width: 78%; border-radius: 12px; padding: 0.5rem 0.7rem; border: 1px solid var(--border); }
+  .bubble-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.25rem; }
+  .bubble-text { white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+  .bubble.role-user { background: var(--user-bubble); border-top-right-radius: 3px; }
+  .bubble.role-assistant { background: var(--assistant-bubble); border-top-left-radius: 3px; }
+  .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.8rem; max-width: 90%; }
+
+  .tool-calls, .shell-commands { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
+  .tool-calls li, .shell-commands li { font-size: 0.8rem; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.5rem; }
+  .tool-name { font-weight: 600; margin-right: 0.4rem; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
   @media (max-width: 720px) {
     main { padding: 0.75rem; }
@@ -328,6 +369,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     .summary dl { justify-content: flex-start; }
     .suite-header { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
     .diagnostics { grid-template-columns: 1fr; }
+    .bubble { max-width: 92%; }
   }
 </style>
 </head>
