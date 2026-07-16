@@ -177,6 +177,7 @@ describe("runSuite isolateLive", () => {
 			{
 				matcher: "toHaveReviewDepth",
 				message: 'expected review depth "thorough"',
+				category: "rubric_miss",
 			},
 		]);
 	});

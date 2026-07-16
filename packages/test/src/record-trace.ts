@@ -9,6 +9,17 @@ import type { AssertionFailure } from "./types.js";
 
 export const LIVE_STAGING_DIR_NAME = "agent-spec";
 
+let liveStagingRootOverride: string | undefined;
+
+/** Override the sessions parent (default: `$TMPDIR/agent-spec`). Used by `--debug-dir`. */
+export function setLiveStagingRootOverride(root: string | undefined): void {
+	liveStagingRootOverride = root?.trim() ? root : undefined;
+}
+
+export function getLiveStagingRootOverride(): string | undefined {
+	return liveStagingRootOverride;
+}
+
 function slugifyScenarioName(name: string): string {
 	return (
 		name
@@ -20,6 +31,9 @@ function slugifyScenarioName(name: string): string {
 }
 
 export function getLiveStagingRoot(): string {
+	if (liveStagingRootOverride) {
+		return join(liveStagingRootOverride, "sessions");
+	}
 	return join(tmpdir(), LIVE_STAGING_DIR_NAME, "sessions");
 }
 

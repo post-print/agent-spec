@@ -14,6 +14,17 @@ export interface JudgeVerdict {
 	pass: boolean;
 	rationale: string;
 	evidence?: string[];
+	/** Present when the judge SDK run failed (distinct from a criterion miss). */
+	infraError?: string;
+	/** Unnormalized SDK status when the judge run did not finish. */
+	rawSdkStatus?: string;
+	sdkError?: { message?: string; code?: string };
+	/** Attempt number (1 until retries land). */
+	attempt?: number;
+	/** Wall time for this judge criterion call (ms). */
+	durationMs?: number;
+	transcriptChars?: number;
+	promptChars?: number;
 }
 
 export interface JudgeTraceOptions {
@@ -197,10 +208,40 @@ function buildJudgePrompt(transcript: string, question: string): string {
 	].join("\n");
 }
 
+function formatJudgeInfraError(result: {
+	status: string;
+	rawStatus?: string;
+	sdkError?: { message?: string; code?: string };
+}): string {
+	const details: string[] = [];
+	if (result.rawStatus) {
+		details.push(`sdk: ${result.rawStatus}`);
+	}
+	if (result.sdkError?.code) {
+		details.push(`code: ${result.sdkError.code}`);
+	}
+	if (result.sdkError?.message) {
+		details.push(`error: ${result.sdkError.message}`);
+	}
+	if (details.length === 0) {
+		return `judge run status: ${result.status}`;
+	}
+	return `judge run status: ${result.status} (${details.join(", ")})`;
+}
+
 async function runJudgePrompt(
 	prompt: string,
 	options: JudgeTraceOptions,
-): Promise<{ pass: boolean; rationale: string; evidence: string[]; error?: string }> {
+): Promise<{
+	pass: boolean;
+	rationale: string;
+	evidence: string[];
+	error?: string;
+	infraError?: string;
+	rawSdkStatus?: string;
+	sdkError?: { message?: string; code?: string };
+	durationMs: number;
+}> {
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
 	if (!apiKey) {
 		return {
@@ -208,21 +249,30 @@ async function runJudgePrompt(
 			rationale: "CURSOR_API_KEY not set",
 			evidence: [],
 			error: "missing api key",
+			infraError: "missing api key",
+			durationMs: 0,
 		};
 	}
 
+	const started = performance.now();
 	try {
 		const result = await runJudgeClassifier({
 			cwd: options.cwd,
 			prompt,
 			apiKey,
 		});
+		const durationMs = Math.round(performance.now() - started);
 		if (result.status !== "completed") {
+			const infraError = formatJudgeInfraError(result);
 			return {
 				pass: false,
-				rationale: `judge run status: ${result.status}`,
+				rationale: infraError,
 				evidence: [],
-				error: `judge run status: ${result.status}`,
+				error: infraError,
+				infraError,
+				rawSdkStatus: result.rawStatus ?? result.status,
+				sdkError: result.sdkError,
+				durationMs,
 			};
 		}
 		const parsed = parseJudgeResponse(result.text);
@@ -232,12 +282,25 @@ async function runJudgePrompt(
 				rationale: `${parsed.rationale} (raw: ${result.text.slice(0, 160) || "empty"})`,
 				evidence: [],
 				error: parsed.rationale,
+				durationMs,
 			};
 		}
-		return { pass: parsed.pass, rationale: parsed.rationale, evidence: parsed.evidence };
+		return {
+			pass: parsed.pass,
+			rationale: parsed.rationale,
+			evidence: parsed.evidence,
+			durationMs,
+		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : "judge prompt failed";
-		return { pass: false, rationale: message, evidence: [], error: message };
+		return {
+			pass: false,
+			rationale: message,
+			evidence: [],
+			error: message,
+			infraError: message,
+			durationMs: Math.round(performance.now() - started),
+		};
 	}
 }
 
@@ -261,6 +324,7 @@ export async function judgeTrace(
 	}
 
 	const transcript = transcriptForJudge(trace);
+	const transcriptChars = transcript.length;
 	const verdicts: JudgeVerdict[] = [];
 
 	for (const criterion of criteria) {
@@ -271,6 +335,13 @@ export async function judgeTrace(
 			pass: parsed.pass,
 			rationale: parsed.rationale,
 			evidence: parsed.evidence,
+			infraError: parsed.infraError,
+			rawSdkStatus: parsed.rawSdkStatus,
+			sdkError: parsed.sdkError,
+			attempt: 1,
+			durationMs: parsed.durationMs,
+			transcriptChars,
+			promptChars: prompt.length,
 		});
 		if (parsed.error) {
 			return { verdicts, skipped: false, error: parsed.error };

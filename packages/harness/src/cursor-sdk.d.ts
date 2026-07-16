@@ -65,7 +65,11 @@ declare module "@cursor/sdk" {
 		prompt: (
 			prompt: string,
 			options: CursorAgentOptions,
-		) => Promise<{ status: string; result?: string; error?: { message: string } }>;
+		) => Promise<{
+			status: string;
+			result?: string;
+			error?: { message?: string; code?: string };
+		}>;
 		create: (options: CursorAgentOptions) => Promise<DisposableAgent>;
 	};
 }

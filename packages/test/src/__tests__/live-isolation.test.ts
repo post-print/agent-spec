@@ -43,21 +43,18 @@ describe("live-isolation", () => {
 		expect(subprocessFailureMessage(1)).toContain("exited 1");
 	});
 
-	it("builds a Node subprocess command, not bun", () => {
-		const { command, args, execArgv } = buildLiveScenarioCommand({
+	it("forwards --debug and --debug-dir to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
 			cwd: "/repo",
-			suiteName: "smoke",
-			scenarioName: "hello",
+			suiteName: "routing",
+			scenarioName: "medium: grill",
 			suitesDir: "agent-suites",
+			debug: true,
+			debugDir: "/tmp/agent-debug",
 		});
-		expect(command).toBe(process.execPath);
-		expect(command).not.toBe("bun");
-		expect(args[0]).toBe(process.argv[1]);
-		expect(args).toContain("--live");
-		expect(args).toContain("--scenario");
-		expect(args).toContain("hello");
-		expect(args).toContain("--no-judge");
-		expect(execArgv).toContain("--disable-warning=ExperimentalWarning");
+		expect(args).toContain("--debug");
+		expect(args).toContain("--debug-dir");
+		expect(args).toContain("/tmp/agent-debug");
 	});
 
 	it("forwards timeout-ms to the child CLI", () => {
@@ -132,9 +129,9 @@ describe("live-isolation", () => {
 		expect(
 			failuresForLiveSubprocessExit(124, {
 				passed: false,
-				failures: [{ matcher: "toContain", message: "missing" }],
+				failures: [{ matcher: "toContain", message: "missing", category: "rubric_miss" }],
 			}),
-		).toEqual([{ matcher: "toContain", message: "missing" }]);
+		).toEqual([{ matcher: "toContain", message: "missing", category: "rubric_miss" }]);
 	});
 
 	it("synthesizes timeout failure when sidecar is missing", () => {
@@ -142,6 +139,7 @@ describe("live-isolation", () => {
 			{
 				matcher: "liveScenario",
 				message: subprocessFailureMessage(124),
+				category: "agent_runtime",
 			},
 		]);
 	});

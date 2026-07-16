@@ -6,6 +6,7 @@ import { configureCliColor, theme, truncatePath, wrapText } from "../theme.js";
 describe("truncatePath", () => {
 	afterEach(() => {
 		delete process.env.AGENT_TEST_VERBOSE_PATHS;
+		delete process.env.AGENT_TEST_DEBUG;
 	});
 
 	it("keeps short paths intact", () => {
@@ -23,6 +24,12 @@ describe("truncatePath", () => {
 
 	it("returns full path when AGENT_TEST_VERBOSE_PATHS=1", () => {
 		process.env.AGENT_TEST_VERBOSE_PATHS = "1";
+		const full = "/a/b/c/d/e";
+		expect(truncatePath(full)).toBe(full);
+	});
+
+	it("returns full path when AGENT_TEST_DEBUG=1", () => {
+		process.env.AGENT_TEST_DEBUG = "1";
 		const full = "/a/b/c/d/e";
 		expect(truncatePath(full)).toBe(full);
 	});

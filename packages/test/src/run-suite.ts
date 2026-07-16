@@ -1,4 +1,5 @@
-import { basename, dirname, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type {
 	AgentHost,
@@ -19,8 +20,10 @@ import {
 	traceHasUserInputTool,
 } from "@post-print/agent-harness";
 
+import { collectDebugEnvironment, getDebugBundleDir, writeDebugBundle } from "./debug-bundle.js";
 import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
+import { assertionFailure } from "./failures.js";
 import {
 	failuresForLiveSubprocessExit,
 	liveScenarioIsolationEnabled,
@@ -31,6 +34,7 @@ import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
 import { formatDuration, logPhase, logProgress, logVerdict, withHeartbeat } from "./progress.js";
 import {
+	getLiveStagingSessionRoot,
 	getStagingAgentStartPath,
 	getStagingResultPath,
 	getStagingTracePath,
@@ -57,6 +61,9 @@ import type {
 	ScenarioRubric,
 	SuiteRunReport,
 } from "./types.js";
+
+const require = createRequire(import.meta.url);
+const packageVersion = (require("../package.json") as { version: string }).version;
 
 let activeWorktreeCleanup: (() => Promise<void>) | undefined;
 let activeCallerHeadRestore: { cwd: string; snapshot: CallerHeadSnapshot } | undefined;
@@ -150,6 +157,10 @@ export interface RunSuiteOptions {
 	timeoutMs?: number;
 	/** Allow AskQuestion-style tools in live runs (default false). */
 	allowUserInput?: boolean;
+	/** Evidence-rich failures + on-disk debug bundles. */
+	debug?: boolean;
+	/** Override staging sessions parent (from --debug-dir). */
+	debugDir?: string;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -182,17 +193,59 @@ function questionForCriterion(criteria: JudgeCriterion[], id: string): string {
 function toJudgeVerdictResults(
 	trace: AgentTrace,
 	criteria: JudgeCriterion[],
+	verdictsFromJudge?: Array<{
+		id: string;
+		pass: boolean;
+		rationale: string;
+		infraError?: string;
+		rawSdkStatus?: string;
+		sdkError?: { message?: string; code?: string };
+		attempt?: number;
+		durationMs?: number;
+		transcriptChars?: number;
+		promptChars?: number;
+	}>,
 ): JudgeVerdictResult[] {
-	return (trace.judgeVerdicts ?? []).map((verdict) => ({
-		id: verdict.id,
-		question: questionForCriterion(criteria, verdict.id),
-		pass: verdict.pass,
-		rationale: verdict.rationale,
-	}));
+	const source = verdictsFromJudge ?? trace.judgeVerdicts ?? [];
+	return source.map((verdict) => {
+		const extended = verdict as {
+			id: string;
+			pass: boolean;
+			rationale: string;
+			infraError?: string;
+			rawSdkStatus?: string;
+			sdkError?: { message?: string; code?: string };
+			attempt?: number;
+			durationMs?: number;
+			transcriptChars?: number;
+			promptChars?: number;
+		};
+		return {
+			id: extended.id,
+			question: questionForCriterion(criteria, extended.id),
+			pass: extended.pass,
+			rationale: extended.rationale,
+			infraError: extended.infraError,
+			rawSdkStatus: extended.rawSdkStatus,
+			sdkError: extended.sdkError,
+			attempt: extended.attempt,
+			durationMs: extended.durationMs,
+			transcriptChars: extended.transcriptChars,
+			promptChars: extended.promptChars,
+		};
+	});
 }
 
 function rubricFailuresOnly(failures: AssertionFailure[]): AssertionFailure[] {
 	return failures.filter((f) => !f.matcher.startsWith("judge"));
+}
+
+function isDebugEnabled(options?: { debug?: boolean }): boolean {
+	return (
+		options?.debug === true ||
+		process.env.AGENT_TEST_DEBUG === "1" ||
+		process.env.AGENT_TEST_DEBUG === "true"
+	);
 }
 
 function emitScenarioVerdict(options: {
@@ -203,6 +256,8 @@ function emitScenarioVerdict(options: {
 	durationMs: number;
 	judgeVerdicts?: JudgeVerdictResult[];
 	failures: AssertionFailure[];
+	debug?: boolean;
+	debugBundleDir?: string;
 }): void {
 	if (!shouldPrintSuiteChrome()) {
 		return;
@@ -216,8 +271,83 @@ function emitScenarioVerdict(options: {
 			durationMs: options.durationMs,
 			judgeVerdicts: options.judgeVerdicts,
 			rubricFailures: rubricFailuresOnly(options.failures),
+			failureCategory: options.failures[0]?.category,
+			debug: options.debug,
+			debugBundleDir: options.debugBundleDir,
 		}),
 	);
+}
+
+async function maybeWriteDebugBundle(options: {
+	debug: boolean;
+	cwd: string;
+	suitesDir: string;
+	stagingSessionId?: string;
+	debugDir?: string;
+	suiteName: string;
+	scenario: AgentScenario;
+	host: AgentHost;
+	result: ScenarioResult;
+	trace?: AgentTrace;
+	timeoutMs?: number;
+	worktree?: boolean;
+	judge?: boolean;
+	live: boolean;
+	allowUserInput?: boolean;
+	keepRecordings?: boolean;
+}): Promise<string | undefined> {
+	if (!options.debug || options.result.passed || options.result.skipped) {
+		return undefined;
+	}
+	if (!options.stagingSessionId) {
+		return undefined;
+	}
+
+	const dir = getDebugBundleDir(
+		options.stagingSessionId,
+		options.suiteName,
+		options.scenario.name,
+		getLiveStagingSessionRoot,
+	);
+	const cliPath =
+		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
+
+	await writeDebugBundle({
+		dir,
+		result: options.result,
+		trace: options.trace ?? options.result.trace,
+		scenario: options.scenario,
+		environment: collectDebugEnvironment({
+			suite: options.suiteName,
+			scenario: options.scenario.name,
+			packageVersion,
+			host: options.host,
+			timeoutMs: options.timeoutMs,
+			worktree: options.worktree,
+			isolateLive: options.live && liveScenarioIsolationEnabled(),
+		}),
+		rerun: {
+			cliPath,
+			cwd: options.cwd,
+			suitesDir: options.suitesDir,
+			suite: options.suiteName,
+			scenario: options.scenario.name,
+			live: options.live,
+			host: options.host,
+			judge: options.judge,
+			worktree: options.worktree,
+			timeoutMs: options.timeoutMs,
+			noTimeout: options.timeoutMs === 0,
+			allowUserInput: options.allowUserInput,
+			debugDir: options.debugDir,
+			keepRecordings: options.keepRecordings ?? true,
+		},
+	});
+
+	if (shouldPrintSuiteChrome()) {
+		logPhase(theme.debugBundlePointer(join(dir, "transcript.md")), { last: true });
+	}
+	return dir;
 }
 
 export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport> {
@@ -287,11 +417,14 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
 				noTimeout: options.timeoutMs === 0,
 				allowUserInput: options.allowUserInput,
+				debug: options.debug,
+				debugDir: options.debugDir,
 			});
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
 			let scenarioTrace: AgentTrace | undefined;
+			const debug = isDebugEnabled(options);
 
 			if (exitCode !== 0) {
 				const childResult =
@@ -319,18 +452,48 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 						const judged = await runJudgeRubric(scenarioTrace, scenario.rubric, options.cwd);
 						failures.push(...judged.failures);
 						scenarioTrace = judged.trace;
-						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria);
+						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
 					} catch (error) {
-						failures.push({
-							matcher: "judge",
-							message:
+						failures.push(
+							assertionFailure(
+								"judge",
 								error instanceof Error ? error.message : "failed to load staging trace for judge",
-						});
+								"judge_infra",
+							),
+						);
 					}
 				}
 			}
 
 			const passed = failures.length === 0;
+			const scenarioResult: ScenarioResult = {
+				suite: suite.name,
+				scenario: scenario.name,
+				passed,
+				failures,
+				durationMs,
+				judgeVerdicts,
+				trace: scenarioTrace,
+			};
+			const debugBundleDir = await maybeWriteDebugBundle({
+				debug,
+				cwd: options.cwd,
+				suitesDir: options.suitesDir ?? "agent-suites",
+				stagingSessionId: options.stagingSessionId,
+				debugDir: options.debugDir,
+				suiteName: suite.name,
+				scenario,
+				host: defaultHost,
+				result: scenarioResult,
+				trace: scenarioTrace,
+				timeoutMs: options.timeoutMs,
+				worktree: options.worktree,
+				judge: options.judge,
+				live: true,
+				allowUserInput: options.allowUserInput,
+				keepRecordings: options.keepRecordings,
+			});
+			scenarioResult.debugBundleDir = debugBundleDir;
 			emitScenarioVerdict({
 				passed,
 				index: index + 1,
@@ -339,16 +502,10 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 				durationMs,
 				judgeVerdicts,
 				failures,
+				debug,
+				debugBundleDir,
 			});
-			results.push({
-				suite: suite.name,
-				scenario: scenario.name,
-				passed,
-				failures,
-				durationMs,
-				judgeVerdicts,
-				trace: scenarioTrace,
-			});
+			results.push(scenarioResult);
 			releaseLiveMemory();
 			continue;
 		}
@@ -370,6 +527,10 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 				scenarioTotal,
 				options.timeoutMs,
 				options.allowUserInput,
+				options.debug,
+				options.debugDir,
+				options.suitesDir ?? "agent-suites",
+				options.keepRecordings,
 			),
 		);
 		if (isLiveSuite) {
@@ -403,8 +564,13 @@ async function runScenario(
 	scenarioTotal?: number,
 	timeoutMs?: number,
 	allowUserInput?: boolean,
+	debugFlag?: boolean,
+	debugDir?: string,
+	suitesDir = "agent-suites",
+	keepRecordings?: boolean,
 ): Promise<ScenarioResult> {
 	const started = performance.now();
+	const debug = isDebugEnabled({ debug: debugFlag });
 
 	if (scenario.skip) {
 		const skipLabel =
@@ -514,15 +680,21 @@ async function runScenario(
 		const failures: AssertionFailure[] = [];
 
 		if (session.status !== "completed") {
-			failures.push({
-				matcher: "runAgent",
-				message: session.error ?? `agent session ${session.status}`,
-			});
+			failures.push(
+				assertionFailure(
+					"runAgent",
+					session.error ?? `agent session ${session.status}`,
+					"agent_runtime",
+				),
+			);
 		} else if (isLive && failOnUserInput && traceHasUserInputTool(trace.toolCalls)) {
-			failures.push({
-				matcher: "runAgent",
-				message: "agent trace contains AskQuestion-style user-input tool in headless mode",
-			});
+			failures.push(
+				assertionFailure(
+					"runAgent",
+					"agent trace contains AskQuestion-style user-input tool in headless mode",
+					"agent_runtime",
+				),
+			);
 		}
 
 		logPhase(theme.phase("rubric"));
@@ -536,10 +708,13 @@ async function runScenario(
 			const callerTreeAfter = await captureWorkingTreeStatus(cwd);
 			const leaked = findWorkingTreeLeak(callerTreeBefore, callerTreeAfter);
 			if (leaked.length > 0) {
-				failures.push({
-					matcher: "workingTreeLeak",
-					message: `live agent mutated caller working tree (use worktree isolation):\n${formatWorkingTreeLeak(leaked)}`,
-				});
+				failures.push(
+					assertionFailure(
+						"workingTreeLeak",
+						`live agent mutated caller working tree (use worktree isolation):\n${formatWorkingTreeLeak(leaked)}`,
+						"worktree_leak",
+					),
+				);
 			}
 		}
 
@@ -557,10 +732,13 @@ async function runScenario(
 					const recordLabel = resolved.kind === "fixture" ? "fixture" : "trace";
 					logPhase(theme.phase(recordLabel, theme.path(path)));
 				} catch (error) {
-					failures.push({
-						matcher: "recordTrace",
-						message: error instanceof Error ? error.message : "failed to record trace",
-					});
+					failures.push(
+						assertionFailure(
+							"recordTrace",
+							error instanceof Error ? error.message : "failed to record trace",
+							"recording_error",
+						),
+					);
 				}
 			}
 		}
@@ -575,7 +753,7 @@ async function runScenario(
 			const judged = await runJudgeRubric(trace, scenario.rubric, runCwd);
 			failures.push(...judged.failures);
 			trace = judged.trace;
-			judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria);
+			judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
 		}
 
 		const durationMs = Math.round(performance.now() - started);
@@ -605,17 +783,7 @@ async function runScenario(
 			worktreeHandle = undefined;
 		}
 
-		emitScenarioVerdict({
-			passed: failures.length === 0,
-			index: scenarioIndex,
-			total: scenarioTotal,
-			name: scenario.name,
-			durationMs,
-			judgeVerdicts,
-			failures,
-		});
-
-		return {
+		const scenarioResult: ScenarioResult = {
 			suite: suiteName,
 			scenario: scenario.name,
 			passed: failures.length === 0,
@@ -624,6 +792,39 @@ async function runScenario(
 			judgeVerdicts,
 			trace,
 		};
+		const debugBundleDir = await maybeWriteDebugBundle({
+			debug,
+			cwd,
+			suitesDir,
+			stagingSessionId,
+			debugDir,
+			suiteName,
+			scenario,
+			host,
+			result: scenarioResult,
+			trace,
+			timeoutMs,
+			worktree,
+			judge,
+			live: isLive,
+			allowUserInput,
+			keepRecordings,
+		});
+		scenarioResult.debugBundleDir = debugBundleDir;
+
+		emitScenarioVerdict({
+			passed: failures.length === 0,
+			index: scenarioIndex,
+			total: scenarioTotal,
+			name: scenario.name,
+			durationMs,
+			judgeVerdicts,
+			failures,
+			debug,
+			debugBundleDir,
+		});
+
+		return scenarioResult;
 	} finally {
 		if (worktreeHandle) {
 			logPhase(theme.phase("cleanup"), { last: true });
@@ -642,17 +843,22 @@ async function runJudgeRubric(
 	trace: AgentTrace,
 	rubric: ScenarioRubric,
 	runCwd: string,
-): Promise<{ trace: AgentTrace; failures: AssertionFailure[] }> {
+): Promise<{
+	trace: AgentTrace;
+	failures: AssertionFailure[];
+	verdicts: NonNullable<Awaited<ReturnType<typeof judgeTrace>>["verdicts"]>;
+}> {
 	const criteria = normalizeJudgeCriteria(rubric.judge);
 	if (criteria.length === 0) {
-		return { trace, failures: [] };
+		return { trace, failures: [], verdicts: [] };
 	}
 
 	const result = await judgeTrace(trace, criteria, { cwd: runCwd });
 	if (result.skipped) {
 		return {
 			trace,
-			failures: [{ matcher: "judge", message: result.error ?? "judge skipped" }],
+			failures: [assertionFailure("judge", result.error ?? "judge skipped", "judge_infra")],
+			verdicts: [],
 		};
 	}
 
@@ -660,16 +866,19 @@ async function runJudgeRubric(
 	const failures: AssertionFailure[] = [];
 	for (const verdict of result.verdicts) {
 		if (!verdict.pass) {
-			failures.push({
-				matcher: `judge:${verdict.id}`,
-				message: verdict.rationale,
-			});
+			failures.push(
+				assertionFailure(
+					`judge:${verdict.id}`,
+					verdict.rationale,
+					verdict.infraError ? "judge_infra" : "rubric_miss",
+				),
+			);
 		}
 	}
-	if (result.error) {
-		failures.push({ matcher: "judge", message: result.error });
+	if (result.error && !result.verdicts.some((v) => v.infraError)) {
+		failures.push(assertionFailure("judge", result.error, "judge_infra"));
 	}
-	return { trace: judgedTrace, failures };
+	return { trace: judgedTrace, failures, verdicts: result.verdicts };
 }
 
 function suiteNameFromPath(suitePath: string): string {
@@ -690,6 +899,8 @@ export async function runAllSuites(options: {
 	keepRecordings?: boolean;
 	timeoutMs?: number;
 	allowUserInput?: boolean;
+	debug?: boolean;
+	debugDir?: string;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
@@ -717,6 +928,8 @@ export async function runAllSuites(options: {
 				suiteFilter: options.filter,
 				timeoutMs: options.timeoutMs,
 				allowUserInput: options.allowUserInput,
+				debug: options.debug,
+				debugDir: options.debugDir,
 			}),
 		);
 	}
