@@ -1,0 +1,229 @@
+# Review output
+
+Extends [output-schema.md](https://raw.githubusercontent.com/csark0812/toolbox/main/.skeleton/references/output-schema.md). Synthesis via [synthesis.md](synthesis.md) ends here. Worth-doing gate → consumer worth-doing gate / customize.
+
+**Default filing:** Merge-blockers only — [merge-blockers.md](merge-blockers.md). Unless the user opted into improvements mode, file **only** `scope: ship-blocker` (reachable production bugs). Do not file test inventory, docs gaps, refactor, or polish.
+
+Match the **scannable finding-block shape** for **Action** items — short imperative title, one location line, brief description (informally "Bugbot-style"; not the Cursor `bugbot` subagent). No numbered action lists, severity badges in titles, or process narration.
+
+## Output tiers
+
+| Tier         | Chat                                             |
+| ------------ | ------------------------------------------------ |
+| **Action**   | Primary body — finding blocks                    |
+| **Noted**    | **Noted (out of PR scope)** tail — one line each |
+| **Deferred** | **Deferred improvements** tail — one line each   |
+
+## Status line
+
+**Required header** (first line of every `pr` / `merge` synthesis, including zero-findings):
+
+```markdown
+Review · pr · Full · Escalation: Promoted to Full (auth/security, 40 files) · Filing: merge-blockers only
+```
+
+Format: `Review · {mode} · {depth} · Escalation: {Stayed Thorough|Promoted to Full|Stayed targeted contextual|Promoted to Full contextual} ({brief reason})`. Optional: `Pass: targeted contextual` / `Pass: Full contextual` on fix-loop re-reviews; `Filing: merge-blockers only` (default) or `Filing: merge-blockers + improvements` when user opted in — [merge-blockers.md](merge-blockers.md). Missing escalation line on a `pr` review = **incomplete turn**. Depth regression: if Full triggers in [modes.md](modes.md) apply but header says Thorough/targeted without a recorded carve-out, fix depth before ending the turn.
+
+**Findings count line** (second line):
+
+```markdown
+1 action · 0 ship-blocker · 1 high · 5 noted · 3 deferred
+```
+
+Format: `N action · N ship-blocker · severity breakdown (high/medium/low on Action only) · N noted · N deferred`
+
+Zero Action ship-blockers (default filing):
+
+```markdown
+No merge-blockers in scope.
+```
+
+Zero Action items overall (worth-doing gate filtered everything):
+
+```markdown
+No action items in scope.
+```
+
+Improvements mode with zero ship-blockers:
+
+```markdown
+No merge-blockers in scope · 4 improvement (improvements mode)
+```
+
+Zero findings on small PR (Thorough, no fix-loop):
+
+```markdown
+No findings in scope.
+```
+
+### Dual zero lines (Thorough vs Full exit)
+
+| Line                          | When                                                                                                        | Merge-ready?        |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------- |
+| `No merge-blockers in scope.` | Default filing; Full fix-loop **exit** pass; any `pr` review in merge-blockers mode with zero ship-blockers | Yes (fix-loop exit) |
+| `No action items in scope.`   | Worth-doing gate filtered all council observations; Noted/Deferred may remain                               | Context-dependent   |
+| `No findings in scope.`       | Thorough/small PR, **no fix-loop**                                                                          | Yes (small PR)      |
+
+Both zero merge-blocker lines mean "nothing blocking merge **for this pass type**." Do not treat first Full baseline `No merge-blockers` as exit — baseline with open Action themes is not merge-ready.
+
+Optional one-line scope may precede the header. In improvements mode, include scope counts (`ship-blocker` · `hardening` · `improvement`).
+
+## Finding blocks (Action only — primary body)
+
+One block per **Action** issue, severity descending (critical → high → medium → low). **Noted** and **Deferred** never use finding blocks.
+
+**Fix-loop baseline:** merge duplicates and shared invariants into **one block** per high/medium theme — mandatory, not optional. Assign a stable kebab-case `theme_id`; variants are description bullets inside the block, not sibling blocks.
+
+**Cross-turn references (fix-loop):** cite the stable `theme_id` from [fix-loop-ledger.md](fix-loop-ledger.md). Titles and locations may change without creating a new theme.
+
+**Re-review:** classify every candidate as incomplete fix, same-invariant variant, genuinely new invariant, or non-blocking. Same invariant + new edge extends the existing `theme_id` (incomplete prior closure) — never a fresh sibling for an adjacent hole. Do not append sibling blocks for minor edges on **closed** themes. A genuinely new Action theme on pass 2+ must include `Prior-pass miss: <why this blocker class escaped earlier invariant/contract coverage>.` Header must record `Pass: targeted contextual` or `Pass: Full contextual` with reason.
+
+```markdown
+## Reset panelMode on host navigation
+
+`<app>/path/to/File.tsx:71-85` · Theme: `host-navigation-lifecycle` · Severity: high · Scope: ship-blocker
+
+<details>
+<summary>Description</summary>
+
+Host `pushState`/`replaceState` updates `url`, but `panelMode` is never reset. After SPA navigation from a generic page into a detected paper site, the panel can stay on Save or identify instead of loading paper metadata.
+</details>
+```
+
+**Title** — short imperative phrase (what to fix or what's wrong). Not `**[High]**` prefixes.
+
+**Location line** — `` `path/to/file.ts:line` `` or `` `path:start-end` `` · Theme: `stable-theme-id` · Severity: critical|high|medium|low · Scope: ship-blocker|hardening (lowercase severity; theme, severity, and scope required for Action items).
+
+**Description** — 1–4 sentences: starting state → user action → runtime condition → visible failure/impact. Answer "How would this happen to a real user?" No filler, no agent attribution.
+
+**Needs confirmation** — append to location line: `· Needs confirmation` when reachability or intentional UX change is unproven **and** not covered by a PR intent section when one exists.
+
+Missing tests alone ≠ an Action item unless tied to reachable production risk — route to **Deferred** (`test inventory · <path>`). In default mode, untested risky path without a named reachable failure = **do not file** ([merge-blockers.md](merge-blockers.md)). Hardening Action bar requires passing consumer worth-doing gate / customize, not merely "real trigger somewhere."
+
+## Noted (out of PR scope)
+
+When council observations fail the worth-doing gate but are worth recording. **Mandatory section when any Noted items exist.** One line per item — no collapsible blocks.
+
+Schema: `` `path` or area — <category> · <context> · <defer hint> ``
+
+Categories: `pre-existing` · `parity-only` · `script-only` · `annotation-system follow-up`
+
+```markdown
+## Noted (out of PR scope)
+
+- `utils_merge.py` incoming ORM vs SQL — parity-only · same semantics per tests · unify when refactoring merge_sources
+- `utils_merge.py` identifier UPDATE collision — pre-existing · fast-batch · defer unless arxiv merge hits duplicates
+- `toolset.py` update_/move_ idempotent inference — annotation-system follow-up · add @mcp_tool or fix prefix rule in MCP pass
+```
+
+Not a todo list — context for deferral, not implied merge work.
+
+## Deferred improvements
+
+Polish, test inventory, closed-theme minor edges, refactor out of PR scope. Use on **baseline and re-review** when applicable. One line per item.
+
+Schema: `` `path` or topic — test inventory · <gap> `` or `<topic> · <area>`
+
+```markdown
+## Deferred improvements
+
+- `test_mcp_tool_annotations_drift.py` — test inventory · golden manifest for semantic hints, not wiring-only
+- Fast-batch citation tests — test inventory · NULL reference_order scenarios exist on slow path only
+```
+
+Do not append as Action findings. Do not block fix-loop exit.
+
+## Tail sections
+
+Required rows below must appear in their stated lifecycle; use optional rows
+only when they add decision value. Keep each section concise.
+
+| Section                     | When                                                                     |
+| --------------------------- | ------------------------------------------------------------------------ |
+| **Baseline contradictions** | Re-review pass when prior synthesis exists — required                    |
+| **Fix-loop ledger**         | Every fix-loop handoff and contextual re-review synthesis — required     |
+| **Closure evidence**        | Closing a theme that spanned 2+ passes — required (may live in ledger)   |
+| **Exit evidence**           | Contextual re-review pass that claims merge-ready — required             |
+| **Open questions**          | Product or backend assumptions block Action severity                     |
+| **Testing gaps**            | Residual coverage not already in Deferred tail                           |
+| **Change summary**          | User asked for overview, or first review on a large PR — max 3 sentences |
+
+Omit **Change summary** by default. Do not restate Action items in tail sections.
+
+## Baseline contradictions (re-review only)
+
+Required when prior Action findings existed before the pass. Full rules → consumer review-fix-loop / customize § Baseline comparison.
+
+```markdown
+## Baseline contradictions
+
+| Theme                     | Prior synthesis | Fresh Full                              | Action               |
+| ------------------------- | --------------- | --------------------------------------- | -------------------- |
+| host-navigation-lifecycle | fixed           | Same root_cause still broken in App.tsx | Reopen — partial fix |
+```
+
+## Fix-loop ledger
+
+Required whenever a review has entered a fix loop. Use the schema in
+[fix-loop-ledger.md](fix-loop-ledger.md) and carry the full current ledger in
+the chat handoff. Do not reset closed themes between passes.
+
+## Closure evidence (repeated themes)
+
+When a theme was open across two or more passes, or when closing after a
+narrow fix, include compact closure evidence in the ledger handoff (and in Exit
+evidence when claiming merge-ready):
+
+```markdown
+### Closure · `theme-id`
+
+- Variants checked: <matrix rows covered / N/A reasons>
+- Regression evidence: <test path or why impossible>
+- Validation: <command + result>
+- Hotspot review: <files/subsystems + who reviewed>
+```
+
+Missing **variants checked** means the theme is not closed — reopen or leave
+`open`. See [fix-loop-ledger.md](fix-loop-ledger.md) § Variant coverage before
+closure.
+
+## Exit evidence
+
+Before writing `Merge-ready`, `final blockers`, or equivalent, report:
+
+- Open/reopened ledger themes: none.
+- Baseline contradictions: none.
+- Repeated hotspots and who reviewed them holistically.
+- For each repeated Action theme: variants checked + regression evidence.
+- Authoritative repository validation command and result.
+
+If validation was not run or any exit-gate row is unknown, state that and do not
+claim merge-ready even when no Action findings were filed.
+
+## Scope (Action items)
+
+| Scope            | File when                                                       | Blocks exit?                  |
+| ---------------- | --------------------------------------------------------------- | ----------------------------- |
+| **ship-blocker** | User-visible wrong behavior, data loss, auth on reachable path  | Yes                           |
+| **hardening**    | In-scope edge with real trigger **and** passes worth-doing gate | Yes if medium+ and theme open |
+
+**improvement** scope → **Deferred** tail, not Action blocks.
+
+Severity = user harm if shipped. Scope = whether this pass must act on **Action** items.
+
+## Severity
+
+| Level        | Bar                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| **critical** | Data loss, security exposure, core path total break                                                     |
+| **high**     | Core action fails for meaningful segment; bad state propagation; high-probability production regression |
+| **medium**   | Non-core regression, moderate edge-case mismatch, narrow blast radius                                   |
+| **low**      | Rare/low-impact edge; contained scope                                                                   |
+
+Adjust: raise if common trigger and retries can't heal; lower if guards make trigger improbable. Never raise for complexity alone.
+
+## GitHub / plain-text fallback
+
+When `<details>` won't render, flatten each Action item to three lines: `## Title`, location + severity + scope, then description paragraph (no collapsible). Noted/Deferred as plain bullet lists.
+
+Short, informal; no cheerleading. Thread replies → include original comment verbatim.

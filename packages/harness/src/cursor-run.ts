@@ -4,7 +4,21 @@ import {
 	finalizeTraceAccumulator,
 	type SdkMessage,
 } from "./capture.js";
+import {
+	AgentRunTimeoutError,
+	isUserInputTool,
+	UserInputRequiredError,
+	withRunTimeout,
+} from "./run-guards.js";
 import type { AgentTrace } from "./types.js";
+
+/** Minimal Cursor SDK run surface for cancel + wait cleanup. */
+interface CancellableSdkRun {
+	stream: () => AsyncIterable<unknown>;
+	wait: () => Promise<{ status: string }>;
+	supports?: (op: string) => boolean;
+	cancel?: () => void | Promise<void>;
+}
 
 /** Default local agent model; override with CURSOR_AGENT_MODEL or options.model. */
 const DEFAULT_CURSOR_MODEL = "auto";
@@ -35,6 +49,12 @@ export interface CursorRunOptions {
 	prompt: string;
 	apiKey?: string;
 	model?: { id: string; params?: Array<{ id: string; value: string }> };
+	/** Hard cap on stream + wait; omit for no harness deadline. */
+	timeoutMs?: number;
+	/** Fail fast when the agent invokes AskQuestion-style tools (default true). */
+	failOnUserInput?: boolean;
+	/** Fires immediately before the harness deadline timer arms (after pre-stream setup). */
+	onDeadlineStart?: () => void | Promise<void>;
 }
 
 export interface JudgeClassifierOptions {
@@ -59,6 +79,28 @@ export function normalizeSdkRunStatus(status: string): "completed" | "failed" {
 	return status === "finished" || status === "completed" ? "completed" : "failed";
 }
 
+function cancelSdkRun(run: CancellableSdkRun | undefined): void {
+	if (!run) {
+		return;
+	}
+
+	void (async () => {
+		try {
+			if (typeof run.supports === "function" && run.supports("cancel")) {
+				await run.cancel?.();
+			}
+		} catch {
+			// best-effort
+		}
+
+		try {
+			await run.wait();
+		} catch {
+			// expected after cancel or timeout
+		}
+	})();
+}
+
 /** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
 export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
@@ -74,16 +116,52 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 		local: { cwd: options.cwd },
 	});
 
-	const run = await agent.send(options.prompt);
+	const failOnUserInput = options.failOnUserInput !== false;
 	const acc = createTraceAccumulator();
-	for await (const event of run.stream()) {
-		accumulateSdkEvent(acc, event);
-	}
-	const result = await run.wait();
-	return {
-		status: normalizeSdkRunStatus(result.status),
-		trace: finalizeTraceAccumulator(acc),
+	let activeRun: CancellableSdkRun | undefined;
+	let timedOut = false;
+
+	const execute = async (): Promise<CursorRunResult> => {
+		const run = (await agent.send(options.prompt)) as CancellableSdkRun;
+		activeRun = run;
+		if (timedOut) {
+			cancelSdkRun(run);
+			throw new AgentRunTimeoutError(options.timeoutMs ?? 0);
+		}
+
+		try {
+			for await (const event of run.stream()) {
+				accumulateSdkEvent(acc, event as SdkMessage);
+				if (failOnUserInput) {
+					const lastTool = acc.toolCalls.at(-1);
+					if (lastTool && isUserInputTool(lastTool.name)) {
+						throw new UserInputRequiredError(lastTool.name);
+					}
+				}
+			}
+			const result = await run.wait();
+			return {
+				status: normalizeSdkRunStatus(result.status),
+				trace: finalizeTraceAccumulator(acc),
+			};
+		} catch (error) {
+			cancelSdkRun(run);
+			throw error;
+		} finally {
+			activeRun = undefined;
+		}
 	};
+
+	if (options.timeoutMs && options.timeoutMs > 0) {
+		await options.onDeadlineStart?.();
+		return withRunTimeout(execute, options.timeoutMs, {
+			onTimeout: () => {
+				timedOut = true;
+				cancelSdkRun(activeRun);
+			},
+		});
+	}
+	return execute();
 }
 
 /** Classifier-only judge path — one-shot Agent.prompt, JSON reply, temperature 0 when supported. */

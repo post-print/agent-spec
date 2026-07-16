@@ -16,16 +16,18 @@ import {
 	judgeTrace,
 	loadContext,
 	runAgent,
+	traceHasUserInputTool,
 } from "@post-print/agent-harness";
 
 import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
 import {
+	failuresForLiveSubprocessExit,
 	liveScenarioIsolationEnabled,
 	parentScenarioCounters,
 	spawnLiveScenario,
-	subprocessFailureMessage,
 } from "./live-isolation.js";
+import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
 import {
 	formatDuration,
@@ -35,12 +37,22 @@ import {
 	withHeartbeat,
 } from "./progress.js";
 import {
+	getStagingAgentStartPath,
 	getStagingTracePath,
 	loadStagingTrace,
+	loadStagingResult,
 	recordTrace,
 	resolveRecordingPath,
+	writeAgentStartMarker,
+	writeStagingResult,
+	getStagingResultPath,
 } from "./record-trace.js";
-import { seedScenarioWorktree } from "./scenario-seed.js";
+import {
+	type CallerHeadSnapshot,
+	captureCallerHead,
+	restoreCallerHeadIfSeedCommit,
+	seedScenarioWorktree,
+} from "./scenario-seed.js";
 import { theme } from "./theme.js";
 import type {
 	AgentScenario,
@@ -53,7 +65,30 @@ import type {
 } from "./types.js";
 
 let activeWorktreeCleanup: (() => Promise<void>) | undefined;
+let activeCallerHeadRestore:
+	| { cwd: string; snapshot: CallerHeadSnapshot }
+	| undefined;
 let liveSignalHandlersRegistered = false;
+
+function setCallerHeadRestore(
+	cwd: string,
+	snapshot: CallerHeadSnapshot,
+): void {
+	activeCallerHeadRestore = { cwd, snapshot };
+}
+
+function clearCallerHeadRestore(): void {
+	activeCallerHeadRestore = undefined;
+}
+
+async function restoreActiveCallerHead(): Promise<void> {
+	if (!activeCallerHeadRestore) {
+		return;
+	}
+	const { cwd, snapshot } = activeCallerHeadRestore;
+	await restoreCallerHeadIfSeedCommit(cwd, snapshot);
+	clearCallerHeadRestore();
+}
 
 function isChildProcess(): boolean {
 	return process.env.AGENT_TEST_CHILD === "1";
@@ -73,12 +108,23 @@ export function registerLiveRunHandlers(): void {
 
 	const interrupt = (code: number) => {
 		const cleanup = activeWorktreeCleanup;
-		if (!cleanup) {
+		const headRestore = activeCallerHeadRestore;
+		if (!cleanup && !headRestore) {
 			process.exit(code);
 			return;
 		}
-		void cleanup()
-			.catch(() => undefined)
+		void Promise.resolve()
+			.then(async () => {
+				if (cleanup) {
+					await cleanup().catch(() => undefined);
+				}
+				if (headRestore) {
+					await restoreCallerHeadIfSeedCommit(
+						headRestore.cwd,
+						headRestore.snapshot,
+					).catch(() => undefined);
+				}
+			})
 			.finally(() => process.exit(code));
 	};
 
@@ -113,6 +159,10 @@ export interface RunSuiteOptions {
 	keepRecordings?: boolean;
 	suitesDir?: string;
 	suiteFilter?: string;
+	/** Hard cap on live agent stream + wait (ms). */
+	timeoutMs?: number;
+	/** Allow AskQuestion-style tools in live runs (default false). */
+	allowUserInput?: boolean;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -232,6 +282,20 @@ export async function runSuite(
 		const scenarioTotal = displayTotal;
 
 		if (isolateLive) {
+			if (scenario.skip) {
+				const skipLabel = `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`;
+				logProgress(theme.skipped(skipLabel));
+				results.push({
+					suite: suite.name,
+					scenario: scenario.name,
+					passed: true,
+					failures: [],
+					skipped: true,
+					durationMs: 0,
+				});
+				continue;
+			}
+
 			const started = performance.now();
 			const exitCode = await spawnLiveScenario({
 				cwd: options.cwd,
@@ -246,17 +310,30 @@ export async function runSuite(
 				judge: options.judge,
 				scenarioIndex: index + 1,
 				scenarioTotal: filteredTotal,
+				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
+				noTimeout: options.timeoutMs === 0,
+				allowUserInput: options.allowUserInput,
 			});
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
 
 			if (exitCode !== 0) {
-				failures.push({
-					matcher: "liveScenario",
-					message: subprocessFailureMessage(exitCode),
-				});
-			} else if (options.judge !== false && options.stagingSessionId) {
+				const childResult =
+					options.stagingSessionId !== undefined
+						? await loadStagingResult(
+								getStagingResultPath(
+									options.stagingSessionId,
+									suite.name,
+									scenario.name,
+								),
+							)
+						: undefined;
+				failures.push(
+					...failuresForLiveSubprocessExit(exitCode, childResult),
+				);
+			}
+			if (failures.length === 0 && options.judge !== false && options.stagingSessionId) {
 				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 				if (criteria.length > 0) {
 					releaseLiveMemory();
@@ -324,6 +401,8 @@ export async function runSuite(
 				options.stagingSessionId,
 				scenarioIndex,
 				scenarioTotal,
+				options.timeoutMs,
+				options.allowUserInput,
 			),
 		);
 		if (isLiveSuite) {
@@ -355,6 +434,8 @@ async function runScenario(
 	stagingSessionId?: string,
 	scenarioIndex?: number,
 	scenarioTotal?: number,
+	timeoutMs?: number,
+	allowUserInput?: boolean,
 ): Promise<ScenarioResult> {
 	const started = performance.now();
 
@@ -381,6 +462,8 @@ async function runScenario(
 		(host === "cursor" ? "cursor" : "shared");
 	const skills = scenario.skills ?? defaultSkills;
 	const isLive = host !== "replay";
+	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
+	const failOnUserInput = !allowUserInput;
 
 	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
 		logProgress(
@@ -395,10 +478,17 @@ async function runScenario(
 	let worktreeHandle:
 		| Awaited<ReturnType<typeof createScenarioWorktree>>
 		| undefined;
+	let callerHeadBefore:
+		| Awaited<ReturnType<typeof captureCallerHead>>
+		| undefined;
 	const callerTreeBefore = useWorktree
 		? await captureWorkingTreeStatus(cwd)
 		: undefined;
 	if (useWorktree) {
+		if (isLive && scenario.seedPatch) {
+			callerHeadBefore = await captureCallerHead(cwd);
+			setCallerHeadRestore(cwd, callerHeadBefore);
+		}
 		worktreeHandle = await createScenarioWorktree(
 			cwd,
 			`${suiteName}-${scenario.name}`,
@@ -437,6 +527,14 @@ async function runScenario(
 		const outputContract = isLive
 			? outputContractForRubric(scenario.rubric)
 			: undefined;
+		const agentStartMarkerPath =
+			isChildProcess() && isLive && stagingSessionId
+				? getStagingAgentStartPath(
+						stagingSessionId,
+						suiteName,
+						scenario.name,
+					)
+				: undefined;
 		const agentStarted = performance.now();
 		const session = await (isLive
 			? withHeartbeat(
@@ -447,6 +545,11 @@ async function runScenario(
 						profile,
 						prompt: scenario.prompt,
 						outputContract,
+						timeoutMs: liveTimeoutMs,
+						failOnUserInput,
+						onDeadlineStart: agentStartMarkerPath
+							? () => writeAgentStartMarker(agentStartMarkerPath)
+							: undefined,
 					}),
 					{ started: agentStarted },
 				)
@@ -475,6 +578,16 @@ async function runScenario(
 			failures.push({
 				matcher: "runAgent",
 				message: session.error ?? `agent session ${session.status}`,
+			});
+		} else if (
+			isLive &&
+			failOnUserInput &&
+			traceHasUserInputTool(trace.toolCalls)
+		) {
+			failures.push({
+				matcher: "runAgent",
+				message:
+					"agent trace contains AskQuestion-style user-input tool in headless mode",
 			});
 		}
 
@@ -519,20 +632,6 @@ async function runScenario(
 			}
 		}
 
-		if (worktreeHandle) {
-			const willJudge =
-				Boolean(judge) &&
-				isLive &&
-				!isChildProcess() &&
-				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
-			logPhase(theme.phase("cleanup"), { last: !willJudge });
-			await worktreeHandle.cleanup();
-			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
-				activeWorktreeCleanup = undefined;
-			}
-			worktreeHandle = undefined;
-		}
-
 		const deferJudgeToParent = isChildProcess();
 		let judgeVerdicts: JudgeVerdictResult[] | undefined;
 		if (judge && isLive && !deferJudgeToParent) {
@@ -547,6 +646,35 @@ async function runScenario(
 		}
 
 		const durationMs = Math.round(performance.now() - started);
+
+		if (isChildProcess() && isLive && stagingSessionId) {
+			await writeStagingResult(
+				getStagingResultPath(stagingSessionId, suiteName, scenario.name),
+				{
+					passed: failures.length === 0,
+					failures,
+					durationMs,
+				},
+			);
+		}
+
+		if (worktreeHandle) {
+			const willJudge =
+				Boolean(judge) &&
+				isLive &&
+				!isChildProcess() &&
+				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
+			logPhase(theme.phase("cleanup"), { last: !willJudge });
+			await worktreeHandle.cleanup();
+			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
+				activeWorktreeCleanup = undefined;
+			}
+			if (callerHeadBefore) {
+				await restoreActiveCallerHead();
+			}
+			worktreeHandle = undefined;
+		}
+
 		emitScenarioVerdict({
 			passed: failures.length === 0,
 			index: scenarioIndex,
@@ -572,6 +700,9 @@ async function runScenario(
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;
 			}
+		}
+		if (activeCallerHeadRestore) {
+			await restoreActiveCallerHead().catch(() => undefined);
 		}
 	}
 }
@@ -628,6 +759,8 @@ export async function runAllSuites(options: {
 	worktree?: boolean;
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
+	timeoutMs?: number;
+	allowUserInput?: boolean;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(
 		resolve(options.cwd, options.suitesDir),
@@ -658,6 +791,8 @@ export async function runAllSuites(options: {
 				keepRecordings: options.keepRecordings,
 				suitesDir: options.suitesDir,
 				suiteFilter: options.filter,
+				timeoutMs: options.timeoutMs,
+				allowUserInput: options.allowUserInput,
 			}),
 		);
 	}

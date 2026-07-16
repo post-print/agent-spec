@@ -1,21 +1,29 @@
 {
-	"name": "agent-spec",
-	"private": true,
-	"type": "module",
-	"packageManager": "bun@1.2.21",
-	"workspaces": ["packages/*"],
-	"scripts": {
-		"build": "bun run --filter '*' build",
-		"test": "bun run --filter '*' test",
-		"typecheck": "bun run --filter '*' typecheck",
-		"clean": "bun run --filter '*' clean"
-	},
-	"devDependencies": {
-		"@types/node": "^26.1.1",
-		"typescript": "~7.0.2",
-		"vitest": "^4.0.17"
-	},
-	"overrides": {
-		"undici": "6.27.0"
-	}
+  "name": "agent-spec",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.2.21",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "test": "bun run --filter '*' test",
+    "typecheck": "bun run --filter '*' typecheck",
+    "clean": "bun run --filter '*' clean",
+    "validate:changed": "skeleton validate changed",
+    "validate:ci": "skeleton validate changed --base origin/main",
+    "audit:docs": "skeleton audit docs",
+    "audit:skills": "skeleton audit skills",
+    "audit:self": "skeleton audit self"
+  },
+  "devDependencies": {
+    "@csark0812/skeleton": "^1.5.3",
+    "@types/node": "^26.1.1",
+    "typescript": "~7.0.2",
+    "vitest": "^4.0.17"
+  },
+  "overrides": {
+    "undici": "6.27.0"
+  }
 }

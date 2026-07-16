@@ -35,6 +35,9 @@ function parseArgs(argv: string[]): {
 	judge?: boolean;
 	worktree?: boolean;
 	keepRecordings: boolean;
+	timeoutMs?: number;
+	noTimeout: boolean;
+	allowUserInput: boolean;
 } {
 	const cwd = process.cwd();
 	let suitesDir = "agent-suites";
@@ -48,6 +51,9 @@ function parseArgs(argv: string[]): {
 	let judge: boolean | undefined;
 	let worktree: boolean | undefined;
 	let keepRecordings = false;
+	let timeoutMs: number | undefined;
+	let noTimeout = false;
+	let allowUserInput = false;
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -76,6 +82,15 @@ function parseArgs(argv: string[]): {
 			judge = false;
 		} else if (token === "--no-worktree") {
 			worktree = false;
+		} else if (token === "--timeout-ms" && argv[i + 1]) {
+			const parsed = Number(argv[++i]);
+			if (Number.isFinite(parsed) && parsed > 0) {
+				timeoutMs = parsed;
+			}
+		} else if (token === "--no-timeout") {
+			noTimeout = true;
+		} else if (token === "--allow-user-input") {
+			allowUserInput = true;
 		} else if (token && !token.startsWith("-")) {
 			filter = token;
 		}
@@ -101,6 +116,9 @@ function parseArgs(argv: string[]): {
 		judge,
 		worktree,
 		keepRecordings,
+		timeoutMs: noTimeout ? 0 : timeoutMs,
+		noTimeout,
+		allowUserInput,
 	};
 }
 
@@ -169,8 +187,8 @@ async function main(): Promise<number> {
 				return 1;
 			}
 
+			registerLiveRunHandlers();
 			if (!isChild) {
-				registerLiveRunHandlers();
 				const removed = await cleanupStaleScenarioWorktrees(args.cwd);
 				if (removed.length > 0) {
 					console.log(
@@ -210,6 +228,8 @@ async function main(): Promise<number> {
 		const reports = await runAllSuites({
 			...args,
 			stagingSessionId,
+			timeoutMs: args.timeoutMs,
+			allowUserInput: args.allowUserInput,
 		});
 
 		let exitCode = 0;

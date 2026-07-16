@@ -1,6 +1,17 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
+import {
+	getStagingAgentStartPath,
+	readAgentStartMarker,
+} from "./record-trace.js";
+import {
+	LIVE_SUBPROCESS_SETUP_MAX_MS,
+	LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS,
+	LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
+	liveSubprocessTimeoutMs,
+} from "./live-timeout.js";
+
 const DEFAULT_SCENARIO_SETTLE_MS = 5000;
 
 /** Child process per live scenario (default) — avoids macOS OOM (exit 137) across council runs. */
@@ -36,6 +47,12 @@ export interface SpawnLiveScenarioOptions {
 	scenarioIndex?: number;
 	/** Total scenarios in the full suite (for child CLI counters). */
 	scenarioTotal?: number;
+	/** In-process harness timeout (parent adds a kill backstop). */
+	timeoutMs?: number;
+	/** Disable harness deadline in the child (forwards --no-timeout). */
+	noTimeout?: boolean;
+	/** Allow AskQuestion-style tools (default false — live is single-shot). */
+	allowUserInput?: boolean;
 }
 
 export interface LiveScenarioCommand {
@@ -70,6 +87,14 @@ export function buildLiveScenarioCommand(
 	if (options.worktree === false) {
 		args.push("--no-worktree");
 	}
+	if (options.noTimeout) {
+		args.push("--no-timeout");
+	} else if (options.timeoutMs !== undefined) {
+		args.push("--timeout-ms", String(options.timeoutMs));
+	}
+	if (options.allowUserInput) {
+		args.push("--allow-user-input");
+	}
 	// Isolated child: agent + rubric only; parent runs judge (avoids OOM after heavy council runs).
 	args.push("--no-judge");
 
@@ -84,6 +109,36 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolveSleep) => {
 		setTimeout(resolveSleep, ms);
 	});
+}
+
+async function waitForAgentStartMarker(
+	path: string,
+	deadlineMs: number,
+	pollMs = 100,
+	shouldStop?: () => boolean,
+): Promise<number | undefined> {
+	const started = Date.now();
+	while (Date.now() - started < deadlineMs) {
+		if (shouldStop?.()) {
+			return undefined;
+		}
+		const marker = await readAgentStartMarker(path);
+		if (marker !== undefined) {
+			return marker;
+		}
+		await sleep(pollMs);
+	}
+	return undefined;
+}
+
+/** Delay from agent-start marker until parent SIGTERM (harness deadline + cleanup slack). */
+export function subprocessKillDelayMs(
+	agentStartMs: number,
+	agentTimeoutMs: number,
+): number {
+	return (
+		agentStartMs + agentTimeoutMs + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS - Date.now()
+	);
 }
 
 /** Run one live scenario in a fresh Node subprocess; inherit stdio for live progress. */
@@ -103,14 +158,96 @@ export async function spawnLiveScenario(
 		env.AGENT_TEST_SCENARIO_TOTAL = String(options.scenarioTotal);
 	}
 
+	const agentTimeoutMs = options.timeoutMs;
+	const subprocessTimeoutMs = liveSubprocessTimeoutMs(agentTimeoutMs);
+
 	const exitCode = await new Promise<number>((resolveExit, reject) => {
 		const child = spawn(command, [...execArgv, ...args], {
 			cwd: options.cwd,
 			env,
 			stdio: "inherit",
 		});
-		child.on("error", reject);
+		let childClosed = false;
+		let killedForTimeout = false;
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		let sigkillId: ReturnType<typeof setTimeout> | undefined;
+		const clearKillTimers = () => {
+			if (timeoutId !== undefined) {
+				clearTimeout(timeoutId);
+				timeoutId = undefined;
+			}
+			if (sigkillId !== undefined) {
+				clearTimeout(sigkillId);
+				sigkillId = undefined;
+			}
+		};
+		const killChildForTimeout = () => {
+			if (childClosed || killedForTimeout) {
+				return;
+			}
+			killedForTimeout = true;
+			child.kill("SIGTERM");
+			sigkillId = setTimeout(() => {
+				if (childClosed) {
+					return;
+				}
+				child.kill("SIGKILL");
+			}, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS);
+		};
+		const armKillTimer = (delayMs: number) => {
+			if (childClosed) {
+				return;
+			}
+			if (delayMs <= 0) {
+				killChildForTimeout();
+				return;
+			}
+			timeoutId = setTimeout(killChildForTimeout, delayMs);
+		};
+
+		if (
+			agentTimeoutMs &&
+			agentTimeoutMs > 0 &&
+			options.stagingSessionId &&
+			!options.noTimeout
+		) {
+			const markerPath = getStagingAgentStartPath(
+				options.stagingSessionId,
+				options.suiteName,
+				options.scenarioName,
+			);
+			void (async () => {
+				const agentStartMs = await waitForAgentStartMarker(
+					markerPath,
+					LIVE_SUBPROCESS_SETUP_MAX_MS,
+					100,
+					() => childClosed,
+				);
+				if (childClosed) {
+					return;
+				}
+				if (agentStartMs === undefined) {
+					killChildForTimeout();
+					return;
+				}
+				armKillTimer(subprocessKillDelayMs(agentStartMs, agentTimeoutMs));
+			})();
+		} else if (subprocessTimeoutMs !== undefined) {
+			armKillTimer(subprocessTimeoutMs);
+		}
+
+		child.on("error", (error) => {
+			childClosed = true;
+			clearKillTimers();
+			reject(error);
+		});
 		child.on("close", (code, signal) => {
+			childClosed = true;
+			clearKillTimers();
+			if (killedForTimeout) {
+				resolveExit(124);
+				return;
+			}
 			if (signal === "SIGKILL") {
 				resolveExit(137);
 				return;
@@ -127,10 +264,43 @@ export async function spawnLiveScenario(
 }
 
 export function subprocessFailureMessage(exitCode: number): string {
+	if (exitCode === 124) {
+		return "live scenario subprocess timed out (harness deadline exceeded)";
+	}
 	if (exitCode === 137) {
 		return "subprocess killed (137) — macOS OOM; close heavy apps or increase AGENT_TEST_SCENARIO_SETTLE_MS";
 	}
 	return `live scenario subprocess exited ${exitCode}`;
+}
+
+export interface LiveSubprocessStagingResult {
+	passed: boolean;
+	failures: Array<{ matcher: string; message: string }>;
+}
+
+/**
+ * Map isolated child exit + optional staging sidecar to parent failures.
+ * A persisted pass sidecar wins over a late timeout kill (exit 124).
+ */
+export function failuresForLiveSubprocessExit(
+	exitCode: number,
+	childResult: LiveSubprocessStagingResult | undefined,
+): Array<{ matcher: string; message: string }> {
+	if (exitCode === 0) {
+		return [];
+	}
+	if (childResult?.failures.length) {
+		return [...childResult.failures];
+	}
+	if (childResult?.passed === true) {
+		return [];
+	}
+	return [
+		{
+			matcher: "liveScenario",
+			message: subprocessFailureMessage(exitCode),
+		},
+	];
 }
 
 /** Parent-provided counters for isolated child runs (1-based index). */

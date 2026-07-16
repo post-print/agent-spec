@@ -7,7 +7,7 @@ import { ReplayAdapter } from "./replay.js";
 function emptyFailed(host: "cursor" | "claude", error: string): AgentSession {
 	return {
 		host,
-		status: "skipped",
+		status: "failed",
 		trace: { messages: [], toolCalls: [], shellCommands: [], artifacts: {} },
 		durationMs: 0,
 		error,
@@ -36,6 +36,9 @@ export class CursorAdapter implements HostAdapter {
 			const { trace: streamedTrace, status } = await runCursorAgent({
 				cwd: options.cwd,
 				prompt,
+				timeoutMs: options.timeoutMs,
+				failOnUserInput: options.failOnUserInput,
+				onDeadlineStart: options.onDeadlineStart,
 			});
 			const gitDiff = await captureGitDiff(options.cwd);
 			const trace = enrichTrace({ ...streamedTrace, gitDiff });

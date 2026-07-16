@@ -64,6 +64,12 @@ export interface RunAgentOptions {
 	outputContract?: RoutingContract;
 	/** Required when host is replay. */
 	replayTracePath?: string;
+	/** Hard cap on live Cursor stream + wait (replay ignores). */
+	timeoutMs?: number;
+	/** Fail fast when the agent invokes AskQuestion-style tools (default true for live). */
+	failOnUserInput?: boolean;
+	/** Fires when the live harness deadline clock starts (after pre-stream SDK setup). */
+	onDeadlineStart?: () => void | Promise<void>;
 	env?: Record<string, string>;
 }
 

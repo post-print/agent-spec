@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "command": "node node_modules/@csark0812/skeleton/dist/cli.js hook customize",
+        "matcher": "Read"
+      }
+    ]
+  }
+}
