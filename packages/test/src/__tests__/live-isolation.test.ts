@@ -70,6 +70,18 @@ describe("live-isolation", () => {
 		expect(args).toContain("120000");
 	});
 
+	it("forwards --no-timeout to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "long-run",
+			suitesDir: "agent-suites",
+			noTimeout: true,
+		});
+		expect(args).toContain("--no-timeout");
+		expect(args).not.toContain("--timeout-ms");
+	});
+
 	it("forwards allow-user-input to the child CLI", () => {
 		const { args } = buildLiveScenarioCommand({
 			cwd: "/repo",

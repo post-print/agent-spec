@@ -39,10 +39,17 @@ import {
 import {
 	getStagingTracePath,
 	loadStagingTrace,
+	loadStagingResult,
 	recordTrace,
 	resolveRecordingPath,
+	writeStagingResult,
+	getStagingResultPath,
 } from "./record-trace.js";
-import { seedScenarioWorktree } from "./scenario-seed.js";
+import {
+	captureCallerHead,
+	restoreCallerHeadIfSeedCommit,
+	seedScenarioWorktree,
+} from "./scenario-seed.js";
 import { theme } from "./theme.js";
 import type {
 	AgentScenario,
@@ -238,6 +245,20 @@ export async function runSuite(
 		const scenarioTotal = displayTotal;
 
 		if (isolateLive) {
+			if (scenario.skip) {
+				const skipLabel = `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`;
+				logProgress(theme.skipped(skipLabel));
+				results.push({
+					suite: suite.name,
+					scenario: scenario.name,
+					passed: true,
+					failures: [],
+					skipped: true,
+					durationMs: 0,
+				});
+				continue;
+			}
+
 			const started = performance.now();
 			const exitCode = await spawnLiveScenario({
 				cwd: options.cwd,
@@ -253,6 +274,7 @@ export async function runSuite(
 				scenarioIndex: index + 1,
 				scenarioTotal: filteredTotal,
 				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
+				noTimeout: options.timeoutMs === 0,
 				allowUserInput: options.allowUserInput,
 			});
 			const durationMs = Math.round(performance.now() - started);
@@ -260,10 +282,24 @@ export async function runSuite(
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
 
 			if (exitCode !== 0) {
-				failures.push({
-					matcher: "liveScenario",
-					message: subprocessFailureMessage(exitCode),
-				});
+				const childResult =
+					options.stagingSessionId !== undefined
+						? await loadStagingResult(
+								getStagingResultPath(
+									options.stagingSessionId,
+									suite.name,
+									scenario.name,
+								),
+							)
+						: undefined;
+				if (childResult?.failures.length) {
+					failures.push(...childResult.failures);
+				} else {
+					failures.push({
+						matcher: "liveScenario",
+						message: subprocessFailureMessage(exitCode),
+					});
+				}
 			} else if (options.judge !== false && options.stagingSessionId) {
 				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 				if (criteria.length > 0) {
@@ -409,10 +445,16 @@ async function runScenario(
 	let worktreeHandle:
 		| Awaited<ReturnType<typeof createScenarioWorktree>>
 		| undefined;
+	let callerHeadBefore:
+		| Awaited<ReturnType<typeof captureCallerHead>>
+		| undefined;
 	const callerTreeBefore = useWorktree
 		? await captureWorkingTreeStatus(cwd)
 		: undefined;
 	if (useWorktree) {
+		if (isLive && scenario.seedPatch) {
+			callerHeadBefore = await captureCallerHead(cwd);
+		}
 		worktreeHandle = await createScenarioWorktree(
 			cwd,
 			`${suiteName}-${scenario.name}`,
@@ -492,7 +534,11 @@ async function runScenario(
 				matcher: "runAgent",
 				message: session.error ?? `agent session ${session.status}`,
 			});
-		} else if (failOnUserInput && traceHasUserInputTool(trace.toolCalls)) {
+		} else if (
+			isLive &&
+			failOnUserInput &&
+			traceHasUserInputTool(trace.toolCalls)
+		) {
 			failures.push({
 				matcher: "runAgent",
 				message:
@@ -552,6 +598,9 @@ async function runScenario(
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;
 			}
+			if (callerHeadBefore) {
+				await restoreCallerHeadIfSeedCommit(cwd, callerHeadBefore);
+			}
 			worktreeHandle = undefined;
 		}
 
@@ -579,6 +628,17 @@ async function runScenario(
 			failures,
 		});
 
+		if (isChildProcess() && isLive && stagingSessionId) {
+			await writeStagingResult(
+				getStagingResultPath(stagingSessionId, suiteName, scenario.name),
+				{
+					passed: failures.length === 0,
+					failures,
+					durationMs,
+				},
+			);
+		}
+
 		return {
 			suite: suiteName,
 			scenario: scenario.name,
@@ -594,6 +654,9 @@ async function runScenario(
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;
 			}
+		}
+		if (callerHeadBefore) {
+			await restoreCallerHeadIfSeedCommit(cwd, callerHeadBefore);
 		}
 	}
 }

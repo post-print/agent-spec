@@ -8,10 +8,14 @@ export {
 	createLiveStagingSessionId,
 	getLiveStagingRoot,
 	getLiveStagingSessionRoot,
+	getStagingResultPath,
+	type LiveScenarioResultSidecar,
+	loadStagingResult,
 	type RecordingPathKind,
 	type ResolvedRecordingPath,
 	recordTrace,
 	resolveRecordingPath,
+	writeStagingResult,
 } from "./record-trace.js";
 export {
 	discoverSuites,

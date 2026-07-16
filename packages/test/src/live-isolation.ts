@@ -40,6 +40,8 @@ export interface SpawnLiveScenarioOptions {
 	scenarioTotal?: number;
 	/** In-process harness timeout (parent adds a kill backstop). */
 	timeoutMs?: number;
+	/** Disable harness deadline in the child (forwards --no-timeout). */
+	noTimeout?: boolean;
 	/** Allow AskQuestion-style tools (default false — live is single-shot). */
 	allowUserInput?: boolean;
 }
@@ -76,7 +78,9 @@ export function buildLiveScenarioCommand(
 	if (options.worktree === false) {
 		args.push("--no-worktree");
 	}
-	if (options.timeoutMs !== undefined) {
+	if (options.noTimeout) {
+		args.push("--no-timeout");
+	} else if (options.timeoutMs !== undefined) {
 		args.push("--timeout-ms", String(options.timeoutMs));
 	}
 	if (options.allowUserInput) {

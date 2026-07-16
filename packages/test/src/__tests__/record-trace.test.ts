@@ -8,7 +8,11 @@ import {
 	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
 	getLiveStagingSessionRoot,
+	getStagingResultPath,
+	getStagingTracePath,
+	loadStagingResult,
 	resolveRecordingPath,
+	writeStagingResult,
 } from "../record-trace.js";
 
 describe("resolveRecordingPath", () => {
@@ -41,17 +45,61 @@ describe("resolveRecordingPath", () => {
 
 		expect(resolved?.kind).toBe("staging");
 		expect(resolved?.path).toBe(
-			join(getLiveStagingSessionRoot("sess-1"), "ambient-routing", "medium-grill-skill.json"),
+			getStagingTracePath("sess-1", "ambient-routing", "medium: grill skill"),
 		);
 	});
 
-	it("returns undefined when replayTrace is missing", () => {
+	it("returns staging path without replayTrace when stagingSessionId is set", () => {
+		const resolved = resolveRecordingPath(
+			"live-only",
+			"anti-thrash",
+			undefined,
+			false,
+			{ repoRoot: "/repo", stagingSessionId: "sess-2" },
+		);
+
+		expect(resolved).toEqual({
+			kind: "staging",
+			path: getStagingTracePath("sess-2", "live-only", "anti-thrash"),
+		});
+	});
+
+	it("returns undefined when replayTrace is missing and recordFixtures is true", () => {
+		expect(
+			resolveRecordingPath("suite", "name", undefined, true, {
+				repoRoot: "/repo",
+			}),
+		).toBeUndefined();
+	});
+
+	it("returns undefined when stagingSessionId is missing for live staging", () => {
 		expect(
 			resolveRecordingPath("suite", "name", undefined, false, {
 				repoRoot: "/repo",
-				stagingSessionId: "sess-1",
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("staging result sidecar", () => {
+	it("round-trips child rubric failures for parent merge", async () => {
+		const sessionId = `sidecar-${Date.now()}`;
+		const path = getStagingResultPath(sessionId, "routing", "anti-thrash");
+		const payload = {
+			passed: false,
+			durationMs: 42,
+			failures: [
+				{
+					matcher: "toHaveInvokedSkill",
+					message: 'expected skill "grill"',
+				},
+			],
+		};
+
+		await writeStagingResult(path, payload);
+		await expect(loadStagingResult(path)).resolves.toEqual(payload);
+
+		await cleanupStagingSession(getLiveStagingSessionRoot(sessionId));
 	});
 });
 

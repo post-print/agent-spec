@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import type { AgentTrace } from "@post-print/agent-harness";
 import { enrichTrace } from "@post-print/agent-harness";
 
+import type { AssertionFailure } from "./types.js";
+
 export const LIVE_STAGING_DIR_NAME = "agent-spec";
 
 function slugifyScenarioName(name: string): string {
@@ -25,6 +27,10 @@ export function getLiveStagingSessionRoot(sessionId: string): string {
 	return join(getLiveStagingRoot(), sessionId);
 }
 
+function stagingScenarioBasename(scenarioName: string): string {
+	return slugifyScenarioName(scenarioName);
+}
+
 /** Staging JSON path for a live scenario trace (matches recordTrace layout). */
 export function getStagingTracePath(
 	stagingSessionId: string,
@@ -34,8 +40,27 @@ export function getStagingTracePath(
 	return join(
 		getLiveStagingSessionRoot(stagingSessionId),
 		suiteName,
-		`${slugifyScenarioName(scenarioName)}.json`,
+		`${stagingScenarioBasename(scenarioName)}.json`,
 	);
+}
+
+/** Parent reads rubric failures from isolated child runs when exit code is non-zero. */
+export function getStagingResultPath(
+	stagingSessionId: string,
+	suiteName: string,
+	scenarioName: string,
+): string {
+	return join(
+		getLiveStagingSessionRoot(stagingSessionId),
+		suiteName,
+		`${stagingScenarioBasename(scenarioName)}.result.json`,
+	);
+}
+
+export interface LiveScenarioResultSidecar {
+	passed: boolean;
+	failures: AssertionFailure[];
+	durationMs: number;
 }
 
 export function createLiveStagingSessionId(): string {
@@ -62,11 +87,10 @@ export function resolveRecordingPath(
 	recordFixtures: boolean,
 	options: ResolveRecordingPathOptions,
 ): ResolvedRecordingPath | undefined {
-	if (!replayTrace) {
-		return undefined;
-	}
-
 	if (recordFixtures) {
+		if (!replayTrace) {
+			return undefined;
+		}
 		return {
 			path: resolve(options.repoRoot, replayTrace),
 			kind: "fixture",
@@ -74,12 +98,15 @@ export function resolveRecordingPath(
 	}
 
 	if (!options.stagingSessionId) {
-		throw new Error("stagingSessionId required for live staging recordings");
+		return undefined;
 	}
 
-	const slug = slugifyScenarioName(scenarioName);
 	return {
-		path: join(getLiveStagingSessionRoot(options.stagingSessionId), suiteName, `${slug}.json`),
+		path: getStagingTracePath(
+			options.stagingSessionId,
+			suiteName,
+			scenarioName,
+		),
 		kind: "staging",
 	};
 }
@@ -108,6 +135,26 @@ export async function recordTrace(outputPath: string, trace: AgentTrace): Promis
 export async function loadStagingTrace(path: string): Promise<AgentTrace> {
 	const raw = JSON.parse(await readFile(path, "utf8")) as AgentTrace;
 	return enrichTrace(raw);
+}
+
+/** Child writes rubric outcome for parent when live scenarios run in subprocess isolation. */
+export async function writeStagingResult(
+	path: string,
+	result: LiveScenarioResultSidecar,
+): Promise<void> {
+	await mkdir(dirname(path), { recursive: true });
+	await writeFile(path, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+}
+
+/** Parent merges child rubric failures instead of only reporting subprocess exit code. */
+export async function loadStagingResult(
+	path: string,
+): Promise<LiveScenarioResultSidecar | undefined> {
+	try {
+		return JSON.parse(await readFile(path, "utf8")) as LiveScenarioResultSidecar;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Remove a live staging session directory under $TMPDIR. */
