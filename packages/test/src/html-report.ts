@@ -99,13 +99,33 @@ function renderMessageBubble(message: AgentMessage): string {
 </div>`;
 }
 
-function renderToolCallChip(call: AgentToolCall): string {
-	const args =
-		call.args === undefined ? "" : `<code>${escapeHtml(JSON.stringify(call.args))}</code>`;
+/** Truncate long single-line arg values so a stray file body doesn't blow up the card. */
+function formatArgValue(value: unknown): string {
+	const text = typeof value === "string" ? value : JSON.stringify(value);
+	const oneLine = text.replaceAll("\n", " ↵ ");
+	return oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine;
+}
+
+function renderToolArgs(args: Record<string, unknown> | undefined): string {
+	const entries = args ? Object.entries(args) : [];
+	if (entries.length === 0) {
+		return "";
+	}
+	const rows = entries
+		.map(
+			([key, value]) =>
+				`<div class="tool-arg"><span class="tool-arg-key">${escapeHtml(key)}</span><code>${escapeHtml(formatArgValue(value))}</code></div>`,
+		)
+		.join("");
+	return `<div class="tool-args">${rows}</div>`;
+}
+
+function renderToolCallCard(call: AgentToolCall): string {
 	return `
-<div class="chat-row side-center">
-  <div class="tool-chip">
-    <span class="tool-name">${escapeHtml(call.name)}</span>${args}
+<div class="chat-row side-left">
+  <div class="tool-card">
+    <div class="tool-card-head"><span class="tool-icon">&#9881;</span><span class="tool-name">${escapeHtml(call.name)}</span></div>
+    ${renderToolArgs(call.args)}
   </div>
 </div>`;
 }
@@ -147,7 +167,7 @@ function renderChat(trace: AgentTrace | undefined): string {
 		parts.push(`<div class="chat">`);
 		for (const item of timeline) {
 			parts.push(
-				item.kind === "message" ? renderMessageBubble(item.message) : renderToolCallChip(item.call),
+				item.kind === "message" ? renderMessageBubble(item.message) : renderToolCallCard(item.call),
 			);
 		}
 		parts.push(`</div>`);
@@ -163,13 +183,11 @@ function renderChat(trace: AgentTrace | undefined): string {
 			parts.push(`</div>`);
 		}
 		if (trace.toolCalls.length > 0) {
-			parts.push(`<h4>Tool calls</h4><ul class="tool-calls">`);
+			parts.push(`<h4>Tool calls</h4><div class="chat">`);
 			for (const call of trace.toolCalls) {
-				const args =
-					call.args === undefined ? "" : `<code>${escapeHtml(JSON.stringify(call.args))}</code>`;
-				parts.push(`<li><span class="tool-name">${escapeHtml(call.name)}</span>${args}</li>`);
+				parts.push(renderToolCallCard(call));
 			}
-			parts.push(`</ul>`);
+			parts.push(`</div>`);
 		}
 	} else {
 		parts.push(`<p class="empty">No messages in transcript.</p>`);
@@ -297,6 +315,8 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     --user-bubble: #24406b;
     --assistant-bubble: #1f2f26;
     --system-bubble: #241f38;
+    --tool: #e0af68;
+    --tool-bubble: #2a2214;
   }
   * { box-sizing: border-box; }
   body {
@@ -412,23 +432,44 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   .bubble.role-user { background: var(--user-bubble); border-top-right-radius: 3px; }
   .bubble.role-assistant { background: var(--assistant-bubble); border-top-left-radius: 3px; }
   .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.8rem; max-width: 90%; }
-  .tool-chip {
-    max-width: 90%;
-    border-radius: 999px;
-    padding: 0.3rem 0.65rem;
-    border: 1px dashed var(--border);
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.76rem;
+
+  .tool-card {
+    max-width: 82%;
+    border-radius: 10px;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid color-mix(in srgb, var(--tool) 35%, var(--border));
+    background: var(--tool-bubble);
+  }
+  .tool-card-head {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--tool);
   }
-  .tool-chip .tool-name { color: var(--text); }
+  .tool-icon { font-size: 0.85rem; }
+  .tool-name { font-weight: 700; }
+  .tool-args {
+    margin-top: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid color-mix(in srgb, var(--tool) 20%, var(--border));
+  }
+  .tool-arg { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.78rem; }
+  .tool-arg-key { color: var(--muted); flex-shrink: 0; }
+  .tool-arg code {
+    color: var(--text);
+    background: #0b1017;
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
+    word-break: break-word;
+  }
 
-  .tool-calls, .shell-commands { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
-  .tool-calls li, .shell-commands li { font-size: 0.8rem; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.5rem; }
-  .tool-name { font-weight: 600; margin-right: 0.4rem; }
+  .shell-commands { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
+  .shell-commands li { font-size: 0.8rem; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.5rem; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
   @media (max-width: 720px) {
     main { padding: 0.75rem; }
@@ -436,7 +477,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     .summary dl { justify-content: flex-start; }
     .suite-header { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
     .diagnostics { grid-template-columns: 1fr; }
-    .bubble { max-width: 92%; }
+    .bubble, .tool-card { max-width: 92%; }
   }
 </style>
 </head>
