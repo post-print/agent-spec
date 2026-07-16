@@ -1,3 +1,5 @@
+import { logger } from "@post-print/agent-harness";
+
 import { formatDurationLabel, theme } from "./theme.js";
 
 const DEFAULT_HEARTBEAT_MS = 60_000;
@@ -15,7 +17,7 @@ export function logProgress(message: string): void {
 		return;
 	}
 	clearHeartbeatLine();
-	console.log(message);
+	logger.info(message);
 }
 
 /** Emit a tree phase line (├─ by default; use endPhase for └─). */

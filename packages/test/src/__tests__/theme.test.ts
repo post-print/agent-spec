@@ -36,9 +36,7 @@ describe("wrapText", () => {
 
 	it("wraps long text at column width", () => {
 		const lines = wrapText("one two three four five six", 10);
-		expect(
-			lines.every((line) => line.length <= 10 || !line.includes(" ")),
-		).toBe(true);
+		expect(lines.every((line) => line.length <= 10 || !line.includes(" "))).toBe(true);
 		expect(lines.join(" ")).toBe("one two three four five six");
 	});
 });
@@ -141,9 +139,7 @@ describe("theme.banner", () => {
 describe("theme.suiteHeader", () => {
 	it("uses compact host/count separators", () => {
 		chalk.level = 0;
-		expect(theme.suiteHeader("routing", "cursor", 4)).toBe(
-			"routing  ·  cursor  ·  4 scenarios",
-		);
+		expect(theme.suiteHeader("routing", "cursor", 4)).toBe("routing  ·  cursor  ·  4 scenarios");
 	});
 });
 

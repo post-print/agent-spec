@@ -23,9 +23,7 @@ describe("isUserInputTool", () => {
 
 describe("traceHasUserInputTool", () => {
 	it("detects user-input tools in a trace", () => {
-		expect(
-			traceHasUserInputTool([{ name: "Read" }, { name: "AskQuestion" }]),
-		).toBe(true);
+		expect(traceHasUserInputTool([{ name: "Read" }, { name: "AskQuestion" }])).toBe(true);
 		expect(traceHasUserInputTool([{ name: "Grep" }])).toBe(false);
 	});
 });

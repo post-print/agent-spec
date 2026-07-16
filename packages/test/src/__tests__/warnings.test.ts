@@ -17,10 +17,7 @@ describe("suppressNoisyRuntimeWarnings", () => {
 			suppressNoisyRuntimeWarnings();
 			expect(process.listenerCount("warning")).toBe(1);
 
-			process.emitWarning(
-				"SQLite is an experimental feature",
-				"ExperimentalWarning",
-			);
+			process.emitWarning("SQLite is an experimental feature", "ExperimentalWarning");
 			process.emitWarning("something else", "Warning");
 			await new Promise<void>((resolve) => setImmediate(resolve));
 

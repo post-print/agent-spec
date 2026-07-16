@@ -5,13 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { discoverSuites } from "../discover-suites.js";
-import {
-	outputContractForRubric,
-	runSuite,
-	shouldPrintSuiteChrome,
-} from "../run-suite.js";
 import * as liveIsolation from "../live-isolation.js";
 import * as recordTrace from "../record-trace.js";
+import { outputContractForRubric, runSuite, shouldPrintSuiteChrome } from "../run-suite.js";
 
 describe("discoverSuites", () => {
 	it("skips directories without scenarios.json", async () => {
@@ -37,15 +33,11 @@ describe("outputContractForRubric", () => {
 	});
 
 	it("attaches hands-on for handsOnRouting rubrics", () => {
-		expect(outputContractForRubric({ handsOnRouting: true, tier: "low" })).toBe(
-			"hands-on",
-		);
+		expect(outputContractForRubric({ handsOnRouting: true, tier: "low" })).toBe("hands-on");
 	});
 
 	it("prefers hands-off when both routing flags are set", () => {
-		expect(
-			outputContractForRubric({ routingBlock: true, handsOnRouting: true }),
-		).toBe("hands-off");
+		expect(outputContractForRubric({ routingBlock: true, handsOnRouting: true })).toBe("hands-off");
 	});
 
 	it("returns undefined when no routing rubric flags are set", () => {
@@ -116,9 +108,7 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		const spawnSpy = vi
-			.spyOn(liveIsolation, "spawnLiveScenario")
-			.mockResolvedValue(0);
+		const spawnSpy = vi.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
 
 		const report = await runSuite({
 			cwd: dir,
@@ -155,26 +145,24 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(
-			async (options) => (options.scenarioName === "failing" ? 1 : 0),
+		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async (options) =>
+			options.scenarioName === "failing" ? 1 : 0,
 		);
-		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(
-			async (_path) => {
-				if (_path.includes("failing")) {
-					return {
-						passed: false,
-						durationMs: 12,
-						failures: [
-							{
-								matcher: "toHaveReviewDepth",
-								message: 'expected review depth "thorough"',
-							},
-						],
-					};
-				}
-				return undefined;
-			},
-		);
+		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (_path) => {
+			if (_path.includes("failing")) {
+				return {
+					passed: false,
+					durationMs: 12,
+					failures: [
+						{
+							matcher: "toHaveReviewDepth",
+							message: 'expected review depth "thorough"',
+						},
+					],
+				};
+			}
+			return undefined;
+		});
 
 		const report = await runSuite({
 			cwd: dir,
@@ -211,21 +199,19 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(
-			async (options) => (options.scenarioName === "late-kill" ? 124 : 0),
+		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async (options) =>
+			options.scenarioName === "late-kill" ? 124 : 0,
 		);
-		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(
-			async (path) => {
-				if (path.includes("late-kill")) {
-					return {
-						passed: true,
-						durationMs: 40,
-						failures: [],
-					};
-				}
-				return undefined;
-			},
-		);
+		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
+			if (path.includes("late-kill")) {
+				return {
+					passed: true,
+					durationMs: 40,
+					failures: [],
+				};
+			}
+			return undefined;
+		});
 
 		const report = await runSuite({
 			cwd: dir,

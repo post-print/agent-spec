@@ -1,35 +1,24 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-
-import {
-	getStagingAgentStartPath,
-	readAgentStartMarker,
-} from "./record-trace.js";
 import {
 	LIVE_SUBPROCESS_SETUP_MAX_MS,
 	LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS,
 	LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
 	liveSubprocessTimeoutMs,
 } from "./live-timeout.js";
+import { getStagingAgentStartPath, readAgentStartMarker } from "./record-trace.js";
 
 const DEFAULT_SCENARIO_SETTLE_MS = 5000;
 
 /** Child process per live scenario (default) — avoids macOS OOM (exit 137) across council runs. */
 export function liveScenarioIsolationEnabled(): boolean {
-	return (
-		process.env.AGENT_TEST_CHILD !== "1" &&
-		process.env.AGENT_TEST_NO_ISOLATE !== "1"
-	);
+	return process.env.AGENT_TEST_CHILD !== "1" && process.env.AGENT_TEST_NO_ISOLATE !== "1";
 }
 
 export function scenarioSettleMs(): number {
-	const raw =
-		process.env.AGENT_TEST_SCENARIO_SETTLE_MS ??
-		String(DEFAULT_SCENARIO_SETTLE_MS);
+	const raw = process.env.AGENT_TEST_SCENARIO_SETTLE_MS ?? String(DEFAULT_SCENARIO_SETTLE_MS);
 	const parsed = Number(raw);
-	return Number.isFinite(parsed) && parsed >= 0
-		? parsed
-		: DEFAULT_SCENARIO_SETTLE_MS;
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_SCENARIO_SETTLE_MS;
 }
 
 export interface SpawnLiveScenarioOptions {
@@ -62,12 +51,9 @@ export interface LiveScenarioCommand {
 }
 
 /** Build the Node subprocess command for one live scenario (same CLI entry as the parent). */
-export function buildLiveScenarioCommand(
-	options: SpawnLiveScenarioOptions,
-): LiveScenarioCommand {
+export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): LiveScenarioCommand {
 	const cliPath =
-		process.argv[1] ??
-		resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
+		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
 	const args = [cliPath, "--live", "--scenario", options.scenarioName];
 	if (options.suiteFilter) {
 		args.push("--suite", options.suiteFilter);
@@ -132,19 +118,12 @@ async function waitForAgentStartMarker(
 }
 
 /** Delay from agent-start marker until parent SIGTERM (harness deadline + cleanup slack). */
-export function subprocessKillDelayMs(
-	agentStartMs: number,
-	agentTimeoutMs: number,
-): number {
-	return (
-		agentStartMs + agentTimeoutMs + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS - Date.now()
-	);
+export function subprocessKillDelayMs(agentStartMs: number, agentTimeoutMs: number): number {
+	return agentStartMs + agentTimeoutMs + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS - Date.now();
 }
 
 /** Run one live scenario in a fresh Node subprocess; inherit stdio for live progress. */
-export async function spawnLiveScenario(
-	options: SpawnLiveScenarioOptions,
-): Promise<number> {
+export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Promise<number> {
 	const { command, args, execArgv } = buildLiveScenarioCommand(options);
 
 	const env: NodeJS.ProcessEnv = {
@@ -205,12 +184,7 @@ export async function spawnLiveScenario(
 			timeoutId = setTimeout(killChildForTimeout, delayMs);
 		};
 
-		if (
-			agentTimeoutMs &&
-			agentTimeoutMs > 0 &&
-			options.stagingSessionId &&
-			!options.noTimeout
-		) {
+		if (agentTimeoutMs && agentTimeoutMs > 0 && options.stagingSessionId && !options.noTimeout) {
 			const markerPath = getStagingAgentStartPath(
 				options.stagingSessionId,
 				options.suiteName,
@@ -304,17 +278,10 @@ export function failuresForLiveSubprocessExit(
 }
 
 /** Parent-provided counters for isolated child runs (1-based index). */
-export function parentScenarioCounters():
-	| { index: number; total: number }
-	| undefined {
+export function parentScenarioCounters(): { index: number; total: number } | undefined {
 	const index = Number(process.env.AGENT_TEST_SCENARIO_INDEX);
 	const total = Number(process.env.AGENT_TEST_SCENARIO_TOTAL);
-	if (
-		Number.isInteger(index) &&
-		index > 0 &&
-		Number.isInteger(total) &&
-		total > 0
-	) {
+	if (Number.isInteger(index) && index > 0 && Number.isInteger(total) && total > 0) {
 		return { index, total };
 	}
 	return undefined;

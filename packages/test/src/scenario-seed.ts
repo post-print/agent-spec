@@ -13,15 +13,11 @@ export interface CallerHeadSnapshot {
 }
 
 /** Record caller HEAD before worktree seeding so we can undo accidental checkouts. */
-export async function captureCallerHead(
-	repoRoot: string,
-): Promise<CallerHeadSnapshot> {
+export async function captureCallerHead(repoRoot: string): Promise<CallerHeadSnapshot> {
 	try {
-		const { stdout } = await execFileAsync(
-			"git",
-			["symbolic-ref", "--short", "HEAD"],
-			{ cwd: repoRoot },
-		);
+		const { stdout } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"], {
+			cwd: repoRoot,
+		});
 		return { ref: stdout.trim(), detached: false };
 	} catch {
 		const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
@@ -36,11 +32,9 @@ export async function restoreCallerHeadIfSeedCommit(
 	repoRoot: string,
 	snapshot: CallerHeadSnapshot,
 ): Promise<void> {
-	const { stdout: message } = await execFileAsync(
-		"git",
-		["log", "-1", "--format=%s"],
-		{ cwd: repoRoot },
-	);
+	const { stdout: message } = await execFileAsync("git", ["log", "-1", "--format=%s"], {
+		cwd: repoRoot,
+	});
 	if (message.trim() !== SEED_COMMIT_MESSAGE) {
 		return;
 	}

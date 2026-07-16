@@ -1,14 +1,11 @@
 /** Tools that block until the user replies — incompatible with single-shot headless runs. */
-const USER_INPUT_TOOL_PATTERN =
-	/^(askquestion|ask_question|user_question|request_user_input)$/i;
+const USER_INPUT_TOOL_PATTERN = /^(askquestion|ask_question|user_question|request_user_input)$/i;
 
 export function isUserInputTool(toolName: string): boolean {
 	return USER_INPUT_TOOL_PATTERN.test(toolName.trim());
 }
 
-export function traceHasUserInputTool(
-	toolCalls: Array<{ name: string }>,
-): boolean {
+export function traceHasUserInputTool(toolCalls: Array<{ name: string }>): boolean {
 	return toolCalls.some((call) => isUserInputTool(call.name));
 }
 
@@ -16,9 +13,7 @@ export class AgentRunTimeoutError extends Error {
 	readonly timeoutMs: number;
 
 	constructor(timeoutMs: number) {
-		super(
-			`agent timed out after ${timeoutMs}ms waiting for run completion`,
-		);
+		super(`agent timed out after ${timeoutMs}ms waiting for run completion`);
 		this.name = "AgentRunTimeoutError";
 		this.timeoutMs = timeoutMs;
 	}

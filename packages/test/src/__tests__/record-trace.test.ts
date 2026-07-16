@@ -53,13 +53,10 @@ describe("resolveRecordingPath", () => {
 	});
 
 	it("returns staging path without replayTrace when stagingSessionId is set", () => {
-		const resolved = resolveRecordingPath(
-			"live-only",
-			"anti-thrash",
-			undefined,
-			false,
-			{ repoRoot: "/repo", stagingSessionId: "sess-2" },
-		);
+		const resolved = resolveRecordingPath("live-only", "anti-thrash", undefined, false, {
+			repoRoot: "/repo",
+			stagingSessionId: "sess-2",
+		});
 
 		expect(resolved).toEqual({
 			kind: "staging",
@@ -123,10 +120,7 @@ describe("agent start marker", () => {
 describe("cleanupLegacyRepoRecordings", () => {
 	it("removes legacy fixtures/recordings directories under suites", async () => {
 		const repoRoot = await mkdtemp(join(tmpdir(), "agent-test-legacy-"));
-		const legacyDir = join(
-			repoRoot,
-			"agent-suites/ambient-routing/fixtures/recordings",
-		);
+		const legacyDir = join(repoRoot, "agent-suites/ambient-routing/fixtures/recordings");
 		await mkdir(legacyDir, { recursive: true });
 		await writeFile(join(legacyDir, "old.json"), "{}\n", "utf8");
 

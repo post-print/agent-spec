@@ -5,7 +5,11 @@ import type { SkillContextMode } from "./skills-context.js";
 
 export type { RoutingContract } from "./routing-contract.js";
 
-export type { SkillContextMode, SkillContextOptions, SkillContextSetting } from "./skills-context.js";
+export type {
+	SkillContextMode,
+	SkillContextOptions,
+	SkillContextSetting,
+} from "./skills-context.js";
 
 /** Which entry router to inject alongside shared skills context. */
 export type ContextProfile = "shared" | "cursor" | "claude";

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
 	DEFAULT_LIVE_TIMEOUT_MS,
-	liveSubprocessTimeoutMs,
 	LIVE_SUBPROCESS_SETUP_MAX_MS,
 	LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
+	liveSubprocessTimeoutMs,
 	resolveLiveTimeoutMs,
 } from "../live-timeout.js";
 
@@ -51,9 +51,7 @@ describe("resolveLiveTimeoutMs", () => {
 
 describe("liveSubprocessTimeoutMs", () => {
 	it("adds a parent kill buffer beyond the harness deadline", () => {
-		expect(liveSubprocessTimeoutMs(600_000)).toBe(
-			600_000 + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
-		);
+		expect(liveSubprocessTimeoutMs(600_000)).toBe(600_000 + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS);
 	});
 });
 

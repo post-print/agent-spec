@@ -17,9 +17,10 @@
 	"scripts": {
 		"build": "bunx tsc --build",
 		"typecheck": "bunx tsc --build",
-		"lint": "bunx biome check .",
-		"lint:fix": "bunx biome check . --write",
+		"lint": "biome check .",
+		"lint:fix": "biome check . --write",
 		"test": "vitest run",
+		"test:coverage": "vitest run --coverage",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {
@@ -28,6 +29,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "^26.1.1",
+		"@vitest/coverage-v8": "^4.0.17",
 		"typescript": "~7.0.2",
 		"vitest": "^4.0.17"
 	},

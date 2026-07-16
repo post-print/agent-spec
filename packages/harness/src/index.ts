@@ -2,31 +2,13 @@ import { createAdapter } from "./adapters/index.js";
 import { type LoadContextOptions, loadContext } from "./context.js";
 import type { AgentSession, ContextProfile, RunAgentOptions } from "./types.js";
 
-export type { SdkMessage } from "./capture.js";
-export type {
-	AgentHost,
-	AgentMessage,
-	AgentSession,
-	AgentToolCall,
-	AgentTrace,
-	ContextProfile,
-	HostAdapter,
-	LoadedContext,
-	RoutingContract,
-	RunAgentOptions,
-	RunStatus,
-	SkillContextMode,
-	SkillContextOptions,
-	SkillContextSetting,
-} from "./types.js";
-
-export { loadContext, type LoadContextOptions };
 export {
 	ClaudeAdapter,
 	CursorAdapter,
 	createAdapter,
 	ReplayAdapter,
 } from "./adapters/index.js";
+export type { SdkMessage } from "./capture.js";
 export {
 	assistantPrefixBeforeTools,
 	buildTraceFromSdkMessages,
@@ -55,14 +37,6 @@ export {
 	textBlocksFromSdkMessage,
 } from "./cursor-run.js";
 export {
-	AgentRunTimeoutError,
-	isUserInputTool,
-	traceHasUserInputTool,
-	UserInputRequiredError,
-	withRunTimeout,
-	type RunTimeoutOptions,
-} from "./run-guards.js";
-export {
 	type JudgeCriterion,
 	type JudgeTraceOptions,
 	type JudgeTraceResult,
@@ -73,8 +47,38 @@ export {
 	parseJudgeLegacyResponse,
 	parseJudgeResponse,
 } from "./judge.js";
+export { type Logger, type LogLevel, logger } from "./logger.js";
+export { getHealthStatus, HEALTH_CHECK_PATH, type HealthStatus } from "./main.js";
 export { buildRoutingContract } from "./routing-contract.js";
-export { loadSkillContext, normalizeSkillContext, type SkillCatalogEntry } from "./skills-context.js";
+export {
+	AgentRunTimeoutError,
+	isUserInputTool,
+	type RunTimeoutOptions,
+	traceHasUserInputTool,
+	UserInputRequiredError,
+	withRunTimeout,
+} from "./run-guards.js";
+export {
+	loadSkillContext,
+	normalizeSkillContext,
+	type SkillCatalogEntry,
+} from "./skills-context.js";
+export type {
+	AgentHost,
+	AgentMessage,
+	AgentSession,
+	AgentToolCall,
+	AgentTrace,
+	ContextProfile,
+	HostAdapter,
+	LoadedContext,
+	RoutingContract,
+	RunAgentOptions,
+	RunStatus,
+	SkillContextMode,
+	SkillContextOptions,
+	SkillContextSetting,
+} from "./types.js";
 export {
 	captureWorkingTreeStatus,
 	findWorkingTreeLeak,
@@ -86,6 +90,7 @@ export {
 	SCENARIO_WORKTREE_DIR_PREFIX,
 	type ScenarioWorktree,
 } from "./worktree.js";
+export { type LoadContextOptions, loadContext };
 
 export interface RunAgentInput extends Omit<RunAgentOptions, "context"> {
 	context?: RunAgentOptions["context"];

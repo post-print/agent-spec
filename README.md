@@ -2,7 +2,7 @@
 
 **Source of truth for** package overview.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-16 -->
 
 Executable specs for coding-agent behavior.
 
@@ -26,17 +26,31 @@ npx agent-test --suites-dir agent-suites --live   # CURSOR_API_KEY required
 
 ## Develop
 
-Local builds still use Bun:
+Local builds still use Bun. Copy `.env.example` when you need live/dogfood env vars (export them; the CLI does not auto-load `.env`):
 
 ```bash
 bun install
 bun run build
-bun run test
+bun run check
 ```
+
+Or `bun run dev` for lint + typecheck + test. In-repo CLI smoke (after build):
+
+```bash
+node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
+node packages/test/dist/cli.js --doctor
+```
+
+## Debug / troubleshoot
+
+- Unit tests that call `git init` fail under the default Cursor sandbox — re-run with unrestricted (`all`) permissions.
+- `bun install` may warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox; install still succeeds.
+- Live `--live` runs need `CURSOR_API_KEY` exported (see `.env.example`). Missing suites directory (default `agent-suites/`) errors with ENOENT in this monorepo; use `packages/test/fixtures` for local smoke.
+- Prefer CI publish (provenance) over manual `npm publish`; see Publish below.
 
 ## Publish
 
-Merging to `main` (or `workflow_dispatch` on `.github/workflows/publish.yml`) publishes a patch by default. Manual publish:
+Merging to `main` (or `workflow_dispatch` on `.github/workflows/publish.yml`) publishes a patch by default with npm provenance. Manual publish (no provenance / no version bump automation):
 
 ```bash
 bun run build

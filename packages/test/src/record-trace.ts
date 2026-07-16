@@ -64,9 +64,7 @@ export async function writeAgentStartMarker(path: string): Promise<void> {
 }
 
 /** Parent reads agent-start epoch ms from staging; undefined when absent or invalid. */
-export async function readAgentStartMarker(
-	path: string,
-): Promise<number | undefined> {
+export async function readAgentStartMarker(path: string): Promise<number | undefined> {
 	try {
 		const raw = (await readFile(path, "utf8")).trim();
 		const parsed = Number(raw);
@@ -134,11 +132,7 @@ export function resolveRecordingPath(
 	}
 
 	return {
-		path: getStagingTracePath(
-			options.stagingSessionId,
-			suiteName,
-			scenarioName,
-		),
+		path: getStagingTracePath(options.stagingSessionId, suiteName, scenarioName),
 		kind: "staging",
 	};
 }

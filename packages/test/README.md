@@ -2,7 +2,7 @@
 
 **Source of truth for** agent-test package.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-16 -->
 
 Jest-shaped agent scenario runner built on `@post-print/agent-harness`.
 
@@ -12,19 +12,42 @@ Works under **Node >= 22** (the published `agent-test` bin):
 
 ```bash
 npx agent-test --suites-dir agent-suites
-npx agent-test --suite ambient-routing
-npx agent-test --live --suite ambient-routing   # CURSOR_API_KEY required
+npx agent-test --suites-dir agent-suites --suite ambient-routing
+npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # CURSOR_API_KEY required
+npx agent-test --doctor
 ```
 
 Bun is fine for local package development (`bun install` / `bun run build` in this monorepo), but consumers do not need Bun to run suites.
 
-Default suites root: `agent-suites/`.
+Default suites root: `agent-suites/` (must exist, or pass `--suites-dir`). In this monorepo (no consumer suites), smoke the built CLI against fixtures:
 
-Live output always uses ANSI color (including under Cursor agent shells that set `NO_COLOR`). `AGENT_TEST_VERBOSE=1` shows extra tips (OOM isolation).
+```bash
+node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
+```
+
+Live output always uses ANSI color (including under Cursor agent shells that set `NO_COLOR`).
+
+## Environment variables
+
+See repo-root `.env.example`. Common knobs:
+
+| Variable                                    | Purpose                                          |
+| ------------------------------------------- | ------------------------------------------------ |
+| `CURSOR_API_KEY`                            | Required for `--live` and judge classifiers      |
+| `AGENT_TEST_VERBOSE`                        | Extra tips (e.g. OOM isolation) when `1`         |
+| `AGENT_TEST_VERBOSE_PATHS`                  | Print full paths when `1`                        |
+| `AGENT_TEST_QUIET`                          | Suppress progress when `1`                       |
+| `AGENT_TEST_TIMEOUT_MS`                     | Live hard timeout (default 600000; `0` disables) |
+| `AGENT_TEST_ALLOW_IN_PLACE`                 | Allow `--no-worktree` live runs when `1`         |
+| `AGENT_TEST_NO_WORKTREE`                    | Disable worktree isolation when `1`/`true`       |
+| `AGENT_TEST_NO_ISOLATE`                     | Disable isolated subprocesses when `1`           |
+| `AGENT_TEST_SCENARIO_SETTLE_MS`             | Settle delay between live scenarios              |
+| `CURSOR_AGENT_MODEL` / `CURSOR_JUDGE_MODEL` | Optional model overrides                         |
+| `CURSOR_JUDGE_TEMPERATURE`                  | Optional judge temperature                       |
 
 ## Live dogfood
 
-Live runs need `CURSOR_API_KEY` and a suites directory. Preflight fails when `--suites-dir` is missing.
+Live runs need `CURSOR_API_KEY` and a suites directory that exists. Preflight fails when the resolved suites directory is missing (default `agent-suites/` if `--suites-dir` is omitted).
 
 Passing live runs write staging traces under `$TMPDIR/agent-spec/sessions/<pid>-<timestamp>/` (removed on exit unless `--keep-recordings`). Use `--record-fixtures` to overwrite each scenario's committed `replayTrace` path. `--no-worktree` requires `AGENT_TEST_ALLOW_IN_PLACE=1`.
 

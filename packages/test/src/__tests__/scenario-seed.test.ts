@@ -75,20 +75,16 @@ describe("seedScenarioWorktree", () => {
 		const snapshot = await captureCallerHead(repoRoot);
 		try {
 			await seedScenarioWorktree(repoRoot, worktree.path, patchRel);
-			const { stdout: seedSha } = await execFileAsync(
-				"git",
-				["rev-parse", "HEAD"],
-				{ cwd: worktree.path },
-			);
+			const { stdout: seedSha } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+				cwd: worktree.path,
+			});
 			await execFileAsync("git", ["checkout", "--detach", seedSha.trim()], {
 				cwd: repoRoot,
 			});
 			await restoreCallerHeadIfSeedCommit(repoRoot, snapshot);
-			const { stdout: headRef } = await execFileAsync(
-				"git",
-				["symbolic-ref", "--short", "HEAD"],
-				{ cwd: repoRoot },
-			);
+			const { stdout: headRef } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"], {
+				cwd: repoRoot,
+			});
 			expect(headRef.trim()).toBe("main");
 		} finally {
 			await worktree.cleanup();

@@ -84,19 +84,12 @@ export const theme = {
 		return `${chalk.bold.cyan(name)}  ${chalk.dim("·")}  ${chalk.dim(host)}  ${chalk.dim("·")}  ${chalk.dim(scenarios)}`;
 	},
 
-	scenarioTitle(
-		index: number,
-		total: number,
-		name: string,
-		host: string,
-	): string {
+	scenarioTitle(index: number, total: number, name: string, host: string): string {
 		return `${chalk.bold(`[${index}/${total}]`)} ${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}`;
 	},
 
 	scenarioLabel(name: string, host?: string): string {
-		return host
-			? `${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}`
-			: chalk.bold.white(name);
+		return host ? `${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}` : chalk.bold.white(name);
 	},
 
 	phaseTree(prefix: "├─" | "└─" | "│   ", message: string): string {
@@ -150,18 +143,11 @@ export const theme = {
 		return `  ${chalk.dim("session")}  ${chalk.cyan(truncatePath(path))}`;
 	},
 
-	summary(
-		suite: string,
-		passed: number,
-		failed: number,
-		skipped: number,
-	): string {
+	summary(suite: string, passed: number, failed: number, skipped: number): string {
 		const parts = [
 			`${chalk.bold.cyan(suite)}:`,
 			chalk.green(`${passed} passed`),
-			failed > 0
-				? chalk.red(`${failed} failed`)
-				: chalk.dim(`${failed} failed`),
+			failed > 0 ? chalk.red(`${failed} failed`) : chalk.dim(`${failed} failed`),
 			chalk.dim(`${skipped} skipped`),
 		];
 		return parts.join(" ");
@@ -193,16 +179,12 @@ export const theme = {
 
 	scenarioVerdict(options: ScenarioVerdictOptions): string[] {
 		const mark = options.passed ? chalk.bold.green("✓") : chalk.bold.red("✗");
-		const status = options.passed
-			? chalk.bold.green("PASS")
-			: chalk.bold.red("FAIL");
+		const status = options.passed ? chalk.bold.green("PASS") : chalk.bold.red("FAIL");
 		const counter =
 			options.index !== undefined && options.total !== undefined
 				? `[${options.index}/${options.total}] `
 				: "";
-		const duration = chalk.yellow(
-			`(${formatDurationLabel(options.durationMs)})`,
-		);
+		const duration = chalk.yellow(`(${formatDurationLabel(options.durationMs)})`);
 		const lines: string[] = [
 			`  ${chalk.dim("│")}`,
 			`  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}`,
@@ -210,18 +192,14 @@ export const theme = {
 
 		for (const verdict of options.judgeVerdicts ?? []) {
 			const color = verdict.pass ? chalk.green : chalk.red;
-			lines.push(
-				`  ${chalk.dim("│")}    ${chalk.dim("judge")}  ${chalk.dim(verdict.question)}`,
-			);
+			lines.push(`  ${chalk.dim("│")}    ${chalk.dim("judge")}  ${chalk.dim(verdict.question)}`);
 			for (const wrapped of wrapText(verdict.rationale)) {
 				lines.push(`  ${chalk.dim("│")}           ${color(wrapped)}`);
 			}
 		}
 
 		for (const failure of options.rubricFailures ?? []) {
-			lines.push(
-				`  ${chalk.dim("│")}    ${chalk.yellow("rubric")}  ${chalk.dim(failure.matcher)}`,
-			);
+			lines.push(`  ${chalk.dim("│")}    ${chalk.yellow("rubric")}  ${chalk.dim(failure.matcher)}`);
 			for (const wrapped of wrapText(failure.message)) {
 				lines.push(`  ${chalk.dim("│")}           ${chalk.yellow(wrapped)}`);
 			}
