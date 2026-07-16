@@ -51,6 +51,21 @@ describe("parseJudgeJsonResponse", () => {
 		expect(parsed.valid).toBe(true);
 		expect(parsed.pass).toBe(true);
 	});
+
+	it("does not salvage YES/NO from invalid JSON objects", () => {
+		const parsed = parseJudgeResponse(
+			'{"verdict":"maybe","evidence":[],"rationale":"YES clearly"}',
+		);
+		expect(parsed.valid).toBe(false);
+		expect(parsed.pass).toBe(false);
+		expect(parsed.rationale).toMatch(/invalid JSON/i);
+	});
+
+	it("does not salvage YES/NO from JSON arrays", () => {
+		const parsed = parseJudgeResponse('["yes"]');
+		expect(parsed.valid).toBe(false);
+		expect(parsed.pass).toBe(false);
+	});
 });
 
 describe("createScenarioWorktree", () => {

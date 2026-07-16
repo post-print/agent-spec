@@ -192,4 +192,95 @@ describe("debug-bundle", () => {
 			delete process.env.UNRELATED_SECRET;
 		}
 	});
+
+	it("preserves existing transcript and trace when rewriting without a trace", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-debug-preserve-"));
+		dirs.push(dir);
+
+		const scenario: AgentScenario = {
+			name: "preserve",
+			prompt: "Keep me",
+			rubric: { must: ["ok"] },
+		};
+		const childResult: ScenarioResult = {
+			suite: "smoke",
+			scenario: scenario.name,
+			passed: false,
+			durationMs: 1,
+			failures: [{ matcher: "mustInclude", message: "miss", category: "rubric_miss" }],
+			trace: {
+				messages: [{ role: "assistant", content: "child evidence" }],
+				toolCalls: [],
+				shellCommands: [],
+				artifacts: {},
+				assistantTextBeforeTools: "Thinking before tools…",
+			},
+		};
+
+		await writeDebugBundle({
+			dir,
+			result: childResult,
+			trace: childResult.trace,
+			scenario,
+			environment: collectDebugEnvironment({
+				suite: "smoke",
+				scenario: scenario.name,
+				packageVersion: "0.0.0-test",
+			}),
+			rerun: {
+				cliPath: "/cli.js",
+				cwd: "/repo",
+				suitesDir: "fixtures",
+				suite: "smoke",
+				scenario: scenario.name,
+				live: true,
+			},
+		});
+
+		const parentResult: ScenarioResult = {
+			...childResult,
+			failures: [
+				{
+					matcher: "agent_runtime",
+					message: "child exited 1",
+					category: "agent_runtime",
+				},
+			],
+			trace: undefined,
+		};
+
+		await writeDebugBundle({
+			dir,
+			result: parentResult,
+			trace: undefined,
+			scenario,
+			environment: collectDebugEnvironment({
+				suite: "smoke",
+				scenario: scenario.name,
+				packageVersion: "0.0.0-test",
+			}),
+			rerun: {
+				cliPath: "/cli.js",
+				cwd: "/repo",
+				suitesDir: "fixtures",
+				suite: "smoke",
+				scenario: scenario.name,
+				live: true,
+			},
+		});
+
+		const transcript = await readFile(join(dir, "transcript.md"), "utf8");
+		expect(transcript).toContain("child evidence");
+		expect(transcript).not.toMatch(/No trace available/i);
+
+		const trace = JSON.parse(await readFile(join(dir, "trace.json"), "utf8")) as {
+			assistantTextBeforeTools?: string;
+		};
+		expect(trace.assistantTextBeforeTools).toBe("Thinking before tools…");
+
+		const failures = JSON.parse(await readFile(join(dir, "failures.json"), "utf8")) as Array<{
+			category: string;
+		}>;
+		expect(failures[0]?.category).toBe("agent_runtime");
+	});
 });

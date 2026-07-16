@@ -1,4 +1,4 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { AgentTrace } from "@post-print/agent-harness";
@@ -282,19 +282,19 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 	const rerunPath = join(dir, "rerun.sh");
 
 	await writeFile(failuresPath, `${JSON.stringify(result.failures, null, 2)}\n`, "utf8");
-	await writeFile(
-		transcriptPath,
-		formatTranscriptMarkdown({
-			scenario,
-			trace,
-			failures: result.failures,
-			judgeVerdicts: result.judgeVerdicts,
-		}),
-		"utf8",
-	);
 	await writeFile(environmentPath, `${JSON.stringify(environment, null, 2)}\n`, "utf8");
 
 	if (trace) {
+		await writeFile(
+			transcriptPath,
+			formatTranscriptMarkdown({
+				scenario,
+				trace,
+				failures: result.failures,
+				judgeVerdicts: result.judgeVerdicts,
+			}),
+			"utf8",
+		);
 		const payload = {
 			messages: trace.messages,
 			toolCalls: trace.toolCalls,
@@ -308,6 +308,27 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 			judgeVerdicts: trace.judgeVerdicts,
 		};
 		await writeFile(join(dir, "trace.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+	} else {
+		// Parent rewrite after a failed staging load must not clobber a richer child bundle.
+		let transcriptExists = false;
+		try {
+			await access(transcriptPath);
+			transcriptExists = true;
+		} catch {
+			transcriptExists = false;
+		}
+		if (!transcriptExists) {
+			await writeFile(
+				transcriptPath,
+				formatTranscriptMarkdown({
+					scenario,
+					trace,
+					failures: result.failures,
+					judgeVerdicts: result.judgeVerdicts,
+				}),
+				"utf8",
+			);
+		}
 	}
 
 	if (result.judgeVerdicts?.length) {

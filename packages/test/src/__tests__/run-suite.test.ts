@@ -225,4 +225,39 @@ describe("runSuite isolateLive", () => {
 		expect(result?.passed).toBe(true);
 		expect(result?.failures).toEqual([]);
 	});
+
+	it("remounts staging root from debugDir for the duration of the suite", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-debug-dir-"));
+		const debugDir = await mkdtemp(join(tmpdir(), "agent-test-debug-root-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "debug-dir-remount",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "a", prompt: "p", rubric: {} },
+					{ name: "b", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		const setSpy = vi.spyOn(recordTrace, "setLiveStagingRootOverride");
+		vi.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+
+		await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-debug-dir",
+			debugDir,
+			judge: false,
+		});
+
+		expect(setSpy).toHaveBeenCalledWith(debugDir);
+		expect(setSpy).toHaveBeenLastCalledWith(undefined);
+		expect(recordTrace.getLiveStagingRootOverride()).toBeUndefined();
+	});
 });

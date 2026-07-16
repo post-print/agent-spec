@@ -66,8 +66,17 @@ function normalizeVerdict(value: unknown): "yes" | "no" | undefined {
 	return undefined;
 }
 
-/** Parse structured judge JSON (`verdict`, `evidence`, `rationale`). */
-export function parseJudgeJsonResponse(text: string): ParsedJudgeJson {
+type JudgeJsonParseAttempt = {
+	result: ParsedJudgeJson;
+	/** True when a JSON object/array was parsed (even if the verdict contract failed). */
+	structured: boolean;
+};
+
+/**
+ * Try structured judge JSON. `structured` is set when any candidate parsed as an
+ * object/array — callers must not fall back to YES/NO prose salvage in that case.
+ */
+function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 	const trimmed = text.trim();
 	const candidates = [trimmed];
 
@@ -81,18 +90,30 @@ export function parseJudgeJsonResponse(text: string): ParsedJudgeJson {
 		candidates.push(objectMatch[0]);
 	}
 
+	let structured = false;
 	for (const candidate of candidates) {
 		try {
-			const parsed = JSON.parse(candidate) as Record<string, unknown>;
-			const verdict = normalizeVerdict(parsed.verdict);
+			const parsed: unknown = JSON.parse(candidate);
+			if (parsed === null || typeof parsed !== "object") {
+				continue;
+			}
+			structured = true;
+			if (Array.isArray(parsed)) {
+				continue;
+			}
+			const record = parsed as Record<string, unknown>;
+			const verdict = normalizeVerdict(record.verdict);
 			if (verdict !== undefined) {
 				return {
-					pass: verdict === "yes",
-					rationale: String(parsed.rationale ?? "").trim() || "no rationale",
-					evidence: Array.isArray(parsed.evidence)
-						? parsed.evidence.map((item) => String(item)).filter(Boolean)
-						: [],
-					valid: true,
+					result: {
+						pass: verdict === "yes",
+						rationale: String(record.rationale ?? "").trim() || "no rationale",
+						evidence: Array.isArray(record.evidence)
+							? record.evidence.map((item) => String(item)).filter(Boolean)
+							: [],
+						valid: true,
+					},
+					structured: true,
 				};
 			}
 		} catch {
@@ -101,11 +122,19 @@ export function parseJudgeJsonResponse(text: string): ParsedJudgeJson {
 	}
 
 	return {
-		pass: false,
-		rationale: "judge returned invalid JSON (expected { verdict, evidence, rationale })",
-		evidence: [],
-		valid: false,
+		result: {
+			pass: false,
+			rationale: "judge returned invalid JSON (expected { verdict, evidence, rationale })",
+			evidence: [],
+			valid: false,
+		},
+		structured,
 	};
+}
+
+/** Parse structured judge JSON (`verdict`, `evidence`, `rationale`). */
+export function parseJudgeJsonResponse(text: string): ParsedJudgeJson {
+	return tryParseJudgeJson(text).result;
 }
 
 const JUDGE_MARKDOWN_TRIM_PATTERN = /^\*+\s*|\s*\*+$/g;
@@ -184,11 +213,15 @@ export function parseJudgeLegacyResponse(text: string): ParsedJudgeJson {
 	};
 }
 
-/** Parse structured JSON first, then legacy YES/NO prose. */
+/**
+ * Parse structured JSON first, then legacy YES/NO prose.
+ * Once a JSON object/array is found, never salvage YES/NO from the body —
+ * invalid contracts are infra failures, not rubric answers.
+ */
 export function parseJudgeResponse(text: string): ParsedJudgeJson {
-	const json = parseJudgeJsonResponse(text);
-	if (json.valid) {
-		return json;
+	const { result, structured } = tryParseJudgeJson(text);
+	if (result.valid || structured) {
+		return result;
 	}
 	return parseJudgeLegacyResponse(text);
 }

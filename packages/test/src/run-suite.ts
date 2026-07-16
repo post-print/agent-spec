@@ -34,6 +34,7 @@ import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
 import { formatDuration, logPhase, logProgress, logVerdict, withHeartbeat } from "./progress.js";
 import {
+	getLiveStagingRootOverride,
 	getLiveStagingSessionRoot,
 	getStagingAgentStartPath,
 	getStagingResultPath,
@@ -42,6 +43,7 @@ import {
 	loadStagingTrace,
 	recordTrace,
 	resolveRecordingPath,
+	setLiveStagingRootOverride,
 	writeAgentStartMarker,
 	writeStagingResult,
 } from "./record-trace.js";
@@ -357,6 +359,21 @@ async function maybeWriteDebugBundle(options: {
 }
 
 export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport> {
+	const previousStagingRoot = getLiveStagingRootOverride();
+	if (options.debugDir !== undefined) {
+		setLiveStagingRootOverride(options.debugDir);
+	}
+
+	try {
+		return await runSuiteBody(options);
+	} finally {
+		if (options.debugDir !== undefined) {
+			setLiveStagingRootOverride(previousStagingRoot);
+		}
+	}
+}
+
+async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const suite = await loadSuiteFile(options.suitePath);
 	const defaultHost = options.host ?? suite.defaults?.host ?? "replay";
 	const results: ScenarioResult[] = [];

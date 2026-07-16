@@ -169,6 +169,7 @@ export async function recordTrace(outputPath: string, trace: AgentTrace): Promis
 		artifacts: enriched.artifacts,
 		routing: enriched.routing,
 		skillsInvoked: enriched.skillsInvoked,
+		assistantTextBeforeTools: enriched.assistantTextBeforeTools,
 		judgeVerdicts: enriched.judgeVerdicts,
 	};
 
