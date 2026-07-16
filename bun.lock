@@ -7,7 +7,7 @@
         "@opentelemetry/api": "^1.9.1",
       },
       "devDependencies": {
-        "@biomejs/biome": "^2.2.0",
+        "@biomejs/biome": "2.5.4",
         "@csark0812/skeleton": "^1.5.3",
         "@types/node": "^26.1.1",
         "@vitest/coverage-v8": "^4.0.17",
@@ -18,7 +18,7 @@
     },
     "packages/harness": {
       "name": "@post-print/agent-harness",
-      "version": "0.1.11",
+      "version": "0.1.12",
       "devDependencies": {
         "@cursor/sdk": "^1.0.23",
         "@types/node": "^26.1.1",
@@ -35,7 +35,7 @@
     },
     "packages/test": {
       "name": "@post-print/agent-test",
-      "version": "0.1.11",
+      "version": "0.1.12",
       "bin": {
         "agent-test": "./dist/cli.js",
       },

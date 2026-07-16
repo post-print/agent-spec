@@ -16,9 +16,10 @@
 	"scripts": {
 		"build": "bunx tsc --build",
 		"typecheck": "bunx tsc --build",
-		"lint": "biome check .",
-		"lint:fix": "biome check . --write",
+		"lint": "bunx biome check .",
+		"lint:fix": "bunx biome check . --write",
 		"test": "vitest run --passWithNoTests",
+		"test:sandbox-safe": "vitest run --passWithNoTests --exclude 'src/**/{worktree-judge,harness}.test.ts'",
 		"test:coverage": "vitest run --coverage --passWithNoTests",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},

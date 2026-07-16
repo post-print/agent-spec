@@ -26,26 +26,28 @@ npx agent-test --suites-dir agent-suites --live   # CURSOR_API_KEY required
 
 ## Develop
 
-Local builds still use Bun. Copy `.env.example` when you need live/dogfood env vars (export them; the CLI does not auto-load `.env`):
+Local builds still use Bun. Copy `.env.example` when you need live/dogfood env vars (**export** them; the CLI does not auto-load `.env`):
 
 ```bash
 bun install
 bun run build
-bun run check
+bun run test:sandbox-safe
 ```
 
-Or `bun run dev` for lint + typecheck + test. In-repo CLI smoke (after build):
+Full gate: `bun run check` (needs unrestricted Cursor sandbox / `all` — some tests run `git init`). Or `bun run dev` for lint + typecheck + all tests. In-repo CLI smoke (after build):
 
 ```bash
 node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
 node packages/test/dist/cli.js --doctor
 ```
 
+Scoped checks: `bunx vitest run <file>` and `bunx biome check <path>` (use `bunx biome`, not a global `biome`).
+
 ## Debug / troubleshoot
 
-- Unit tests that call `git init` fail under the default Cursor sandbox — re-run with unrestricted (`all`) permissions.
+- Prefer `bun run test:sandbox-safe` under the default Cursor sandbox (skips git-init and `.cursor` tmp fixtures). Full `bun run test` / `bun run check` need unrestricted (`all`) permissions.
 - `bun install` may warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox; install still succeeds.
-- Live `--live` runs need `CURSOR_API_KEY` exported (see `.env.example`). Missing suites directory (default `agent-suites/`) errors with ENOENT in this monorepo; use `packages/test/fixtures` for local smoke.
+- Live `--live` runs need `CURSOR_API_KEY` **exported** (see `.env.example`; CLI does not load `.env`). Missing suites directory (default `agent-suites/`) errors with ENOENT in this monorepo; use `packages/test/fixtures` for local smoke.
 - Prefer CI publish (provenance) over manual `npm publish`; see Publish below.
 
 ## Publish

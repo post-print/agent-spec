@@ -6,24 +6,31 @@
 
 Jest-shaped agent scenario runner built on `@post-print/agent-harness`.
 
-## CLI
+## In-repo smoke (this monorepo)
+
+After `bun run build` at the repo root:
+
+```bash
+node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
+node packages/test/dist/cli.js --doctor
+```
+
+There is no top-level `agent-suites/` here — consumer examples below assume a consuming repo. Live `--live` needs an **exported** `CURSOR_API_KEY` (copy repo-root `.env.example`; the CLI does not auto-load `.env`).
+
+## CLI (consumers, Node >= 22)
 
 Works under **Node >= 22** (the published `agent-test` bin):
 
 ```bash
 npx agent-test --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --suite ambient-routing
-npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # CURSOR_API_KEY required
+npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # exported CURSOR_API_KEY required
 npx agent-test --doctor
 ```
 
 Bun is fine for local package development (`bun install` / `bun run build` in this monorepo), but consumers do not need Bun to run suites.
 
-Default suites root: `agent-suites/` (must exist, or pass `--suites-dir`). In this monorepo (no consumer suites), smoke the built CLI against fixtures:
-
-```bash
-node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
-```
+Default suites root: `agent-suites/` (must exist, or pass `--suites-dir`).
 
 Live output always uses ANSI color (including under Cursor agent shells that set `NO_COLOR`).
 
