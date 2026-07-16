@@ -25,10 +25,7 @@ function isScenario(value: unknown): value is AgentScenario {
 	) {
 		return false;
 	}
-	if (
-		scenario.mcpServers !== undefined &&
-		!isMcpServersMap(scenario.mcpServers)
-	) {
+	if (scenario.mcpServers !== undefined && !isMcpServersMap(scenario.mcpServers)) {
 		return false;
 	}
 	return true;
@@ -42,10 +39,7 @@ function isSuiteFile(value: unknown): value is AgentSuiteFile {
 	if (typeof suite.name !== "string" || !Array.isArray(suite.scenarios)) {
 		return false;
 	}
-	if (
-		suite.defaults?.mcpServers !== undefined &&
-		!isMcpServersMap(suite.defaults.mcpServers)
-	) {
+	if (suite.defaults?.mcpServers !== undefined && !isMcpServersMap(suite.defaults.mcpServers)) {
 		return false;
 	}
 	return suite.scenarios.every(isScenario);

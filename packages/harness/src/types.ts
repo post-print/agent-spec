@@ -19,6 +19,8 @@ export type ContextProfile = "shared" | "cursor" | "claude";
 export interface AgentMessage {
 	role: "user" | "assistant" | "system" | "tool";
 	content: string;
+	/** Monotonic emission order shared with toolCalls, for chronological interleaving. Absent on legacy/replay traces. */
+	seq?: number;
 }
 
 export interface AgentToolCall {
@@ -26,6 +28,8 @@ export interface AgentToolCall {
 	args?: Record<string, unknown>;
 	/** Tool output when the SDK stream includes it (including MCP tools). */
 	result?: string;
+	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy/replay traces. */
+	seq?: number;
 }
 
 export interface AgentTrace {
@@ -74,6 +78,12 @@ export interface RunAgentOptions {
 	replayTracePath?: string;
 	/** Inline MCP servers for live Cursor runs (ignored by replay). */
 	mcpServers?: Record<string, McpServerConfig>;
+	/** Hard cap on live Cursor stream + wait (replay ignores). */
+	timeoutMs?: number;
+	/** Fail fast when the agent invokes AskQuestion-style tools (default true for live). */
+	failOnUserInput?: boolean;
+	/** Fires when the live harness deadline clock starts (after pre-stream SDK setup). */
+	onDeadlineStart?: () => void | Promise<void>;
 	env?: Record<string, string>;
 }
 

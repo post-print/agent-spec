@@ -14,10 +14,7 @@ export interface RubricAssertOptions {
 	skillsMode?: SkillContextMode;
 }
 
-const REVIEW_DEPTH_PATTERNS: Record<
-	NonNullable<ScenarioRubric["reviewDepth"]>,
-	RegExp
-> = {
+const REVIEW_DEPTH_PATTERNS: Record<NonNullable<ScenarioRubric["reviewDepth"]>, RegExp> = {
 	quick: /\*\*Depth:\*\*\s*quick\b|\bReview\s·\s*[^·]+\s·\s*Quick\b/i,
 	standard: /\*\*Depth:\*\*\s*standard\b|\bReview\s·\s*[^·]+\s·\s*Standard\b/i,
 	thorough: /\*\*Depth:\*\*\s*thorough\b|\bReview\s·\s*[^·]+\s·\s*Thorough\b/i,
@@ -62,9 +59,7 @@ export class TraceAssertion {
 	}
 
 	private messageText(): string {
-		return this.trace.messages
-			.map((m: { content: string }) => m.content)
-			.join("");
+		return this.trace.messages.map((m: { content: string }) => m.content).join("");
 	}
 
 	private assertionHaystack(): string {
@@ -101,8 +96,7 @@ export class TraceAssertion {
 			return this;
 		}
 		const haystack = this.assertionHaystack();
-		const actual =
-			this.trace.routing?.tier ?? inferRoutingFromText(haystack)?.tier;
+		const actual = this.trace.routing?.tier ?? inferRoutingFromText(haystack)?.tier;
 		if (actual !== tier) {
 			this.failures.push({
 				matcher: "toHaveHandsOnTier",
@@ -127,9 +121,7 @@ export class TraceAssertion {
 	}
 
 	toHaveRunCommand(fragment: string): this {
-		const hit = this.trace.shellCommands.some((cmd: string) =>
-			cmd.includes(fragment),
-		);
+		const hit = this.trace.shellCommands.some((cmd: string) => cmd.includes(fragment));
 		if (!hit) {
 			this.failures.push({
 				matcher: "toHaveRunCommand",
@@ -227,12 +219,8 @@ export class TraceAssertion {
 		}
 		const haystack = this.patternHaystack();
 		if (
-			haystack
-				.toLowerCase()
-				.includes(`.claude/skills/${normalized}/skill.md`) ||
-			haystack
-				.toLowerCase()
-				.includes(`.claude/skills/${normalized}/references/`)
+			haystack.toLowerCase().includes(`.claude/skills/${normalized}/skill.md`) ||
+			haystack.toLowerCase().includes(`.claude/skills/${normalized}/references/`)
 		) {
 			return true;
 		}
@@ -300,10 +288,7 @@ function containsForbiddenPhrase(haystack: string, phrase: string): boolean {
 	if (lowerPhrase.includes(" ")) {
 		return lowerHaystack.includes(lowerPhrase);
 	}
-	const pattern = new RegExp(
-		`\\b${lowerPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-		"i",
-	);
+	const pattern = new RegExp(`\\b${lowerPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 	return pattern.test(haystack);
 }
 
@@ -318,10 +303,7 @@ function parseToolSpec(spec: string): { name: string; argFragment?: string } {
 	};
 }
 
-function toolSpecMatches(
-	toolCalls: AgentTrace["toolCalls"],
-	spec: string,
-): boolean {
+function toolSpecMatches(toolCalls: AgentTrace["toolCalls"], spec: string): boolean {
 	const { name, argFragment } = parseToolSpec(spec);
 	const nameNeedle = name.toLowerCase();
 	return toolCalls.some((call) => {
@@ -336,10 +318,7 @@ function toolSpecMatches(
 	});
 }
 
-export function expectTrace(
-	trace: AgentTrace,
-	options?: RubricAssertOptions,
-): TraceAssertion {
+export function expectTrace(trace: AgentTrace, options?: RubricAssertOptions): TraceAssertion {
 	return new TraceAssertion(trace, options);
 }
 

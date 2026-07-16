@@ -1,25 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	expandEnvPlaceholders,
-	mergeMcpServers,
-	resolveMcpServers,
-} from "../mcp.js";
+import { expandEnvPlaceholders, mergeMcpServers, resolveMcpServers } from "../mcp.js";
 
 const tokenPlaceholder = "${" + "TOKEN}";
 const missingPlaceholder = "${" + "MISSING}";
 
 describe("mcp helpers", () => {
 	it("expands env placeholders", () => {
-		expect(
-			expandEnvPlaceholders(`Bearer ${tokenPlaceholder}`, { TOKEN: "secret" }),
-		).toBe("Bearer secret");
+		expect(expandEnvPlaceholders(`Bearer ${tokenPlaceholder}`, { TOKEN: "secret" })).toBe(
+			"Bearer secret",
+		);
 	});
 
 	it("throws when env placeholder is missing", () => {
-		expect(() => expandEnvPlaceholders(missingPlaceholder, {})).toThrow(
-			/MISSING/,
-		);
+		expect(() => expandEnvPlaceholders(missingPlaceholder, {})).toThrow(/MISSING/);
 	});
 
 	it("merges suite defaults with scenario overrides by server name", () => {

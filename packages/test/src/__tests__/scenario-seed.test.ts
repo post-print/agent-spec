@@ -7,7 +7,11 @@ import { promisify } from "node:util";
 import { createScenarioWorktree } from "@post-print/agent-harness";
 import { describe, expect, it } from "vitest";
 
-import { seedScenarioWorktree } from "../scenario-seed.js";
+import {
+	captureCallerHead,
+	restoreCallerHeadIfSeedCommit,
+	seedScenarioWorktree,
+} from "../scenario-seed.js";
 
 const execFileAsync = promisify(execFile);
 const SEED_PATCH_NOT_FOUND = /seedPatch not found/;
@@ -59,6 +63,29 @@ describe("seedScenarioWorktree", () => {
 			await expect(
 				seedScenarioWorktree(repoRoot, worktree.path, "agent-suites/nope.patch"),
 			).rejects.toThrow(SEED_PATCH_NOT_FOUND);
+		} finally {
+			await worktree.cleanup();
+		}
+	});
+
+	it("restores caller branch when seed commit leaks onto main worktree", async () => {
+		const repoRoot = await initGitRepo();
+		const patchRel = "agent-suites/fixtures/example.patch";
+		const worktree = await createScenarioWorktree(repoRoot, "seed-leak");
+		const snapshot = await captureCallerHead(repoRoot);
+		try {
+			await seedScenarioWorktree(repoRoot, worktree.path, patchRel);
+			const { stdout: seedSha } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+				cwd: worktree.path,
+			});
+			await execFileAsync("git", ["checkout", "--detach", seedSha.trim()], {
+				cwd: repoRoot,
+			});
+			await restoreCallerHeadIfSeedCommit(repoRoot, snapshot);
+			const { stdout: headRef } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"], {
+				cwd: repoRoot,
+			});
+			expect(headRef.trim()).toBe("main");
 		} finally {
 			await worktree.cleanup();
 		}

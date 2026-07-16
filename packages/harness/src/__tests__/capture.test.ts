@@ -21,9 +21,7 @@ import type { AgentTrace } from "../types.js";
 
 describe("capture", () => {
 	it("extracts validate commands from prose", () => {
-		const cmds = extractShellCommands(
-			"Run bun run validate:changed apps/client",
-		);
+		const cmds = extractShellCommands("Run bun run validate:changed apps/client");
 		expect(cmds).toContain("bun run validate:changed");
 	});
 
@@ -32,8 +30,7 @@ describe("capture", () => {
 			{
 				name: "shell",
 				args: {
-					command:
-						"bun run validate:changed apps/client/src/utils/post-login-redirect.ts",
+					command: "bun run validate:changed apps/client/src/utils/post-login-redirect.ts",
 				},
 			},
 		]);
@@ -77,7 +74,7 @@ describe("capture", () => {
 		expect(finalizeTraceAccumulator(acc)).toEqual(trace);
 		expect(trace.skillsInvoked).toContain("grill");
 		expect(trace.toolCalls).toEqual([
-			{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" } },
+			{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" }, seq: 1 },
 		]);
 	});
 
@@ -101,29 +98,22 @@ describe("capture", () => {
 				type: "tool_call",
 				name: "shell",
 				args: {
-					command:
-						"bun run validate:changed apps/client/src/utils/post-login-redirect.ts",
+					command: "bun run validate:changed apps/client/src/utils/post-login-redirect.ts",
 				},
 			},
 		]);
-		expect(
-			trace.shellCommands.some((cmd) => cmd.includes("validate:changed")),
-		).toBe(true);
+		expect(trace.shellCommands.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
 	});
 
 	it("infers applied skills from transcript prose", () => {
-		expect(
-			extractSkillsAppliedFromText("Following the grill skill protocol"),
-		).toEqual(["grill"]);
-		expect(
-			extractSkillsAppliedFromText("Review · staged · Standard · foo"),
-		).toEqual(["code-review"]);
+		expect(extractSkillsAppliedFromText("Following the grill skill protocol")).toEqual(["grill"]);
+		expect(extractSkillsAppliedFromText("Review · staged · Standard · foo")).toEqual([
+			"code-review",
+		]);
 	});
 
 	it("infers review depth from synthesis header", () => {
-		expect(inferReviewDepthFromText("Review · staged · Standard · path")).toBe(
-			"standard",
-		);
+		expect(inferReviewDepthFromText("Review · staged · Standard · path")).toBe("standard");
 	});
 
 	it("extracts shell commands from tool output", () => {
@@ -143,14 +133,13 @@ describe("capture", () => {
 				},
 			},
 		]);
-		expect(
-			trace.shellCommands.some((cmd) => cmd.includes("validate:changed")),
-		).toBe(true);
+		expect(trace.shellCommands.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
 		expect(trace.toolCalls).toEqual([
 			{
 				name: "shell",
 				args: undefined,
 				result: "bun run validate:changed apps/client/src/foo.ts",
+				seq: 1,
 			},
 		]);
 	});
@@ -166,34 +155,25 @@ describe("capture", () => {
 	});
 
 	it("infers hands-on leading-word tier", () => {
-		expect(
-			inferRoutingFromText("Medium — fuzzy intent, stating branches first")
-				?.tier,
-		).toBe("medium");
+		expect(inferRoutingFromText("Medium — fuzzy intent, stating branches first")?.tier).toBe(
+			"medium",
+		);
 	});
 
 	it("infers **Routing:** Medium hands-on announce", () => {
-		expect(
-			inferRoutingFromText("**Routing:** Medium — score panel UX")?.tier,
-		).toBe("medium");
+		expect(inferRoutingFromText("**Routing:** Medium — score panel UX")?.tier).toBe("medium");
 	});
 
 	it("infers Routing: Medium without markdown bold", () => {
-		expect(
-			inferRoutingFromText("Routing: Medium — will outline branches")?.tier,
-		).toBe("medium");
+		expect(inferRoutingFromText("Routing: Medium — will outline branches")?.tier).toBe("medium");
 	});
 
 	it("infers Routing: **Low** with markdown-bold tier", () => {
-		expect(
-			inferRoutingFromText("Routing: **Low** — single-file guard fix.")?.tier,
-		).toBe("low");
+		expect(inferRoutingFromText("Routing: **Low** — single-file guard fix.")?.tier).toBe("low");
 	});
 
 	it("does not infer tier from unrelated medium prose", () => {
-		expect(
-			inferRoutingFromText("A medium-sized refactor across packages"),
-		).toBeUndefined();
+		expect(inferRoutingFromText("A medium-sized refactor across packages")).toBeUndefined();
 	});
 
 	it("infers PR routing block from assistant text", () => {
@@ -264,9 +244,7 @@ describe("capture", () => {
 
 	it("requires tier in assistant prefix before tool calls", () => {
 		const pass: AgentTrace = {
-			messages: [
-				{ role: "assistant", content: "Routing: Low — fix.\n\nReading…" },
-			],
+			messages: [{ role: "assistant", content: "Routing: Low — fix.\n\nReading…" }],
 			toolCalls: [{ name: "Read", args: { path: "foo.ts" } }],
 			shellCommands: [],
 			artifacts: {},

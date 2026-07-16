@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildLiveScenarioCommand,
+	failuresForLiveSubprocessExit,
 	liveScenarioIsolationEnabled,
 	parentScenarioCounters,
 	scenarioSettleMs,
 	subprocessFailureMessage,
+	subprocessKillDelayMs,
 } from "../live-isolation.js";
 
 describe("live-isolation", () => {
@@ -37,6 +39,7 @@ describe("live-isolation", () => {
 
 	it("maps exit 137 to OOM guidance", () => {
 		expect(subprocessFailureMessage(137)).toContain("137");
+		expect(subprocessFailureMessage(124)).toContain("timed out");
 		expect(subprocessFailureMessage(1)).toContain("exited 1");
 	});
 
@@ -57,6 +60,41 @@ describe("live-isolation", () => {
 		expect(execArgv).toContain("--disable-warning=ExperimentalWarning");
 	});
 
+	it("forwards timeout-ms to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "medium: crystallize fuzzy idea",
+			suitesDir: "agent-suites",
+			timeoutMs: 120_000,
+		});
+		expect(args).toContain("--timeout-ms");
+		expect(args).toContain("120000");
+	});
+
+	it("forwards --no-timeout to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "long-run",
+			suitesDir: "agent-suites",
+			noTimeout: true,
+		});
+		expect(args).toContain("--no-timeout");
+		expect(args).not.toContain("--timeout-ms");
+	});
+
+	it("forwards allow-user-input to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "dialogue",
+			suitesDir: "agent-suites",
+			allowUserInput: true,
+		});
+		expect(args).toContain("--allow-user-input");
+	});
+
 	it("reads parent scenario counters from env", () => {
 		const priorIndex = process.env.AGENT_TEST_SCENARIO_INDEX;
 		const priorTotal = process.env.AGENT_TEST_SCENARIO_TOTAL;
@@ -72,5 +110,39 @@ describe("live-isolation", () => {
 		if (priorTotal !== undefined) {
 			process.env.AGENT_TEST_SCENARIO_TOTAL = priorTotal;
 		}
+	});
+
+	it("arms parent kill from agent-start marker plus harness deadline", () => {
+		const agentStart = Date.now() - 5_000;
+		const delay = subprocessKillDelayMs(agentStart, 60_000);
+		expect(delay).toBeGreaterThan(54_000);
+		expect(delay).toBeLessThanOrEqual(60_000 + 30_000);
+	});
+
+	it("honors a persisted pass sidecar over late timeout exit 124", () => {
+		expect(
+			failuresForLiveSubprocessExit(124, {
+				passed: true,
+				failures: [],
+			}),
+		).toEqual([]);
+	});
+
+	it("keeps rubric failures when the sidecar already failed", () => {
+		expect(
+			failuresForLiveSubprocessExit(124, {
+				passed: false,
+				failures: [{ matcher: "toContain", message: "missing" }],
+			}),
+		).toEqual([{ matcher: "toContain", message: "missing" }]);
+	});
+
+	it("synthesizes timeout failure when sidecar is missing", () => {
+		expect(failuresForLiveSubprocessExit(124, undefined)).toEqual([
+			{
+				matcher: "liveScenario",
+				message: subprocessFailureMessage(124),
+			},
+		]);
 	});
 });

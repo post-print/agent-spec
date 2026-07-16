@@ -1,12 +1,11 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
 import { fileURLToPath } from "node:url";
 
-import {
-	type AgentHost,
-	cleanupStaleScenarioWorktrees,
-} from "@post-print/agent-harness";
+import { type AgentHost, cleanupStaleScenarioWorktrees } from "@post-print/agent-harness";
 
 import { isCliMain } from "./cli-entry.js";
+import { runDoctor } from "./doctor.js";
+import { writeHtmlReport } from "./html-report.js";
 import { assertLiveDogfoodPreflight } from "./preflight.js";
 import { logProgress } from "./progress.js";
 import {
@@ -35,6 +34,11 @@ function parseArgs(argv: string[]): {
 	judge?: boolean;
 	worktree?: boolean;
 	keepRecordings: boolean;
+	timeoutMs?: number;
+	noTimeout: boolean;
+	allowUserInput: boolean;
+	doctor: boolean;
+	htmlReport: boolean;
 } {
 	const cwd = process.cwd();
 	let suitesDir = "agent-suites";
@@ -48,6 +52,11 @@ function parseArgs(argv: string[]): {
 	let judge: boolean | undefined;
 	let worktree: boolean | undefined;
 	let keepRecordings = false;
+	let timeoutMs: number | undefined;
+	let noTimeout = false;
+	let allowUserInput = false;
+	let doctor = false;
+	let htmlReport = true;
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -76,6 +85,19 @@ function parseArgs(argv: string[]): {
 			judge = false;
 		} else if (token === "--no-worktree") {
 			worktree = false;
+		} else if (token === "--timeout-ms" && argv[i + 1]) {
+			const parsed = Number(argv[++i]);
+			if (Number.isFinite(parsed) && parsed > 0) {
+				timeoutMs = parsed;
+			}
+		} else if (token === "--no-timeout") {
+			noTimeout = true;
+		} else if (token === "--allow-user-input") {
+			allowUserInput = true;
+		} else if (token === "--doctor") {
+			doctor = true;
+		} else if (token === "--no-html-report") {
+			htmlReport = false;
 		} else if (token && !token.startsWith("-")) {
 			filter = token;
 		}
@@ -101,6 +123,11 @@ function parseArgs(argv: string[]): {
 		judge,
 		worktree,
 		keepRecordings,
+		timeoutMs: noTimeout ? 0 : timeoutMs,
+		noTimeout,
+		allowUserInput,
+		doctor,
+		htmlReport,
 	};
 }
 
@@ -123,22 +150,25 @@ async function cleanupLiveRunArtifacts(
 
 	const legacyRemoved = await cleanupLegacyRepoRecordings(cwd);
 	if (legacyRemoved.length > 0) {
-		console.log(
-			`Removed legacy in-repo recording dir(s):\n  ${legacyRemoved.join("\n  ")}`,
-		);
+		console.log(`Removed legacy in-repo recording dir(s):\n  ${legacyRemoved.join("\n  ")}`);
 	}
 }
 
 async function main(): Promise<number> {
 	const args = parseArgs(process.argv);
+	if (args.doctor) {
+		const report = runDoctor();
+		for (const message of report.messages) {
+			console.log(message);
+		}
+		return report.ok ? 0 : 1;
+	}
 	const isChild = process.env.AGENT_TEST_CHILD === "1";
 	const verbose = process.env.AGENT_TEST_VERBOSE === "1";
 	const stagingSessionId =
 		args.stagingSessionId?.trim() ||
 		process.env.AGENT_TEST_STAGING_SESSION_ID?.trim() ||
-		(args.live || (args.record && !args.recordFixtures)
-			? createLiveStagingSessionId()
-			: undefined);
+		(args.live || (args.record && !args.recordFixtures) ? createLiveStagingSessionId() : undefined);
 	const stagingSessionRoot = stagingSessionId
 		? getLiveStagingSessionRoot(stagingSessionId)
 		: undefined;
@@ -169,14 +199,12 @@ async function main(): Promise<number> {
 				return 1;
 			}
 
+			registerLiveRunHandlers();
 			if (!isChild) {
-				registerLiveRunHandlers();
 				const removed = await cleanupStaleScenarioWorktrees(args.cwd);
 				if (removed.length > 0) {
 					console.log(
-						theme.warn(
-							`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`,
-						),
+						theme.warn(`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`),
 					);
 				}
 				console.log(theme.banner("live"));
@@ -185,24 +213,18 @@ async function main(): Promise<number> {
 				}
 				if (worktreeDisabled) {
 					console.warn(
-						theme.warn(
-							"running in repo cwd — agent file edits will persist in your working tree",
-						),
+						theme.warn("running in repo cwd — agent file edits will persist in your working tree"),
 					);
 				}
 				if (process.env.AGENT_TEST_VERBOSE === "1") {
 					if (!args.keepRecordings) {
-						console.log(
-							`  ${theme.tip("traces removed on exit unless --keep-recordings")}`,
-						);
+						console.log(`  ${theme.tip("traces removed on exit unless --keep-recordings")}`);
 					}
 					console.log(
 						`  ${theme.tip("exit 137 = macOS OOM — isolated subprocesses (AGENT_TEST_NO_ISOLATE=1 to disable)")}`,
 					);
 				} else if (!args.keepRecordings) {
-					console.log(
-						`  ${theme.tip("traces removed on exit unless --keep-recordings")}`,
-					);
+					console.log(`  ${theme.tip("traces removed on exit unless --keep-recordings")}`);
 				}
 			}
 		}
@@ -210,14 +232,14 @@ async function main(): Promise<number> {
 		const reports = await runAllSuites({
 			...args,
 			stagingSessionId,
+			timeoutMs: args.timeoutMs,
+			allowUserInput: args.allowUserInput,
 		});
 
 		let exitCode = 0;
 		if (!isChild) {
 			for (const report of reports) {
-				const failed = report.results.filter(
-					(result) => !result.passed && !result.skipped,
-				);
+				const failed = report.results.filter((result) => !result.passed && !result.skipped);
 				if (failed.length > 0) {
 					exitCode = 1;
 					console.log(`\n${theme.failedScenariosHeader()}`);
@@ -225,21 +247,28 @@ async function main(): Promise<number> {
 						console.log(theme.failedScenarioName(result.scenario));
 						if (verbose) {
 							for (const failure of result.failures) {
-								console.log(
-									theme.verboseFailure(failure.matcher, failure.message),
-								);
+								console.log(theme.verboseFailure(failure.matcher, failure.message));
 							}
 						}
 					}
 				}
-				console.log(
-					theme.summary(
-						report.suite,
-						report.passed,
-						report.failed,
-						report.skipped,
-					),
-				);
+				console.log(theme.summary(report.suite, report.passed, report.failed, report.skipped));
+			}
+
+			if (args.htmlReport && reports.length > 0) {
+				try {
+					const reportPath = await writeHtmlReport(reports, {
+						host: args.host,
+						suitesDir: args.suitesDir,
+					});
+					console.log(`\n${theme.tip(`HTML report: ${reportPath}`)}`);
+				} catch (error) {
+					console.warn(
+						theme.warn(
+							`HTML report failed: ${error instanceof Error ? error.message : String(error)}`,
+						),
+					);
+				}
 			}
 		} else {
 			for (const report of reports) {
@@ -257,11 +286,7 @@ async function main(): Promise<number> {
 		return exitCode;
 	} finally {
 		if (stagingSessionId && !isChild) {
-			await cleanupLiveRunArtifacts(
-				args.cwd,
-				stagingSessionRoot,
-				args.keepRecordings,
-			);
+			await cleanupLiveRunArtifacts(args.cwd, stagingSessionRoot, args.keepRecordings);
 		}
 	}
 }

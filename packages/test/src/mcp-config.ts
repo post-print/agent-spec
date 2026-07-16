@@ -1,9 +1,7 @@
 import type { McpServerConfig } from "@post-print/agent-harness";
 
 /** Validate a suite/scenario mcpServers map (shape only; env expansion happens at run time). */
-export function isMcpServersMap(
-	value: unknown,
-): value is Record<string, McpServerConfig> {
+export function isMcpServersMap(value: unknown): value is Record<string, McpServerConfig> {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		return false;
 	}
@@ -39,11 +37,7 @@ export function isMcpServerConfig(value: unknown): value is McpServerConfig {
 		return true;
 	}
 	if (typeof config.url === "string" && config.url.length > 0) {
-		if (
-			config.type !== undefined &&
-			config.type !== "http" &&
-			config.type !== "sse"
-		) {
+		if (config.type !== undefined && config.type !== "http" && config.type !== "sse") {
 			return false;
 		}
 		if (config.headers !== undefined && !isStringRecord(config.headers)) {
@@ -58,9 +52,7 @@ export function isMcpServerConfig(value: unknown): value is McpServerConfig {
 }
 
 function isStringArray(value: unknown): value is string[] {
-	return (
-		Array.isArray(value) && value.every((item) => typeof item === "string")
-	);
+	return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -78,10 +70,7 @@ function isMcpAuth(value: unknown): boolean {
 	if (typeof auth.CLIENT_ID !== "string") {
 		return false;
 	}
-	if (
-		auth.CLIENT_SECRET !== undefined &&
-		typeof auth.CLIENT_SECRET !== "string"
-	) {
+	if (auth.CLIENT_SECRET !== undefined && typeof auth.CLIENT_SECRET !== "string") {
 		return false;
 	}
 	if (auth.scopes !== undefined && !isStringArray(auth.scopes)) {

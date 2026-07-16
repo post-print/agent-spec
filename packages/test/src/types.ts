@@ -1,5 +1,6 @@
 import type {
 	AgentHost,
+	AgentTrace,
 	ContextProfile,
 	McpServerConfig,
 	SkillContextSetting,
@@ -82,6 +83,8 @@ export interface ScenarioResult {
 	durationMs: number;
 	/** LLM judge verdicts when judge criteria were evaluated. */
 	judgeVerdicts?: JudgeVerdictResult[];
+	/** Full agent transcript when available (for HTML reports). */
+	trace?: AgentTrace;
 }
 
 export interface SuiteRunReport {

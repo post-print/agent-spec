@@ -18,31 +18,37 @@ import {
 	loadContext,
 	mergeMcpServers,
 	runAgent,
+	traceHasUserInputTool,
 } from "@post-print/agent-harness";
 
 import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
 import {
+	failuresForLiveSubprocessExit,
 	liveScenarioIsolationEnabled,
 	parentScenarioCounters,
 	spawnLiveScenario,
-	subprocessFailureMessage,
 } from "./live-isolation.js";
+import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
+import { formatDuration, logPhase, logProgress, logVerdict, withHeartbeat } from "./progress.js";
 import {
-	formatDuration,
-	logPhase,
-	logProgress,
-	logVerdict,
-	withHeartbeat,
-} from "./progress.js";
-import {
+	getStagingAgentStartPath,
+	getStagingResultPath,
 	getStagingTracePath,
+	loadStagingResult,
 	loadStagingTrace,
 	recordTrace,
 	resolveRecordingPath,
+	writeAgentStartMarker,
+	writeStagingResult,
 } from "./record-trace.js";
-import { seedScenarioWorktree } from "./scenario-seed.js";
+import {
+	type CallerHeadSnapshot,
+	captureCallerHead,
+	restoreCallerHeadIfSeedCommit,
+	seedScenarioWorktree,
+} from "./scenario-seed.js";
 import { theme } from "./theme.js";
 import type {
 	AgentScenario,
@@ -55,7 +61,25 @@ import type {
 } from "./types.js";
 
 let activeWorktreeCleanup: (() => Promise<void>) | undefined;
+let activeCallerHeadRestore: { cwd: string; snapshot: CallerHeadSnapshot } | undefined;
 let liveSignalHandlersRegistered = false;
+
+function setCallerHeadRestore(cwd: string, snapshot: CallerHeadSnapshot): void {
+	activeCallerHeadRestore = { cwd, snapshot };
+}
+
+function clearCallerHeadRestore(): void {
+	activeCallerHeadRestore = undefined;
+}
+
+async function restoreActiveCallerHead(): Promise<void> {
+	if (!activeCallerHeadRestore) {
+		return;
+	}
+	const { cwd, snapshot } = activeCallerHeadRestore;
+	await restoreCallerHeadIfSeedCommit(cwd, snapshot);
+	clearCallerHeadRestore();
+}
 
 function isChildProcess(): boolean {
 	return process.env.AGENT_TEST_CHILD === "1";
@@ -75,12 +99,22 @@ export function registerLiveRunHandlers(): void {
 
 	const interrupt = (code: number) => {
 		const cleanup = activeWorktreeCleanup;
-		if (!cleanup) {
+		const headRestore = activeCallerHeadRestore;
+		if (!cleanup && !headRestore) {
 			process.exit(code);
 			return;
 		}
-		void cleanup()
-			.catch(() => undefined)
+		void Promise.resolve()
+			.then(async () => {
+				if (cleanup) {
+					await cleanup().catch(() => undefined);
+				}
+				if (headRestore) {
+					await restoreCallerHeadIfSeedCommit(headRestore.cwd, headRestore.snapshot).catch(
+						() => undefined,
+					);
+				}
+			})
 			.finally(() => process.exit(code));
 	};
 
@@ -89,8 +123,7 @@ export function registerLiveRunHandlers(): void {
 }
 
 function releaseLiveMemory(): void {
-	const bunGc = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun
-		?.gc;
+	const bunGc = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun?.gc;
 	if (typeof bunGc === "function") {
 		bunGc(true);
 	}
@@ -115,12 +148,14 @@ export interface RunSuiteOptions {
 	keepRecordings?: boolean;
 	suitesDir?: string;
 	suiteFilter?: string;
+	/** Hard cap on live agent stream + wait (ms). */
+	timeoutMs?: number;
+	/** Allow AskQuestion-style tools in live runs (default false). */
+	allowUserInput?: boolean;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
-export function outputContractForRubric(
-	rubric: ScenarioRubric,
-): RoutingContract | undefined {
+export function outputContractForRubric(rubric: ScenarioRubric): RoutingContract | undefined {
 	if (rubric.routingBlock) {
 		return "hands-off";
 	}
@@ -130,9 +165,7 @@ export function outputContractForRubric(
 	return undefined;
 }
 
-function normalizeJudgeCriteria(
-	judge: JudgeRubricItem[] | undefined,
-): JudgeCriterion[] {
+function normalizeJudgeCriteria(judge: JudgeRubricItem[] | undefined): JudgeCriterion[] {
 	if (!judge?.length) {
 		return [];
 	}
@@ -189,16 +222,12 @@ function emitScenarioVerdict(options: {
 	);
 }
 
-export async function runSuite(
-	options: RunSuiteOptions,
-): Promise<SuiteRunReport> {
+export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const suite = await loadSuiteFile(options.suitePath);
 	const defaultHost = options.host ?? suite.defaults?.host ?? "replay";
 	const results: ScenarioResult[] = [];
 	const scenarios = options.scenarioFilter
-		? suite.scenarios.filter(
-				(scenario) => scenario.name === options.scenarioFilter,
-			)
+		? suite.scenarios.filter((scenario) => scenario.name === options.scenarioFilter)
 		: suite.scenarios;
 
 	if (options.scenarioFilter && scenarios.length === 0) {
@@ -210,15 +239,10 @@ export async function runSuite(
 	const displayTotal = parentCounters?.total ?? filteredTotal;
 	const isLiveSuite = defaultHost !== "replay";
 	const isolateLive =
-		isLiveSuite &&
-		liveScenarioIsolationEnabled() &&
-		!options.scenarioFilter &&
-		filteredTotal > 1;
+		isLiveSuite && liveScenarioIsolationEnabled() && !options.scenarioFilter && filteredTotal > 1;
 
 	if (shouldPrintSuiteChrome()) {
-		logProgress(
-			`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal)}`,
-		);
+		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal)}`);
 		if (isolateLive) {
 			logProgress(`  ${theme.isolationNote()}`);
 		}
@@ -234,6 +258,20 @@ export async function runSuite(
 		const scenarioTotal = displayTotal;
 
 		if (isolateLive) {
+			if (scenario.skip) {
+				const skipLabel = `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`;
+				logProgress(theme.skipped(skipLabel));
+				results.push({
+					suite: suite.name,
+					scenario: scenario.name,
+					passed: true,
+					failures: [],
+					skipped: true,
+					durationMs: 0,
+				});
+				continue;
+			}
+
 			const started = performance.now();
 			const exitCode = await spawnLiveScenario({
 				cwd: options.cwd,
@@ -248,42 +286,47 @@ export async function runSuite(
 				judge: options.judge,
 				scenarioIndex: index + 1,
 				scenarioTotal: filteredTotal,
+				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
+				noTimeout: options.timeoutMs === 0,
+				allowUserInput: options.allowUserInput,
 			});
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
+			let scenarioTrace: AgentTrace | undefined;
 
 			if (exitCode !== 0) {
-				failures.push({
-					matcher: "liveScenario",
-					message: subprocessFailureMessage(exitCode),
-				});
-			} else if (options.judge !== false && options.stagingSessionId) {
+				const childResult =
+					options.stagingSessionId !== undefined
+						? await loadStagingResult(
+								getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
+							)
+						: undefined;
+				failures.push(...failuresForLiveSubprocessExit(exitCode, childResult));
+			}
+			if (options.stagingSessionId) {
+				const tracePath = getStagingTracePath(options.stagingSessionId, suite.name, scenario.name);
+				try {
+					scenarioTrace = await loadStagingTrace(tracePath);
+				} catch {
+					// Trace may be missing when the child crashed before recording.
+				}
+			}
+			if (failures.length === 0 && options.judge !== false && scenarioTrace) {
 				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 				if (criteria.length > 0) {
 					releaseLiveMemory();
 					logPhase(theme.judgePhase(criteria.length), { last: true });
 					try {
-						const tracePath = getStagingTracePath(
-							options.stagingSessionId,
-							suite.name,
-							scenario.name,
-						);
-						const trace = await loadStagingTrace(tracePath);
-						const judged = await runJudgeRubric(
-							trace,
-							scenario.rubric,
-							options.cwd,
-						);
+						const judged = await runJudgeRubric(scenarioTrace, scenario.rubric, options.cwd);
 						failures.push(...judged.failures);
+						scenarioTrace = judged.trace;
 						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria);
 					} catch (error) {
 						failures.push({
 							matcher: "judge",
 							message:
-								error instanceof Error
-									? error.message
-									: "failed to load staging trace for judge",
+								error instanceof Error ? error.message : "failed to load staging trace for judge",
 						});
 					}
 				}
@@ -306,6 +349,7 @@ export async function runSuite(
 				failures,
 				durationMs,
 				judgeVerdicts,
+				trace: scenarioTrace,
 			});
 			releaseLiveMemory();
 			continue;
@@ -327,6 +371,8 @@ export async function runSuite(
 				options.stagingSessionId,
 				scenarioIndex,
 				scenarioTotal,
+				options.timeoutMs,
+				options.allowUserInput,
 			),
 		);
 		if (isLiveSuite) {
@@ -359,6 +405,8 @@ async function runScenario(
 	stagingSessionId?: string,
 	scenarioIndex?: number,
 	scenarioTotal?: number,
+	timeoutMs?: number,
+	allowUserInput?: boolean,
 ): Promise<ScenarioResult> {
 	const started = performance.now();
 
@@ -379,35 +427,29 @@ async function runScenario(
 	}
 
 	const host = scenario.host ?? defaultHost;
-	const profile =
-		scenario.profile ??
-		defaultProfile ??
-		(host === "cursor" ? "cursor" : "shared");
+	const profile = scenario.profile ?? defaultProfile ?? (host === "cursor" ? "cursor" : "shared");
 	const skills = scenario.skills ?? defaultSkills;
 	const mcpServers = mergeMcpServers(defaultMcpServers, scenario.mcpServers);
 	const isLive = host !== "replay";
+	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
+	const failOnUserInput = !allowUserInput;
 
 	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
-		logProgress(
-			theme.scenarioTitle(scenarioIndex, scenarioTotal, scenario.name, host),
-		);
+		logProgress(theme.scenarioTitle(scenarioIndex, scenarioTotal, scenario.name, host));
 	} else {
 		logProgress(theme.scenarioLabel(scenario.name, host));
 	}
 
-	const useWorktree =
-		isLive && worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
-	let worktreeHandle:
-		| Awaited<ReturnType<typeof createScenarioWorktree>>
-		| undefined;
-	const callerTreeBefore = useWorktree
-		? await captureWorkingTreeStatus(cwd)
-		: undefined;
+	const useWorktree = isLive && worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
+	let worktreeHandle: Awaited<ReturnType<typeof createScenarioWorktree>> | undefined;
+	let callerHeadBefore: Awaited<ReturnType<typeof captureCallerHead>> | undefined;
+	const callerTreeBefore = useWorktree ? await captureWorkingTreeStatus(cwd) : undefined;
 	if (useWorktree) {
-		worktreeHandle = await createScenarioWorktree(
-			cwd,
-			`${suiteName}-${scenario.name}`,
-		);
+		if (isLive && scenario.seedPatch) {
+			callerHeadBefore = await captureCallerHead(cwd);
+			setCallerHeadRestore(cwd, callerHeadBefore);
+		}
+		worktreeHandle = await createScenarioWorktree(cwd, `${suiteName}-${scenario.name}`);
 		activeWorktreeCleanup = worktreeHandle.cleanup;
 		logPhase(theme.phase("worktree", theme.path(worktreeHandle.path)));
 		if (isLive && scenario.seedPatch) {
@@ -415,12 +457,7 @@ async function runScenario(
 			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch);
 		}
 	} else if (isLive) {
-		logPhase(
-			theme.phase(
-				"worktree",
-				theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)"),
-			),
-		);
+		logPhase(theme.phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)")));
 	}
 	const runCwd = worktreeHandle?.path ?? cwd;
 
@@ -432,16 +469,16 @@ async function runScenario(
 		const context = await loadContext({ cwd: contextRoot, profile, skills });
 		const useReplay = host === "replay";
 		if (useReplay) {
-			logPhase(
-				theme.phase("replay", theme.path(scenario.replayTrace ?? "trace")),
-			);
+			logPhase(theme.phase("replay", theme.path(scenario.replayTrace ?? "trace")));
 		} else {
 			logPhase(theme.phase("agent"));
 		}
 
-		const outputContract = isLive
-			? outputContractForRubric(scenario.rubric)
-			: undefined;
+		const outputContract = isLive ? outputContractForRubric(scenario.rubric) : undefined;
+		const agentStartMarkerPath =
+			isChildProcess() && isLive && stagingSessionId
+				? getStagingAgentStartPath(stagingSessionId, suiteName, scenario.name)
+				: undefined;
 		const agentStarted = performance.now();
 		const session = await (isLive
 			? withHeartbeat(
@@ -453,6 +490,11 @@ async function runScenario(
 						prompt: scenario.prompt,
 						outputContract,
 						mcpServers,
+						timeoutMs: liveTimeoutMs,
+						failOnUserInput,
+						onDeadlineStart: agentStartMarkerPath
+							? () => writeAgentStartMarker(agentStartMarkerPath)
+							: undefined,
 					}),
 					{ started: agentStarted },
 				)
@@ -482,6 +524,11 @@ async function runScenario(
 			failures.push({
 				matcher: "runAgent",
 				message: session.error ?? `agent session ${session.status}`,
+			});
+		} else if (isLive && failOnUserInput && traceHasUserInputTool(trace.toolCalls)) {
+			failures.push({
+				matcher: "runAgent",
+				message: "agent trace contains AskQuestion-style user-input tool in headless mode",
 			});
 		}
 
@@ -519,25 +566,10 @@ async function runScenario(
 				} catch (error) {
 					failures.push({
 						matcher: "recordTrace",
-						message:
-							error instanceof Error ? error.message : "failed to record trace",
+						message: error instanceof Error ? error.message : "failed to record trace",
 					});
 				}
 			}
-		}
-
-		if (worktreeHandle) {
-			const willJudge =
-				Boolean(judge) &&
-				isLive &&
-				!isChildProcess() &&
-				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
-			logPhase(theme.phase("cleanup"), { last: !willJudge });
-			await worktreeHandle.cleanup();
-			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
-				activeWorktreeCleanup = undefined;
-			}
-			worktreeHandle = undefined;
 		}
 
 		const deferJudgeToParent = isChildProcess();
@@ -554,6 +586,32 @@ async function runScenario(
 		}
 
 		const durationMs = Math.round(performance.now() - started);
+
+		if (isChildProcess() && isLive && stagingSessionId) {
+			await writeStagingResult(getStagingResultPath(stagingSessionId, suiteName, scenario.name), {
+				passed: failures.length === 0,
+				failures,
+				durationMs,
+			});
+		}
+
+		if (worktreeHandle) {
+			const willJudge =
+				Boolean(judge) &&
+				isLive &&
+				!isChildProcess() &&
+				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
+			logPhase(theme.phase("cleanup"), { last: !willJudge });
+			await worktreeHandle.cleanup();
+			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
+				activeWorktreeCleanup = undefined;
+			}
+			if (callerHeadBefore) {
+				await restoreActiveCallerHead();
+			}
+			worktreeHandle = undefined;
+		}
+
 		emitScenarioVerdict({
 			passed: failures.length === 0,
 			index: scenarioIndex,
@@ -571,6 +629,7 @@ async function runScenario(
 			failures,
 			durationMs,
 			judgeVerdicts,
+			trace,
 		};
 	} finally {
 		if (worktreeHandle) {
@@ -579,6 +638,9 @@ async function runScenario(
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;
 			}
+		}
+		if (activeCallerHeadRestore) {
+			await restoreActiveCallerHead().catch(() => undefined);
 		}
 	}
 }
@@ -597,9 +659,7 @@ async function runJudgeRubric(
 	if (result.skipped) {
 		return {
 			trace,
-			failures: [
-				{ matcher: "judge", message: result.error ?? "judge skipped" },
-			],
+			failures: [{ matcher: "judge", message: result.error ?? "judge skipped" }],
 		};
 	}
 
@@ -635,17 +695,14 @@ export async function runAllSuites(options: {
 	worktree?: boolean;
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
+	timeoutMs?: number;
+	allowUserInput?: boolean;
 }): Promise<SuiteRunReport[]> {
-	const suitePaths = await discoverSuites(
-		resolve(options.cwd, options.suitesDir),
-	);
+	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
 		? suitePaths.filter((suitePath) => {
 				const suiteName = suiteNameFromPath(suitePath);
-				return (
-					suiteName === options.filter ||
-					suitePath.includes(`/${options.filter}/`)
-				);
+				return suiteName === options.filter || suitePath.includes(`/${options.filter}/`);
 			})
 		: suitePaths;
 
@@ -665,6 +722,8 @@ export async function runAllSuites(options: {
 				keepRecordings: options.keepRecordings,
 				suitesDir: options.suitesDir,
 				suiteFilter: options.filter,
+				timeoutMs: options.timeoutMs,
+				allowUserInput: options.allowUserInput,
 			}),
 		);
 	}

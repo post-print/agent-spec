@@ -24,16 +24,11 @@ export type McpServerConfig =
 const ENV_INTERPOLATION = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 /** Expand `${VAR}` placeholders; throw if a referenced env var is missing. */
-export function expandEnvPlaceholders(
-	value: string,
-	env: NodeJS.ProcessEnv = process.env,
-): string {
+export function expandEnvPlaceholders(value: string, env: NodeJS.ProcessEnv = process.env): string {
 	return value.replace(ENV_INTERPOLATION, (_match, name: string) => {
 		const resolved = env[name];
 		if (resolved === undefined) {
-			throw new Error(
-				`MCP config references unset environment variable: ${name}`,
-			);
+			throw new Error(`MCP config references unset environment variable: ${name}`);
 		}
 		return resolved;
 	});
@@ -102,9 +97,7 @@ export function resolveMcpServers(
 			continue;
 		}
 
-		throw new Error(
-			`Invalid MCP server "${name}": expected stdio command or http/sse url`,
-		);
+		throw new Error(`Invalid MCP server "${name}": expected stdio command or http/sse url`);
 	}
 
 	return resolved;

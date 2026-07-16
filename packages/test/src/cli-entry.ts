@@ -14,11 +14,6 @@ export function resolveRealPath(path: string): string {
  * True when this module is the process entrypoint (including via npm bin symlinks).
  * Compares real paths so `node_modules/.bin/agent-test` matches `dist/cli.js`.
  */
-export function isCliMain(
-	argv1: string | undefined,
-	entryPath: string,
-): boolean {
-	return (
-		argv1 !== undefined && resolveRealPath(argv1) === resolveRealPath(entryPath)
-	);
+export function isCliMain(argv1: string | undefined, entryPath: string): boolean {
+	return argv1 !== undefined && resolveRealPath(argv1) === resolveRealPath(entryPath);
 }

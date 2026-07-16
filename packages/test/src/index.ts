@@ -1,5 +1,5 @@
 export { assertRubric, expectTrace, TraceAssertion } from "./expect.js";
-
+export { type HtmlReportMeta, renderHtmlReport, writeHtmlReport } from "./html-report.js";
 export { loadSuiteFile } from "./load-suite.js";
 export { assertLiveDogfoodPreflight } from "./preflight.js";
 export {
@@ -8,10 +8,14 @@ export {
 	createLiveStagingSessionId,
 	getLiveStagingRoot,
 	getLiveStagingSessionRoot,
+	getStagingResultPath,
+	type LiveScenarioResultSidecar,
+	loadStagingResult,
 	type RecordingPathKind,
 	type ResolvedRecordingPath,
 	recordTrace,
 	resolveRecordingPath,
+	writeStagingResult,
 } from "./record-trace.js";
 export {
 	discoverSuites,

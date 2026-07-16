@@ -1,6 +1,6 @@
 {
 	"name": "@post-print/agent-harness",
-	"version": "0.1.10",
+	"version": "0.1.13",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -19,6 +19,8 @@
 		"lint": "bunx biome check .",
 		"lint:fix": "bunx biome check . --write",
 		"test": "vitest run --passWithNoTests",
+		"test:sandbox-safe": "vitest run --passWithNoTests --exclude 'src/**/{worktree-judge,harness}.test.ts'",
+		"test:coverage": "vitest run --coverage --passWithNoTests",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {},
@@ -33,6 +35,7 @@
 	"devDependencies": {
 		"@cursor/sdk": "^1.0.23",
 		"@types/node": "^26.1.1",
+		"@vitest/coverage-v8": "^4.0.17",
 		"typescript": "~7.0.2",
 		"vitest": "^4.0.17"
 	},

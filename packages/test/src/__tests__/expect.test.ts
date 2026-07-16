@@ -41,8 +41,7 @@ describe("expectTrace", () => {
 			messages: [
 				{
 					role: "assistant",
-					content:
-						"Review · staged · Standard · post-login-redirect\n\n## Review synthesis",
+					content: "Review · staged · Standard · post-login-redirect\n\n## Review synthesis",
 				},
 			],
 			toolCalls: [],
@@ -95,9 +94,7 @@ describe("expectTrace", () => {
 
 	it("fails hands-on tier when announce missing", () => {
 		const trace: AgentTrace = {
-			messages: [
-				{ role: "assistant", content: "Here are some options to consider." },
-			],
+			messages: [{ role: "assistant", content: "Here are some options to consider." }],
 			toolCalls: [],
 			shellCommands: [],
 			artifacts: {},
@@ -121,9 +118,7 @@ describe("expectTrace", () => {
 			assistantTextBeforeTools: "Reading the file…",
 		};
 		const failures = assertRubric(trace, { tier: "low", handsOnRouting: true });
-		expect(
-			failures.some((f) => f.matcher === "toHaveHandsOnTierBeforeTools"),
-		).toBe(true);
+		expect(failures.some((f) => f.matcher === "toHaveHandsOnTierBeforeTools")).toBe(true);
 	});
 
 	it("passes when tier announce precedes tool calls", () => {
@@ -160,9 +155,7 @@ describe("expectTrace", () => {
 			routingBlock: true,
 			must: ["Tier"],
 		});
-		expect(
-			failures.some((f) => f.matcher === "toHaveRoutingBlockBeforeTools"),
-		).toBe(true);
+		expect(failures.some((f) => f.matcher === "toHaveRoutingBlockBeforeTools")).toBe(true);
 	});
 
 	it("passes when ## Routing precedes tool calls", () => {
@@ -170,8 +163,7 @@ describe("expectTrace", () => {
 			messages: [
 				{
 					role: "assistant",
-					content:
-						"## Routing\n- **Tier:** Medium\n- **Signals:** score panel UX\n\nExploring…",
+					content: "## Routing\n- **Tier:** Medium\n- **Signals:** score panel UX\n\nExploring…",
 				},
 			],
 			toolCalls: [{ name: "Glob", args: { globPattern: "apps/client/**" } }],
@@ -188,9 +180,7 @@ describe("expectTrace", () => {
 	it("checks mustInvokeSkill from tool calls", () => {
 		const trace: AgentTrace = {
 			messages: [{ role: "assistant", content: "Invoking grill." }],
-			toolCalls: [
-				{ name: "Read", args: { path: ".claude/skills/grill/SKILL.md" } },
-			],
+			toolCalls: [{ name: "Read", args: { path: ".claude/skills/grill/SKILL.md" } }],
 			shellCommands: [],
 			skillsInvoked: ["grill"],
 			artifacts: {},
@@ -202,17 +192,13 @@ describe("expectTrace", () => {
 	it("fails mustNotInvokeSkill when skill read present", () => {
 		const trace: AgentTrace = {
 			messages: [],
-			toolCalls: [
-				{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" } },
-			],
+			toolCalls: [{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" } }],
 			shellCommands: [],
 			skillsInvoked: ["grill"],
 			artifacts: {},
 		};
 		const failures = assertRubric(trace, { mustNotInvokeSkill: ["grill"] });
-		expect(failures.some((f) => f.matcher === "toHaveNotInvokedSkill")).toBe(
-			true,
-		);
+		expect(failures.some((f) => f.matcher === "toHaveNotInvokedSkill")).toBe(true);
 	});
 
 	it("accepts applied skill prose in full catalog mode", () => {
@@ -227,11 +213,7 @@ describe("expectTrace", () => {
 			shellCommands: [],
 			artifacts: {},
 		};
-		const failures = assertRubric(
-			trace,
-			{ mustInvokeSkill: ["grill"] },
-			{ skillsMode: "full" },
-		);
+		const failures = assertRubric(trace, { mustInvokeSkill: ["grill"] }, { skillsMode: "full" });
 		expect(failures).toHaveLength(0);
 	});
 
@@ -293,8 +275,6 @@ describe("expectTrace", () => {
 			artifacts: {},
 		};
 		const failures = assertRubric(trace, { mustNotCallTool: ["echo"] });
-		expect(failures.some((f) => f.matcher === "toHaveNotCalledTool")).toBe(
-			true,
-		);
+		expect(failures.some((f) => f.matcher === "toHaveNotCalledTool")).toBe(true);
 	});
 });

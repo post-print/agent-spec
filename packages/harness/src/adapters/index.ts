@@ -7,7 +7,7 @@ import { ReplayAdapter } from "./replay.js";
 function emptyFailed(host: "cursor" | "claude", error: string): AgentSession {
 	return {
 		host,
-		status: "skipped",
+		status: "failed",
 		trace: { messages: [], toolCalls: [], shellCommands: [], artifacts: {} },
 		durationMs: 0,
 		error,
@@ -37,6 +37,9 @@ export class CursorAdapter implements HostAdapter {
 				cwd: options.cwd,
 				prompt,
 				mcpServers: options.mcpServers,
+				timeoutMs: options.timeoutMs,
+				failOnUserInput: options.failOnUserInput,
+				onDeadlineStart: options.onDeadlineStart,
 			});
 			const gitDiff = await captureGitDiff(options.cwd);
 			const trace = enrichTrace({ ...streamedTrace, gitDiff });
@@ -46,14 +49,10 @@ export class CursorAdapter implements HostAdapter {
 				status: status === "completed" ? "completed" : "failed",
 				trace,
 				durationMs: Math.round(performance.now() - started),
-				error:
-					status !== "completed" ? `cursor run status: ${status}` : undefined,
+				error: status !== "completed" ? `cursor run status: ${status}` : undefined,
 			};
 		} catch (error) {
-			const message =
-				error instanceof Error
-					? error.message
-					: "Failed to load or run @cursor/sdk";
+			const message = error instanceof Error ? error.message : "Failed to load or run @cursor/sdk";
 			return emptyFailed(this.host, message);
 		}
 	}

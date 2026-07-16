@@ -6,8 +6,7 @@ import type { AgentMessage, AgentToolCall, AgentTrace } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
-const SHELL_COMMAND_PATTERN =
-	/\b(bun run [\w:./-]+|validate:changed[\w ./:-]*|bunx [\w ./:-]+)/gi;
+const SHELL_COMMAND_PATTERN = /\b(bun run [\w:./-]+|validate:changed[\w ./:-]*|bunx [\w ./:-]+)/gi;
 
 const TIER_PATTERN = /\*\*Tier:\*\*\s*(low|medium|high)\b/i;
 const TIER_INLINE_PATTERN = /\bTier:\s*(low|medium|high)\b/i;
@@ -24,9 +23,7 @@ const HANDS_ON_TIER_PATTERNS = [
 	ROUTING_LABEL_TIER_PATTERN,
 ] as const;
 
-function tierFromMatch(
-	match: RegExpMatchArray,
-): "low" | "medium" | "high" | undefined {
+function tierFromMatch(match: RegExpMatchArray): "low" | "medium" | "high" | undefined {
 	const raw = match[1] ?? match[2];
 	const tier = raw?.toLowerCase() as "low" | "medium" | "high" | undefined;
 	if (tier === "low" || tier === "medium" || tier === "high") {
@@ -50,20 +47,13 @@ export async function captureGitDiff(cwd: string): Promise<string | undefined> {
 }
 
 /** Extract shell commands from structured tool call args (Cursor SDK shell tools). */
-export function extractShellCommandsFromToolCalls(
-	toolCalls: AgentToolCall[],
-): string[] {
+export function extractShellCommandsFromToolCalls(toolCalls: AgentToolCall[]): string[] {
 	const commands = new Set<string>();
 	for (const call of toolCalls) {
 		if (!call.args) {
 			continue;
 		}
-		const candidates = [
-			call.args.command,
-			call.args.cmd,
-			call.args.script,
-			call.args.input,
-		];
+		const candidates = [call.args.command, call.args.cmd, call.args.script, call.args.input];
 		for (const raw of candidates) {
 			if (typeof raw !== "string") {
 				continue;
@@ -79,8 +69,7 @@ export function extractShellCommandsFromToolCalls(
 	return [...commands];
 }
 
-const SKILL_WORKFLOW_PATH_PATTERN =
-	/\.claude\/skills\/([^/]+)\/(?:SKILL\.md|references\/)/i;
+const SKILL_WORKFLOW_PATH_PATTERN = /\.claude\/skills\/([^/]+)\/(?:SKILL\.md|references\/)/i;
 
 const APPLIED_SKILL_GENERIC_PATTERNS = [
 	/\b(?:invok(?:e|ing)|following|using|per|walk(?:ing)?)\s+(?:the\s+)?([a-z][a-z0-9-]*)\s+(?:skill|protocol|design tree)\b/gi,
@@ -117,10 +106,8 @@ const APPLIED_SKILL_MARKERS = [
 	{ skill: "code-review", pattern: /## Review synthesis/i },
 ] as const;
 
-const REVIEW_HEADER_DEPTH_PATTERN =
-	/\bReview\s·\s*[^·]+\s·\s*(Quick|Standard|Thorough|Full)\b/i;
-const REVIEW_DEPTH_LABEL_PATTERN =
-	/\*\*Depth:\*\*\s*(quick|standard|thorough|full)\b/i;
+const REVIEW_HEADER_DEPTH_PATTERN = /\bReview\s·\s*[^·]+\s·\s*(Quick|Standard|Thorough|Full)\b/i;
+const REVIEW_DEPTH_LABEL_PATTERN = /\*\*Depth:\*\*\s*(quick|standard|thorough|full)\b/i;
 
 /** Collapse whitespace so SDK token-chunked assistant prose still matches rubric patterns. */
 export function collapseTraceWhitespace(text: string): string {
@@ -144,9 +131,7 @@ function skillNameFromPath(path: string): string | undefined {
 }
 
 /** Infer skill folder names from Read tool paths in tool calls. */
-export function extractSkillsInvokedFromToolCalls(
-	toolCalls: AgentToolCall[],
-): string[] {
+export function extractSkillsInvokedFromToolCalls(toolCalls: AgentToolCall[]): string[] {
 	const skills = new Set<string>();
 	for (const call of toolCalls) {
 		if (!call.args) {
@@ -159,9 +144,7 @@ export function extractSkillsInvokedFromToolCalls(
 			}
 		}
 		const serialized = JSON.stringify(call.args);
-		for (const match of serialized.matchAll(
-			/\.claude\/skills\/([^/]+)\/SKILL\.md/gi,
-		)) {
+		for (const match of serialized.matchAll(/\.claude\/skills\/([^/]+)\/SKILL\.md/gi)) {
 			const name = match[1]?.toLowerCase();
 			if (name) {
 				skills.add(name);
@@ -175,9 +158,7 @@ export function extractSkillsInvokedFromToolCalls(
 export function extractSkillsInvokedFromText(...chunks: string[]): string[] {
 	const skills = new Set<string>();
 	for (const chunk of chunks) {
-		for (const match of chunk.matchAll(
-			/\.claude\/skills\/([^/]+)\/SKILL\.md/gi,
-		)) {
+		for (const match of chunk.matchAll(/\.claude\/skills\/([^/]+)\/SKILL\.md/gi)) {
 			const name = match[1]?.toLowerCase();
 			if (name) {
 				skills.add(name);
@@ -218,24 +199,13 @@ export function inferReviewDepthFromText(
 	const collapsed = collapseTraceWhitespace(text);
 	const headerMatch = collapsed.match(REVIEW_HEADER_DEPTH_PATTERN);
 	if (headerMatch?.[1]) {
-		return headerMatch[1].toLowerCase() as
-			| "quick"
-			| "standard"
-			| "thorough"
-			| "full";
+		return headerMatch[1].toLowerCase() as "quick" | "standard" | "thorough" | "full";
 	}
 	const depthMatch = collapsed.match(REVIEW_DEPTH_LABEL_PATTERN);
-	return depthMatch?.[1]?.toLowerCase() as
-		| "quick"
-		| "standard"
-		| "thorough"
-		| "full"
-		| undefined;
+	return depthMatch?.[1]?.toLowerCase() as "quick" | "standard" | "thorough" | "full" | undefined;
 }
 
-export function mergeSkillsInvoked(
-	...lists: Array<string[] | undefined>
-): string[] {
+export function mergeSkillsInvoked(...lists: Array<string[] | undefined>): string[] {
 	return [...new Set(lists.flatMap((list) => list ?? []))];
 }
 
@@ -265,9 +235,7 @@ export function assistantPrefixBeforeTools(trace: AgentTrace): string {
 		.join("");
 }
 
-export function inferRoutingFromText(
-	text: string,
-): AgentTrace["routing"] | undefined {
+export function inferRoutingFromText(text: string): AgentTrace["routing"] | undefined {
 	const collapsed = collapseTraceWhitespace(text);
 	for (const pattern of HANDS_ON_TIER_PATTERNS) {
 		const tierMatch = collapsed.match(pattern);
@@ -357,8 +325,7 @@ function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 		};
 	}
 
-	const name =
-		event.tool?.name ?? (event.type?.includes("tool") ? event.type : undefined);
+	const name = event.tool?.name ?? (event.type?.includes("tool") ? event.type : undefined);
 	if (!name) {
 		return undefined;
 	}
@@ -391,6 +358,8 @@ export interface TraceAccumulator {
 	toolCalls: AgentToolCall[];
 	preToolAssistantChunks: string[];
 	hasSeenTool: boolean;
+	/** Shared counter for AgentMessage.seq / AgentToolCall.seq — preserves stream order across both arrays. */
+	nextSeq: number;
 }
 
 export function createTraceAccumulator(): TraceAccumulator {
@@ -402,21 +371,19 @@ export function createTraceAccumulator(): TraceAccumulator {
 		toolCalls: [],
 		preToolAssistantChunks: [],
 		hasSeenTool: false,
+		nextSeq: 0,
 	};
 }
 
 /** Fold one SDK stream event into trace fields without retaining the raw event. */
-export function accumulateSdkEvent(
-	acc: TraceAccumulator,
-	event: SdkMessage,
-): void {
+export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): void {
 	const text = textBlocksFromSdkMessage(event);
 	if (text) {
 		acc.inferenceChunks.push(text);
 	}
 	if (event.type === "assistant" || event.message?.role === "assistant") {
 		if (text) {
-			acc.agentMessages.push({ role: "assistant", content: text });
+			acc.agentMessages.push({ role: "assistant", content: text, seq: acc.nextSeq++ });
 			acc.textChunks.push(text);
 			if (!acc.hasSeenTool) {
 				acc.preToolAssistantChunks.push(text);
@@ -432,7 +399,7 @@ export function accumulateSdkEvent(
 		const toolCall = toolCallFromEvent(event);
 		if (toolCall) {
 			acc.hasSeenTool = true;
-			acc.toolCalls.push(toolCall);
+			acc.toolCalls.push({ ...toolCall, seq: acc.nextSeq++ });
 		}
 	}
 }
@@ -444,11 +411,7 @@ export function finalizeTraceAccumulator(
 	// Join stream token chunks with "" — "\n" breaks markdown like **Tier:** into
 	// **\nTier\n:** which collapseTraceWhitespace cannot repair for regex matching.
 	const combined = [
-		...new Set([
-			...acc.inferenceChunks,
-			...acc.textChunks,
-			...acc.toolOutputChunks,
-		]),
+		...new Set([...acc.inferenceChunks, ...acc.textChunks, ...acc.toolOutputChunks]),
 	].join("");
 	const routing = inferRoutingFromText(combined);
 	const prBody = inferPrBodyFromText(combined);
@@ -488,10 +451,7 @@ export function buildTraceFromSdkMessages(
 /** Fill routing / PR body from transcript when live runs omit structured fields. */
 export function enrichTrace(trace: AgentTrace): AgentTrace {
 	// Join stream token chunks with "" — see finalizeTraceAccumulator.
-	const combined = [
-		...trace.messages.map((m) => m.content),
-		trace.prBody ?? "",
-	].join("");
+	const combined = [...trace.messages.map((m) => m.content), trace.prBody ?? ""].join("");
 
 	return {
 		...trace,

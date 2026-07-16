@@ -11,10 +11,22 @@ async function fixtureRepo(): Promise<string> {
 	await mkdir(join(dir, ".claude/skills/grill"), { recursive: true });
 	await mkdir(join(dir, ".claude/skills/crystallize"), { recursive: true });
 	await mkdir(join(dir, ".claude/skills/align-commands"), { recursive: true });
-	await writeFile(join(dir, ".claude/skills/README.md"), "# Skills\n- grill\n- crystallize\n", "utf8");
+	await writeFile(
+		join(dir, ".claude/skills/README.md"),
+		"# Skills\n- grill\n- crystallize\n",
+		"utf8",
+	);
 	await writeFile(join(dir, ".claude/skills/grill/SKILL.md"), "# Grill\nbody\n", "utf8");
-	await writeFile(join(dir, ".claude/skills/crystallize/SKILL.md"), "# Crystallize\nbody\n", "utf8");
-	await writeFile(join(dir, ".claude/skills/align-commands/SKILL.md"), "# Align\ninternal\n", "utf8");
+	await writeFile(
+		join(dir, ".claude/skills/crystallize/SKILL.md"),
+		"# Crystallize\nbody\n",
+		"utf8",
+	);
+	await writeFile(
+		join(dir, ".claude/skills/align-commands/SKILL.md"),
+		"# Align\ninternal\n",
+		"utf8",
+	);
 	return dir;
 }
 
