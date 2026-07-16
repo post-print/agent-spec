@@ -111,6 +111,31 @@ describe("parseJudgeJsonResponse", () => {
 		expect(parsed.valid).toBe(true);
 		expect(parsed.pass).toBe(true);
 	});
+
+	it("still salvages YES/NO when prose includes incidental JSON without verdict", () => {
+		const parsed = parseJudgeResponse('YES\nEvidence: {"quote":"hello"}');
+		expect(parsed.valid).toBe(true);
+		expect(parsed.pass).toBe(true);
+	});
+
+	it("still salvages YES/NO when prose mentions verdict instructionally", () => {
+		const parsed = parseJudgeResponse('YES\nThe schema uses "verdict": yes|no.');
+		expect(parsed.valid).toBe(true);
+		expect(parsed.pass).toBe(true);
+	});
+
+	it("refuses salvage for prose-prefixed truncated verdict objects", () => {
+		const parsed = parseJudgeResponse('Here is my answer:\n{"verdict":"yes"');
+		expect(parsed.valid).toBe(false);
+		expect(parsed.pass).toBe(false);
+		expect(parsed.rationale).toMatch(/invalid JSON/i);
+	});
+
+	it("refuses salvage for whole-text objects without verdict", () => {
+		const parsed = parseJudgeResponse('{"evidence":[],"rationale":"YES clearly"}');
+		expect(parsed.valid).toBe(false);
+		expect(parsed.pass).toBe(false);
+	});
 });
 
 describe("createScenarioWorktree", () => {

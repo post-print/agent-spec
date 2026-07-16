@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	buildLiveScenarioCommand,
@@ -9,6 +9,7 @@ import {
 	subprocessFailureMessage,
 	subprocessKillDelayMs,
 } from "../live-isolation.js";
+import { setLiveStagingRootOverride } from "../record-trace.js";
 
 describe("live-isolation", () => {
 	it("enables isolation by default", () => {
@@ -55,6 +56,18 @@ describe("live-isolation", () => {
 		expect(args).toContain("--debug");
 		expect(args).toContain("--debug-dir");
 		expect(args).toContain("/tmp/agent-debug");
+	});
+
+	it("forwards process-global staging override as --debug-dir when unset", () => {
+		setLiveStagingRootOverride("/tmp/override-root");
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "medium: grill",
+			suitesDir: "agent-suites",
+		});
+		expect(args).toContain("--debug-dir");
+		expect(args).toContain("/tmp/override-root");
 	});
 
 	it("forwards timeout-ms to the child CLI", () => {
@@ -125,6 +138,23 @@ describe("live-isolation", () => {
 		).toEqual([]);
 	});
 
+	it("does not let a pass sidecar mask non-timeout exits", () => {
+		for (const exitCode of [1, 137]) {
+			expect(
+				failuresForLiveSubprocessExit(exitCode, {
+					passed: true,
+					failures: [],
+				}),
+			).toEqual([
+				{
+					matcher: "liveScenario",
+					message: subprocessFailureMessage(exitCode),
+					category: "agent_runtime",
+				},
+			]);
+		}
+	});
+
 	it("keeps rubric failures when the sidecar already failed", () => {
 		expect(
 			failuresForLiveSubprocessExit(124, {
@@ -143,4 +173,8 @@ describe("live-isolation", () => {
 			},
 		]);
 	});
+});
+
+afterEach(() => {
+	setLiveStagingRootOverride(undefined);
 });

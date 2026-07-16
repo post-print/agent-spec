@@ -7,7 +7,11 @@ import {
 	LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS,
 	liveSubprocessTimeoutMs,
 } from "./live-timeout.js";
-import { getStagingAgentStartPath, readAgentStartMarker } from "./record-trace.js";
+import {
+	getLiveStagingRootOverride,
+	getStagingAgentStartPath,
+	readAgentStartMarker,
+} from "./record-trace.js";
 import type { AssertionFailure, FailureCategory } from "./types.js";
 
 function categoryFromLegacyFailure(failure: {
@@ -114,8 +118,11 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	if (options.debug) {
 		args.push("--debug");
 	}
-	if (options.debugDir) {
-		args.push("--debug-dir", options.debugDir);
+	// Prefer explicit debugDir; fall back to process-global staging override so
+	// library callers of setLiveStagingRootOverride stay parent/child aligned.
+	const debugDir = options.debugDir ?? getLiveStagingRootOverride();
+	if (debugDir) {
+		args.push("--debug-dir", debugDir);
 	}
 	// Isolated child: agent + rubric only; parent runs judge (avoids OOM after heavy council runs).
 	args.push("--no-judge");
@@ -290,7 +297,8 @@ export interface LiveSubprocessStagingResult {
 
 /**
  * Map isolated child exit + optional staging sidecar to parent failures.
- * A persisted pass sidecar wins over a late timeout kill (exit 124).
+ * A persisted pass sidecar wins only over a late timeout kill (exit 124).
+ * Other non-zero exits (cleanup failure, OOM 137, crashes) fail closed.
  */
 export function failuresForLiveSubprocessExit(
 	exitCode: number,
@@ -309,7 +317,7 @@ export function failuresForLiveSubprocessExit(
 			),
 		);
 	}
-	if (childResult?.passed === true) {
+	if (exitCode === 124 && childResult?.passed === true) {
 		return [];
 	}
 	return [assertionFailure("liveScenario", subprocessFailureMessage(exitCode), "agent_runtime")];

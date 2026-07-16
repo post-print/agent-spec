@@ -69,26 +69,23 @@ function normalizeVerdict(value: unknown): "yes" | "no" | undefined {
 type JudgeJsonParseAttempt = {
 	result: ParsedJudgeJson;
 	/**
-	 * True when the reply is a JSON contract attempt (successfully parsed
-	 * object/array, or truncated/unparseable JSON-shaped text). Callers must
-	 * not fall back to YES/NO prose salvage in that case.
+	 * True when the reply is a real JSON contract attempt (parsed array,
+	 * parsed object with a `verdict` key, or truncated/unparseable JSON-shaped
+	 * text). Incidental `{…}` blobs and instructional `"verdict":` prose must
+	 * not set this — callers may still fall back to YES/NO salvage then.
 	 */
 	structured: boolean;
 };
 
 const JUDGE_JSON_FENCE_OPEN_PATTERN = /```(?:json)?\b/i;
-const JUDGE_JSON_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
 
-/** Detect JSON-contract attempts that failed to parse (truncated objects, etc.). */
+/** Detect truncated/unparseable JSON-shaped contract attempts (not prose mentions). */
 function looksLikeJudgeJsonAttempt(text: string): boolean {
 	const trimmed = text.trim();
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
 		return true;
 	}
-	if (JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed)) {
-		return true;
-	}
-	return JUDGE_JSON_VERDICT_KEY_PATTERN.test(trimmed);
+	return JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed);
 }
 
 /**
@@ -115,41 +112,76 @@ const INVALID_JUDGE_JSON: ParsedJudgeJson = {
 	valid: false,
 };
 
+function arrayLooksLikeJudgeContract(parsed: unknown[]): boolean {
+	return parsed.some(
+		(item) =>
+			item !== null &&
+			typeof item === "object" &&
+			!Array.isArray(item) &&
+			"verdict" in (item as Record<string, unknown>),
+	);
+}
+
 /**
- * Try structured judge JSON. `structured` is set when any candidate parsed as an
- * object/array, or when the text still looks like a JSON contract attempt —
- * callers must not fall back to YES/NO prose salvage in that case.
+ * Try structured judge JSON. `structured` latches only for real contract
+ * attempts: judge-shaped arrays, objects that include a `verdict` key, failed
+ * `{`/`[` candidates, or whole-text JSON shape — not incidental blobs in prose.
  */
 function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 	const trimmed = text.trim();
 	const candidates = [trimmed];
 
 	const fenced = trimmed.match(JSON_FENCE_PATTERN);
-	if (fenced?.[1]) {
-		candidates.unshift(fenced[1].trim());
+	const fencedBody = fenced?.[1]?.trim();
+	if (fencedBody) {
+		candidates.unshift(fencedBody);
 	}
 
+	const arrayShaped = isArrayShapedJudgeJson(trimmed);
 	// Prose-prefixed single objects may still use greedy `{…}` extraction.
-	// Array-shaped replies (including truncated `[{…}`) must not.
-	if (!isArrayShapedJudgeJson(trimmed)) {
+	// Array-shaped replies (including truncated `[{…}`) must not peel inner objects.
+	if (!arrayShaped) {
 		const objectMatch = trimmed.match(JSON_OBJECT_PATTERN);
 		if (objectMatch?.[0]) {
 			candidates.push(objectMatch[0]);
 		}
+		const brace = trimmed.indexOf("{");
+		if (brace > 0) {
+			candidates.push(trimmed.slice(brace));
+		}
+	} else {
+		const bracket = trimmed.indexOf("[");
+		if (bracket >= 0) {
+			candidates.push(trimmed.slice(bracket));
+		}
 	}
 
 	let structured = false;
+	let failedJsonShape = false;
 	for (const candidate of candidates) {
+		const candidateTrim = candidate.trim();
 		try {
 			const parsed: unknown = JSON.parse(candidate);
 			if (parsed === null || typeof parsed !== "object") {
 				continue;
 			}
-			structured = true;
 			if (Array.isArray(parsed)) {
-				return { result: { ...INVALID_JUDGE_JSON }, structured: true };
+				const primary =
+					candidateTrim === trimmed ||
+					(fencedBody !== undefined && candidateTrim === fencedBody) ||
+					looksLikeJudgeJsonAttempt(candidateTrim);
+				if (primary || arrayLooksLikeJudgeContract(parsed)) {
+					return { result: { ...INVALID_JUDGE_JSON }, structured: true };
+				}
+				continue;
 			}
 			const record = parsed as Record<string, unknown>;
+			// Objects without `verdict` are incidental blobs (e.g. evidence quotes),
+			// not judge-contract attempts — keep scanning / allow YES/NO salvage.
+			if (!("verdict" in record)) {
+				continue;
+			}
+			structured = true;
 			const verdict = normalizeVerdict(record.verdict);
 			if (verdict !== undefined) {
 				return {
@@ -164,14 +196,17 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 					structured: true,
 				};
 			}
+			return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 		} catch {
-			// try next candidate
+			if (candidateTrim.startsWith("{") || candidateTrim.startsWith("[")) {
+				failedJsonShape = true;
+			}
 		}
 	}
 
 	return {
 		result: { ...INVALID_JUDGE_JSON },
-		structured: structured || looksLikeJudgeJsonAttempt(trimmed),
+		structured: structured || failedJsonShape || looksLikeJudgeJsonAttempt(trimmed),
 	};
 }
 
@@ -258,9 +293,9 @@ export function parseJudgeLegacyResponse(text: string): ParsedJudgeJson {
 
 /**
  * Parse structured JSON first, then legacy YES/NO prose.
- * Once a JSON contract attempt is detected (parsed object/array or truncated
- * JSON-shaped text), never salvage YES/NO from the body — invalid contracts
- * are infra failures, not rubric answers.
+ * Once a real JSON contract attempt is detected (array, object with `verdict`,
+ * or truncated JSON-shaped text), never salvage YES/NO from the body — invalid
+ * contracts are infra failures, not rubric answers.
  */
 export function parseJudgeResponse(text: string): ParsedJudgeJson {
 	const { result, structured } = tryParseJudgeJson(text);
