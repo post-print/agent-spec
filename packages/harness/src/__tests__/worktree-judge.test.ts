@@ -136,6 +136,46 @@ describe("parseJudgeJsonResponse", () => {
 		expect(parsed.valid).toBe(false);
 		expect(parsed.pass).toBe(false);
 	});
+
+	it("still salvages YES/NO when prose includes incidental arrays", () => {
+		for (const raw of [
+			"YES\nScores: [1,2,3]",
+			'NO\nMissing sections: ["intro","summary"]',
+			'YES\nMatches: [{"quote":"hello"}]',
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(true);
+		}
+	});
+
+	it("still salvages YES/NO when prose includes a truncated incidental blob", () => {
+		const parsed = parseJudgeResponse('YES\nEvidence: {"quote":"hello"');
+		expect(parsed.valid).toBe(true);
+		expect(parsed.pass).toBe(true);
+	});
+
+	it("still salvages YES/NO when prose mentions json fences", () => {
+		for (const raw of ["YES\nDo not use ```json fences.", 'YES\n```json\n{"quote":"hello"}\n```']) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(true);
+			expect(parsed.pass).toBe(true);
+		}
+	});
+
+	it("refuses salvage for verdict-shaped arrays inside prose", () => {
+		for (const raw of ['YES\n[{"verdict":"yes"}]', 'Sure:\n[{"verdict":"no"}']) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid).toBe(false);
+			expect(parsed.pass).toBe(false);
+			expect(parsed.rationale).toMatch(/invalid JSON/i);
+		}
+	});
+
+	it("refuses salvage for fenced truncated contract attempts", () => {
+		const parsed = parseJudgeResponse('```json\n{"verdict":"yes"');
+		expect(parsed.valid).toBe(false);
+		expect(parsed.pass).toBe(false);
+	});
 });
 
 describe("createScenarioWorktree", () => {

@@ -77,9 +77,14 @@ type JudgeJsonParseAttempt = {
 	structured: boolean;
 };
 
-const JUDGE_JSON_FENCE_OPEN_PATTERN = /```(?:json)?\b/i;
+const JUDGE_JSON_FENCE_OPEN_PATTERN = /^```(?:json)?\b/i;
+const JUDGE_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
 
-/** Detect truncated/unparseable JSON-shaped contract attempts (not prose mentions). */
+/**
+ * Detect truncated/unparseable JSON-shaped contract attempts. Only replies
+ * that *are* JSON-shaped (or open with a fence) count — a mid-prose mention
+ * of ```json or an incidental blob is not a contract attempt.
+ */
 function looksLikeJudgeJsonAttempt(text: string): boolean {
 	const trimmed = text.trim();
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -124,8 +129,9 @@ function arrayLooksLikeJudgeContract(parsed: unknown[]): boolean {
 
 /**
  * Try structured judge JSON. `structured` latches only for real contract
- * attempts: judge-shaped arrays, objects that include a `verdict` key, failed
- * `{`/`[` candidates, or whole-text JSON shape — not incidental blobs in prose.
+ * attempts: whole-text/fenced JSON bodies, verdict-shaped arrays or objects,
+ * or failed candidates carrying a `verdict` key — not incidental arrays,
+ * mid-prose truncated blobs, or fence mentions inside prose.
  */
 function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 	const trimmed = text.trim();
@@ -160,16 +166,17 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 	let failedJsonShape = false;
 	for (const candidate of candidates) {
 		const candidateTrim = candidate.trim();
+		const primary =
+			candidateTrim === trimmed || (fencedBody !== undefined && candidateTrim === fencedBody);
 		try {
 			const parsed: unknown = JSON.parse(candidate);
 			if (parsed === null || typeof parsed !== "object") {
 				continue;
 			}
 			if (Array.isArray(parsed)) {
-				const primary =
-					candidateTrim === trimmed ||
-					(fencedBody !== undefined && candidateTrim === fencedBody) ||
-					looksLikeJudgeJsonAttempt(candidateTrim);
+				// Whole-text/fenced arrays are contract attempts; arrays peeled out
+				// of prose only count when they carry verdict-shaped objects —
+				// incidental lists (e.g. `Scores: [1,2,3]`) allow YES/NO salvage.
 				if (primary || arrayLooksLikeJudgeContract(parsed)) {
 					return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 				}
@@ -198,8 +205,14 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 			}
 			return { result: { ...INVALID_JUDGE_JSON }, structured: true };
 		} catch {
+			// A failed parse latches `structured` only for real contract attempts:
+			// the whole/fenced body is JSON-shaped, or a peeled candidate carries a
+			// `"verdict":` key (truncated contract). Mid-prose incidental peels
+			// (e.g. `Evidence: {"quote":"hello"`) keep YES/NO salvage available.
 			if (candidateTrim.startsWith("{") || candidateTrim.startsWith("[")) {
-				failedJsonShape = true;
+				if (primary || JUDGE_VERDICT_KEY_PATTERN.test(candidateTrim)) {
+					failedJsonShape = true;
+				}
 			}
 		}
 	}
