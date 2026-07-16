@@ -37,6 +37,7 @@ describe("live-isolation", () => {
 
 	it("maps exit 137 to OOM guidance", () => {
 		expect(subprocessFailureMessage(137)).toContain("137");
+		expect(subprocessFailureMessage(124)).toContain("timed out");
 		expect(subprocessFailureMessage(1)).toContain("exited 1");
 	});
 
@@ -55,6 +56,18 @@ describe("live-isolation", () => {
 		expect(args).toContain("hello");
 		expect(args).toContain("--no-judge");
 		expect(execArgv).toContain("--disable-warning=ExperimentalWarning");
+	});
+
+	it("forwards timeout-ms to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "medium: crystallize fuzzy idea",
+			suitesDir: "agent-suites",
+			timeoutMs: 120_000,
+		});
+		expect(args).toContain("--timeout-ms");
+		expect(args).toContain("120000");
 	});
 
 	it("reads parent scenario counters from env", () => {

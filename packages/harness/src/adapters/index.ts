@@ -36,6 +36,8 @@ export class CursorAdapter implements HostAdapter {
 			const { trace: streamedTrace, status } = await runCursorAgent({
 				cwd: options.cwd,
 				prompt,
+				timeoutMs: options.timeoutMs,
+				failOnUserInput: options.failOnUserInput,
 			});
 			const gitDiff = await captureGitDiff(options.cwd);
 			const trace = enrichTrace({ ...streamedTrace, gitDiff });

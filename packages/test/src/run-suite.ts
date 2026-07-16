@@ -26,6 +26,7 @@ import {
 	spawnLiveScenario,
 	subprocessFailureMessage,
 } from "./live-isolation.js";
+import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
 import {
 	formatDuration,
@@ -113,6 +114,8 @@ export interface RunSuiteOptions {
 	keepRecordings?: boolean;
 	suitesDir?: string;
 	suiteFilter?: string;
+	/** Hard cap on live agent stream + wait (ms). */
+	timeoutMs?: number;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -246,6 +249,7 @@ export async function runSuite(
 				judge: options.judge,
 				scenarioIndex: index + 1,
 				scenarioTotal: filteredTotal,
+				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
 			});
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
@@ -324,6 +328,7 @@ export async function runSuite(
 				options.stagingSessionId,
 				scenarioIndex,
 				scenarioTotal,
+				options.timeoutMs,
 			),
 		);
 		if (isLiveSuite) {
@@ -355,6 +360,7 @@ async function runScenario(
 	stagingSessionId?: string,
 	scenarioIndex?: number,
 	scenarioTotal?: number,
+	timeoutMs?: number,
 ): Promise<ScenarioResult> {
 	const started = performance.now();
 
@@ -381,6 +387,7 @@ async function runScenario(
 		(host === "cursor" ? "cursor" : "shared");
 	const skills = scenario.skills ?? defaultSkills;
 	const isLive = host !== "replay";
+	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
 
 	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
 		logProgress(
@@ -447,6 +454,7 @@ async function runScenario(
 						profile,
 						prompt: scenario.prompt,
 						outputContract,
+						timeoutMs: liveTimeoutMs,
 					}),
 					{ started: agentStarted },
 				)
@@ -628,6 +636,7 @@ export async function runAllSuites(options: {
 	worktree?: boolean;
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
+	timeoutMs?: number;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(
 		resolve(options.cwd, options.suitesDir),
@@ -658,6 +667,7 @@ export async function runAllSuites(options: {
 				keepRecordings: options.keepRecordings,
 				suitesDir: options.suitesDir,
 				suiteFilter: options.filter,
+				timeoutMs: options.timeoutMs,
 			}),
 		);
 	}

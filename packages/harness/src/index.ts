@@ -55,6 +55,13 @@ export {
 	textBlocksFromSdkMessage,
 } from "./cursor-run.js";
 export {
+	AgentRunTimeoutError,
+	isUserInputTool,
+	traceHasUserInputTool,
+	UserInputRequiredError,
+	withRunTimeout,
+} from "./run-guards.js";
+export {
 	type JudgeCriterion,
 	type JudgeTraceOptions,
 	type JudgeTraceResult,

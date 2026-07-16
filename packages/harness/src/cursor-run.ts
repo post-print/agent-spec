@@ -4,6 +4,11 @@ import {
 	finalizeTraceAccumulator,
 	type SdkMessage,
 } from "./capture.js";
+import {
+	isUserInputTool,
+	UserInputRequiredError,
+	withRunTimeout,
+} from "./run-guards.js";
 import type { AgentTrace } from "./types.js";
 
 /** Default local agent model; override with CURSOR_AGENT_MODEL or options.model. */
@@ -35,6 +40,10 @@ export interface CursorRunOptions {
 	prompt: string;
 	apiKey?: string;
 	model?: { id: string; params?: Array<{ id: string; value: string }> };
+	/** Hard cap on stream + wait; omit for no harness deadline. */
+	timeoutMs?: number;
+	/** Fail fast when the agent invokes AskQuestion-style tools (default true). */
+	failOnUserInput?: boolean;
 }
 
 export interface JudgeClassifierOptions {
@@ -74,16 +83,31 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 		local: { cwd: options.cwd },
 	});
 
-	const run = await agent.send(options.prompt);
+	const failOnUserInput = options.failOnUserInput !== false;
 	const acc = createTraceAccumulator();
-	for await (const event of run.stream()) {
-		accumulateSdkEvent(acc, event);
-	}
-	const result = await run.wait();
-	return {
-		status: normalizeSdkRunStatus(result.status),
-		trace: finalizeTraceAccumulator(acc),
+
+	const execute = async (): Promise<CursorRunResult> => {
+		const run = await agent.send(options.prompt);
+		for await (const event of run.stream()) {
+			accumulateSdkEvent(acc, event);
+			if (failOnUserInput) {
+				const lastTool = acc.toolCalls.at(-1);
+				if (lastTool && isUserInputTool(lastTool.name)) {
+					throw new UserInputRequiredError(lastTool.name);
+				}
+			}
+		}
+		const result = await run.wait();
+		return {
+			status: normalizeSdkRunStatus(result.status),
+			trace: finalizeTraceAccumulator(acc),
+		};
 	};
+
+	if (options.timeoutMs && options.timeoutMs > 0) {
+		return withRunTimeout(execute, options.timeoutMs);
+	}
+	return execute();
 }
 
 /** Classifier-only judge path — one-shot Agent.prompt, JSON reply, temperature 0 when supported. */

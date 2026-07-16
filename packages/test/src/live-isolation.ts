@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
+import { liveSubprocessTimeoutMs } from "./live-timeout.js";
+
 const DEFAULT_SCENARIO_SETTLE_MS = 5000;
 
 /** Child process per live scenario (default) — avoids macOS OOM (exit 137) across council runs. */
@@ -36,6 +38,8 @@ export interface SpawnLiveScenarioOptions {
 	scenarioIndex?: number;
 	/** Total scenarios in the full suite (for child CLI counters). */
 	scenarioTotal?: number;
+	/** In-process harness timeout (parent adds a kill backstop). */
+	timeoutMs?: number;
 }
 
 export interface LiveScenarioCommand {
@@ -70,6 +74,9 @@ export function buildLiveScenarioCommand(
 	if (options.worktree === false) {
 		args.push("--no-worktree");
 	}
+	if (options.timeoutMs !== undefined) {
+		args.push("--timeout-ms", String(options.timeoutMs));
+	}
 	// Isolated child: agent + rubric only; parent runs judge (avoids OOM after heavy council runs).
 	args.push("--no-judge");
 
@@ -103,14 +110,36 @@ export async function spawnLiveScenario(
 		env.AGENT_TEST_SCENARIO_TOTAL = String(options.scenarioTotal);
 	}
 
+	const subprocessTimeoutMs = liveSubprocessTimeoutMs(options.timeoutMs);
+
 	const exitCode = await new Promise<number>((resolveExit, reject) => {
 		const child = spawn(command, [...execArgv, ...args], {
 			cwd: options.cwd,
 			env,
 			stdio: "inherit",
 		});
-		child.on("error", reject);
+		let killedForTimeout = false;
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		if (subprocessTimeoutMs !== undefined) {
+			timeoutId = setTimeout(() => {
+				killedForTimeout = true;
+				child.kill("SIGTERM");
+			}, subprocessTimeoutMs);
+		}
+		child.on("error", (error) => {
+			if (timeoutId !== undefined) {
+				clearTimeout(timeoutId);
+			}
+			reject(error);
+		});
 		child.on("close", (code, signal) => {
+			if (timeoutId !== undefined) {
+				clearTimeout(timeoutId);
+			}
+			if (killedForTimeout) {
+				resolveExit(124);
+				return;
+			}
 			if (signal === "SIGKILL") {
 				resolveExit(137);
 				return;
@@ -127,6 +156,9 @@ export async function spawnLiveScenario(
 }
 
 export function subprocessFailureMessage(exitCode: number): string {
+	if (exitCode === 124) {
+		return "live scenario subprocess timed out (harness deadline exceeded)";
+	}
 	if (exitCode === 137) {
 		return "subprocess killed (137) — macOS OOM; close heavy apps or increase AGENT_TEST_SCENARIO_SETTLE_MS";
 	}
