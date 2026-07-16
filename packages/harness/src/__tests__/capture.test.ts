@@ -78,17 +78,32 @@ describe("capture", () => {
 		]);
 	});
 
-	it("captures MCP tool calls with args and result", () => {
+	it("captures MCP tool calls with args and result from SDK root result", () => {
 		const trace = buildTraceFromSdkMessages([
 			{
 				type: "tool_call",
+				call_id: "call-echo-1",
 				name: "echo",
 				args: { text: "mcp echo ok" },
-				tool: { name: "echo", output: "mcp echo ok" },
+			},
+			{
+				type: "tool_call",
+				call_id: "call-echo-1",
+				name: "echo",
+				args: { text: "mcp echo ok" },
+				result: { content: [{ type: "text", text: "mcp echo ok" }], isError: false },
 			},
 		]);
 		expect(trace.toolCalls).toEqual([
-			{ name: "echo", args: { text: "mcp echo ok" }, result: "mcp echo ok" },
+			{
+				name: "echo",
+				args: { text: "mcp echo ok" },
+				result: JSON.stringify({
+					content: [{ type: "text", text: "mcp echo ok" }],
+					isError: false,
+				}),
+				seq: 0,
+			},
 		]);
 	});
 

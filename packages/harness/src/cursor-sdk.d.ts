@@ -60,6 +60,9 @@ declare module "@cursor/sdk" {
 		type: string;
 		name?: string;
 		args?: Record<string, unknown>;
+		call_id?: string;
+		/** Present on tool_call completed/error events (SDKToolUseMessage.result). */
+		result?: unknown;
 		message?: {
 			role?: string;
 			content?: SdkTextBlock[];

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Minimal stdio MCP server with a single `echo` tool.
- * Speaks MCP JSON-RPC with Content-Length framing (no deps).
+ * Speaks MCP JSON-RPC over newline-delimited JSON (no deps).
  */
 import { Buffer } from "node:buffer";
 
@@ -12,9 +12,7 @@ const SERVER_INFO = { name: "mcp-echo", version: "0.1.0" };
 let buffer = Buffer.alloc(0);
 
 function writeMessage(message) {
-	const body = Buffer.from(JSON.stringify(message), "utf8");
-	process.stdout.write(`Content-Length: ${body.length}\r\n\r\n`);
-	process.stdout.write(body);
+	process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
 function handleRequest(message) {
@@ -93,25 +91,17 @@ function handleRequest(message) {
 
 function consume() {
 	while (true) {
-		const headerEnd = buffer.indexOf("\r\n\r\n");
-		if (headerEnd === -1) {
+		const newline = buffer.indexOf(0x0a);
+		if (newline === -1) {
 			return;
 		}
-		const header = buffer.subarray(0, headerEnd).toString("utf8");
-		const match = /Content-Length:\s*(\d+)/i.exec(header);
-		if (!match) {
-			buffer = buffer.subarray(headerEnd + 4);
+		const line = buffer.subarray(0, newline).toString("utf8").replace(/\r$/, "").trim();
+		buffer = buffer.subarray(newline + 1);
+		if (!line) {
 			continue;
 		}
-		const length = Number(match[1]);
-		const bodyStart = headerEnd + 4;
-		if (buffer.length < bodyStart + length) {
-			return;
-		}
-		const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
-		buffer = buffer.subarray(bodyStart + length);
 		try {
-			handleRequest(JSON.parse(body));
+			handleRequest(JSON.parse(line));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			process.stderr.write(`mcp-echo parse error: ${message}\n`);
