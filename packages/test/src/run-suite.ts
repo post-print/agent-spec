@@ -16,6 +16,7 @@ import {
 	judgeTrace,
 	loadContext,
 	runAgent,
+	traceHasUserInputTool,
 } from "@post-print/agent-harness";
 
 import { discoverSuites } from "./discover-suites.js";
@@ -116,6 +117,8 @@ export interface RunSuiteOptions {
 	suiteFilter?: string;
 	/** Hard cap on live agent stream + wait (ms). */
 	timeoutMs?: number;
+	/** Allow AskQuestion-style tools in live runs (default false). */
+	allowUserInput?: boolean;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -250,6 +253,7 @@ export async function runSuite(
 				scenarioIndex: index + 1,
 				scenarioTotal: filteredTotal,
 				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
+				allowUserInput: options.allowUserInput,
 			});
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
@@ -329,6 +333,7 @@ export async function runSuite(
 				scenarioIndex,
 				scenarioTotal,
 				options.timeoutMs,
+				options.allowUserInput,
 			),
 		);
 		if (isLiveSuite) {
@@ -361,6 +366,7 @@ async function runScenario(
 	scenarioIndex?: number,
 	scenarioTotal?: number,
 	timeoutMs?: number,
+	allowUserInput?: boolean,
 ): Promise<ScenarioResult> {
 	const started = performance.now();
 
@@ -388,6 +394,7 @@ async function runScenario(
 	const skills = scenario.skills ?? defaultSkills;
 	const isLive = host !== "replay";
 	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
+	const failOnUserInput = !allowUserInput;
 
 	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
 		logProgress(
@@ -455,6 +462,7 @@ async function runScenario(
 						prompt: scenario.prompt,
 						outputContract,
 						timeoutMs: liveTimeoutMs,
+						failOnUserInput,
 					}),
 					{ started: agentStarted },
 				)
@@ -483,6 +491,12 @@ async function runScenario(
 			failures.push({
 				matcher: "runAgent",
 				message: session.error ?? `agent session ${session.status}`,
+			});
+		} else if (failOnUserInput && traceHasUserInputTool(trace.toolCalls)) {
+			failures.push({
+				matcher: "runAgent",
+				message:
+					"agent trace contains AskQuestion-style user-input tool in headless mode",
 			});
 		}
 
@@ -637,6 +651,7 @@ export async function runAllSuites(options: {
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
 	timeoutMs?: number;
+	allowUserInput?: boolean;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(
 		resolve(options.cwd, options.suitesDir),
@@ -668,6 +683,7 @@ export async function runAllSuites(options: {
 				suitesDir: options.suitesDir,
 				suiteFilter: options.filter,
 				timeoutMs: options.timeoutMs,
+				allowUserInput: options.allowUserInput,
 			}),
 		);
 	}

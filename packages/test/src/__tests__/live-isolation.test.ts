@@ -70,6 +70,17 @@ describe("live-isolation", () => {
 		expect(args).toContain("120000");
 	});
 
+	it("forwards allow-user-input to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "dialogue",
+			suitesDir: "agent-suites",
+			allowUserInput: true,
+		});
+		expect(args).toContain("--allow-user-input");
+	});
+
 	it("reads parent scenario counters from env", () => {
 		const priorIndex = process.env.AGENT_TEST_SCENARIO_INDEX;
 		const priorTotal = process.env.AGENT_TEST_SCENARIO_TOTAL;

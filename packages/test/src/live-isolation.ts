@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
-import { liveSubprocessTimeoutMs } from "./live-timeout.js";
+import { liveSubprocessTimeoutMs, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS } from "./live-timeout.js";
 
 const DEFAULT_SCENARIO_SETTLE_MS = 5000;
 
@@ -40,6 +40,8 @@ export interface SpawnLiveScenarioOptions {
 	scenarioTotal?: number;
 	/** In-process harness timeout (parent adds a kill backstop). */
 	timeoutMs?: number;
+	/** Allow AskQuestion-style tools (default false — live is single-shot). */
+	allowUserInput?: boolean;
 }
 
 export interface LiveScenarioCommand {
@@ -76,6 +78,9 @@ export function buildLiveScenarioCommand(
 	}
 	if (options.timeoutMs !== undefined) {
 		args.push("--timeout-ms", String(options.timeoutMs));
+	}
+	if (options.allowUserInput) {
+		args.push("--allow-user-input");
 	}
 	// Isolated child: agent + rubric only; parent runs judge (avoids OOM after heavy council runs).
 	args.push("--no-judge");
@@ -120,22 +125,32 @@ export async function spawnLiveScenario(
 		});
 		let killedForTimeout = false;
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		let sigkillId: ReturnType<typeof setTimeout> | undefined;
+		const clearKillTimers = () => {
+			if (timeoutId !== undefined) {
+				clearTimeout(timeoutId);
+				timeoutId = undefined;
+			}
+			if (sigkillId !== undefined) {
+				clearTimeout(sigkillId);
+				sigkillId = undefined;
+			}
+		};
 		if (subprocessTimeoutMs !== undefined) {
 			timeoutId = setTimeout(() => {
 				killedForTimeout = true;
 				child.kill("SIGTERM");
+				sigkillId = setTimeout(() => {
+					child.kill("SIGKILL");
+				}, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS);
 			}, subprocessTimeoutMs);
 		}
 		child.on("error", (error) => {
-			if (timeoutId !== undefined) {
-				clearTimeout(timeoutId);
-			}
+			clearKillTimers();
 			reject(error);
 		});
 		child.on("close", (code, signal) => {
-			if (timeoutId !== undefined) {
-				clearTimeout(timeoutId);
-			}
+			clearKillTimers();
 			if (killedForTimeout) {
 				resolveExit(124);
 				return;

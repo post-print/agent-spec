@@ -36,22 +36,40 @@ export class UserInputRequiredError extends Error {
 	}
 }
 
+export interface RunTimeoutOptions {
+	/** Best-effort cleanup when the deadline fires (e.g. cancel an SDK run). */
+	onTimeout?: () => void | Promise<void>;
+}
+
 /** Race `operation` against a hard deadline. */
 export async function withRunTimeout<T>(
 	operation: () => Promise<T>,
 	timeoutMs: number,
+	options?: RunTimeoutOptions,
 ): Promise<T> {
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
 		return operation();
 	}
 
 	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	const operationPromise = operation();
+	operationPromise.catch(() => {
+		// Swallow late rejections when the timeout branch wins the race.
+	});
+
 	try {
 		return await Promise.race([
-			operation(),
+			operationPromise,
 			new Promise<T>((_, reject) => {
 				timeoutId = setTimeout(() => {
-					reject(new AgentRunTimeoutError(timeoutMs));
+					void (async () => {
+						try {
+							await options?.onTimeout?.();
+						} catch {
+							// best-effort
+						}
+						reject(new AgentRunTimeoutError(timeoutMs));
+					})();
 				}, timeoutMs);
 			}),
 		]);

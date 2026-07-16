@@ -36,6 +36,8 @@ function parseArgs(argv: string[]): {
 	worktree?: boolean;
 	keepRecordings: boolean;
 	timeoutMs?: number;
+	noTimeout: boolean;
+	allowUserInput: boolean;
 } {
 	const cwd = process.cwd();
 	let suitesDir = "agent-suites";
@@ -50,6 +52,8 @@ function parseArgs(argv: string[]): {
 	let worktree: boolean | undefined;
 	let keepRecordings = false;
 	let timeoutMs: number | undefined;
+	let noTimeout = false;
+	let allowUserInput = false;
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -83,6 +87,10 @@ function parseArgs(argv: string[]): {
 			if (Number.isFinite(parsed) && parsed > 0) {
 				timeoutMs = parsed;
 			}
+		} else if (token === "--no-timeout") {
+			noTimeout = true;
+		} else if (token === "--allow-user-input") {
+			allowUserInput = true;
 		} else if (token && !token.startsWith("-")) {
 			filter = token;
 		}
@@ -108,7 +116,9 @@ function parseArgs(argv: string[]): {
 		judge,
 		worktree,
 		keepRecordings,
-		timeoutMs,
+		timeoutMs: noTimeout ? 0 : timeoutMs,
+		noTimeout,
+		allowUserInput,
 	};
 }
 
@@ -219,6 +229,7 @@ async function main(): Promise<number> {
 			...args,
 			stagingSessionId,
 			timeoutMs: args.timeoutMs,
+			allowUserInput: args.allowUserInput,
 		});
 
 		let exitCode = 0;

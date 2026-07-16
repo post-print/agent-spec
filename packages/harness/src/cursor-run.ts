@@ -5,11 +5,20 @@ import {
 	type SdkMessage,
 } from "./capture.js";
 import {
+	AgentRunTimeoutError,
 	isUserInputTool,
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
 import type { AgentTrace } from "./types.js";
+
+/** Minimal Cursor SDK run surface for cancel + wait cleanup. */
+interface CancellableSdkRun {
+	stream: () => AsyncIterable<unknown>;
+	wait: () => Promise<{ status: string }>;
+	supports?: (op: string) => boolean;
+	cancel?: () => void | Promise<void>;
+}
 
 /** Default local agent model; override with CURSOR_AGENT_MODEL or options.model. */
 const DEFAULT_CURSOR_MODEL = "auto";
@@ -68,6 +77,26 @@ export function normalizeSdkRunStatus(status: string): "completed" | "failed" {
 	return status === "finished" || status === "completed" ? "completed" : "failed";
 }
 
+async function cancelSdkRun(run: CancellableSdkRun | undefined): Promise<void> {
+	if (!run) {
+		return;
+	}
+
+	try {
+		if (typeof run.supports === "function" && run.supports("cancel")) {
+			await run.cancel?.();
+		}
+	} catch {
+		// best-effort
+	}
+
+	try {
+		await run.wait();
+	} catch {
+		// expected after cancel or timeout
+	}
+}
+
 /** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
 export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
@@ -85,27 +114,47 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 
 	const failOnUserInput = options.failOnUserInput !== false;
 	const acc = createTraceAccumulator();
+	let activeRun: CancellableSdkRun | undefined;
+	let timedOut = false;
 
 	const execute = async (): Promise<CursorRunResult> => {
-		const run = await agent.send(options.prompt);
-		for await (const event of run.stream()) {
-			accumulateSdkEvent(acc, event);
-			if (failOnUserInput) {
-				const lastTool = acc.toolCalls.at(-1);
-				if (lastTool && isUserInputTool(lastTool.name)) {
-					throw new UserInputRequiredError(lastTool.name);
+		const run = (await agent.send(options.prompt)) as CancellableSdkRun;
+		activeRun = run;
+		if (timedOut) {
+			await cancelSdkRun(run);
+			throw new AgentRunTimeoutError(options.timeoutMs ?? 0);
+		}
+
+		try {
+			for await (const event of run.stream()) {
+				accumulateSdkEvent(acc, event as SdkMessage);
+				if (failOnUserInput) {
+					const lastTool = acc.toolCalls.at(-1);
+					if (lastTool && isUserInputTool(lastTool.name)) {
+						throw new UserInputRequiredError(lastTool.name);
+					}
 				}
 			}
+			const result = await run.wait();
+			return {
+				status: normalizeSdkRunStatus(result.status),
+				trace: finalizeTraceAccumulator(acc),
+			};
+		} catch (error) {
+			await cancelSdkRun(run);
+			throw error;
+		} finally {
+			activeRun = undefined;
 		}
-		const result = await run.wait();
-		return {
-			status: normalizeSdkRunStatus(result.status),
-			trace: finalizeTraceAccumulator(acc),
-		};
 	};
 
 	if (options.timeoutMs && options.timeoutMs > 0) {
-		return withRunTimeout(execute, options.timeoutMs);
+		return withRunTimeout(execute, options.timeoutMs, {
+			onTimeout: async () => {
+				timedOut = true;
+				await cancelSdkRun(activeRun);
+			},
+		});
 	}
 	return execute();
 }

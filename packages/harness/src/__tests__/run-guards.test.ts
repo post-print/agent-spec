@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	AgentRunTimeoutError,
@@ -36,15 +36,36 @@ describe("withRunTimeout", () => {
 	});
 
 	it("rejects with AgentRunTimeoutError when the deadline is exceeded", async () => {
-		await expect(
-			withRunTimeout(
-				() =>
-					new Promise<string>((resolve) => {
-						setTimeout(() => resolve("late"), 200);
-					}),
-				50,
-			),
-		).rejects.toBeInstanceOf(AgentRunTimeoutError);
+		vi.useFakeTimers();
+		const late = withRunTimeout(
+			() =>
+				new Promise<string>((resolve) => {
+					setTimeout(() => resolve("late"), 200);
+				}),
+			50,
+		);
+		const expectation = expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
+		await vi.advanceTimersByTimeAsync(50);
+		await expectation;
+		vi.useRealTimers();
+	});
+
+	it("invokes onTimeout before rejecting", async () => {
+		vi.useFakeTimers();
+		const onTimeout = vi.fn();
+		const late = withRunTimeout(
+			() =>
+				new Promise<string>((resolve) => {
+					setTimeout(() => resolve("late"), 200);
+				}),
+			50,
+			{ onTimeout },
+		);
+		const expectation = expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
+		await vi.advanceTimersByTimeAsync(50);
+		await expectation;
+		expect(onTimeout).toHaveBeenCalledOnce();
+		vi.useRealTimers();
 	});
 });
 

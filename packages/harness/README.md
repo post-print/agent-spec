@@ -15,6 +15,6 @@ const session = await runAgent({
 });
 ```
 
-`runAgent` / `runCursorAgent` accept optional `timeoutMs` (hard cap on `stream` + `wait`) and `failOnUserInput` (default `true` — rejects `AskQuestion`-style tools in headless runs).
+`runAgent` / `runCursorAgent` accept optional `timeoutMs` (hard cap on `stream` + `wait`; cancels the SDK run on expiry) and `failOnUserInput` (default `true` — rejects `AskQuestion`-style tools in headless runs).
 
 Consumer: `@post-print/agent-test`.

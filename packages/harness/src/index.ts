@@ -60,6 +60,7 @@ export {
 	traceHasUserInputTool,
 	UserInputRequiredError,
 	withRunTimeout,
+	type RunTimeoutOptions,
 } from "./run-guards.js";
 export {
 	type JudgeCriterion,
