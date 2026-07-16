@@ -186,10 +186,18 @@ describe("parseJudgeJsonResponse", () => {
 	});
 
 	it("does not salvage YES/NO from fenced JSON string primitives", () => {
-		for (const raw of ['```\n"yes"\n```', '```json\n"yes"\n```', '```\n"no"\n```']) {
+		for (const raw of [
+			'```\n"yes"\n```',
+			'```json\n"yes"\n```',
+			'```\n"no"\n```',
+			'```js\n"yes"\n```',
+			'```typescript\n"yes"\n```',
+			'```jsonc\n"yes"\n```',
+			'```python\n"no"\n```',
+		]) {
 			const parsed = parseJudgeResponse(raw);
-			expect(parsed.valid).toBe(false);
-			expect(parsed.pass).toBe(false);
+			expect(parsed.valid, raw).toBe(false);
+			expect(parsed.pass, raw).toBe(false);
 		}
 	});
 
@@ -212,6 +220,10 @@ describe("parseJudgeJsonResponse", () => {
 			"null YES",
 			'```\n"yes" clearly\n```',
 			'```json\n"yes" clearly\n```',
+			'```js\n"yes" clearly\n```',
+			"```js\n42\nYES\n```",
+			"```typescript\ntrue\nYES\n```",
+			"```jsonc\nnull YES\n```",
 		]) {
 			const parsed = parseJudgeResponse(raw);
 			expect(parsed.valid, raw).toBe(false);
@@ -221,6 +233,12 @@ describe("parseJudgeJsonResponse", () => {
 
 	it("still salvages YES/NO when prose incidentally contains a quoted verdict", () => {
 		const parsed = parseJudgeResponse('YES\nThe answer is "yes" clearly.');
+		expect(parsed.valid).toBe(true);
+		expect(parsed.pass).toBe(true);
+	});
+
+	it("still salvages YES/NO when prose mentions non-json fences with incidental blobs", () => {
+		const parsed = parseJudgeResponse('YES\n```js\n{"quote":"hello"}\n```');
 		expect(parsed.valid).toBe(true);
 		expect(parsed.pass).toBe(true);
 	});

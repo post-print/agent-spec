@@ -1,7 +1,9 @@
 import { runJudgeClassifier } from "./cursor-run.js";
 import type { AgentTrace } from "./types.js";
 
-const JSON_FENCE_PATTERN = /```(?:json)?\s*([\s\S]*?)```/i;
+// Optional info-string (`json`, `js`, `typescript`, …) on the opening fence line.
+// Without this, ` ```js\n"yes"\n``` ` extracts `js\n"yes"` and never latches.
+const JSON_FENCE_PATTERN = /```[^\n`]*\s*([\s\S]*?)```/;
 const JSON_OBJECT_PATTERN = /\{[\s\S]*\}/;
 
 export interface JudgeCriterion {
@@ -77,9 +79,9 @@ type JudgeJsonParseAttempt = {
 	structured: boolean;
 };
 
-// Bare ``` (no language tag) ends with whitespace/EOF — `\b` after backticks
-// does not match, so allow `(?:\s|$)` as well as an optional `json` tag.
-const JUDGE_JSON_FENCE_OPEN_PATTERN = /^```(?:json)?(?:\s|$)/i;
+// Whole-reply opening fence is a contract attempt regardless of info-string
+// (`json`, `js`, `typescript`, bare, …). Mid-prose fence mentions do not match.
+const JUDGE_JSON_FENCE_OPEN_PATTERN = /^```/;
 const JUDGE_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
 /** Primary body starts like a JSON value (`"…"` / number / bool / null / object / array). */
 const JUDGE_JSON_VALUE_PREFIX_PATTERN = /^(?:"|-?\d|true\b|false\b|null\b|\{|\[)/i;
