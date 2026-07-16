@@ -83,20 +83,61 @@ type JudgeJsonParseAttempt = {
 // (`json`, `js`, `typescript`, bare, …). Mid-prose fence mentions do not match.
 const JUDGE_JSON_FENCE_OPEN_PATTERN = /^```/;
 const JUDGE_VERDICT_KEY_PATTERN = /"verdict"\s*:/;
-/** Primary body starts like a JSON value (`"…"` / number / bool / null / object / array). */
-const JUDGE_JSON_VALUE_PREFIX_PATTERN = /^(?:"|-?\d|true\b|false\b|null\b|\{|\[)/i;
+/** Complete JSON number token (rejects bare `1.` with no fractional digits). */
+const JUDGE_JSON_NUMBER_TOKEN = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/;
+const JUDGE_JSON_BOOL_NULL_TOKEN = /^(?:true|false|null)/i;
 
 /**
  * Detect truncated/unparseable JSON-shaped contract attempts. Only replies
  * that *are* JSON-shaped (value prefix or open with a fence) count — a mid-prose
  * mention of ```json or an incidental blob is not a contract attempt.
+ *
+ * Number/bool/null prefixes latch only for a complete JSON token (optionally
+ * with trailing junk). Numbered-list prose (`1. …`) and English uses of
+ * true/false/null (`true story`) must not latch — YES/NO salvage still applies.
  */
 function looksLikeJudgeJsonAttempt(text: string): boolean {
 	const trimmed = text.trim();
-	if (JUDGE_JSON_VALUE_PREFIX_PATTERN.test(trimmed)) {
+	if (JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed)) {
 		return true;
 	}
-	return JUDGE_JSON_FENCE_OPEN_PATTERN.test(trimmed);
+	if (/^["{\[]/.test(trimmed)) {
+		return true;
+	}
+
+	const number = JUDGE_JSON_NUMBER_TOKEN.exec(trimmed);
+	if (number) {
+		const rest = trimmed.slice(number[0].length);
+		// `1. prose` / `10) prose` — list markers, not number-then-junk.
+		if (/^[.)]/.test(rest)) {
+			return false;
+		}
+		return true;
+	}
+
+	const boolNull = JUDGE_JSON_BOOL_NULL_TOKEN.exec(trimmed);
+	if (boolNull) {
+		const rest = trimmed.slice(boolNull[0].length);
+		if (rest === "") {
+			return true;
+		}
+		const restTrim = rest.trimStart();
+		if (restTrim === "") {
+			return true;
+		}
+		// `true\nYES` / `null YES` — token plus legacy verdict junk → refuse.
+		// `true story` / `null findings` — English word continuation → salvage.
+		const firstWord = /^([A-Za-z]+)/.exec(restTrim)?.[1]?.toLowerCase();
+		if (firstWord === "yes" || firstWord === "no") {
+			return true;
+		}
+		if (/^[A-Za-z]/.test(restTrim)) {
+			return false;
+		}
+		return true;
+	}
+
+	return false;
 }
 
 /**
@@ -229,10 +270,7 @@ function tryParseJudgeJson(text: string): JudgeJsonParseAttempt {
 			// Mid-prose incidental peels (e.g. `Evidence: {"quote":"hello"`)
 			// keep YES/NO salvage available.
 			if (primary) {
-				if (
-					JUDGE_JSON_VALUE_PREFIX_PATTERN.test(candidateTrim) ||
-					JUDGE_JSON_FENCE_OPEN_PATTERN.test(candidateTrim)
-				) {
+				if (looksLikeJudgeJsonAttempt(candidateTrim)) {
 					failedJsonShape = true;
 				}
 			} else if (

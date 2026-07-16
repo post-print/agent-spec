@@ -250,6 +250,31 @@ describe("parseJudgeJsonResponse", () => {
 			expect(parsed.pass, raw).toBe(raw.startsWith("YES"));
 		}
 	});
+
+	it("still salvages YES/NO from digit-prefixed numbered-list prose", () => {
+		for (const raw of [
+			"1. The transcript shows a greeting.\nYES",
+			"2. Findings follow.\nYES",
+			"10) Item complete.\nYES",
+			" 1. x\nYES",
+		]) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(true);
+			expect(parsed.pass, raw).toBe(true);
+		}
+	});
+
+	it("still salvages YES/NO from English true/false/null-prefixed prose", () => {
+		for (const [raw, pass] of [
+			["true story:\nYES", true],
+			["null findings for this criterion.\nNO", false],
+			["false alarm — the agent did greet.\nYES", true],
+		] as const) {
+			const parsed = parseJudgeResponse(raw);
+			expect(parsed.valid, raw).toBe(true);
+			expect(parsed.pass, raw).toBe(pass);
+		}
+	});
 });
 
 describe("createScenarioWorktree", () => {
