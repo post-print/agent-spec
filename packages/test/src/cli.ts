@@ -60,6 +60,8 @@ export interface ParsedCliArgs {
 	validateSeeds: boolean;
 	validatePaths: boolean;
 	failOn: FailOnMode;
+	/** Live announce-stop retries (overrides AGENT_TEST_SCENARIO_RETRIES). */
+	scenarioRetries?: number;
 }
 
 /** Parse agent-test CLI argv (exported for unit tests). */
@@ -87,6 +89,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let validateSeeds = false;
 	let validatePaths = false;
 	let failOn: FailOnMode = "all";
+	let scenarioRetries: number | undefined;
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -138,6 +141,12 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 				throw new Error("--fail-on must be all|behavior|infra-only");
 			}
 			failOn = mode;
+		} else if (token === "--scenario-retries" && argv[i + 1]) {
+			const parsed = Number(argv[++i]);
+			if (!Number.isInteger(parsed) || parsed < 0) {
+				throw new Error("--scenario-retries must be an integer >= 0");
+			}
+			scenarioRetries = parsed;
 		} else if (token === "--no-html-report") {
 			htmlReport = false;
 		} else if (token === "--debug") {
@@ -192,6 +201,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		validateSeeds,
 		validatePaths,
 		failOn,
+		scenarioRetries,
 	};
 }
 

@@ -41,6 +41,11 @@ export {
 	runSuite,
 } from "./run-suite.js";
 export {
+	ANNOUNCE_STOP_MATCHERS,
+	resolveScenarioRetryMaxAttempts,
+	shouldRetryAnnounceStopFlake,
+} from "./scenario-retry.js";
+export {
 	type FailOnMode,
 	formatRunSummary,
 	shouldFailScenario,

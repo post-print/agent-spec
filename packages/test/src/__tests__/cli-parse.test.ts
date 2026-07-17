@@ -70,4 +70,19 @@ describe("parseCliArgs debug flags", () => {
 		expect(args.validatePaths).toBe(true);
 		expect(args.failOn).toBe("behavior");
 	});
+
+	it("parses --scenario-retries", () => {
+		const args = parseCliArgs(["node", "cli.js", "--scenario-retries", "0", "--live"]);
+		expect(args.scenarioRetries).toBe(0);
+		expect(args.live).toBe(true);
+	});
+
+	it("rejects invalid --scenario-retries", () => {
+		expect(() => parseCliArgs(["node", "cli.js", "--scenario-retries", "-1"])).toThrow(
+			/--scenario-retries must be an integer >= 0/,
+		);
+		expect(() => parseCliArgs(["node", "cli.js", "--scenario-retries", "1.5"])).toThrow(
+			/--scenario-retries must be an integer >= 0/,
+		);
+	});
 });

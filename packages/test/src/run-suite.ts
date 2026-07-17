@@ -58,6 +58,7 @@ import {
 	writeAgentStartMarker,
 	writeStagingResult,
 } from "./record-trace.js";
+import { resolveScenarioRetryMaxAttempts, shouldRetryAnnounceStopFlake } from "./scenario-retry.js";
 import {
 	type CallerHeadSnapshot,
 	captureCallerHead,
@@ -177,6 +178,8 @@ export interface RunSuiteOptions {
 	debug?: boolean;
 	/** Override staging sessions parent (from --debug-dir). */
 	debugDir?: string;
+	/** Live announce-stop retries (overrides AGENT_TEST_SCENARIO_RETRIES). */
+	scenarioRetries?: number;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -446,50 +449,77 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 			}
 
 			const started = performance.now();
-			const exitCode = await spawnLiveScenario({
-				cwd: options.cwd,
-				suiteName: suite.name,
-				scenarioName: scenario.name,
-				suitesDir: options.suitesDir ?? "agent-suites",
-				suiteFilter: options.suiteFilter ?? suite.name,
-				stagingSessionId: options.stagingSessionId,
-				keepRecordings: options.keepRecordings,
-				recordFixtures: options.recordFixtures,
-				worktree: options.worktree,
-				judge: options.judge,
-				scenarioIndex: index + 1,
-				scenarioTotal: filteredTotal,
-				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
-				noTimeout: options.timeoutMs === 0,
-				allowUserInput: options.allowUserInput,
-				debug: options.debug,
-				debugDir: options.debugDir,
-				previousExitCode: previousIsolatedExitCode,
-			});
-			previousIsolatedExitCode = exitCode;
-			const durationMs = Math.round(performance.now() - started);
-			const failures: AssertionFailure[] = [];
-			let judgeVerdicts: JudgeVerdictResult[] | undefined;
-			let scenarioTrace: AgentTrace | undefined;
 			const debug = isDebugEnabled(options);
+			const maxAttempts =
+				!isChildProcess() && isLiveSuite
+					? resolveScenarioRetryMaxAttempts(options.scenarioRetries)
+					: 1;
+			let attempts = 0;
+			let failures: AssertionFailure[] = [];
+			let scenarioTrace: AgentTrace | undefined;
+			let previousAttemptExitCode = previousIsolatedExitCode;
 
-			if (exitCode !== 0) {
-				const childResult =
-					options.stagingSessionId !== undefined
-						? await loadStagingResult(
-								getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
-							)
-						: undefined;
-				failures.push(...failuresForLiveSubprocessExit(exitCode, childResult));
-			}
-			if (options.stagingSessionId) {
-				const tracePath = getStagingTracePath(options.stagingSessionId, suite.name, scenario.name);
-				try {
-					scenarioTrace = await loadStagingTrace(tracePath);
-				} catch {
-					// Trace may be missing when the child crashed before recording.
+			while (true) {
+				attempts++;
+				const exitCode = await spawnLiveScenario({
+					cwd: options.cwd,
+					suiteName: suite.name,
+					scenarioName: scenario.name,
+					suitesDir: options.suitesDir ?? "agent-suites",
+					suiteFilter: options.suiteFilter ?? suite.name,
+					stagingSessionId: options.stagingSessionId,
+					keepRecordings: options.keepRecordings,
+					recordFixtures: options.recordFixtures,
+					worktree: options.worktree,
+					judge: options.judge,
+					scenarioIndex: index + 1,
+					scenarioTotal: filteredTotal,
+					timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
+					noTimeout: options.timeoutMs === 0,
+					allowUserInput: options.allowUserInput,
+					debug: options.debug,
+					debugDir: options.debugDir,
+					previousExitCode: previousAttemptExitCode,
+				});
+				previousAttemptExitCode = exitCode;
+				previousIsolatedExitCode = exitCode;
+				failures = [];
+				scenarioTrace = undefined;
+
+				if (exitCode !== 0) {
+					const childResult =
+						options.stagingSessionId !== undefined
+							? await loadStagingResult(
+									getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
+								)
+							: undefined;
+					failures.push(...failuresForLiveSubprocessExit(exitCode, childResult));
 				}
+				if (options.stagingSessionId) {
+					const tracePath = getStagingTracePath(
+						options.stagingSessionId,
+						suite.name,
+						scenario.name,
+					);
+					try {
+						scenarioTrace = await loadStagingTrace(tracePath);
+					} catch {
+						// Trace may be missing when the child crashed before recording.
+					}
+				}
+
+				const canRetry =
+					failures.length > 0 &&
+					attempts < maxAttempts &&
+					shouldRetryAnnounceStopFlake(failures, scenarioTrace);
+				if (canRetry) {
+					logPhase(theme.phase("retry", `${attempts}/${maxAttempts - 1}`));
+					continue;
+				}
+				break;
 			}
+
+			let judgeVerdicts: JudgeVerdictResult[] | undefined;
 			if (failures.length === 0 && options.judge !== false && scenarioTrace) {
 				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 				if (criteria.length > 0) {
@@ -512,6 +542,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				}
 			}
 
+			const durationMs = Math.round(performance.now() - started);
 			const passed = failures.length === 0;
 			const scenarioResult: ScenarioResult = {
 				suite: suite.name,
@@ -519,6 +550,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				passed,
 				failures,
 				durationMs,
+				attempts,
 				judgeVerdicts,
 				trace: scenarioTrace,
 			};
@@ -557,30 +589,108 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 			continue;
 		}
 
-		results.push(
-			await runScenario(
-				options.cwd,
-				suite.name,
+		const inProcessMaxAttempts =
+			!isChildProcess() && isLiveSuite
+				? resolveScenarioRetryMaxAttempts(options.scenarioRetries)
+				: 1;
+		if (inProcessMaxAttempts > 1) {
+			let attempts = 0;
+			let scenarioResult!: ScenarioResult;
+			while (true) {
+				attempts++;
+				scenarioResult = await runScenario(
+					options.cwd,
+					suite.name,
+					scenario,
+					defaultHost,
+					suite.defaults?.profile,
+					suite.defaults?.skills,
+					suite.defaults?.mcpServers,
+					options.record,
+					options.recordFixtures,
+					options.judge,
+					options.worktree,
+					options.stagingSessionId,
+					scenarioIndex,
+					scenarioTotal,
+					options.timeoutMs,
+					options.allowUserInput,
+					options.debug,
+					options.debugDir,
+					options.suitesDir ?? "agent-suites",
+					options.keepRecordings,
+					{ suppressEmit: true },
+				);
+				const canRetry =
+					!scenarioResult.skipped &&
+					!scenarioResult.passed &&
+					attempts < inProcessMaxAttempts &&
+					shouldRetryAnnounceStopFlake(scenarioResult.failures, scenarioResult.trace);
+				if (canRetry) {
+					logPhase(theme.phase("retry", `${attempts}/${inProcessMaxAttempts - 1}`));
+					continue;
+				}
+				break;
+			}
+			scenarioResult.attempts = attempts;
+			const debug = isDebugEnabled(options);
+			const debugBundleDir = await maybeWriteDebugBundle({
+				debug,
+				cwd: options.cwd,
+				suitesDir: options.suitesDir ?? "agent-suites",
+				stagingSessionId: options.stagingSessionId,
+				debugDir: options.debugDir,
+				suiteName: suite.name,
 				scenario,
-				defaultHost,
-				suite.defaults?.profile,
-				suite.defaults?.skills,
-				suite.defaults?.mcpServers,
-				options.record,
-				options.recordFixtures,
-				options.judge,
-				options.worktree,
-				options.stagingSessionId,
-				scenarioIndex,
-				scenarioTotal,
-				options.timeoutMs,
-				options.allowUserInput,
-				options.debug,
-				options.debugDir,
-				options.suitesDir ?? "agent-suites",
-				options.keepRecordings,
-			),
-		);
+				host: scenario.host ?? defaultHost,
+				result: scenarioResult,
+				trace: scenarioResult.trace,
+				timeoutMs: options.timeoutMs,
+				worktree: options.worktree,
+				judge: options.judge,
+				live: true,
+				allowUserInput: options.allowUserInput,
+				keepRecordings: options.keepRecordings,
+			});
+			scenarioResult.debugBundleDir = debugBundleDir;
+			emitScenarioVerdict({
+				passed: scenarioResult.passed,
+				index: scenarioIndex,
+				total: scenarioTotal,
+				name: scenario.name,
+				durationMs: scenarioResult.durationMs,
+				judgeVerdicts: scenarioResult.judgeVerdicts,
+				failures: scenarioResult.failures,
+				debug,
+				debugBundleDir,
+			});
+			results.push(scenarioResult);
+		} else {
+			results.push(
+				await runScenario(
+					options.cwd,
+					suite.name,
+					scenario,
+					defaultHost,
+					suite.defaults?.profile,
+					suite.defaults?.skills,
+					suite.defaults?.mcpServers,
+					options.record,
+					options.recordFixtures,
+					options.judge,
+					options.worktree,
+					options.stagingSessionId,
+					scenarioIndex,
+					scenarioTotal,
+					options.timeoutMs,
+					options.allowUserInput,
+					options.debug,
+					options.debugDir,
+					options.suitesDir ?? "agent-suites",
+					options.keepRecordings,
+				),
+			);
+		}
 		if (isLiveSuite) {
 			releaseLiveMemory();
 		}
@@ -618,9 +728,11 @@ async function runScenario(
 	debugDir?: string,
 	suitesDir = "agent-suites",
 	keepRecordings?: boolean,
+	runOptions?: { suppressEmit?: boolean },
 ): Promise<ScenarioResult> {
 	const started = performance.now();
 	const debug = isDebugEnabled({ debug: debugFlag });
+	const suppressEmit = runOptions?.suppressEmit === true;
 
 	if (scenario.skip) {
 		const skipLabel =
@@ -909,37 +1021,39 @@ async function runScenario(
 			judgeVerdicts,
 			trace,
 		};
-		const debugBundleDir = await maybeWriteDebugBundle({
-			debug,
-			cwd,
-			suitesDir,
-			stagingSessionId,
-			debugDir,
-			suiteName,
-			scenario,
-			host,
-			result: scenarioResult,
-			trace,
-			timeoutMs,
-			worktree,
-			judge,
-			live: isLive,
-			allowUserInput,
-			keepRecordings,
-		});
-		scenarioResult.debugBundleDir = debugBundleDir;
+		if (!suppressEmit) {
+			const debugBundleDir = await maybeWriteDebugBundle({
+				debug,
+				cwd,
+				suitesDir,
+				stagingSessionId,
+				debugDir,
+				suiteName,
+				scenario,
+				host,
+				result: scenarioResult,
+				trace,
+				timeoutMs,
+				worktree,
+				judge,
+				live: isLive,
+				allowUserInput,
+				keepRecordings,
+			});
+			scenarioResult.debugBundleDir = debugBundleDir;
 
-		emitScenarioVerdict({
-			passed: failures.length === 0,
-			index: scenarioIndex,
-			total: scenarioTotal,
-			name: scenario.name,
-			durationMs,
-			judgeVerdicts,
-			failures,
-			debug,
-			debugBundleDir,
-		});
+			emitScenarioVerdict({
+				passed: failures.length === 0,
+				index: scenarioIndex,
+				total: scenarioTotal,
+				name: scenario.name,
+				durationMs,
+				judgeVerdicts,
+				failures,
+				debug,
+				debugBundleDir,
+			});
+		}
 
 		return scenarioResult;
 	} finally {
@@ -1031,6 +1145,7 @@ export async function runAllSuites(options: {
 	allowUserInput?: boolean;
 	debug?: boolean;
 	debugDir?: string;
+	scenarioRetries?: number;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
@@ -1060,6 +1175,7 @@ export async function runAllSuites(options: {
 				allowUserInput: options.allowUserInput,
 				debug: options.debug,
 				debugDir: options.debugDir,
+				scenarioRetries: options.scenarioRetries,
 			}),
 		);
 	}

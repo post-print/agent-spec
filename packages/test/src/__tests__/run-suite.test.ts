@@ -169,6 +169,7 @@ describe("runSuite isolateLive", () => {
 			suitePath,
 			stagingSessionId: "sess-sidecar",
 			judge: false,
+			scenarioRetries: 0,
 		});
 
 		const failed = report.results.find((r) => r.scenario === "failing");
@@ -180,6 +181,134 @@ describe("runSuite isolateLive", () => {
 				category: "rubric_miss",
 			},
 		]);
+	});
+
+	it("retries announce-stop rubric misses once then passes", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-announce-retry-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "isolate-announce-retry",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "first", prompt: "p", rubric: {} },
+					{ name: "flaky", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		let flakySpawns = 0;
+		const spawnSpy = vi
+			.spyOn(liveIsolation, "spawnLiveScenario")
+			.mockImplementation(async (options) => {
+				if (options.scenarioName !== "flaky") {
+					return 0;
+				}
+				flakySpawns++;
+				return flakySpawns === 1 ? 1 : 0;
+			});
+		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
+			if (!path.includes("flaky")) {
+				return undefined;
+			}
+			if (flakySpawns === 1) {
+				return {
+					passed: false,
+					durationMs: 8,
+					failures: [
+						{
+							matcher: "toHaveInvokedSkill",
+							message: "expected skill",
+							category: "rubric_miss",
+						},
+						{
+							matcher: "toHaveReviewDepth",
+							message: "expected depth",
+							category: "rubric_miss",
+						},
+					],
+				};
+			}
+			return { passed: true, durationMs: 20, failures: [] };
+		});
+		vi.spyOn(recordTrace, "loadStagingTrace").mockResolvedValue({
+			messages: [{ role: "assistant", content: "Routing only" }],
+			toolCalls: [],
+		});
+
+		const report = await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-announce-retry",
+			judge: false,
+			scenarioRetries: 1,
+		});
+
+		const flaky = report.results.find((r) => r.scenario === "flaky");
+		expect(flakySpawns).toBe(2);
+		expect(spawnSpy).toHaveBeenCalledTimes(3); // first + flaky x2
+		expect(flaky?.passed).toBe(true);
+		expect(flaky?.attempts).toBe(2);
+		expect(flaky?.failures).toEqual([]);
+	});
+
+	it("does not retry rubric misses when tools were used", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-no-announce-retry-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "isolate-no-announce-retry",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "first", prompt: "p", rubric: {} },
+					{ name: "real-miss", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		const spawnSpy = vi
+			.spyOn(liveIsolation, "spawnLiveScenario")
+			.mockImplementation(async (options) => (options.scenarioName === "real-miss" ? 1 : 0));
+		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
+			path.includes("real-miss")
+				? {
+						passed: false,
+						durationMs: 40,
+						failures: [
+							{
+								matcher: "toHaveReviewDepth",
+								message: "wrong depth",
+								category: "rubric_miss",
+							},
+						],
+					}
+				: undefined,
+		);
+		vi.spyOn(recordTrace, "loadStagingTrace").mockResolvedValue({
+			messages: [{ role: "assistant", content: "reviewed" }],
+			toolCalls: [{ name: "Shell", input: { command: "git status" } }],
+		});
+
+		const report = await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-no-announce-retry",
+			judge: false,
+			scenarioRetries: 1,
+		});
+
+		const failed = report.results.find((r) => r.scenario === "real-miss");
+		expect(spawnSpy).toHaveBeenCalledTimes(2); // first + real-miss once
+		expect(failed?.passed).toBe(false);
+		expect(failed?.attempts).toBe(1);
 	});
 
 	it("honors pass sidecar when timeout kill forces exit 124", async () => {
