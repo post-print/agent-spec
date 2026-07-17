@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { assertionFailure } from "./failures.js";
 import {
@@ -13,6 +13,28 @@ import {
 	readAgentStartMarker,
 } from "./record-trace.js";
 import type { AssertionFailure, FailureCategory } from "./types.js";
+
+const activeChildren = new Set<ChildProcess>();
+
+function registerActiveChild(child: ChildProcess): void {
+	activeChildren.add(child);
+}
+
+function unregisterActiveChild(child: ChildProcess): void {
+	activeChildren.delete(child);
+}
+
+/** Kill in-flight live scenario children (SIGINT/SIGTERM from parent). */
+export function killActiveLiveChildren(): void {
+	for (const child of activeChildren) {
+		try {
+			child.kill("SIGTERM");
+		} catch {
+			// best-effort
+		}
+	}
+	activeChildren.clear();
+}
 
 function categoryFromLegacyFailure(failure: {
 	matcher: string;
@@ -47,7 +69,15 @@ export function liveScenarioIsolationEnabled(): boolean {
 	return process.env.AGENT_TEST_CHILD !== "1" && process.env.AGENT_TEST_NO_ISOLATE !== "1";
 }
 
-export function scenarioSettleMs(): number {
+/**
+ * Settle delay after a live child exits.
+ * Concurrent workers default to 0 unless AGENT_TEST_SCENARIO_SETTLE_MS is set.
+ */
+export function scenarioSettleMs(options?: { concurrent?: boolean }): number {
+	const envSet = process.env.AGENT_TEST_SCENARIO_SETTLE_MS !== undefined;
+	if (options?.concurrent && !envSet) {
+		return 0;
+	}
 	const raw = process.env.AGENT_TEST_SCENARIO_SETTLE_MS ?? String(DEFAULT_SCENARIO_SETTLE_MS);
 	const parsed = Number(raw);
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_SCENARIO_SETTLE_MS;
@@ -76,6 +106,11 @@ export interface SpawnLiveScenarioOptions {
 	allowUserInput?: boolean;
 	debug?: boolean;
 	debugDir?: string;
+	/**
+	 * Quiet child + piped stdio (parent owns concurrent UI).
+	 * Also skips default settle delay unless AGENT_TEST_SCENARIO_SETTLE_MS is set.
+	 */
+	concurrent?: boolean;
 }
 
 export interface LiveScenarioCommand {
@@ -168,11 +203,15 @@ export function subprocessKillDelayMs(agentStartMs: number, agentTimeoutMs: numb
 /** Run one live scenario in a fresh Node subprocess; inherit stdio for live progress. */
 export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Promise<number> {
 	const { command, args, execArgv } = buildLiveScenarioCommand(options);
+	const concurrent = options.concurrent === true;
 
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		AGENT_TEST_CHILD: "1",
 	};
+	if (concurrent) {
+		env.AGENT_TEST_QUIET = "1";
+	}
 	if (options.scenarioIndex !== undefined) {
 		env.AGENT_TEST_SCENARIO_INDEX = String(options.scenarioIndex);
 	}
@@ -187,8 +226,13 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 		const child = spawn(command, [...execArgv, ...args], {
 			cwd: options.cwd,
 			env,
-			stdio: "inherit",
+			// Concurrent: pipe stdout so children stay quiet; keep stderr for crashes.
+			stdio: concurrent ? ["ignore", "pipe", "inherit"] : "inherit",
 		});
+		if (concurrent && child.stdout) {
+			child.stdout.resume();
+		}
+		registerActiveChild(child);
 		let childClosed = false;
 		let killedForTimeout = false;
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -255,11 +299,13 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 
 		child.on("error", (error) => {
 			childClosed = true;
+			unregisterActiveChild(child);
 			clearKillTimers();
 			reject(error);
 		});
 		child.on("close", (code, signal) => {
 			childClosed = true;
+			unregisterActiveChild(child);
 			clearKillTimers();
 			if (killedForTimeout) {
 				resolveExit(124);
@@ -273,7 +319,7 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 		});
 	});
 
-	const settleMs = scenarioSettleMs();
+	const settleMs = scenarioSettleMs({ concurrent });
 	if (settleMs > 0) {
 		await sleep(settleMs);
 	}

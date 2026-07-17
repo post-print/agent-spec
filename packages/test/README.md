@@ -25,6 +25,7 @@ Works under **Node >= 22** (the published `agent-test` bin):
 npx agent-test --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --suite ambient-routing
 npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # exported CURSOR_API_KEY required
+npx agent-test --suites-dir agent-suites --workers 2
 npx agent-test --doctor
 ```
 
@@ -45,6 +46,7 @@ See repo-root `.env.example`. Common knobs:
 | `AGENT_TEST_VERBOSE`                        | Extra tips (e.g. OOM isolation) when `1`         |
 | `AGENT_TEST_VERBOSE_PATHS`                  | Print full paths when `1`                        |
 | `AGENT_TEST_QUIET`                          | Suppress progress when `1`                       |
+| `AGENT_TEST_WORKERS`                        | Same as `--workers N` (integer ≥ 1)              |
 | `AGENT_TEST_TIMEOUT_MS`                     | Live hard timeout (default 600000; `0` disables) |
 | `AGENT_TEST_ALLOW_IN_PLACE`                 | Allow `--no-worktree` live runs when `1`         |
 | `AGENT_TEST_NO_WORKTREE`                    | Disable worktree isolation when `1`/`true`       |
@@ -76,19 +78,27 @@ sessions/<id>/<suite>/<scenario>.debug/
 
 Failure categories printed on FAIL lines and in `failures.json`:
 
-| Category | Meaning |
-| --- | --- |
-| `rubric_miss` | Assertion/judge criterion miss |
-| `judge_infra` | Judge SDK/API failure (not a criterion miss) |
-| `agent_runtime` | Agent session error, timeout, AskQuestion, subprocess exit |
-| `worktree_leak` | Live agent mutated the caller working tree |
-| `recording_error` | Failed to persist a staging/fixture trace |
+| Category          | Meaning                                                    |
+| ----------------- | ---------------------------------------------------------- |
+| `rubric_miss`     | Assertion/judge criterion miss                             |
+| `judge_infra`     | Judge SDK/API failure (not a criterion miss)               |
+| `agent_runtime`   | Agent session error, timeout, AskQuestion, subprocess exit |
+| `worktree_leak`   | Live agent mutated the caller working tree                 |
+| `recording_error` | Failed to persist a staging/fixture trace                  |
 
 ## Live dogfood
 
 Live runs need `CURSOR_API_KEY` and a suites directory that exists. Preflight fails when the resolved suites directory is missing (default `agent-suites/` if `--suites-dir` is omitted).
 
 Passing live runs write staging traces under `$TMPDIR/agent-spec/sessions/<pid>-<timestamp>/` (removed on exit unless `--keep-recordings`). Use `--record-fixtures` to overwrite each scenario's committed `replayTrace` path. `--no-worktree` requires `AGENT_TEST_ALLOW_IN_PLACE=1`.
+
+### Concurrent workers
+
+`--workers N` (or `AGENT_TEST_WORKERS`) runs up to N scenarios at once within a suite (default **1**). Replay suites use an in-process pool; live multi-scenario runs pool isolated subprocesses.
+
+When `workers > 1`, the parent owns a concurrent terminal UI (sticky worker slots on a TTY; plain prefixed lines otherwise). Live children run quiet (`AGENT_TEST_QUIET`) with piped stdout.
+
+Workers are forced to **1** (with a warning) for `--record-fixtures`, `--no-worktree` / `AGENT_TEST_NO_WORKTREE`, `AGENT_TEST_NO_ISOLATE`, and `--scenario`. Concurrent live runs default settle delay to **0** unless `AGENT_TEST_SCENARIO_SETTLE_MS` is set. Prefer `workers ≤ 4` for live — higher values increase macOS OOM (exit 137) risk.
 
 Live agent runs have a **hard timeout** (default **10 minutes**, override with `--timeout-ms` or `AGENT_TEST_TIMEOUT_MS`; disable with `--no-timeout` or `AGENT_TEST_TIMEOUT_MS=0`). If the agent invokes `AskQuestion` or similar user-input tools, the harness fails fast with a clear error — live mode is single-shot and cannot supply follow-up turns. Use `--allow-user-input` only for intentional multi-turn dogfood (the run may still hang waiting for stdin).
 

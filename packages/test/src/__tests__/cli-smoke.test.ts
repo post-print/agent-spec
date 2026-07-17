@@ -35,8 +35,15 @@ describe("cli smoke", () => {
 
 			const { stdout, stderr } = await execFileAsync(
 				process.execPath,
-				[binLink, "--suites-dir", fixturesDir, "--suite", "smoke"],
-				{ cwd: repoRoot },
+				[binLink, "--suites-dir", fixturesDir, "--suite", "smoke", "--workers", "2"],
+				{
+					cwd: repoRoot,
+					env: {
+						...process.env,
+						// progress.ts suppresses chrome when VITEST is set (inherited from vitest).
+						VITEST: undefined,
+					},
+				},
 			);
 
 			const ansiEscape = String.fromCharCode(27);
@@ -44,6 +51,7 @@ describe("cli smoke", () => {
 			expect(output).toMatch(/smoke:.*passed/);
 			expect(output).not.toMatch(/No suites found/);
 			expect(output).toMatch(/HTML report:.*agent-test-report-.*report\.html/);
+			expect(output).toMatch(/workers 2/);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}

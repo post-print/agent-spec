@@ -55,3 +55,44 @@ describe("parseCliArgs debug flags", () => {
 		);
 	});
 });
+
+describe("parseCliArgs workers", () => {
+	const priorWorkers = process.env.AGENT_TEST_WORKERS;
+
+	afterEach(() => {
+		if (priorWorkers === undefined) {
+			delete process.env.AGENT_TEST_WORKERS;
+		} else {
+			process.env.AGENT_TEST_WORKERS = priorWorkers;
+		}
+	});
+
+	it("parses --workers", () => {
+		delete process.env.AGENT_TEST_WORKERS;
+		const args = parseCliArgs(["node", "cli.js", "--workers", "4", "--suite", "smoke"]);
+		expect(args.workers).toBe(4);
+	});
+
+	it("reads AGENT_TEST_WORKERS when flag omitted", () => {
+		process.env.AGENT_TEST_WORKERS = "3";
+		const args = parseCliArgs(["node", "cli.js", "--suite", "smoke"]);
+		expect(args.workers).toBe(3);
+	});
+
+	it("lets --workers override env", () => {
+		process.env.AGENT_TEST_WORKERS = "3";
+		const args = parseCliArgs(["node", "cli.js", "--workers", "2"]);
+		expect(args.workers).toBe(2);
+	});
+
+	it("rejects invalid --workers", () => {
+		expect(() => parseCliArgs(["node", "cli.js", "--workers", "0"])).toThrow(/--workers/);
+		expect(() => parseCliArgs(["node", "cli.js", "--workers"])).toThrow(/--workers/);
+	});
+
+	it("leaves workers undefined by default", () => {
+		delete process.env.AGENT_TEST_WORKERS;
+		const args = parseCliArgs(["node", "cli.js", "--suite", "smoke"]);
+		expect(args.workers).toBeUndefined();
+	});
+});

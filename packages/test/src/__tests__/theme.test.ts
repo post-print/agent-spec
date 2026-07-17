@@ -148,6 +148,13 @@ describe("theme.suiteHeader", () => {
 		chalk.level = 0;
 		expect(theme.suiteHeader("routing", "cursor", 4)).toBe("routing  ·  cursor  ·  4 scenarios");
 	});
+
+	it("appends workers when > 1", () => {
+		chalk.level = 0;
+		expect(theme.suiteHeader("routing", "cursor", 4, 2)).toBe(
+			"routing  ·  cursor  ·  4 scenarios  ·  workers 2",
+		);
+	});
 });
 
 describe("configureCliColor", () => {

@@ -317,4 +317,48 @@ describe("runSuite isolateLive", () => {
 			recordTrace.setLiveStagingRootOverride(undefined);
 		}
 	});
+
+	it("caps concurrent live spawns to workers and preserves result order", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-workers-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "isolate-workers",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "a", prompt: "p", rubric: {} },
+					{ name: "b", prompt: "p", rubric: {} },
+					{ name: "c", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const spawnSpy = vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async () => {
+			inFlight++;
+			maxInFlight = Math.max(maxInFlight, inFlight);
+			await new Promise((r) => setTimeout(r, 30));
+			inFlight--;
+			return 0;
+		});
+
+		const report = await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-workers",
+			workers: 2,
+			judge: false,
+		});
+
+		expect(spawnSpy).toHaveBeenCalledTimes(3);
+		expect(maxInFlight).toBeLessThanOrEqual(2);
+		expect(spawnSpy.mock.calls.every((call) => call[0].concurrent === true)).toBe(true);
+		expect(report.results.map((r) => r.scenario)).toEqual(["a", "b", "c"]);
+		expect(report.passed).toBe(3);
+	});
 });

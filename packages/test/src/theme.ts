@@ -90,13 +90,22 @@ function criterionLabel(count: number): string {
 }
 
 export const theme = {
-	suiteHeader(name: string, host: string, count: number): string {
+	suiteHeader(name: string, host: string, count: number, workers?: number): string {
 		const scenarios = count === 1 ? "1 scenario" : `${count} scenarios`;
-		return `${chalk.bold.cyan(name)}  ${chalk.dim("·")}  ${chalk.dim(host)}  ${chalk.dim("·")}  ${chalk.dim(scenarios)}`;
+		const base = `${chalk.bold.cyan(name)}  ${chalk.dim("·")}  ${chalk.dim(host)}  ${chalk.dim("·")}  ${chalk.dim(scenarios)}`;
+		if (workers === undefined || workers <= 1) {
+			return base;
+		}
+		return `${base}  ${chalk.dim("·")}  ${chalk.dim(`workers ${workers}`)}`;
 	},
 
 	scenarioTitle(index: number, total: number, name: string, host: string): string {
 		return `${chalk.bold(`[${index}/${total}]`)} ${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}`;
+	},
+
+	/** Concurrent sticky-slot label without host suffix. */
+	workerSlot(index: number, total: number, name: string): string {
+		return `${chalk.bold(`[${index}/${total}]`)} ${chalk.bold.white(name)}`;
 	},
 
 	scenarioLabel(name: string, host?: string): string {

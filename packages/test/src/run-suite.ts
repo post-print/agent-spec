@@ -22,12 +22,14 @@ import {
 	traceHasUserInputTool,
 } from "@post-print/agent-harness";
 
+import { ConcurrentReporter, type ProgressAdapter } from "./concurrent-reporter.js";
 import { collectDebugEnvironment, getDebugBundleDir, writeDebugBundle } from "./debug-bundle.js";
 import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
 import { assertionFailure } from "./failures.js";
 import {
 	failuresForLiveSubprocessExit,
+	killActiveLiveChildren,
 	liveScenarioIsolationEnabled,
 	parentScenarioCounters,
 	spawnLiveScenario,
@@ -49,6 +51,7 @@ import {
 	writeAgentStartMarker,
 	writeStagingResult,
 } from "./record-trace.js";
+import { runWithWorkers } from "./scenario-scheduler.js";
 import {
 	type CallerHeadSnapshot,
 	captureCallerHead,
@@ -65,11 +68,13 @@ import type {
 	ScenarioRubric,
 	SuiteRunReport,
 } from "./types.js";
+import { normalizeWorkers } from "./workers.js";
+import { withWorktreeLock } from "./worktree-lock.js";
 
 const require = createRequire(import.meta.url);
 const packageVersion = (require("../package.json") as { version: string }).version;
 
-let activeWorktreeCleanup: (() => Promise<void>) | undefined;
+const activeWorktreeCleanups = new Set<() => Promise<void>>();
 let activeCallerHeadRestore: { cwd: string; snapshot: CallerHeadSnapshot } | undefined;
 let liveSignalHandlersRegistered = false;
 
@@ -107,17 +112,16 @@ export function registerLiveRunHandlers(): void {
 	liveSignalHandlersRegistered = true;
 
 	const interrupt = (code: number) => {
-		const cleanup = activeWorktreeCleanup;
+		killActiveLiveChildren();
+		const cleanups = [...activeWorktreeCleanups];
 		const headRestore = activeCallerHeadRestore;
-		if (!cleanup && !headRestore) {
+		if (cleanups.length === 0 && !headRestore) {
 			process.exit(code);
 			return;
 		}
 		void Promise.resolve()
 			.then(async () => {
-				if (cleanup) {
-					await cleanup().catch(() => undefined);
-				}
+				await Promise.all(cleanups.map((cleanup) => cleanup().catch(() => undefined)));
 				if (headRestore) {
 					await restoreCallerHeadIfSeedCommit(headRestore.cwd, headRestore.snapshot).catch(
 						() => undefined,
@@ -165,6 +169,8 @@ export interface RunSuiteOptions {
 	debug?: boolean;
 	/** Override staging sessions parent (from --debug-dir). */
 	debugDir?: string;
+	/** Max concurrent scenarios (default 1). */
+	workers?: number;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -382,7 +388,6 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const suite = await loadSuiteFile(options.suitePath);
 	const defaultHost = options.host ?? suite.defaults?.host ?? "replay";
-	const results: ScenarioResult[] = [];
 	const scenarios = options.scenarioFilter
 		? suite.scenarios.filter((scenario) => scenario.name === options.scenarioFilter)
 		: suite.scenarios;
@@ -397,150 +402,51 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const isLiveSuite = defaultHost !== "replay";
 	const isolateLive =
 		isLiveSuite && liveScenarioIsolationEnabled() && !options.scenarioFilter && filteredTotal > 1;
+	const workers = normalizeWorkers({
+		requested: options.workers,
+		scenarioCount: filteredTotal,
+		recordFixtures: options.recordFixtures,
+		worktree: options.worktree,
+		isolateDisabled: process.env.AGENT_TEST_NO_ISOLATE === "1",
+		scenarioFilter: options.scenarioFilter,
+		isLive: isLiveSuite,
+		warn: (message) => console.warn(theme.warn(message.replace(/^agent-test:\s*/, ""))),
+	});
+	const concurrent = workers > 1;
+	const reporter =
+		concurrent && shouldPrintSuiteChrome()
+			? new ConcurrentReporter({ workers, total: displayTotal })
+			: undefined;
 
 	if (shouldPrintSuiteChrome()) {
-		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal)}`);
+		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal, workers)}`);
 		if (isolateLive) {
 			logProgress(`  ${theme.isolationNote()}`);
 		}
 	}
 
-	for (let index = 0; index < scenarios.length; index++) {
-		const scenario = scenarios[index];
-		if (!scenario) {
-			continue;
-		}
+	try {
+		const results = await runWithWorkers(scenarios, workers, async (scenario, index) => {
+			const scenarioIndex = parentCounters?.index ?? index + 1;
+			const scenarioTotal = displayTotal;
+			const progress = reporter?.adapter(scenarioIndex, scenario.name);
 
-		const scenarioIndex = parentCounters?.index ?? index + 1;
-		const scenarioTotal = displayTotal;
-
-		if (isolateLive) {
-			if (scenario.skip) {
-				const skipLabel = `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`;
-				logProgress(theme.skipped(skipLabel));
-				results.push({
-					suite: suite.name,
-					scenario: scenario.name,
-					passed: true,
-					failures: [],
-					skipped: true,
-					durationMs: 0,
+			if (isolateLive) {
+				return runIsolatedLiveScenario({
+					options,
+					suiteName: suite.name,
+					scenario,
+					defaultHost,
+					index,
+					filteredTotal,
+					scenarioIndex,
+					scenarioTotal,
+					concurrent,
+					progress,
 				});
-				continue;
 			}
 
-			const started = performance.now();
-			const exitCode = await spawnLiveScenario({
-				cwd: options.cwd,
-				suiteName: suite.name,
-				scenarioName: scenario.name,
-				suitesDir: options.suitesDir ?? "agent-suites",
-				suiteFilter: options.suiteFilter ?? suite.name,
-				stagingSessionId: options.stagingSessionId,
-				keepRecordings: options.keepRecordings,
-				recordFixtures: options.recordFixtures,
-				worktree: options.worktree,
-				judge: options.judge,
-				scenarioIndex: index + 1,
-				scenarioTotal: filteredTotal,
-				timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
-				noTimeout: options.timeoutMs === 0,
-				allowUserInput: options.allowUserInput,
-				debug: options.debug,
-				debugDir: options.debugDir,
-			});
-			const durationMs = Math.round(performance.now() - started);
-			const failures: AssertionFailure[] = [];
-			let judgeVerdicts: JudgeVerdictResult[] | undefined;
-			let scenarioTrace: AgentTrace | undefined;
-			const debug = isDebugEnabled(options);
-
-			if (exitCode !== 0) {
-				const childResult =
-					options.stagingSessionId !== undefined
-						? await loadStagingResult(
-								getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
-							)
-						: undefined;
-				failures.push(...failuresForLiveSubprocessExit(exitCode, childResult));
-			}
-			if (options.stagingSessionId) {
-				const tracePath = getStagingTracePath(options.stagingSessionId, suite.name, scenario.name);
-				try {
-					scenarioTrace = await loadStagingTrace(tracePath);
-				} catch {
-					// Trace may be missing when the child crashed before recording.
-				}
-			}
-			if (failures.length === 0 && options.judge !== false && scenarioTrace) {
-				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
-				if (criteria.length > 0) {
-					releaseLiveMemory();
-					logPhase(theme.judgePhase(criteria.length), { last: true });
-					try {
-						const judged = await runJudgeRubric(scenarioTrace, scenario.rubric, options.cwd);
-						failures.push(...judged.failures);
-						scenarioTrace = judged.trace;
-						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
-					} catch (error) {
-						failures.push(
-							assertionFailure(
-								"judge",
-								error instanceof Error ? error.message : "failed to load staging trace for judge",
-								"judge_infra",
-							),
-						);
-					}
-				}
-			}
-
-			const passed = failures.length === 0;
-			const scenarioResult: ScenarioResult = {
-				suite: suite.name,
-				scenario: scenario.name,
-				passed,
-				failures,
-				durationMs,
-				judgeVerdicts,
-				trace: scenarioTrace,
-			};
-			const debugBundleDir = await maybeWriteDebugBundle({
-				debug,
-				cwd: options.cwd,
-				suitesDir: options.suitesDir ?? "agent-suites",
-				stagingSessionId: options.stagingSessionId,
-				debugDir: options.debugDir,
-				suiteName: suite.name,
-				scenario,
-				host: defaultHost,
-				result: scenarioResult,
-				trace: scenarioTrace,
-				timeoutMs: options.timeoutMs,
-				worktree: options.worktree,
-				judge: options.judge,
-				live: true,
-				allowUserInput: options.allowUserInput,
-				keepRecordings: options.keepRecordings,
-			});
-			scenarioResult.debugBundleDir = debugBundleDir;
-			emitScenarioVerdict({
-				passed,
-				index: index + 1,
-				total: filteredTotal,
-				name: scenario.name,
-				durationMs,
-				judgeVerdicts,
-				failures,
-				debug,
-				debugBundleDir,
-			});
-			results.push(scenarioResult);
-			releaseLiveMemory();
-			continue;
-		}
-
-		results.push(
-			await runScenario(
+			const result = await runScenario(
 				options.cwd,
 				suite.name,
 				scenario,
@@ -561,21 +467,207 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				options.debugDir,
 				options.suitesDir ?? "agent-suites",
 				options.keepRecordings,
-			),
-		);
-		if (isLiveSuite) {
-			releaseLiveMemory();
+				progress,
+			);
+			if (isLiveSuite) {
+				releaseLiveMemory();
+			}
+			return result;
+		});
+
+		return {
+			suite: suite.name,
+			host: defaultHost,
+			passed: results.filter((r) => r.passed).length,
+			skipped: results.filter((r) => r.skipped).length,
+			failed: results.filter((r) => !r.passed && !r.skipped).length,
+			results,
+		};
+	} finally {
+		reporter?.close();
+	}
+}
+
+async function runIsolatedLiveScenario(args: {
+	options: RunSuiteOptions;
+	suiteName: string;
+	scenario: AgentScenario;
+	defaultHost: AgentHost;
+	index: number;
+	filteredTotal: number;
+	scenarioIndex: number;
+	scenarioTotal: number;
+	concurrent: boolean;
+	progress?: ProgressAdapter;
+}): Promise<ScenarioResult> {
+	const {
+		options,
+		suiteName,
+		scenario,
+		defaultHost,
+		index,
+		filteredTotal,
+		scenarioIndex,
+		scenarioTotal,
+		concurrent,
+		progress,
+	} = args;
+
+	if (scenario.skip) {
+		if (progress) {
+			progress.skipped();
+		} else {
+			logProgress(theme.skipped(`[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`));
+		}
+		return {
+			suite: suiteName,
+			scenario: scenario.name,
+			passed: true,
+			failures: [],
+			skipped: true,
+			durationMs: 0,
+		};
+	}
+
+	const started = performance.now();
+	progress?.started(defaultHost);
+	progress?.phase("agent");
+	const heartbeat =
+		progress && concurrent
+			? setInterval(() => {
+					progress.heartbeat(performance.now() - started);
+				}, 5000)
+			: undefined;
+	heartbeat?.unref?.();
+
+	let exitCode: number;
+	try {
+		exitCode = await spawnLiveScenario({
+			cwd: options.cwd,
+			suiteName,
+			scenarioName: scenario.name,
+			suitesDir: options.suitesDir ?? "agent-suites",
+			suiteFilter: options.suiteFilter ?? suiteName,
+			stagingSessionId: options.stagingSessionId,
+			keepRecordings: options.keepRecordings,
+			recordFixtures: options.recordFixtures,
+			worktree: options.worktree,
+			judge: options.judge,
+			scenarioIndex: index + 1,
+			scenarioTotal: filteredTotal,
+			timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
+			noTimeout: options.timeoutMs === 0,
+			allowUserInput: options.allowUserInput,
+			debug: options.debug,
+			debugDir: options.debugDir,
+			concurrent,
+		});
+	} finally {
+		if (heartbeat !== undefined) {
+			clearInterval(heartbeat);
 		}
 	}
 
-	return {
-		suite: suite.name,
-		host: defaultHost,
-		passed: results.filter((r) => r.passed).length,
-		skipped: results.filter((r) => r.skipped).length,
-		failed: results.filter((r) => !r.passed && !r.skipped).length,
-		results,
+	const durationMs = Math.round(performance.now() - started);
+	const failures: AssertionFailure[] = [];
+	let judgeVerdicts: JudgeVerdictResult[] | undefined;
+	let scenarioTrace: AgentTrace | undefined;
+	const debug = isDebugEnabled(options);
+
+	if (exitCode !== 0) {
+		const childResult =
+			options.stagingSessionId !== undefined
+				? await loadStagingResult(
+						getStagingResultPath(options.stagingSessionId, suiteName, scenario.name),
+					)
+				: undefined;
+		failures.push(...failuresForLiveSubprocessExit(exitCode, childResult));
+	}
+	if (options.stagingSessionId) {
+		const tracePath = getStagingTracePath(options.stagingSessionId, suiteName, scenario.name);
+		try {
+			scenarioTrace = await loadStagingTrace(tracePath);
+		} catch {
+			// Trace may be missing when the child crashed before recording.
+		}
+	}
+	if (failures.length === 0 && options.judge !== false && scenarioTrace) {
+		const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
+		if (criteria.length > 0) {
+			releaseLiveMemory();
+			progress?.phase("judge");
+			if (!progress) {
+				logPhase(theme.judgePhase(criteria.length), { last: true });
+			}
+			try {
+				const judged = await runJudgeRubric(scenarioTrace, scenario.rubric, options.cwd);
+				failures.push(...judged.failures);
+				scenarioTrace = judged.trace;
+				judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
+			} catch (error) {
+				failures.push(
+					assertionFailure(
+						"judge",
+						error instanceof Error ? error.message : "failed to load staging trace for judge",
+						"judge_infra",
+					),
+				);
+			}
+		}
+	}
+
+	const passed = failures.length === 0;
+	const scenarioResult: ScenarioResult = {
+		suite: suiteName,
+		scenario: scenario.name,
+		passed,
+		failures,
+		durationMs,
+		judgeVerdicts,
+		trace: scenarioTrace,
 	};
+	const debugBundleDir = await maybeWriteDebugBundle({
+		debug,
+		cwd: options.cwd,
+		suitesDir: options.suitesDir ?? "agent-suites",
+		stagingSessionId: options.stagingSessionId,
+		debugDir: options.debugDir,
+		suiteName,
+		scenario,
+		host: defaultHost,
+		result: scenarioResult,
+		trace: scenarioTrace,
+		timeoutMs: options.timeoutMs,
+		worktree: options.worktree,
+		judge: options.judge,
+		live: true,
+		allowUserInput: options.allowUserInput,
+		keepRecordings: options.keepRecordings,
+	});
+	scenarioResult.debugBundleDir = debugBundleDir;
+
+	if (progress) {
+		progress.finished(scenarioResult, {
+			judgeVerdicts,
+			failures,
+			debug,
+			debugBundleDir,
+		});
+	} else {
+		emitScenarioVerdict({
+			passed,
+			index: index + 1,
+			total: filteredTotal,
+			name: scenario.name,
+			durationMs,
+			judgeVerdicts,
+			failures,
+			debug,
+			debugBundleDir,
+		});
+	}
+	releaseLiveMemory();
+	return scenarioResult;
 }
 
 async function runScenario(
@@ -599,16 +691,30 @@ async function runScenario(
 	debugDir?: string,
 	suitesDir = "agent-suites",
 	keepRecordings?: boolean,
+	progress?: ProgressAdapter,
 ): Promise<ScenarioResult> {
 	const started = performance.now();
 	const debug = isDebugEnabled({ debug: debugFlag });
+	const quietProgress = Boolean(progress);
+
+	const phase = (label: string, detail?: string, options?: { last?: boolean }) => {
+		if (progress) {
+			progress.phase(label);
+			return;
+		}
+		logPhase(theme.phase(label, detail), options);
+	};
 
 	if (scenario.skip) {
 		const skipLabel =
 			scenarioIndex !== undefined && scenarioTotal !== undefined
 				? `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`
 				: scenario.name;
-		logProgress(theme.skipped(skipLabel));
+		if (progress) {
+			progress.skipped();
+		} else {
+			logProgress(theme.skipped(skipLabel));
+		}
 		return {
 			suite: suiteName,
 			scenario: scenario.name,
@@ -627,7 +733,9 @@ async function runScenario(
 	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
 	const failOnUserInput = !allowUserInput;
 
-	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
+	if (progress) {
+		progress.started(host);
+	} else if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
 		logProgress(theme.scenarioTitle(scenarioIndex, scenarioTotal, scenario.name, host));
 	} else {
 		logProgress(theme.scenarioLabel(scenario.name, host));
@@ -642,29 +750,31 @@ async function runScenario(
 			callerHeadBefore = await captureCallerHead(cwd);
 			setCallerHeadRestore(cwd, callerHeadBefore);
 		}
-		worktreeHandle = await createScenarioWorktree(cwd, `${suiteName}-${scenario.name}`);
-		activeWorktreeCleanup = worktreeHandle.cleanup;
-		logPhase(theme.phase("worktree", theme.path(worktreeHandle.path)));
+		worktreeHandle = await withWorktreeLock(cwd, () =>
+			createScenarioWorktree(cwd, `${suiteName}-${scenario.name}`),
+		);
+		activeWorktreeCleanups.add(worktreeHandle.cleanup);
+		phase("worktree", theme.path(worktreeHandle.path));
 		if (isLive && scenario.seedPatch) {
-			logPhase(theme.phase("seed", theme.basename(scenario.seedPatch)));
+			phase("seed", theme.basename(scenario.seedPatch));
 			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch);
 		}
 	} else if (isLive) {
-		logPhase(theme.phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)")));
+		phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)"));
 	}
 	const runCwd = worktreeHandle?.path ?? cwd;
 
 	try {
-		logPhase(theme.phase("context"));
+		phase("context");
 		// Live worktree runs code in an isolated checkout; load rules/AGENTS from caller cwd
 		// so uncommitted .cursor/rules and AGENTS.md edits apply during dogfood.
 		const contextRoot = isLive && useWorktree ? cwd : runCwd;
 		const context = await loadContext({ cwd: contextRoot, profile, skills });
 		const useReplay = host === "replay";
 		if (useReplay) {
-			logPhase(theme.phase("replay", theme.path(scenario.replayTrace ?? "trace")));
+			phase("replay", theme.path(scenario.replayTrace ?? "trace"));
 		} else {
-			logPhase(theme.phase("agent"));
+			phase("agent");
 		}
 
 		const outputContract = isLive ? outputContractForRubric(scenario.rubric) : undefined;
@@ -673,24 +783,25 @@ async function runScenario(
 				? getStagingAgentStartPath(stagingSessionId, suiteName, scenario.name)
 				: undefined;
 		const agentStarted = performance.now();
+		const runLiveAgent = () =>
+			runAgent({
+				host,
+				cwd: runCwd,
+				context,
+				profile,
+				prompt: scenario.prompt,
+				outputContract,
+				mcpServers,
+				timeoutMs: liveTimeoutMs,
+				failOnUserInput,
+				onDeadlineStart: agentStartMarkerPath
+					? () => writeAgentStartMarker(agentStartMarkerPath)
+					: undefined,
+			});
 		const session = await (isLive
-			? withHeartbeat(
-					runAgent({
-						host,
-						cwd: runCwd,
-						context,
-						profile,
-						prompt: scenario.prompt,
-						outputContract,
-						mcpServers,
-						timeoutMs: liveTimeoutMs,
-						failOnUserInput,
-						onDeadlineStart: agentStartMarkerPath
-							? () => writeAgentStartMarker(agentStartMarkerPath)
-							: undefined,
-					}),
-					{ started: agentStarted },
-				)
+			? quietProgress
+				? runLiveAgent()
+				: withHeartbeat(runLiveAgent(), { started: agentStarted })
 			: runAgent({
 					host,
 					cwd: runCwd,
@@ -702,11 +813,9 @@ async function runScenario(
 				}));
 
 		if (isLive) {
-			logPhase(
-				theme.phase(
-					"agent",
-					`${theme.statusCompleted(session.status)} ${theme.duration(formatDuration(performance.now() - agentStarted))}`,
-				),
+			phase(
+				"agent",
+				`${theme.statusCompleted(session.status)} ${theme.duration(formatDuration(performance.now() - agentStarted))}`,
 			);
 		}
 
@@ -731,7 +840,7 @@ async function runScenario(
 			);
 		}
 
-		logPhase(theme.phase("rubric"));
+		phase("rubric");
 		failures.push(
 			...assertRubric(trace, scenario.rubric, {
 				skillsMode: context.skillsMode,
@@ -764,7 +873,7 @@ async function runScenario(
 				try {
 					const path = await recordTrace(resolved.path, trace);
 					const recordLabel = resolved.kind === "fixture" ? "fixture" : "trace";
-					logPhase(theme.phase(recordLabel, theme.path(path)));
+					phase(recordLabel, theme.path(path));
 				} catch (error) {
 					failures.push(
 						assertionFailure(
@@ -782,7 +891,7 @@ async function runScenario(
 		if (judge && isLive && !deferJudgeToParent) {
 			const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 			if (criteria.length > 0) {
-				logPhase(theme.judgePhase(criteria.length), { last: true });
+				phase("judge");
 			}
 			const judged = await runJudgeRubric(trace, scenario.rubric, runCwd);
 			failures.push(...judged.failures);
@@ -801,16 +910,10 @@ async function runScenario(
 		}
 
 		if (worktreeHandle) {
-			const willJudge =
-				Boolean(judge) &&
-				isLive &&
-				!isChildProcess() &&
-				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
-			logPhase(theme.phase("cleanup"), { last: !willJudge });
-			await worktreeHandle.cleanup();
-			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
-				activeWorktreeCleanup = undefined;
-			}
+			phase("cleanup");
+			const cleanup = worktreeHandle.cleanup;
+			await withWorktreeLock(cwd, () => cleanup());
+			activeWorktreeCleanups.delete(cleanup);
 			if (callerHeadBefore) {
 				await restoreActiveCallerHead();
 			}
@@ -846,26 +949,34 @@ async function runScenario(
 		});
 		scenarioResult.debugBundleDir = debugBundleDir;
 
-		emitScenarioVerdict({
-			passed: failures.length === 0,
-			index: scenarioIndex,
-			total: scenarioTotal,
-			name: scenario.name,
-			durationMs,
-			judgeVerdicts,
-			failures,
-			debug,
-			debugBundleDir,
-		});
+		if (progress) {
+			progress.finished(scenarioResult, {
+				judgeVerdicts,
+				failures,
+				debug,
+				debugBundleDir,
+			});
+		} else {
+			emitScenarioVerdict({
+				passed: failures.length === 0,
+				index: scenarioIndex,
+				total: scenarioTotal,
+				name: scenario.name,
+				durationMs,
+				judgeVerdicts,
+				failures,
+				debug,
+				debugBundleDir,
+			});
+		}
 
 		return scenarioResult;
 	} finally {
 		if (worktreeHandle) {
-			logPhase(theme.phase("cleanup"), { last: true });
-			await worktreeHandle.cleanup();
-			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
-				activeWorktreeCleanup = undefined;
-			}
+			phase("cleanup");
+			const cleanup = worktreeHandle.cleanup;
+			await withWorktreeLock(cwd, () => cleanup()).catch(() => undefined);
+			activeWorktreeCleanups.delete(cleanup);
 		}
 		if (activeCallerHeadRestore) {
 			await restoreActiveCallerHead().catch(() => undefined);
@@ -937,6 +1048,7 @@ export async function runAllSuites(options: {
 	allowUserInput?: boolean;
 	debug?: boolean;
 	debugDir?: string;
+	workers?: number;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
@@ -966,6 +1078,7 @@ export async function runAllSuites(options: {
 				allowUserInput: options.allowUserInput,
 				debug: options.debug,
 				debugDir: options.debugDir,
+				workers: options.workers,
 			}),
 		);
 	}

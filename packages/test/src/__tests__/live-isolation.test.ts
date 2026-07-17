@@ -38,6 +38,19 @@ describe("live-isolation", () => {
 		process.env.AGENT_TEST_SCENARIO_SETTLE_MS = prior;
 	});
 
+	it("defaults concurrent settle to 0 unless env is set", () => {
+		const prior = process.env.AGENT_TEST_SCENARIO_SETTLE_MS;
+		delete process.env.AGENT_TEST_SCENARIO_SETTLE_MS;
+		expect(scenarioSettleMs({ concurrent: true })).toBe(0);
+		process.env.AGENT_TEST_SCENARIO_SETTLE_MS = "250";
+		expect(scenarioSettleMs({ concurrent: true })).toBe(250);
+		if (prior === undefined) {
+			delete process.env.AGENT_TEST_SCENARIO_SETTLE_MS;
+		} else {
+			process.env.AGENT_TEST_SCENARIO_SETTLE_MS = prior;
+		}
+	});
+
 	it("maps exit 137 to OOM guidance", () => {
 		expect(subprocessFailureMessage(137)).toContain("137");
 		expect(subprocessFailureMessage(124)).toContain("timed out");

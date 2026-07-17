@@ -19,6 +19,7 @@ import {
 import { registerLiveRunHandlers, runAllSuites } from "./run-suite.js";
 import { configureCliColor, theme } from "./theme.js";
 import { suppressNoisyRuntimeWarnings } from "./warnings.js";
+import { parseWorkersFlag } from "./workers.js";
 
 suppressNoisyRuntimeWarnings();
 configureCliColor();
@@ -43,6 +44,7 @@ export interface ParsedCliArgs {
 	htmlReport: boolean;
 	debug: boolean;
 	debugDir?: string;
+	workers?: number;
 }
 
 /** Parse agent-test CLI argv (exported for unit tests). */
@@ -66,6 +68,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let htmlReport = true;
 	let debug = process.env.AGENT_TEST_DEBUG === "1" || process.env.AGENT_TEST_DEBUG === "true";
 	let debugDir: string | undefined;
+	let workers: number | undefined;
+	const workersEnv = process.env.AGENT_TEST_WORKERS?.trim();
+	if (workersEnv) {
+		workers = parseWorkersFlag(workersEnv, "AGENT_TEST_WORKERS");
+	}
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -116,6 +123,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			}
 			debugDir = value;
 			debug = true;
+		} else if (token === "--workers" && argv[i + 1]) {
+			workers = parseWorkersFlag(argv[++i] as string, "--workers");
+		} else if (token === "--workers") {
+			throw new Error("--workers requires an integer >= 1");
 		} else if (token && !token.startsWith("-")) {
 			filter = token;
 		}
@@ -155,6 +166,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		htmlReport,
 		debug,
 		debugDir: debugDir ? resolve(cwd, debugDir) : undefined,
+		workers,
 	};
 }
 
