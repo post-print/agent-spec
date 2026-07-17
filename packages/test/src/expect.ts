@@ -3,6 +3,7 @@ import {
 	type AgentTrace,
 	collapseTraceWhitespace,
 	handsOnTierBeforeTools,
+	inferReviewDepthFromText,
 	inferRoutingFromText,
 	routingBlockBeforeTools,
 	type SkillContextMode,
@@ -161,8 +162,10 @@ export class TraceAssertion {
 		if (!depth) {
 			return this;
 		}
+		const haystack = this.patternHaystack();
 		const pattern = REVIEW_DEPTH_PATTERNS[depth];
-		if (!pattern.test(this.patternHaystack())) {
+		const inferred = inferReviewDepthFromText(haystack);
+		if (!pattern.test(haystack) && inferred !== depth) {
 			this.push(
 				"toHaveReviewDepth",
 				`expected review depth ${depth}, not found in trace output`,

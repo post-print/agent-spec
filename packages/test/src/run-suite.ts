@@ -18,9 +18,14 @@ import {
 	formatWorkingTreeLeak,
 	judgeTrace,
 	loadContext,
+	loadUnifiedDiffPaths,
 	mergeMcpServers,
+	partitionSeedCollateralLeaks,
+	porcelainPathsFromLines,
 	resolveHarnessArtifactIgnoreRoots,
+	restoreWorkingTreePaths,
 	runAgent,
+	traceEditsOutsideWorktree,
 	traceHasUserInputTool,
 } from "@post-print/agent-harness";
 
@@ -758,11 +763,38 @@ async function runScenario(
 				ignoreRoots,
 				cwd,
 			);
-			if (leaked.length > 0) {
+			const seedPaths =
+				isLive && scenario.seedPatch
+					? await loadUnifiedDiffPaths(resolve(cwd, scenario.seedPatch)).catch(() => [])
+					: [];
+			const outsideEdits =
+				worktreeHandle !== undefined
+					? traceEditsOutsideWorktree(trace, worktreeHandle.path, cwd)
+					: [];
+			const { collateral, agentLeaks } = partitionSeedCollateralLeaks(
+				leaked,
+				seedPaths,
+				outsideEdits,
+			);
+			if (collateral.length > 0) {
+				await restoreWorkingTreePaths(cwd, porcelainPathsFromLines(collateral)).catch(
+					() => undefined,
+				);
+			}
+			if (outsideEdits.length > 0) {
 				failures.push(
 					assertionFailure(
 						"workingTreeLeak",
-						`live agent mutated caller working tree (use worktree isolation):\n${formatWorkingTreeLeak(leaked)}`,
+						`agent edited caller checkout outside worktree: ${outsideEdits.join(", ")}`,
+						"worktree_leak",
+					),
+				);
+			}
+			if (agentLeaks.length > 0) {
+				failures.push(
+					assertionFailure(
+						"workingTreeLeak",
+						`live agent mutated caller working tree (use worktree isolation):\n${formatWorkingTreeLeak(agentLeaks)}`,
 						"worktree_leak",
 					),
 				);
@@ -877,6 +909,18 @@ async function runScenario(
 
 		return scenarioResult;
 	} finally {
+		if (useWorktree && callerTreeBefore !== undefined) {
+			const callerTreeAfter = await captureWorkingTreeStatus(cwd).catch(() => "");
+			const ignoreRoots = resolveHarnessArtifactIgnoreRoots(cwd, getLiveStagingRootOverride());
+			const leaked = filterWorkingTreeLeaks(
+				findWorkingTreeLeak(callerTreeBefore, callerTreeAfter),
+				ignoreRoots,
+				cwd,
+			);
+			if (leaked.length > 0) {
+				await restoreWorkingTreePaths(cwd, porcelainPathsFromLines(leaked)).catch(() => undefined);
+			}
+		}
 		if (worktreeHandle) {
 			logPhase(theme.phase("cleanup"), { last: true });
 			await worktreeHandle.cleanup();

@@ -43,7 +43,7 @@ node packages/test/dist/cli.js --live --fail-on=behavior --suites-dir agent-suit
 | `judge_parse` | Judge returned unparseable JSON | Fails |
 | `judge_infra` | SDK/network/rate limit (retried) | Ignored |
 | `agent_runtime` | Agent timeout, OOM, user-input tool | Ignored |
-| `worktree_leak` | Caller repo mutated | Fails |
+| `worktree_leak` | Caller repo mutated outside worktree | Fails (seed-target index noise auto-restored) |
 | `recording_error` | Trace write failed | Fails |
 
 ## Environment knobs

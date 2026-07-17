@@ -98,3 +98,14 @@ export function filterWorkingTreeLeaks(
 export function formatWorkingTreeLeak(lines: string[]): string {
 	return lines.join("\n");
 }
+
+/** Restore tracked paths in the caller checkout (staged + working tree). */
+export async function restoreWorkingTreePaths(repoRoot: string, paths: string[]): Promise<void> {
+	const unique = [...new Set(paths.filter(Boolean))];
+	if (unique.length === 0) {
+		return;
+	}
+	await execFileAsync("git", ["restore", "--staged", "--worktree", "--", ...unique], {
+		cwd: repoRoot,
+	});
+}

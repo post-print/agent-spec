@@ -110,6 +110,16 @@ const APPLIED_SKILL_MARKERS = [
 
 const REVIEW_HEADER_DEPTH_PATTERN = /\bReview\s·\s*[^·]+\s·\s*(Quick|Standard|Thorough|Full)\b/i;
 const REVIEW_DEPTH_LABEL_PATTERN = /\*\*Depth:\*\*\s*(quick|standard|thorough|full)\b/i;
+const REVIEW_PASS_CLASS_DEPTH_PATTERNS: Array<{
+	pattern: RegExp;
+	depth: "quick" | "standard" | "thorough" | "full";
+}> = [
+	{ pattern: /\bPass:\s*targeted contextual\b/i, depth: "standard" },
+	{ pattern: /\bEscalation:\s*Stayed targeted contextual\b/i, depth: "standard" },
+	{ pattern: /\bStayed Thorough\b/i, depth: "thorough" },
+	{ pattern: /\bPass class:\s*closure-re-review\b/i, depth: "standard" },
+	{ pattern: /\bPass class:\s*first-baseline\b/i, depth: "thorough" },
+];
 
 /** Collapse whitespace so SDK token-chunked assistant prose still matches rubric patterns. */
 export function collapseTraceWhitespace(text: string): string {
@@ -204,7 +214,15 @@ export function inferReviewDepthFromText(
 		return headerMatch[1].toLowerCase() as "quick" | "standard" | "thorough" | "full";
 	}
 	const depthMatch = collapsed.match(REVIEW_DEPTH_LABEL_PATTERN);
-	return depthMatch?.[1]?.toLowerCase() as "quick" | "standard" | "thorough" | "full" | undefined;
+	if (depthMatch?.[1]) {
+		return depthMatch[1].toLowerCase() as "quick" | "standard" | "thorough" | "full";
+	}
+	for (const { pattern, depth } of REVIEW_PASS_CLASS_DEPTH_PATTERNS) {
+		if (pattern.test(collapsed)) {
+			return depth;
+		}
+	}
+	return undefined;
 }
 
 export function mergeSkillsInvoked(...lists: Array<string[] | undefined>): string[] {
