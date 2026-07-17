@@ -14,7 +14,7 @@ export type {
 } from "./skills-context.js";
 
 /** Which entry router to inject alongside shared skills context. */
-export type ContextProfile = "shared" | "cursor" | "claude";
+export type ContextProfile = "shared" | "cursor" | "claude" | "skeleton";
 
 export interface AgentMessage {
 	role: "user" | "assistant" | "system" | "tool";
@@ -30,6 +30,16 @@ export interface AgentToolCall {
 	result?: string;
 	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy/replay traces. */
 	seq?: number;
+}
+
+/** Provider-reported token usage when the host SDK surfaces it (optional on replay). */
+export interface AgentUsage {
+	inputTokens?: number;
+	outputTokens?: number;
+	totalTokens?: number;
+	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
+	reasoningTokens?: number;
 }
 
 export interface AgentTrace {
@@ -49,6 +59,8 @@ export interface AgentTrace {
 	};
 	/** Live SDK: assistant prose before the first tool call. Replay: omit (all messages[] precede toolCalls[]). */
 	assistantTextBeforeTools?: string;
+	/** Cumulative token usage when the host reported it. */
+	usage?: AgentUsage;
 	judgeVerdicts?: Array<{
 		id: string;
 		pass: boolean;

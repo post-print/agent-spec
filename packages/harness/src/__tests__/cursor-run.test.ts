@@ -31,7 +31,16 @@ describe("runCursorAgent onDeadlineStart", () => {
 				events.push("stream");
 				await new Promise((resolve) => setTimeout(resolve, 200));
 			},
-			wait: async () => ({ status: "finished" }),
+			wait: async () => ({
+				status: "finished",
+				usage: {
+					inputTokens: 1,
+					outputTokens: 2,
+					totalTokens: 3,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			}),
 		}));
 
 		const { runCursorAgent } = await import("../cursor-run.js");
@@ -98,6 +107,54 @@ describe("cancelActiveCursorRun", () => {
 	it("is a no-op when no run is active", async () => {
 		const { cancelActiveCursorRun } = await import("../cursor-run.js");
 		expect(() => cancelActiveCursorRun()).not.toThrow();
+	});
+});
+
+describe("runCursorAgent usage", () => {
+	it("prefers wait() cumulative usage on the finalized trace", async () => {
+		agentCreate.mockResolvedValue({
+			send: agentSend,
+			[Symbol.asyncDispose]: async () => {},
+		});
+		agentSend.mockResolvedValue({
+			stream: async function* () {
+				yield {
+					type: "usage",
+					usage: {
+						inputTokens: 1,
+						outputTokens: 1,
+						totalTokens: 2,
+						cacheReadTokens: 0,
+						cacheWriteTokens: 0,
+					},
+				};
+			},
+			wait: async () => ({
+				status: "finished",
+				usage: {
+					inputTokens: 10,
+					outputTokens: 20,
+					totalTokens: 30,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			}),
+		});
+
+		const { runCursorAgent } = await import("../cursor-run.js");
+		const result = await runCursorAgent({
+			cwd: process.cwd(),
+			prompt: "test",
+			apiKey: "test-key",
+		});
+		expect(result.trace.usage).toEqual({
+			inputTokens: 10,
+			outputTokens: 20,
+			totalTokens: 30,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		});
+		vi.clearAllMocks();
 	});
 });
 

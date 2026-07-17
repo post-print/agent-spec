@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { textBlocksFromSdkMessage } from "./cursor-run.js";
-import type { AgentMessage, AgentToolCall, AgentTrace } from "./types.js";
+import type { AgentMessage, AgentToolCall, AgentTrace, AgentUsage } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -327,11 +327,62 @@ export interface SdkMessage {
 	call_id?: string;
 	/** Cursor SDK tool_call — tool output (string or structured object). */
 	result?: unknown;
+	/** Cursor SDK usage event — per-turn token counts. */
+	usage?: AgentUsage;
 	message?: {
 		role?: string;
 		content?: SdkTextBlock[];
 	};
 	tool?: SdkToolPayload;
+}
+
+/** Normalize provider usage payloads into AgentUsage (undefined when nothing useful). */
+export function normalizeAgentUsage(raw: unknown): AgentUsage | undefined {
+	if (!raw || typeof raw !== "object") {
+		return undefined;
+	}
+	const record = raw as Record<string, unknown>;
+	const usage: AgentUsage = {};
+	for (const key of [
+		"inputTokens",
+		"outputTokens",
+		"totalTokens",
+		"cacheReadTokens",
+		"cacheWriteTokens",
+		"reasoningTokens",
+	] as const) {
+		const value = record[key];
+		if (typeof value === "number" && Number.isFinite(value)) {
+			usage[key] = value;
+		}
+	}
+	return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
+/** Field-wise sum of usage snapshots (for multi-turn stream accumulation). */
+export function mergeAgentUsage(...parts: Array<AgentUsage | undefined>): AgentUsage | undefined {
+	const merged: AgentUsage = {};
+	let sawAny = false;
+	for (const part of parts) {
+		if (!part) {
+			continue;
+		}
+		sawAny = true;
+		for (const key of [
+			"inputTokens",
+			"outputTokens",
+			"totalTokens",
+			"cacheReadTokens",
+			"cacheWriteTokens",
+			"reasoningTokens",
+		] as const) {
+			const value = part[key];
+			if (typeof value === "number" && Number.isFinite(value)) {
+				merged[key] = (merged[key] ?? 0) + value;
+			}
+		}
+	}
+	return sawAny ? merged : undefined;
 }
 
 function isToolRelatedEvent(event: SdkMessage): boolean {
@@ -415,6 +466,8 @@ export interface TraceAccumulator {
 	nextSeq: number;
 	/** Index of toolCalls entries keyed by SDK call_id for running→completed merges. */
 	toolCallIndexByCallId: Map<string, number>;
+	/** Sum of per-turn usage events from the stream. */
+	usage?: AgentUsage;
 }
 
 export function createTraceAccumulator(): TraceAccumulator {
@@ -433,6 +486,14 @@ export function createTraceAccumulator(): TraceAccumulator {
 
 /** Fold one SDK stream event into trace fields without retaining the raw event. */
 export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): void {
+	if (event.type === "usage") {
+		const turnUsage = normalizeAgentUsage(event.usage);
+		if (turnUsage) {
+			acc.usage = mergeAgentUsage(acc.usage, turnUsage);
+		}
+		return;
+	}
+
 	const text = textBlocksFromSdkMessage(event);
 	if (text) {
 		acc.inferenceChunks.push(text);
@@ -522,6 +583,7 @@ export function finalizeTraceAccumulator(
 		artifacts,
 		routing,
 		assistantTextBeforeTools: acc.preToolAssistantChunks.join(""),
+		...(acc.usage ? { usage: acc.usage } : {}),
 	};
 }
 

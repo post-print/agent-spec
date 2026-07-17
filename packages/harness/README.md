@@ -26,6 +26,10 @@ const session = await runAgent({
 
 `runAgent` / `runCursorAgent` accept optional `timeoutMs` (hard cap on `stream` + `wait`; cancels the SDK run on expiry) and `failOnUserInput` (default `true` — rejects `AskQuestion`-style tools in headless runs).
 
+Live Cursor runs capture optional `trace.usage` (`inputTokens` / `outputTokens` / `totalTokens`, plus provider cache/reasoning fields when present) from SDK stream `usage` events and `run.wait()`.
+
+Context profiles: `shared` | `cursor` | `claude` | `skeleton`. `skeleton` loads `.skeleton/registry.md`, a short `.skeleton/config.yaml` summary, and optional `customize.alwaysInclude` basenames under `.skeleton/customize/`. Additive paths via `loadContext({ contextSources })` work on any profile; default `shared`/`cursor`/`claude` profiles stay unchanged for toolbox compatibility.
+
 Live Cursor runs accept inline `mcpServers` (stdio or HTTP/SSE), passed through to `Agent.create`. Replay ignores them and scores committed `toolCalls` only. Ambient MCP via `local.settingSources` is not enabled.
 
 When `outputContract` is set, `buildRoutingContract` injects hands-on / hands-off routing announce rules and requires continuing the task after the announce (do not end the turn at Routing alone).

@@ -2,6 +2,7 @@ import {
 	accumulateSdkEvent,
 	createTraceAccumulator,
 	finalizeTraceAccumulator,
+	normalizeAgentUsage,
 	type SdkMessage,
 } from "./capture.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
@@ -11,14 +12,19 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace } from "./types.js";
+import type { AgentTrace, AgentUsage } from "./types.js";
 
 /** Minimal Cursor SDK run surface for cancel + wait cleanup. */
 interface CancellableSdkRun {
 	stream: () => AsyncIterable<unknown>;
-	wait: () => Promise<{ status: string; error?: { message?: string; code?: string } }>;
+	wait: () => Promise<{
+		status: string;
+		error?: { message?: string; code?: string };
+		usage?: AgentUsage;
+	}>;
 	supports?: (op: string) => boolean;
 	cancel?: () => void | Promise<void>;
+	usage?: AgentUsage;
 }
 
 /** Default local agent model; override with CURSOR_AGENT_MODEL or options.model. */
@@ -179,10 +185,12 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 	const acc = createTraceAccumulator();
 	let timedOut = false;
 
-	const stashTrace = (): AgentTrace => {
+	const stashTrace = (usageOverride?: AgentUsage): AgentTrace => {
 		const trace = finalizeTraceAccumulator(acc);
-		lastCursorRunTrace = trace;
-		return trace;
+		const usage = usageOverride ?? normalizeAgentUsage(acc.usage) ?? trace.usage;
+		const withUsage = usage ? { ...trace, usage } : trace;
+		lastCursorRunTrace = withUsage;
+		return withUsage;
 	};
 
 	const execute = async (): Promise<CursorRunResult> => {
@@ -212,9 +220,11 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 			const rawStatus = result.status;
 			const status = normalizeSdkRunStatus(rawStatus);
 			const sdkError = extractJudgeSdkError(result.error);
+			// Prefer wait()/handle cumulative usage over summed stream turns when present.
+			const waitUsage = normalizeAgentUsage(result.usage) ?? normalizeAgentUsage(run.usage);
 			return {
 				status,
-				trace: stashTrace(),
+				trace: stashTrace(waitUsage),
 				rawStatus,
 				sdkError,
 			};

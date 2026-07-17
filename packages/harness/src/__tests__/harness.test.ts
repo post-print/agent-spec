@@ -44,6 +44,58 @@ describe("loadContext", () => {
 		expect(context.sources.some((s) => s.includes("grill/SKILL.md"))).toBe(true);
 		expect(context.preamble).toContain("## Skill catalog");
 	});
+
+	it("loads skeleton registry + config summary and alwaysInclude paths", async () => {
+		const repoRoot = await fixtureRepo();
+		await mkdir(join(repoRoot, ".skeleton/customize"), { recursive: true });
+		await writeFile(
+			join(repoRoot, ".skeleton/registry.md"),
+			"# Registry\n| Topic | File |\n",
+			"utf8",
+		);
+		await writeFile(
+			join(repoRoot, ".skeleton/config.yaml"),
+			[
+				"scan:",
+				"  include:",
+				'    - "AGENTS.md"',
+				"customize:",
+				"  alwaysInclude:",
+				"    - tip.md",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+		await writeFile(
+			join(repoRoot, ".skeleton/customize/tip.md"),
+			"# Tip\nkeep registry first\n",
+			"utf8",
+		);
+
+		const context = await loadContext({ cwd: repoRoot, profile: "skeleton" });
+		expect(context.sources).toContain(".skeleton/registry.md");
+		expect(context.sources).toContain(".skeleton/config.yaml");
+		expect(context.sources).toContain(".skeleton/customize/tip.md");
+		expect(context.preamble).toContain("keep registry first");
+	});
+
+	it("keeps shared profile unchanged when contextSources are omitted", async () => {
+		const repoRoot = await fixtureRepo();
+		const context = await loadContext({ cwd: repoRoot, profile: "shared" });
+		expect(context.sources).not.toContain(".skeleton/registry.md");
+	});
+
+	it("loads additive contextSources on shared profile", async () => {
+		const repoRoot = await fixtureRepo();
+		await mkdir(join(repoRoot, ".skeleton"), { recursive: true });
+		await writeFile(join(repoRoot, ".skeleton/registry.md"), "# Registry\n", "utf8");
+		const context = await loadContext({
+			cwd: repoRoot,
+			profile: "shared",
+			contextSources: [".skeleton/registry.md"],
+		});
+		expect(context.sources).toContain(".skeleton/registry.md");
+	});
 });
 
 describe("ReplayAdapter", () => {

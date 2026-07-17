@@ -1,4 +1,18 @@
 export {
+	type ComparePairSpec,
+	compareSuiteReports,
+	formatCompareReportMarkdown,
+	labelForCompareSide,
+	loadSuiteRunReport,
+	metricsFromResult,
+	parseComparePairToken,
+	type ScenarioCompareDelta,
+	type ScenarioCompareMetrics,
+	type SuiteCompareReport,
+	type WriteCompareReportOptions,
+	writeCompareReport,
+} from "./compare.js";
+export {
 	buildRerunCommand,
 	collectDebugEnvironment,
 	type DebugEnvironmentSnapshot,
@@ -13,7 +27,13 @@ export {
 } from "./debug-bundle.js";
 export { assertRubric, expectTrace, TraceAssertion } from "./expect.js";
 export { assertionFailure } from "./failures.js";
-export { type HtmlReportMeta, renderHtmlReport, writeHtmlReport } from "./html-report.js";
+export {
+	type HtmlReportMeta,
+	renderCompareHtmlReport,
+	renderCompareHtmlSection,
+	renderHtmlReport,
+	writeHtmlReport,
+} from "./html-report.js";
 export { loadSuiteFile } from "./load-suite.js";
 export { assertLiveDogfoodPreflight } from "./preflight.js";
 export {
@@ -48,22 +68,28 @@ export {
 export {
 	type FailOnMode,
 	formatRunSummary,
+	formatUsageStats,
+	percentileNearestRank,
 	shouldFailScenario,
 	summarizeFailures,
 	summarizeReportResults,
 	summarizeReports,
+	summarizeUsage,
 } from "./suite-summary.js";
 export type {
 	AgentScenario,
 	AgentSuiteFile,
+	AgentUsage,
 	AssertionFailure,
 	FailureCategory,
 	JudgeRubricItem,
 	JudgeVerdictResult,
 	McpServerConfig,
+	RunSummary,
 	ScenarioResult,
 	ScenarioRubric,
 	SuiteRunReport,
+	UsageStats,
 } from "./types.js";
 export {
 	formatSeedValidationReport,

@@ -2,14 +2,33 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { AgentMessage, AgentToolCall, AgentTrace } from "@post-print/agent-harness";
+import type {
+	AgentMessage,
+	AgentToolCall,
+	AgentTrace,
+	AgentUsage,
+} from "@post-print/agent-harness";
 
-import type { ScenarioResult, SuiteRunReport } from "./types.js";
+import {
+	compareSuiteReports,
+	type ScenarioCompareDelta,
+	type SuiteCompareReport,
+} from "./compare.js";
+import { formatUsageStats, summarizeReportResults, summarizeReports } from "./suite-summary.js";
+import type { ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
 
 export interface HtmlReportMeta {
 	generatedAt?: Date;
 	host?: string;
 	suitesDir?: string;
+	/**
+	 * When two suite reports are present, embed an A/B compare table (default true).
+	 * Set false to skip (e.g. unrelated multi-suite runs).
+	 */
+	includeCompare?: boolean;
+	/** Labels for the embedded compare section (defaults to suite names). */
+	compareALabel?: string;
+	compareBLabel?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -51,6 +70,22 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	},
 	mustNot: { label: "Forbidden behavior", hint: "The agent did something it was told not to do." },
 	mustRun: { label: "Missing command", hint: "An expected command never ran." },
+	mustCallTool: {
+		label: "Missing tool call",
+		hint: "An expected tool was never invoked.",
+	},
+	mustNotCallTool: {
+		label: "Forbidden tool call",
+		hint: "A tool the scenario forbids was invoked.",
+	},
+	toHaveCalledTool: {
+		label: "Missing tool call",
+		hint: "An expected tool was never invoked.",
+	},
+	toHaveNotCalledTool: {
+		label: "Forbidden tool call",
+		hint: "A tool the scenario forbids was invoked.",
+	},
 	mustInvokeSkill: {
 		label: "Missing skill",
 		hint: "The agent didn't read a skill it was expected to use.",
@@ -58,6 +93,22 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	mustNotInvokeSkill: {
 		label: "Unexpected skill",
 		hint: "The agent read a skill it should have avoided.",
+	},
+	mustReadPath: {
+		label: "Missing read path",
+		hint: "Expected a Read tool call whose args mention this path fragment (registry-first / grounding).",
+	},
+	mustNotReadPath: {
+		label: "Forbidden read path",
+		hint: "A Read tool call mentioned a path the scenario forbids (hallucinated / invented path proxy).",
+	},
+	toHaveReadPath: {
+		label: "Missing read path",
+		hint: "Expected a Read tool call whose args mention this path fragment (registry-first / grounding).",
+	},
+	toHaveNotReadPath: {
+		label: "Forbidden read path",
+		hint: "A Read tool call mentioned a path the scenario forbids (hallucinated / invented path proxy).",
 	},
 	routingBlock: { label: "Routing", hint: "The routing announcement didn't match expectations." },
 	workingTreeLeak: {
@@ -233,11 +284,15 @@ function renderFailures(result: ScenarioResult): string {
 	const items = result.failures
 		.map((failure) => {
 			const { label, hint } = humanizeMatcher(failure.matcher);
+			const evidence = failure.evidence
+				? `<pre class="failure-evidence">${escapeHtml(failure.evidence)}</pre>`
+				: "";
 			return `
 <li>
   <p class="failure-label">${escapeHtml(label)}</p>
   ${hint ? `<p class="failure-hint">${escapeHtml(hint)}</p>` : ""}
   <p class="failure-message">${escapeHtml(failure.message)}</p>
+  ${evidence}
 </li>`;
 		})
 		.join("\n");
@@ -245,10 +300,251 @@ function renderFailures(result: ScenarioResult): string {
 	return `<ul class="failures">${items}</ul>`;
 }
 
+function usageOf(result: ScenarioResult): AgentUsage | undefined {
+	return result.usage ?? result.trace?.usage;
+}
+
+function formatTokensBadge(result: ScenarioResult): string | undefined {
+	const usage = usageOf(result);
+	if (!usage) {
+		return undefined;
+	}
+	if (typeof usage.totalTokens === "number") {
+		return `${usage.totalTokens} tok`;
+	}
+	const parts: string[] = [];
+	if (typeof usage.inputTokens === "number") {
+		parts.push(`in ${usage.inputTokens}`);
+	}
+	if (typeof usage.outputTokens === "number") {
+		parts.push(`out ${usage.outputTokens}`);
+	}
+	return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+function renderUsageDetail(usage: AgentUsage | undefined): string {
+	if (!usage) {
+		return "";
+	}
+	const rows: Array<[string, number | undefined]> = [
+		["Total tokens", usage.totalTokens],
+		["Input", usage.inputTokens],
+		["Output", usage.outputTokens],
+		["Cache read", usage.cacheReadTokens],
+		["Cache write", usage.cacheWriteTokens],
+		["Reasoning", usage.reasoningTokens],
+	];
+	const present = rows.filter(([, value]) => typeof value === "number");
+	if (present.length === 0) {
+		return "";
+	}
+	const items = present
+		.map(
+			([label, value]) =>
+				`<div class="meta-item"><span class="meta-key">${escapeHtml(label)}</span><span class="meta-val">${value}</span></div>`,
+		)
+		.join("");
+	return `<section class="scenario-meta"><h3>Token usage</h3><div class="meta-grid">${items}</div></section>`;
+}
+
+function renderTraceMeta(result: ScenarioResult): string {
+	const trace = result.trace;
+	if (!trace) {
+		return "";
+	}
+	const skills = trace.skillsInvoked?.length ? trace.skillsInvoked.join(", ") : "(none)";
+	const items: Array<[string, string]> = [
+		["Messages", String(trace.messages.length)],
+		["Tool calls", String(trace.toolCalls.length)],
+		["Skills invoked", skills],
+		["Routing tier", trace.routing?.tier ?? "(none)"],
+	];
+	if (result.attempts !== undefined && result.attempts > 1) {
+		items.push(["Attempts", String(result.attempts)]);
+	}
+	const html = items
+		.map(
+			([label, value]) =>
+				`<div class="meta-item"><span class="meta-key">${escapeHtml(label)}</span><span class="meta-val">${escapeHtml(value)}</span></div>`,
+		)
+		.join("");
+	return `<section class="scenario-meta"><h3>Trace stats</h3><div class="meta-grid">${html}</div></section>`;
+}
+
+function renderUsageStatsBlock(usage: UsageStats | undefined, title = "Token usage"): string {
+	if (!usage) {
+		return "";
+	}
+	const rows: Array<[string, string]> = [
+		["Scenarios with usage", String(usage.scenariosWithUsage)],
+	];
+	if (usage.sumTotalTokens !== undefined) {
+		rows.push(["Sum totalTokens", String(usage.sumTotalTokens)]);
+	}
+	if (usage.p50TotalTokens !== undefined) {
+		rows.push(["p50 totalTokens", String(usage.p50TotalTokens)]);
+	}
+	if (usage.p95TotalTokens !== undefined) {
+		rows.push(["p95 totalTokens", String(usage.p95TotalTokens)]);
+	}
+	if (usage.sumInputTokens !== undefined) {
+		rows.push(["Sum input", String(usage.sumInputTokens)]);
+	}
+	if (usage.sumOutputTokens !== undefined) {
+		rows.push(["Sum output", String(usage.sumOutputTokens)]);
+	}
+	const items = rows
+		.map(
+			([label, value]) =>
+				`<div class="meta-item"><span class="meta-key">${escapeHtml(label)}</span><span class="meta-val">${escapeHtml(value)}</span></div>`,
+		)
+		.join("");
+	return `<section class="usage-summary"><h3>${escapeHtml(title)}</h3><div class="meta-grid">${items}</div><p class="usage-compact muted">${escapeHtml(formatUsageStats(usage))}</p></section>`;
+}
+
+function formatSigned(value: number | undefined): string {
+	if (value === undefined) {
+		return "n/a";
+	}
+	if (value > 0) {
+		return `+${value}`;
+	}
+	return String(value);
+}
+
+function passCell(passed: boolean, skipped?: boolean): string {
+	if (skipped) {
+		return `<span class="badge status-skipped">skip</span>`;
+	}
+	return passed
+		? `<span class="badge status-passed">pass</span>`
+		: `<span class="badge status-failed">fail</span>`;
+}
+
+function deltaClass(value: number | undefined): string {
+	if (value === undefined || value === 0) {
+		return "delta-flat";
+	}
+	return value > 0 ? "delta-up" : "delta-down";
+}
+
+/** Render an A/B compare table (fragment — no document chrome). */
+export function renderCompareHtmlSection(report: SuiteCompareReport): string {
+	const rows = report.paired
+		.map((row: ScenarioCompareDelta) => {
+			const regression = row.a.passed && !row.b.passed;
+			const improvement = !row.a.passed && row.b.passed;
+			const rowClass = regression
+				? "compare-regress"
+				: improvement
+					? "compare-improve"
+					: row.deltas.passedChanged
+						? "compare-changed"
+						: "";
+			return `
+<tr class="${rowClass}">
+  <td class="compare-name">${escapeHtml(row.scenario)}</td>
+  <td>${passCell(row.a.passed, row.a.skipped)}</td>
+  <td>${passCell(row.b.passed, row.b.skipped)}</td>
+  <td class="${deltaClass(row.deltas.durationMs)}">${escapeHtml(formatSigned(row.deltas.durationMs))}</td>
+  <td class="${deltaClass(row.deltas.toolCallCount)}">${escapeHtml(formatSigned(row.deltas.toolCallCount))}</td>
+  <td class="${deltaClass(row.deltas.skillCount)}">${escapeHtml(formatSigned(row.deltas.skillCount))}</td>
+  <td class="${deltaClass(row.deltas.registryHopCount)}">${escapeHtml(formatSigned(row.deltas.registryHopCount))}</td>
+  <td class="${deltaClass(row.deltas.totalTokens)}">${escapeHtml(formatSigned(row.deltas.totalTokens))}</td>
+</tr>`;
+		})
+		.join("\n");
+
+	const onlyA =
+		report.onlyInA.length > 0
+			? `<p class="muted">Only in A (${escapeHtml(report.aLabel)}): ${report.onlyInA.map((n) => escapeHtml(n)).join(", ")}</p>`
+			: "";
+	const onlyB =
+		report.onlyInB.length > 0
+			? `<p class="muted">Only in B (${escapeHtml(report.bLabel)}): ${report.onlyInB.map((n) => escapeHtml(n)).join(", ")}</p>`
+			: "";
+
+	return `
+<section class="compare">
+  <header class="compare-header">
+    <h2>A/B compare</h2>
+    <p class="muted">${escapeHtml(report.aLabel)} → ${escapeHtml(report.bLabel)} · ${report.summary.pairedCount} paired · regressions ${report.summary.passRegressions} · improvements ${report.summary.passImprovements}</p>
+  </header>
+  <div class="compare-summary meta-grid">
+    <div class="meta-item"><span class="meta-key">Mean Δ durationMs</span><span class="meta-val">${escapeHtml(formatSigned(report.summary.meanDurationDeltaMs !== undefined ? Math.round(report.summary.meanDurationDeltaMs) : undefined))}</span></div>
+    <div class="meta-item"><span class="meta-key">Mean Δ tools</span><span class="meta-val">${escapeHtml(formatSigned(report.summary.meanToolCallDelta !== undefined ? Math.round(report.summary.meanToolCallDelta) : undefined))}</span></div>
+    <div class="meta-item"><span class="meta-key">Mean Δ totalTokens</span><span class="meta-val">${escapeHtml(formatSigned(report.summary.meanTotalTokensDelta !== undefined ? Math.round(report.summary.meanTotalTokensDelta) : undefined))}</span></div>
+  </div>
+  ${onlyA}
+  ${onlyB}
+  <div class="compare-table-wrap">
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th>A</th>
+          <th>B</th>
+          <th>Δ duration</th>
+          <th>Δ tools</th>
+          <th>Δ skills</th>
+          <th>Δ registry</th>
+          <th>Δ tokens</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  </div>
+</section>`;
+}
+
+/** Standalone compare HTML document (written next to compare-report.json / .md). */
+export function renderCompareHtmlReport(
+	report: SuiteCompareReport,
+	meta: HtmlReportMeta = {},
+): string {
+	const generatedAt = meta.generatedAt ?? new Date();
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>agent-test compare — ${escapeHtml(report.aLabel)} vs ${escapeHtml(report.bLabel)}</title>
+<style>${sharedReportCss()}</style>
+</head>
+<body>
+<main>
+  <header class="report-header">
+    <h1>agent-test compare</h1>
+    <span class="report-kicker">${escapeHtml(report.aLabel)} vs ${escapeHtml(report.bLabel)}</span>
+  </header>
+  <div class="summary">
+    <div class="stats">
+      <span class="stat"><strong>${report.summary.pairedCount}</strong> paired</span>
+      <span class="stat stat-fail"><strong>${report.summary.passRegressions}</strong> regressions</span>
+      <span class="stat stat-pass"><strong>${report.summary.passImprovements}</strong> improvements</span>
+    </div>
+    <dl>
+      <dt>Generated</dt><dd>${escapeHtml(generatedAt.toISOString())}</dd>
+      <dt>A</dt><dd>${escapeHtml(report.aSuite)}</dd>
+      <dt>B</dt><dd>${escapeHtml(report.bSuite)}</dd>
+    </dl>
+  </div>
+  ${renderCompareHtmlSection(report)}
+</main>
+</body>
+</html>
+`;
+}
+
 function renderScenario(result: ScenarioResult): string {
 	const open = result.passed || result.skipped ? "" : " open";
 	const failures = renderFailures(result);
 	const judgeVerdicts = renderJudgeVerdicts(result);
+	const tokens = formatTokensBadge(result);
+	const usageDetail = renderUsageDetail(usageOf(result));
+	const traceMeta = renderTraceMeta(result);
 	const diagnostics =
 		failures || judgeVerdicts
 			? `<div class="diagnostics">
@@ -256,15 +552,21 @@ function renderScenario(result: ScenarioResult): string {
     ${judgeVerdicts ? `<section><h3>Judge verdict</h3>${judgeVerdicts}</section>` : ""}
   </div>`
 			: "";
+	const metaRow =
+		usageDetail || traceMeta
+			? `<div class="diagnostics meta-row">${usageDetail}${traceMeta}</div>`
+			: "";
 	return `
 <details class="scenario ${statusClass(result)}"${open}>
   <summary>
     <span class="badge ${statusClass(result)}">${statusLabel(result)}</span>
     <span class="scenario-name">${escapeHtml(result.scenario)}</span>
+    ${tokens ? `<span class="tokens">${escapeHtml(tokens)}</span>` : ""}
     <span class="duration">${escapeHtml(formatDuration(result.durationMs))}</span>
   </summary>
   <div class="scenario-body">
   ${diagnostics}
+  ${metaRow}
   <section class="conversation">
     <h3>Conversation</h3>
     ${renderChat(result.trace)}
@@ -275,33 +577,26 @@ function renderScenario(result: ScenarioResult): string {
 
 function renderSuite(report: SuiteRunReport): string {
 	const scenarios = report.results.map(renderScenario).join("\n");
+	const usage = (report.summary ?? summarizeReportResults(report.results)).usage;
+	const usageLine = usage
+		? `<p class="suite-usage">${escapeHtml(formatUsageStats(usage))}</p>`
+		: "";
 	return `
 <section class="suite">
   <header class="suite-header">
     <div><h2>${escapeHtml(report.suite)}</h2><span class="host">${escapeHtml(report.host)}</span></div>
-    <p class="suite-counts">${report.passed} passed · ${report.failed} failed · ${report.skipped} skipped</p>
+    <div class="suite-meta">
+      <p class="suite-counts">${report.passed} passed · ${report.failed} failed · ${report.skipped} skipped</p>
+      ${usageLine}
+    </div>
   </header>
+  ${usage ? renderUsageStatsBlock(usage, "Suite token usage") : ""}
   ${scenarios}
 </section>`;
 }
 
-/** Build a self-contained HTML report for a completed suite run. */
-export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta = {}): string {
-	const generatedAt = meta.generatedAt ?? new Date();
-	const totalPassed = reports.reduce((sum, report) => sum + report.passed, 0);
-	const totalFailed = reports.reduce((sum, report) => sum + report.failed, 0);
-	const totalSkipped = reports.reduce((sum, report) => sum + report.skipped, 0);
-	const host = meta.host ?? reports[0]?.host ?? "unknown";
-
-	const suitesHtml = reports.map(renderSuite).join("\n");
-
-	return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>agent-test report</title>
-<style>
+function sharedReportCss(): string {
+	return `
   :root {
     --bg: #0f1419;
     --panel: #1a2332;
@@ -317,6 +612,8 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     --system-bubble: #241f38;
     --tool: #e0af68;
     --tool-bubble: #2a2214;
+    --improve: #3dd68c;
+    --regress: #f07178;
   }
   * { box-sizing: border-box; }
   body {
@@ -346,7 +643,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     justify-content: space-between;
     gap: 1rem;
   }
-  .stats { display: flex; gap: 0.45rem; align-items: center; }
+  .stats { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
   .stat { padding: 0.3rem 0.55rem; border-radius: 6px; background: #111923; font-size: 0.8rem; }
   .stat strong { font-size: 1rem; margin-right: 0.25rem; }
   .stat-pass strong { color: var(--pass); }
@@ -362,11 +659,32 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   }
   .summary dt { color: var(--muted); margin-right: -0.7rem; }
   .summary dd { margin: 0; }
+  .report-usage { margin-top: 0.75rem; }
   .suite { margin-top: 1.25rem; }
   .suite-header { display: flex; align-items: end; justify-content: space-between; margin: 0 0 0.5rem; padding: 0 0.2rem; }
   .suite-header > div { display: flex; align-items: center; gap: 0.5rem; }
   .host { color: var(--muted); font-size: 0.72rem; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.4rem; }
+  .suite-meta { text-align: right; }
   .suite-counts { color: var(--muted); margin: 0; font-size: 0.78rem; }
+  .suite-usage { color: var(--muted); margin: 0.15rem 0 0; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+  .tokens { color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .usage-summary, .scenario-meta {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.65rem 0.7rem;
+    margin: 0 0 0.7rem;
+  }
+  .usage-compact { margin: 0.45rem 0 0; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.35rem 0.75rem;
+  }
+  .meta-item { display: flex; flex-direction: column; gap: 0.1rem; }
+  .meta-key { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .meta-val { font-size: 0.88rem; font-variant-numeric: tabular-nums; word-break: break-word; }
+  .meta-row { margin-bottom: 0.7rem; }
   details.scenario {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -410,6 +728,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   .failure-label { margin: 0; font-weight: 600; font-size: 0.85rem; color: var(--fail); }
   .failure-hint { margin: 0.1rem 0 0; font-size: 0.78rem; color: var(--muted); }
   .failure-message { margin: 0.3rem 0 0; font-size: 0.82rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.45rem 0.55rem; }
+  .failure-evidence { margin: 0.35rem 0 0; font-size: 0.75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; color: var(--muted); background: #0b1017; border: 1px dashed var(--border); border-radius: 6px; padding: 0.4rem 0.5rem; }
 
   .verdicts { display: flex; flex-direction: column; gap: 0.55rem; }
   .verdict { border-left: 3px solid var(--border); padding-left: 0.6rem; }
@@ -471,6 +790,38 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   .shell-commands { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
   .shell-commands li { font-size: 0.8rem; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.5rem; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+
+  .compare {
+    margin-top: 1.1rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.85rem 0.9rem 1rem;
+  }
+  .compare-header { margin-bottom: 0.65rem; }
+  .compare-header h2 { margin-bottom: 0.2rem; }
+  .compare-summary { margin-bottom: 0.75rem; }
+  .compare-table-wrap { overflow-x: auto; }
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .compare-table th, .compare-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 0.45rem;
+    text-align: left;
+    vertical-align: middle;
+  }
+  .compare-table th { color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .compare-name { font-weight: 600; }
+  .compare-regress { background: color-mix(in srgb, var(--regress) 10%, transparent); }
+  .compare-improve { background: color-mix(in srgb, var(--improve) 10%, transparent); }
+  .delta-up { color: var(--fail); }
+  .delta-down { color: var(--pass); }
+  .delta-flat { color: var(--muted); }
+
   @media (max-width: 720px) {
     main { padding: 0.75rem; }
     .summary { align-items: flex-start; flex-direction: column; }
@@ -479,7 +830,45 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     .diagnostics { grid-template-columns: 1fr; }
     .bubble, .tool-card { max-width: 92%; }
   }
-</style>
+`;
+}
+
+/** Build a self-contained HTML report for a completed suite run. */
+export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta = {}): string {
+	const generatedAt = meta.generatedAt ?? new Date();
+	const totalPassed = reports.reduce((sum, report) => sum + report.passed, 0);
+	const totalFailed = reports.reduce((sum, report) => sum + report.failed, 0);
+	const totalSkipped = reports.reduce((sum, report) => sum + report.skipped, 0);
+	const host = meta.host ?? reports[0]?.host ?? "unknown";
+	const runUsage = summarizeReports(reports).usage;
+
+	// Embed A/B only when explicitly requested (compare-pairs / compare labels), not for every 2-suite run.
+	const includeCompare =
+		reports.length === 2 &&
+		(meta.includeCompare === true ||
+			meta.compareALabel !== undefined ||
+			meta.compareBLabel !== undefined);
+	const compareSection =
+		includeCompare && reports[0] && reports[1]
+			? renderCompareHtmlSection(
+					compareSuiteReports({
+						aLabel: meta.compareALabel ?? reports[0].suite,
+						bLabel: meta.compareBLabel ?? reports[1].suite,
+						a: reports[0],
+						b: reports[1],
+					}),
+				)
+			: "";
+
+	const suitesHtml = reports.map(renderSuite).join("\n");
+
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>agent-test report</title>
+<style>${sharedReportCss()}</style>
 </head>
 <body>
 <main>
@@ -492,13 +881,30 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
       <span class="stat stat-pass"><strong>${totalPassed}</strong> passed</span>
       <span class="stat stat-fail"><strong>${totalFailed}</strong> failed</span>
       <span class="stat stat-skip"><strong>${totalSkipped}</strong> skipped</span>
+      ${
+				runUsage?.sumTotalTokens !== undefined
+					? `<span class="stat"><strong>${runUsage.sumTotalTokens}</strong> tokens</span>`
+					: ""
+			}
     </div>
     <dl>
       <dt>Host</dt><dd>${escapeHtml(String(host))}</dd>
       <dt>Generated</dt><dd>${escapeHtml(generatedAt.toISOString())}</dd>
       ${meta.suitesDir ? `<dt>Suites</dt><dd>${escapeHtml(meta.suitesDir)}</dd>` : ""}
+      ${
+				runUsage?.p50TotalTokens !== undefined
+					? `<dt>p50 tokens</dt><dd>${runUsage.p50TotalTokens}</dd>`
+					: ""
+			}
+      ${
+				runUsage?.p95TotalTokens !== undefined
+					? `<dt>p95 tokens</dt><dd>${runUsage.p95TotalTokens}</dd>`
+					: ""
+			}
     </dl>
   </div>
+  ${runUsage ? `<div class="report-usage">${renderUsageStatsBlock(runUsage, "Run token usage")}</div>` : ""}
+  ${compareSection}
   ${suitesHtml}
 </main>
 </body>

@@ -1,5 +1,5 @@
 import { createAdapter } from "./adapters/index.js";
-import { type LoadContextOptions, loadContext } from "./context.js";
+import { loadContext } from "./context.js";
 import type { AgentSession, ContextProfile, RunAgentOptions } from "./types.js";
 
 export {
@@ -23,9 +23,17 @@ export {
 	handsOnTierBeforeTools,
 	inferReviewDepthFromText,
 	inferRoutingFromText,
+	mergeAgentUsage,
 	mergeSkillsInvoked,
+	normalizeAgentUsage,
 	routingBlockBeforeTools,
 } from "./capture.js";
+export {
+	type LoadContextOptions,
+	loadContext,
+	parseSkeletonAlwaysInclude,
+	summarizeSkeletonConfig,
+} from "./context.js";
 export {
 	assistantTextFromSdkMessages,
 	type CursorRunOptions,
@@ -89,6 +97,7 @@ export type {
 	AgentSession,
 	AgentToolCall,
 	AgentTrace,
+	AgentUsage,
 	ContextProfile,
 	HostAdapter,
 	LoadedContext,
@@ -124,7 +133,6 @@ export {
 	porcelainPathsFromLines,
 	traceEditsOutsideWorktree,
 } from "./worktree-leak.js";
-export { type LoadContextOptions, loadContext };
 
 export interface RunAgentInput extends Omit<RunAgentOptions, "context"> {
 	context?: RunAgentOptions["context"];

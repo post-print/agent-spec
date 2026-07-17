@@ -212,6 +212,30 @@ export class TraceAssertion {
 		return this;
 	}
 
+	/** Substring must appear in JSON args of a Read-family tool call. */
+	toHaveReadPath(fragment: string): this {
+		if (!readToolArgsContain(this.trace.toolCalls, fragment)) {
+			this.push(
+				"toHaveReadPath",
+				`expected Read tool args containing "${fragment}"`,
+				readToolArgsEvidence(this.trace.toolCalls),
+			);
+		}
+		return this;
+	}
+
+	/** Substring must not appear in JSON args of any Read-family tool call. */
+	toHaveNotReadPath(fragment: string): this {
+		if (readToolArgsContain(this.trace.toolCalls, fragment)) {
+			this.push(
+				"toHaveNotReadPath",
+				`forbidden Read tool args containing "${fragment}"`,
+				readToolArgsEvidence(this.trace.toolCalls),
+			);
+		}
+		return this;
+	}
+
 	toIncludeRoutingBlock(): this {
 		const haystack = this.assertionHaystack();
 		const collapsed = collapseTraceWhitespace(haystack);
@@ -396,6 +420,36 @@ function toolSpecMatches(toolCalls: AgentTrace["toolCalls"], spec: string): bool
 	});
 }
 
+function isReadToolName(name: string): boolean {
+	return name.toLowerCase().includes("read");
+}
+
+function readToolCalls(toolCalls: AgentTrace["toolCalls"]): AgentTrace["toolCalls"] {
+	return toolCalls.filter((call) => isReadToolName(call.name));
+}
+
+function readToolArgsContain(toolCalls: AgentTrace["toolCalls"], fragment: string): boolean {
+	const needle = fragment.toLowerCase();
+	return readToolCalls(toolCalls).some((call) =>
+		JSON.stringify(call.args ?? {})
+			.toLowerCase()
+			.includes(needle),
+	);
+}
+
+function readToolArgsEvidence(toolCalls: AgentTrace["toolCalls"]): string {
+	const reads = readToolCalls(toolCalls);
+	if (reads.length === 0) {
+		return "Read toolCalls=[]";
+	}
+	const listed = reads.slice(0, 8).map((call) => {
+		const args = JSON.stringify(call.args ?? {});
+		return `${call.name}:${args.length > 120 ? `${args.slice(0, 120)}…` : args}`;
+	});
+	const more = reads.length > 8 ? ` (+${reads.length - 8} more)` : "";
+	return `Read toolCalls=[${listed.join("; ")}]${more}`;
+}
+
 export function expectTrace(trace: AgentTrace, options?: RubricAssertOptions): TraceAssertion {
 	return new TraceAssertion(trace, options);
 }
@@ -435,6 +489,12 @@ export function assertRubric(
 	}
 	for (const tool of rubric.mustNotCallTool ?? []) {
 		assertion.toHaveNotCalledTool(tool);
+	}
+	for (const pathFragment of rubric.mustReadPath ?? []) {
+		assertion.toHaveReadPath(pathFragment);
+	}
+	for (const pathFragment of rubric.mustNotReadPath ?? []) {
+		assertion.toHaveNotReadPath(pathFragment);
 	}
 	for (const required of rubric.must ?? []) {
 		assertion.mustInclude(required);

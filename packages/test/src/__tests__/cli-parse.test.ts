@@ -85,4 +85,32 @@ describe("parseCliArgs debug flags", () => {
 			/--scenario-retries must be an integer >= 0/,
 		);
 	});
+
+	it("parses compare subcommand and --compare-pairs", () => {
+		const compare = parseCliArgs([
+			"node",
+			"cli.js",
+			"compare",
+			"--a",
+			"a.json",
+			"--b",
+			"b.json",
+			"--out-dir",
+			"out/compare",
+		]);
+		expect(compare.compareMode).toBe(true);
+		expect(compare.compareA).toBe("a.json");
+		expect(compare.compareB).toBe("b.json");
+		expect(compare.compareOutDir).toBe(`${process.cwd()}/out/compare`);
+
+		const pairs = parseCliArgs([
+			"node",
+			"cli.js",
+			"--live",
+			"--compare-pairs",
+			"skeleton-clean:skeleton-messy",
+		]);
+		expect(pairs.comparePairs).toBe("skeleton-clean:skeleton-messy");
+		expect(pairs.live).toBe(true);
+	});
 });

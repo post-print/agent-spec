@@ -291,4 +291,25 @@ describe("expectTrace", () => {
 		const failures = assertRubric(trace, { mustNotCallTool: ["echo"] });
 		expect(failures.some((f) => f.matcher === "toHaveNotCalledTool")).toBe(true);
 	});
+
+	it("passes mustReadPath when Read args contain the fragment", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [{ name: "Read", args: { path: ".skeleton/registry.md" } }],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(assertRubric(trace, { mustReadPath: [".skeleton/registry"] })).toHaveLength(0);
+	});
+
+	it("fails mustNotReadPath when Read args contain the fragment", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [{ name: "Read", args: { path: "invented/path.ts" } }],
+			shellCommands: [],
+			artifacts: {},
+		};
+		const failures = assertRubric(trace, { mustNotReadPath: ["invented/"] });
+		expect(failures.some((f) => f.matcher === "toHaveNotReadPath")).toBe(true);
+	});
 });

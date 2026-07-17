@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { assertionFailure } from "../failures.js";
 import {
 	formatRunSummary,
+	percentileNearestRank,
 	shouldFailScenario,
 	summarizeFailures,
 	summarizeReportResults,
+	summarizeUsage,
 } from "../suite-summary.js";
 
 describe("suite-summary", () => {
@@ -72,5 +74,39 @@ describe("suite-summary", () => {
 		expect(summary.retriedScenarios).toBe(1);
 		expect(formatRunSummary(summary)).toContain("scenario_retried=1");
 		expect(formatRunSummary(summary)).toContain("retried=1");
+	});
+
+	it("summarizes token usage with sum/p50/p95", () => {
+		const usage = summarizeUsage([
+			{
+				suite: "s",
+				scenario: "a",
+				passed: true,
+				failures: [],
+				durationMs: 1,
+				usage: { totalTokens: 10, inputTokens: 6, outputTokens: 4 },
+			},
+			{
+				suite: "s",
+				scenario: "b",
+				passed: true,
+				failures: [],
+				durationMs: 1,
+				usage: { totalTokens: 20, inputTokens: 12, outputTokens: 8 },
+			},
+			{
+				suite: "s",
+				scenario: "c",
+				passed: true,
+				failures: [],
+				durationMs: 1,
+				usage: { totalTokens: 40, inputTokens: 30, outputTokens: 10 },
+			},
+		]);
+		expect(usage?.sumTotalTokens).toBe(70);
+		expect(usage?.p50TotalTokens).toBe(percentileNearestRank([10, 20, 40], 50));
+		expect(usage?.p95TotalTokens).toBe(percentileNearestRank([10, 20, 40], 95));
+		expect(usage?.sumInputTokens).toBe(48);
+		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("tokens_sum=70");
 	});
 });

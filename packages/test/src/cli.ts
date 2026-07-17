@@ -1,5 +1,6 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
-import { resolve } from "node:path";
+import { access, mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -9,6 +10,13 @@ import {
 } from "@post-print/agent-harness";
 
 import { isCliMain } from "./cli-entry.js";
+import {
+	compareSuiteReports,
+	labelForCompareSide,
+	loadSuiteRunReport,
+	parseComparePairToken,
+	writeCompareReport,
+} from "./compare.js";
 import { discoverSuites } from "./discover-suites.js";
 import { runDoctor } from "./doctor.js";
 import { writeHtmlReport } from "./html-report.js";
@@ -21,7 +29,7 @@ import {
 	getLiveStagingSessionRoot,
 	setLiveStagingRootOverride,
 } from "./record-trace.js";
-import { registerLiveRunHandlers, runAllSuites } from "./run-suite.js";
+import { registerLiveRunHandlers, runAllSuites, runSuite } from "./run-suite.js";
 import {
 	type FailOnMode,
 	formatRunSummary,
@@ -29,6 +37,7 @@ import {
 	summarizeReports,
 } from "./suite-summary.js";
 import { configureCliColor, theme } from "./theme.js";
+import type { SuiteRunReport } from "./types.js";
 import { formatSeedValidationReport, validateSeedPatches } from "./validate-seeds.js";
 import { formatValidationReport, validateSuitePaths } from "./validate-suite.js";
 import { suppressNoisyRuntimeWarnings } from "./warnings.js";
@@ -62,6 +71,13 @@ export interface ParsedCliArgs {
 	failOn: FailOnMode;
 	/** Live announce-stop retries (overrides AGENT_TEST_SCENARIO_RETRIES). */
 	scenarioRetries?: number;
+	/** Offline compare subcommand (`agent-test compare --a … --b …`). */
+	compareMode: boolean;
+	compareA?: string;
+	compareB?: string;
+	/** Live/replay A:B suite dirs or report JSON paths. */
+	comparePairs?: string;
+	compareOutDir?: string;
 }
 
 /** Parse agent-test CLI argv (exported for unit tests). */
@@ -90,8 +106,18 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let validatePaths = false;
 	let failOn: FailOnMode = "all";
 	let scenarioRetries: number | undefined;
+	let compareMode = false;
+	let compareA: string | undefined;
+	let compareB: string | undefined;
+	let comparePairs: string | undefined;
+	let compareOutDir: string | undefined;
 
-	for (let i = 2; i < argv.length; i++) {
+	const startIndex = argv[2] === "compare" ? 3 : 2;
+	if (argv[2] === "compare") {
+		compareMode = true;
+	}
+
+	for (let i = startIndex; i < argv.length; i++) {
 		const token = argv[i];
 		if (token === "--host" && argv[i + 1]) {
 			host = argv[++i] as AgentHost;
@@ -147,6 +173,16 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 				throw new Error("--scenario-retries must be an integer >= 0");
 			}
 			scenarioRetries = parsed;
+		} else if (token === "--compare-pairs" && argv[i + 1]) {
+			comparePairs = argv[++i];
+		} else if ((token === "--a" || token === "--compare-a") && argv[i + 1]) {
+			compareA = argv[++i];
+			compareMode = true;
+		} else if ((token === "--b" || token === "--compare-b") && argv[i + 1]) {
+			compareB = argv[++i];
+			compareMode = true;
+		} else if ((token === "--out-dir" || token === "--compare-out") && argv[i + 1]) {
+			compareOutDir = argv[++i];
 		} else if (token === "--no-html-report") {
 			htmlReport = false;
 		} else if (token === "--debug") {
@@ -160,6 +196,12 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			debug = true;
 		} else if (token && !token.startsWith("-")) {
 			filter = token;
+		}
+	}
+
+	if (compareMode && !comparePairs) {
+		if (!compareA || !compareB) {
+			throw new Error("compare requires --a <report.json> and --b <report.json>");
 		}
 	}
 
@@ -202,7 +244,88 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		validatePaths,
 		failOn,
 		scenarioRetries,
+		compareMode,
+		compareA,
+		compareB,
+		comparePairs,
+		compareOutDir: compareOutDir ? resolve(cwd, compareOutDir) : undefined,
 	};
+}
+
+async function pathExists(path: string): Promise<boolean> {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function resolveSuiteScenariosPath(
+	cwd: string,
+	suitesDir: string,
+	side: string,
+): Promise<string> {
+	const candidates = [
+		resolve(cwd, side, "scenarios.json"),
+		resolve(cwd, suitesDir, side, "scenarios.json"),
+		resolve(side, "scenarios.json"),
+	];
+	for (const candidate of candidates) {
+		if (await pathExists(candidate)) {
+			return candidate;
+		}
+	}
+	throw new Error(
+		`compare side "${side}" is not a suite report JSON or suite dir (looked under ${suitesDir}/ and cwd)`,
+	);
+}
+
+async function loadOrRunCompareSide(
+	args: ParsedCliArgs,
+	side: string,
+	stagingSessionId: string | undefined,
+): Promise<SuiteRunReport> {
+	const resolved = resolve(args.cwd, side);
+	if (side.endsWith(".json") || resolved.endsWith(".json")) {
+		const jsonPath = side.endsWith(".json") ? resolved : resolve(args.cwd, `${side}.json`);
+		const path = (await pathExists(resolved)) ? resolved : jsonPath;
+		if (!(await pathExists(path))) {
+			throw new Error(`compare report not found: ${side}`);
+		}
+		return loadSuiteRunReport(path);
+	}
+
+	const suitePath = await resolveSuiteScenariosPath(args.cwd, args.suitesDir, side);
+	return runSuite({
+		cwd: args.cwd,
+		suitePath,
+		host: args.host,
+		scenarioFilter: args.scenarioFilter,
+		record: args.record,
+		recordFixtures: args.recordFixtures,
+		judge: args.judge,
+		worktree: args.worktree,
+		stagingSessionId,
+		keepRecordings: args.keepRecordings,
+		suitesDir: args.suitesDir,
+		timeoutMs: args.timeoutMs,
+		allowUserInput: args.allowUserInput,
+		debug: args.debug,
+		debugDir: args.debugDir,
+		scenarioRetries: args.scenarioRetries,
+	});
+}
+
+async function writeSuiteReportDump(
+	outDir: string,
+	label: string,
+	report: SuiteRunReport,
+): Promise<string> {
+	await mkdir(outDir, { recursive: true });
+	const path = join(outDir, `${label}.suite-report.json`);
+	await writeFile(path, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+	return path;
 }
 
 async function cleanupLiveRunArtifacts(
@@ -243,6 +366,25 @@ async function main(): Promise<number> {
 			console.log(message);
 		}
 		return report.ok ? 0 : 1;
+	}
+
+	if (args.compareMode && !args.comparePairs) {
+		const aPath = resolve(args.cwd, args.compareA as string);
+		const bPath = resolve(args.cwd, args.compareB as string);
+		const aReport = await loadSuiteRunReport(aPath);
+		const bReport = await loadSuiteRunReport(bPath);
+		const outDir = args.compareOutDir ?? resolve(args.cwd, "compare-out");
+		const compare = compareSuiteReports({
+			aLabel: labelForCompareSide(aPath),
+			bLabel: labelForCompareSide(bPath),
+			a: aReport,
+			b: bReport,
+		});
+		const written = await writeCompareReport({ outDir, report: compare });
+		console.log(theme.tip(`compare JSON: ${written.jsonPath}`));
+		console.log(theme.tip(`compare markdown: ${written.markdownPath}`));
+		console.log(theme.tip(`compare HTML: ${written.htmlPath}`));
+		return compare.summary.passRegressions > 0 ? 1 : 0;
 	}
 
 	if (args.validateOnly || args.validateSeeds) {
@@ -364,14 +506,43 @@ async function main(): Promise<number> {
 			console.log(theme.bannerSession(stagingSessionRoot));
 		}
 
-		const reports = await runAllSuites({
-			...args,
-			stagingSessionId,
-			timeoutMs: args.timeoutMs,
-			allowUserInput: args.allowUserInput,
-			debug: args.debug,
-			debugDir: args.debugDir,
-		});
+		let reports: SuiteRunReport[];
+		let comparePassRegressions = 0;
+		if (args.comparePairs) {
+			const { a, b } = parseComparePairToken(args.comparePairs);
+			const aReport = await loadOrRunCompareSide(args, a, stagingSessionId);
+			const bReport = await loadOrRunCompareSide(args, b, stagingSessionId);
+			reports = [aReport, bReport];
+			if (!isChild) {
+				const outDir =
+					args.compareOutDir ??
+					(stagingSessionRoot
+						? join(stagingSessionRoot, "compare")
+						: resolve(args.cwd, "compare-out"));
+				await writeSuiteReportDump(outDir, labelForCompareSide(a), aReport);
+				await writeSuiteReportDump(outDir, labelForCompareSide(b), bReport);
+				const compare = compareSuiteReports({
+					aLabel: labelForCompareSide(a),
+					bLabel: labelForCompareSide(b),
+					a: aReport,
+					b: bReport,
+				});
+				comparePassRegressions = compare.summary.passRegressions;
+				const written = await writeCompareReport({ outDir, report: compare });
+				console.log(`\n${theme.tip(`compare JSON: ${written.jsonPath}`)}`);
+				console.log(theme.tip(`compare markdown: ${written.markdownPath}`));
+				console.log(theme.tip(`compare HTML: ${written.htmlPath}`));
+			}
+		} else {
+			reports = await runAllSuites({
+				...args,
+				stagingSessionId,
+				timeoutMs: args.timeoutMs,
+				allowUserInput: args.allowUserInput,
+				debug: args.debug,
+				debugDir: args.debugDir,
+			});
+		}
 
 		let exitCode = 0;
 		if (!isChild) {
@@ -421,9 +592,13 @@ async function main(): Promise<number> {
 
 			if (args.htmlReport && reports.length > 0) {
 				try {
+					const pair = args.comparePairs ? parseComparePairToken(args.comparePairs) : undefined;
 					const reportPath = await writeHtmlReport(reports, {
 						host: args.host,
 						suitesDir: args.suitesDir,
+						includeCompare: Boolean(args.comparePairs),
+						compareALabel: pair ? labelForCompareSide(pair.a) : undefined,
+						compareBLabel: pair ? labelForCompareSide(pair.b) : undefined,
 					});
 					console.log(`\n${theme.tip(`HTML report: ${reportPath}`)}`);
 				} catch (error) {
@@ -433,6 +608,10 @@ async function main(): Promise<number> {
 						),
 					);
 				}
+			}
+
+			if (comparePassRegressions > 0) {
+				exitCode = 1;
 			}
 		} else {
 			for (const report of reports) {

@@ -552,6 +552,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				durationMs,
 				attempts,
 				judgeVerdicts,
+				usage: scenarioTrace?.usage,
 				trace: scenarioTrace,
 			};
 			const debugBundleDir = await maybeWriteDebugBundle({
@@ -605,6 +606,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					defaultHost,
 					suite.defaults?.profile,
 					suite.defaults?.skills,
+					suite.defaults?.contextSources,
 					suite.defaults?.mcpServers,
 					options.record,
 					options.recordFixtures,
@@ -674,6 +676,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					defaultHost,
 					suite.defaults?.profile,
 					suite.defaults?.skills,
+					suite.defaults?.contextSources,
 					suite.defaults?.mcpServers,
 					options.record,
 					options.recordFixtures,
@@ -707,6 +710,16 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	};
 }
 
+function mergeContextSources(
+	defaults?: string[],
+	scenarioSources?: string[],
+): string[] | undefined {
+	const merged = [...(defaults ?? []), ...(scenarioSources ?? [])].filter(
+		(value) => typeof value === "string" && value.trim().length > 0,
+	);
+	return merged.length > 0 ? merged : undefined;
+}
+
 async function runScenario(
 	cwd: string,
 	suiteName: string,
@@ -714,6 +727,7 @@ async function runScenario(
 	defaultHost: AgentHost,
 	defaultProfile?: AgentScenario["profile"],
 	defaultSkills?: SkillContextSetting,
+	defaultContextSources?: string[],
 	defaultMcpServers?: Record<string, McpServerConfig>,
 	record?: boolean,
 	recordFixtures?: boolean,
@@ -753,6 +767,7 @@ async function runScenario(
 	const host = scenario.host ?? defaultHost;
 	const profile = scenario.profile ?? defaultProfile ?? (host === "cursor" ? "cursor" : "shared");
 	const skills = scenario.skills ?? defaultSkills;
+	const contextSources = mergeContextSources(defaultContextSources, scenario.contextSources);
 	const mcpServers = mergeMcpServers(defaultMcpServers, scenario.mcpServers);
 	const isLive = host !== "replay";
 	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
@@ -792,7 +807,12 @@ async function runScenario(
 		// Live worktree runs code in an isolated checkout; load rules/AGENTS from caller cwd
 		// so uncommitted .cursor/rules and AGENTS.md edits apply during dogfood.
 		const contextRoot = isLive && useWorktree ? cwd : runCwd;
-		const context = await loadContext({ cwd: contextRoot, profile, skills });
+		const context = await loadContext({
+			cwd: contextRoot,
+			profile,
+			skills,
+			contextSources,
+		});
 		const useReplay = host === "replay";
 		if (useReplay) {
 			logPhase(theme.phase("replay", theme.path(scenario.replayTrace ?? "trace")));
@@ -1019,6 +1039,7 @@ async function runScenario(
 			failures,
 			durationMs,
 			judgeVerdicts,
+			usage: trace?.usage,
 			trace,
 		};
 		if (!suppressEmit) {

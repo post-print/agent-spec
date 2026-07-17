@@ -56,6 +56,15 @@ declare module "@cursor/sdk" {
 		output?: string;
 	}
 
+	export interface TokenUsage {
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheWriteTokens: number;
+		totalTokens: number;
+		reasoningTokens?: number;
+	}
+
 	export interface SdkMessage {
 		type: string;
 		name?: string;
@@ -63,6 +72,8 @@ declare module "@cursor/sdk" {
 		call_id?: string;
 		/** Present on tool_call completed/error events (SDKToolUseMessage.result). */
 		result?: unknown;
+		/** Present on type:"usage" turn-end events. */
+		usage?: TokenUsage;
 		message?: {
 			role?: string;
 			content?: SdkTextBlock[];
@@ -74,12 +85,15 @@ declare module "@cursor/sdk" {
 		id: string;
 		status: string;
 		error?: { message?: string; code?: string };
+		/** Cumulative token usage when the runtime reported it. */
+		usage?: TokenUsage;
 	}
 
 	export interface AgentRun {
 		stream(): AsyncIterable<SdkMessage>;
 		messages(): AsyncIterable<SdkMessage>;
 		wait(): Promise<RunResult>;
+		readonly usage?: TokenUsage;
 	}
 
 	export interface DisposableAgent {

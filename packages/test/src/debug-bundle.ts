@@ -216,6 +216,13 @@ export function formatDebugWhySection(options: {
 	const trace = options.trace ?? options.result.trace;
 	if (trace) {
 		const skills = trace.skillsInvoked?.length ? trace.skillsInvoked.join(", ") : "(none)";
+		const usage = options.result.usage ?? trace.usage;
+		const usageLine =
+			usage?.totalTokens !== undefined
+				? `- totalTokens: ${usage.totalTokens}`
+				: usage
+					? `- usage: in=${usage.inputTokens ?? "?"} out=${usage.outputTokens ?? "?"}`
+					: `- totalTokens: (none)`;
 		lines.push(
 			"**Trace stats:**",
 			"",
@@ -223,6 +230,7 @@ export function formatDebugWhySection(options: {
 			`- toolCalls: ${trace.toolCalls.length}`,
 			`- skillsInvoked: ${skills}`,
 			`- routing.tier: ${trace.routing?.tier ?? "(none)"}`,
+			usageLine,
 			"",
 		);
 	}
@@ -439,6 +447,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 				skipped: result.skipped,
 				durationMs: result.durationMs,
 				failures: result.failures,
+				usage: result.usage ?? effectiveTrace?.usage,
 				skillsInvoked: effectiveTrace?.skillsInvoked ?? [],
 				routing: effectiveTrace?.routing,
 				messageCount: effectiveTrace?.messages.length ?? 0,
@@ -473,6 +482,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 			routing: trace.routing,
 			skillsInvoked: trace.skillsInvoked,
 			assistantTextBeforeTools: trace.assistantTextBeforeTools,
+			usage: trace.usage,
 			judgeVerdicts: trace.judgeVerdicts,
 		};
 		await writeFile(join(dir, "trace.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
