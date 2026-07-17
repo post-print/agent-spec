@@ -15,7 +15,7 @@ node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
 node packages/test/dist/cli.js --doctor
 ```
 
-There is no top-level `agent-suites/` here — consumer examples below assume a consuming repo. Live `--live` needs an **exported** `CURSOR_API_KEY` (copy repo-root `.env.example`; the CLI does not auto-load `.env`).
+There is no top-level `agent-suites/` here — consumer examples below assume a consuming repo. Live `--live` needs an **exported** `CURSOR_API_KEY` for Cursor (default) or `ANTHROPIC_API_KEY` for `--host claude` (copy repo-root `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless you pass `--no-judge`.
 
 ## CLI (consumers, Node >= 22)
 
@@ -25,6 +25,7 @@ Works under **Node >= 22** (the published `agent-test` bin):
 npx agent-test --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --suite ambient-routing
 npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # exported CURSOR_API_KEY required
+npx agent-test --suites-dir agent-suites --live --host claude --suite ambient-routing  # ANTHROPIC_API_KEY + claude CLI
 npx agent-test --live --compare-pairs skeleton-clean:skeleton-messy --out-dir "$TMPDIR/compare"
 npx agent-test compare --a clean.suite-report.json --b messy.suite-report.json --out-dir "$TMPDIR/compare"
 npx agent-test --doctor
@@ -42,7 +43,11 @@ See repo-root `.env.example`. Common knobs:
 
 | Variable                                    | Purpose                                                       |
 | ------------------------------------------- | ------------------------------------------------------------- |
-| `CURSOR_API_KEY`                            | Required for `--live` and judge classifiers                   |
+| `CURSOR_API_KEY`                            | Required for `--live` Cursor and judge classifiers            |
+| `ANTHROPIC_API_KEY`                         | Required for `--live --host claude`                           |
+| `CLAUDE_CODE_BIN`                           | Optional path to Claude Code CLI binary                       |
+| `CLAUDE_AGENT_MODEL`                        | Optional Claude model override                                |
+| `CLAUDE_CODE_ALLOWED_TOOLS`                 | Optional `--allowedTools` list for Claude live runs           |
 | `AGENT_TEST_DEBUG`                          | Same as `--debug` when `1`/`true`                             |
 | `AGENT_TEST_VERBOSE`                        | Extra tips (e.g. OOM isolation) when `1`                      |
 | `AGENT_TEST_VERBOSE_PATHS`                  | Print full paths when `1`                                     |
@@ -76,8 +81,8 @@ sessions/<id>/<suite>/<scenario>.debug/
   trace.json
   failures.json          # includes category + evidence
   judge-debug.json       # when judge criteria ran (SDK status/error, sizes, attempt)
-  environment.json       # versions/models/timeout/isolation; CURSOR_API_KEY only as boolean
-  rerun.sh               # shell-quoted exact re-run command (export CURSOR_API_KEY yourself)
+  environment.json       # versions/models/timeout/isolation; API keys only as booleans
+  rerun.sh               # shell-quoted exact re-run command (export API keys yourself)
 ```
 
 **Debug dir default:** omit `--debug-dir` to stage under `$TMPDIR/agent-spec/sessions/<id>/…` (outside the repo). Passing an in-repo `--debug-dir` (for example `./agent-test-debug`) is supported — harness staging paths under that dir are excluded from worktree leak checks — but prefer `$TMPDIR` so debug artifacts never appear in `git status`.

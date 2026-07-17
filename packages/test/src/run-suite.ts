@@ -10,6 +10,7 @@ import type {
 	SkillContextSetting,
 } from "@post-print/agent-harness";
 import {
+	cancelActiveClaudeRun,
 	cancelActiveCursorRun,
 	captureWorkingTreeStatus,
 	createScenarioWorktree,
@@ -120,6 +121,7 @@ export function registerLiveRunHandlers(): void {
 	const interrupt = (code: number) => {
 		killActiveLiveChildren();
 		cancelActiveCursorRun();
+		cancelActiveClaudeRun();
 		const cleanup = activeWorktreeCleanup;
 		const headRestore = activeCallerHeadRestore;
 		if (!cleanup && !headRestore) {

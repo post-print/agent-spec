@@ -12,8 +12,50 @@ export interface DoctorReport {
 	cliPresent: boolean;
 	cursorApiKeySet: boolean;
 	cursorSdkPresent: boolean;
+	anthropicApiKeySet: boolean;
+	claudeBinPresent: boolean;
 	health: typeof HEALTH_CHECK_PATH;
 	messages: string[];
+}
+
+function claudeBinOnPath(): boolean {
+	const override = process.env.CLAUDE_CODE_BIN?.trim();
+	if (override) {
+		try {
+			accessSync(override, constants.X_OK);
+			return true;
+		} catch {
+			try {
+				accessSync(override, constants.R_OK);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+	}
+
+	const pathEnv = process.env.PATH ?? "";
+	const sep = process.platform === "win32" ? ";" : ":";
+	const names = process.platform === "win32" ? ["claude.exe", "claude.cmd", "claude"] : ["claude"];
+	for (const dir of pathEnv.split(sep)) {
+		if (!dir) {
+			continue;
+		}
+		for (const name of names) {
+			try {
+				accessSync(join(dir, name), constants.X_OK);
+				return true;
+			} catch {
+				try {
+					accessSync(join(dir, name), constants.R_OK);
+					return true;
+				} catch {
+					// continue
+				}
+			}
+		}
+	}
+	return false;
 }
 
 /** Local diagnostics for agent-test install and live-run readiness. */
@@ -49,16 +91,36 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	try {
 		require.resolve("@cursor/sdk");
 		cursorSdkPresent = true;
-		messages.push("@cursor/sdk: installed (live runs ready)");
+		messages.push("@cursor/sdk: installed (live Cursor runs ready)");
 	} catch {
-		messages.push("@cursor/sdk not installed — required for --live (npm i -D @cursor/sdk)");
+		messages.push("@cursor/sdk not installed — required for --live Cursor (npm i -D @cursor/sdk)");
 	}
 
 	const cursorApiKeySet = Boolean(process.env.CURSOR_API_KEY?.trim());
 	if (cursorApiKeySet) {
 		messages.push("CURSOR_API_KEY: set");
 	} else {
-		messages.push("CURSOR_API_KEY unset (required only for --live)");
+		messages.push("CURSOR_API_KEY unset (required for --live Cursor / judge)");
+	}
+
+	const anthropicApiKeySet = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+	if (anthropicApiKeySet) {
+		messages.push("ANTHROPIC_API_KEY: set");
+	} else {
+		messages.push("ANTHROPIC_API_KEY unset (required only for --live --host claude)");
+	}
+
+	const claudeBinPresent = claudeBinOnPath();
+	if (claudeBinPresent) {
+		messages.push(
+			process.env.CLAUDE_CODE_BIN?.trim()
+				? `Claude Code binary: ${process.env.CLAUDE_CODE_BIN.trim()}`
+				: "Claude Code binary: claude (on PATH)",
+		);
+	} else {
+		messages.push(
+			"Claude Code binary not found (install Claude Code CLI or set CLAUDE_CODE_BIN for --host claude)",
+		);
 	}
 
 	const health = getHealthStatus();
@@ -74,6 +136,8 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		cliPresent,
 		cursorApiKeySet,
 		cursorSdkPresent,
+		anthropicApiKeySet,
+		claudeBinPresent,
 		health: HEALTH_CHECK_PATH,
 		messages,
 	};

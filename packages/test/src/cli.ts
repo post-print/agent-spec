@@ -445,9 +445,23 @@ async function main(): Promise<number> {
 		: undefined;
 
 	try {
-		if (args.live && !process.env.CURSOR_API_KEY) {
-			console.error("CURSOR_API_KEY required for --live (Cursor SDK runs)");
-			return 1;
+		if (args.live) {
+			const host = args.host ?? "cursor";
+			if (host === "claude" && !process.env.ANTHROPIC_API_KEY?.trim()) {
+				console.error("ANTHROPIC_API_KEY required for --live --host claude (Claude Code CLI)");
+				return 1;
+			}
+			if (host === "cursor" && !process.env.CURSOR_API_KEY?.trim()) {
+				console.error("CURSOR_API_KEY required for --live (Cursor SDK runs)");
+				return 1;
+			}
+			// Judge classifiers still use the Cursor SDK.
+			if (args.judge !== false && !process.env.CURSOR_API_KEY?.trim()) {
+				console.error(
+					"CURSOR_API_KEY required for live judge classifiers (use --no-judge to skip)",
+				);
+				return 1;
+			}
 		}
 
 		if (args.live) {

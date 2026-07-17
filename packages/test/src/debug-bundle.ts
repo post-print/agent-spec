@@ -40,6 +40,9 @@ export interface DebugEnvironmentSnapshot {
 	cursorAgentModel?: string;
 	cursorJudgeModel?: string;
 	cursorJudgeTemperature?: string;
+	anthropicApiKeySet: boolean;
+	claudeAgentModel?: string;
+	claudeCodeBin?: string;
 	timeoutMs?: number;
 	worktree?: boolean;
 	isolateLive?: boolean;
@@ -157,6 +160,9 @@ export function collectDebugEnvironment(options: {
 		cursorAgentModel: process.env.CURSOR_AGENT_MODEL,
 		cursorJudgeModel: process.env.CURSOR_JUDGE_MODEL,
 		cursorJudgeTemperature: process.env.CURSOR_JUDGE_TEMPERATURE,
+		anthropicApiKeySet: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+		claudeAgentModel: process.env.CLAUDE_AGENT_MODEL,
+		claudeCodeBin: process.env.CLAUDE_CODE_BIN,
 		timeoutMs: options.timeoutMs,
 		worktree: options.worktree,
 		isolateLive: options.isolateLive,
@@ -522,7 +528,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		`# Re-run failed scenario ${shellCommentText(scenario.name)}`,
-		`# Requires CURSOR_API_KEY in the environment for --live.`,
+		`# Requires CURSOR_API_KEY for Cursor live/judge; ANTHROPIC_API_KEY for --host claude.`,
 		`cd ${shellQuote(rerun.cwd)}`,
 		buildRerunCommand(rerun),
 		"",

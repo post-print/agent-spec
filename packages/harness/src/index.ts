@@ -29,6 +29,28 @@ export {
 	routingBlockBeforeTools,
 } from "./capture.js";
 export {
+	accumulateClaudeEvent,
+	buildTraceFromClaudeEvents,
+	type ClaudeContentBlock,
+	type ClaudeStreamEvent,
+	type ClaudeTraceAccumulator,
+	createClaudeTraceAccumulator,
+	finalizeClaudeTraceAccumulator,
+	normalizeClaudeToolArgs,
+	normalizeClaudeUsage,
+	parseClaudeNdjsonLine,
+} from "./claude-capture.js";
+export {
+	buildClaudeMcpConfigJson,
+	type ClaudeRunOptions,
+	type ClaudeRunResult,
+	cancelActiveClaudeRun,
+	formatClaudeRunFailure,
+	resolveClaudeBin,
+	runClaudeAgent,
+	takeLastClaudeRunTrace,
+} from "./claude-run.js";
+export {
 	type LoadContextOptions,
 	loadContext,
 	parseSkeletonAlwaysInclude,

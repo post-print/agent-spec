@@ -1,4 +1,5 @@
 import { captureGitDiff, enrichTrace } from "../capture.js";
+import { formatClaudeRunFailure, runClaudeAgent, takeLastClaudeRunTrace } from "../claude-run.js";
 import { formatCursorRunFailure, runCursorAgent, takeLastCursorRunTrace } from "../cursor-run.js";
 import { buildRoutingContract } from "../routing-contract.js";
 import { getPartialTrace } from "../run-guards.js";
@@ -113,15 +114,85 @@ export class CursorAdapter implements HostAdapter {
 	}
 }
 
-/** Claude Code CLI adapter — stub until structured headless output is wired. */
+/** Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN) + ANTHROPIC_API_KEY. */
 export class ClaudeAdapter implements HostAdapter {
 	readonly host = "claude" as const;
 
-	async run(_options: RunAgentOptions): Promise<AgentSession> {
-		return emptyFailed(
-			this.host,
-			"Claude Code adapter not implemented — use host replay or export session to trace JSON",
-		);
+	async run(options: RunAgentOptions): Promise<AgentSession> {
+		if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+			return emptyFailed(
+				this.host,
+				"ANTHROPIC_API_KEY not set — use host replay or set API key for live runs",
+			);
+		}
+
+		const started = performance.now();
+		try {
+			const contract = options.outputContract
+				? `\n\n${buildRoutingContract(options.outputContract)}\n`
+				: "";
+			const prompt = `${options.context.preamble}\n\n---\n${contract}Task:\n${options.prompt}`;
+
+			const {
+				trace: streamedTrace,
+				status,
+				rawStatus,
+				exitCode,
+				stderr,
+			} = await runClaudeAgent({
+				cwd: options.cwd,
+				prompt,
+				mcpServers: options.mcpServers,
+				timeoutMs: options.timeoutMs,
+				failOnUserInput: options.failOnUserInput,
+				onDeadlineStart: options.onDeadlineStart,
+			});
+			const gitDiffResult = await captureGitDiff(options.cwd);
+			const resultError = streamedTrace.artifacts.claudeResultError;
+			const trace = enrichTrace({
+				...streamedTrace,
+				gitDiff: gitDiffResult.diff,
+				artifacts: {
+					...streamedTrace.artifacts,
+					...(gitDiffResult.truncated ? { gitDiffTruncated: "true" } : {}),
+					...(exitCode !== undefined && exitCode !== null
+						? { claudeExitCode: String(exitCode) }
+						: {}),
+				},
+			});
+
+			const durationMs = Math.round(performance.now() - started);
+			if (status === "completed") {
+				return {
+					host: this.host,
+					status: "completed",
+					trace,
+					durationMs,
+				};
+			}
+
+			return {
+				host: this.host,
+				status: "failed",
+				trace,
+				durationMs,
+				error: formatClaudeRunFailure({
+					status,
+					rawStatus,
+					exitCode,
+					stderr,
+					resultError,
+				}),
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Failed to run Claude Code CLI";
+			const durationMs = Math.round(performance.now() - started);
+			const partial = getPartialTrace(error) ?? takeLastClaudeRunTrace();
+			if (partial && (partial.messages.length > 0 || partial.toolCalls.length > 0)) {
+				return sessionFromTrace(this.host, partial, message, durationMs);
+			}
+			return emptyFailed(this.host, message);
+		}
 	}
 }
 

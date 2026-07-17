@@ -1,7 +1,8 @@
 import type { AgentTrace } from "./types.js";
 
 /** Tools that block until the user replies — incompatible with single-shot headless runs. */
-const USER_INPUT_TOOL_PATTERN = /^(askquestion|ask_question|user_question|request_user_input)$/i;
+const USER_INPUT_TOOL_PATTERN =
+	/^(askquestion|ask_question|askuserquestion|ask_user_question|user_question|request_user_input)$/i;
 
 export function isUserInputTool(toolName: string): boolean {
 	return USER_INPUT_TOOL_PATTERN.test(toolName.trim());

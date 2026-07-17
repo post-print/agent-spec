@@ -12,6 +12,8 @@ describe("isUserInputTool", () => {
 	it("matches AskQuestion-style tool names", () => {
 		expect(isUserInputTool("AskQuestion")).toBe(true);
 		expect(isUserInputTool("ask_question")).toBe(true);
+		expect(isUserInputTool("AskUserQuestion")).toBe(true);
+		expect(isUserInputTool("ask_user_question")).toBe(true);
 		expect(isUserInputTool("request_user_input")).toBe(true);
 	});
 
