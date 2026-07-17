@@ -61,7 +61,7 @@ npx agent-test --suites-dir agent-suites --live --debug
 npx agent-test --suites-dir agent-suites --live --debug --debug-dir "$TMPDIR/agent-test-debug"
 ```
 
-`--debug` (or `AGENT_TEST_DEBUG=1`) implies `--keep-recordings`, verbose failure detail, and full paths. Failed scenarios write a bundle under the session root:
+`--debug` (or `AGENT_TEST_DEBUG=1`) implies `--keep-recordings`, verbose failure detail, and full paths. Every non-skipped scenario writes a bundle under the session root:
 
 ```
 sessions/<id>/<suite>/<scenario>.debug/
@@ -79,13 +79,13 @@ sessions/<id>/<suite>/<scenario>.debug/
 
 Failure categories printed on FAIL lines and in `failures.json`:
 
-| Category | Meaning |
-| --- | --- |
-| `rubric_miss` | Assertion/judge criterion miss |
-| `judge_infra` | Judge SDK/API failure (not a criterion miss) |
-| `agent_runtime` | Agent session error, timeout, AskQuestion, subprocess exit |
-| `worktree_leak` | Live agent mutated the caller working tree (harness `--debug-dir` staging is excluded) |
-| `recording_error` | Failed to persist a staging/fixture trace |
+| Category          | Meaning                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| `rubric_miss`     | Assertion/judge criterion miss                                                         |
+| `judge_infra`     | Judge SDK/API failure (not a criterion miss)                                           |
+| `agent_runtime`   | Agent session error, timeout, AskQuestion, subprocess exit                             |
+| `worktree_leak`   | Live agent mutated the caller working tree (harness `--debug-dir` staging is excluded) |
+| `recording_error` | Failed to persist a staging/fixture trace                                              |
 
 ## Live dogfood
 

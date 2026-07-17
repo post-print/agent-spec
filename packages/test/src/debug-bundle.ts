@@ -276,7 +276,7 @@ export function getDebugBundleDir(
 	);
 }
 
-/** Persist a failed-scenario debug bundle (trace, failures, transcript, judge, env, rerun). */
+/** Persist a scenario debug bundle (trace, failures, transcript, judge, env, rerun). */
 export async function writeDebugBundle(options: WriteDebugBundleOptions): Promise<string> {
 	const { dir, result, trace, scenario, environment, rerun } = options;
 	await mkdir(dir, { recursive: true });

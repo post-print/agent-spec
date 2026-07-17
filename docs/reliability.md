@@ -6,12 +6,12 @@
 
 ## Targets (4.5+)
 
-| Surface | SLO |
-| --- | --- |
-| Replay CI | 50/50 deterministic passes on consumer suites |
+| Surface      | SLO                                                 |
+| ------------ | --------------------------------------------------- |
+| Replay CI    | 50/50 deterministic passes on consumer suites       |
 | Live dogfood | ≤5% infra-only failures over 20 runs (with retries) |
-| Seed patches | 100% apply cleanly via `--validate-seeds` |
-| Config | Zero silent misconfigurations (`--validate-only`) |
+| Seed patches | 100% apply cleanly via `--validate-seeds`           |
+| Config       | Zero silent misconfigurations (`--validate-only`)   |
 
 ## Verification commands
 
@@ -37,20 +37,20 @@ node packages/test/dist/cli.js --live --fail-on=behavior --suites-dir agent-suit
 
 ## Failure categories
 
-| Category | Meaning | `--fail-on=behavior` |
-| --- | --- | --- |
-| `rubric_miss` | Deterministic assertion failed | Fails |
-| `judge_parse` | Judge returned unparseable JSON | Fails |
-| `judge_infra` | SDK/network/rate limit (retried) | Ignored |
-| `agent_runtime` | Agent timeout, OOM, user-input tool | Ignored |
-| `worktree_leak` | Caller repo mutated outside worktree | Fails (seed-target index noise auto-restored) |
-| `recording_error` | Trace write failed | Fails |
+| Category          | Meaning                              | `--fail-on=behavior`                          |
+| ----------------- | ------------------------------------ | --------------------------------------------- |
+| `rubric_miss`     | Deterministic assertion failed       | Fails                                         |
+| `judge_parse`     | Judge returned unparseable JSON      | Fails                                         |
+| `judge_infra`     | SDK/network/rate limit (retried)     | Ignored                                       |
+| `agent_runtime`   | Agent timeout, OOM, user-input tool  | Ignored                                       |
+| `worktree_leak`   | Caller repo mutated outside worktree | Fails (seed-target index noise auto-restored) |
+| `recording_error` | Trace write failed                   | Fails                                         |
 
 ## Environment knobs
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `AGENT_TEST_LIVE_RETRIES` | `3` | Judge infra retry attempts |
-| `AGENT_TEST_SCENARIO_SETTLE_MS` | adaptive (`500` after pass, `5000` after fail) | Subprocess settle delay |
-| `AGENT_TEST_TIMEOUT_MS` | `600000` | Live harness deadline |
-| `AGENT_TEST_DEBUG` | unset | Verbose failures + debug bundles |
+| Variable                        | Default                                        | Purpose                                            |
+| ------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| `AGENT_TEST_LIVE_RETRIES`       | `3`                                            | Judge infra retry attempts                         |
+| `AGENT_TEST_SCENARIO_SETTLE_MS` | adaptive (`500` after pass, `5000` after fail) | Subprocess settle delay                            |
+| `AGENT_TEST_TIMEOUT_MS`         | `600000`                                       | Live harness deadline                              |
+| `AGENT_TEST_DEBUG`              | unset                                          | Verbose failures + debug bundles (all non-skipped) |

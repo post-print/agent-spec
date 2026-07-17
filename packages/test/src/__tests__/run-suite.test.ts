@@ -317,4 +317,48 @@ describe("runSuite isolateLive", () => {
 			recordTrace.setLiveStagingRootOverride(undefined);
 		}
 	});
+
+	it("writes debug bundles for passed scenarios when debug is enabled", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-debug-pass-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "debug-pass",
+				defaults: { host: "cursor" },
+				// Two scenarios so isolateLive parent path runs (needs total > 1).
+				scenarios: [
+					{ name: "ok-a", prompt: "p", rubric: {} },
+					{ name: "ok-b", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		vi.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+
+		const report = await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-debug-pass",
+			debug: true,
+			judge: false,
+		});
+
+		expect(report.results).toHaveLength(2);
+		for (const result of report.results) {
+			expect(result.passed).toBe(true);
+			const expectedDir = join(
+				recordTrace.getLiveStagingSessionRoot("sess-debug-pass"),
+				"debug-pass",
+				`${recordTrace.scenarioArtifactSlug(result.scenario)}.debug`,
+			);
+			expect(result.debugBundleDir).toBe(expectedDir);
+			await expect(readFile(join(expectedDir, "transcript.md"), "utf8")).resolves.toEqual(
+				expect.any(String),
+			);
+		}
+	});
 });

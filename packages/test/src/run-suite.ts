@@ -311,7 +311,7 @@ async function maybeWriteDebugBundle(options: {
 	allowUserInput?: boolean;
 	keepRecordings?: boolean;
 }): Promise<string | undefined> {
-	if (!options.debug || options.result.passed || options.result.skipped) {
+	if (!options.debug || options.result.skipped) {
 		return undefined;
 	}
 	if (!options.stagingSessionId) {
