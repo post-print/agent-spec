@@ -28,4 +28,6 @@ const session = await runAgent({
 
 Live Cursor runs accept inline `mcpServers` (stdio or HTTP/SSE), passed through to `Agent.create`. Replay ignores them and scores committed `toolCalls` only. Ambient MCP via `local.settingSources` is not enabled.
 
+When `outputContract` is set, `buildRoutingContract` injects hands-on / hands-off routing announce rules and requires continuing the task after the announce (do not end the turn at Routing alone).
+
 Consumer: `@post-print/agent-test`.

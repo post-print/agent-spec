@@ -14,5 +14,11 @@ describe("buildRoutingContract", () => {
 		expect(text).toContain("## Routing");
 		expect(text).toContain("**Tier:**");
 		expect(text).toContain("before tools");
+		expect(text).toContain("continue the task");
+	});
+
+	it("requires continuing after hands-on announce", () => {
+		const text = buildRoutingContract("hands-on");
+		expect(text).toContain("continue the task");
 	});
 });
