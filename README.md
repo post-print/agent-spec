@@ -39,7 +39,11 @@ Full gate: `bun run check` (needs unrestricted Cursor sandbox / `all` — some t
 ```bash
 node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
 node packages/test/dist/cli.js --doctor
+node packages/test/dist/cli.js --validate-only --validate-paths --suites-dir agent-suites
+node packages/test/dist/cli.js --validate-seeds --suites-dir agent-suites
 ```
+
+Reliability targets and failure categories: [docs/reliability.md](docs/reliability.md).
 
 Scoped checks: `bunx vitest run <file>` and `bunx biome check <path>` (use `bunx biome`, not a global `biome`).
 

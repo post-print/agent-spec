@@ -3,6 +3,7 @@ import {
 	type AgentTrace,
 	collapseTraceWhitespace,
 	handsOnTierBeforeTools,
+	inferReviewDepthFromText,
 	inferRoutingFromText,
 	routingBlockBeforeTools,
 	type SkillContextMode,
@@ -31,8 +32,6 @@ const FULL_MODE_GRILL_PATTERNS = [
 	/\bBranch\s+\d+\s*[—–-]/i,
 	/\bgrill\b/i,
 	/\bpressure-test(?:ing)?\b/i,
-	/(?:^|\n)\s*\d+\.\s+.+(?:\n\s*\d+\.\s+.+)+/m,
-	/\b\d+\.\s+\S+(?:\s+\d+\.\s+\S+)+\b/,
 ] as const;
 const FULL_MODE_CRYSTALLIZE_PATTERNS = [
 	/\bcrystalliz(?:e|ing|ation)\b/i,
@@ -163,8 +162,10 @@ export class TraceAssertion {
 		if (!depth) {
 			return this;
 		}
+		const haystack = this.patternHaystack();
 		const pattern = REVIEW_DEPTH_PATTERNS[depth];
-		if (!pattern.test(this.patternHaystack())) {
+		const inferred = inferReviewDepthFromText(haystack);
+		if (!pattern.test(haystack) && inferred !== depth) {
 			this.push(
 				"toHaveReviewDepth",
 				`expected review depth ${depth}, not found in trace output`,
@@ -360,10 +361,10 @@ export class TraceAssertion {
 }
 
 function containsForbiddenPhrase(haystack: string, phrase: string): boolean {
-	const lowerHaystack = haystack.toLowerCase();
 	const lowerPhrase = phrase.toLowerCase();
 	if (lowerPhrase.includes(" ")) {
-		return lowerHaystack.includes(lowerPhrase);
+		const escaped = lowerPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+		return new RegExp(`(?:^|\\W)${escaped}(?:\\W|$)`, "i").test(haystack);
 	}
 	const pattern = new RegExp(`\\b${lowerPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 	return pattern.test(haystack);

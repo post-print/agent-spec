@@ -1,6 +1,6 @@
 {
 	"name": "@post-print/agent-test",
-	"version": "0.1.18",
+	"version": "0.2.0",
 	"type": "module",
 	"bin": {
 		"agent-test": "./dist/cli.js"

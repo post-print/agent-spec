@@ -32,17 +32,21 @@ function tierFromMatch(match: RegExpMatchArray): "low" | "medium" | "high" | und
 	return undefined;
 }
 
-/** Collect git diff after a live agent run. */
-export async function captureGitDiff(cwd: string): Promise<string | undefined> {
+/** Collect git diff after a live agent run. Sets artifacts.gitDiffTruncated when buffer exceeded. */
+export async function captureGitDiff(cwd: string): Promise<{ diff?: string; truncated?: boolean }> {
 	try {
 		const { stdout } = await execFileAsync("git", ["diff", "HEAD"], {
 			cwd,
 			maxBuffer: 10_000_000,
 		});
 		const trimmed = stdout.trim();
-		return trimmed.length > 0 ? trimmed : undefined;
-	} catch {
-		return undefined;
+		return trimmed.length > 0 ? { diff: trimmed } : {};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		if (message.includes("ERR_CHILD_PROCESS_STDIO_MAXBUFFER") || message.includes("maxBuffer")) {
+			return { truncated: true };
+		}
+		return {};
 	}
 }
 
@@ -81,8 +85,6 @@ const APPLIED_SKILL_MARKERS = [
 	{ skill: "grill", pattern: /\b(?:invok(?:e|ing)|applied)\s+grill\b/i },
 	{ skill: "grill", pattern: /\bgrill\b/i },
 	{ skill: "grill", pattern: /\bpressure-test(?:ing)?\b/i },
-	{ skill: "grill", pattern: /(?:^|\n)\s*\d+\.\s+.+(?:\n\s*\d+\.\s+.+)+/m },
-	{ skill: "grill", pattern: /\b\d+\.\s+\S+(?:\s+\d+\.\s+\S+)+\b/ },
 	{
 		skill: "crystallize",
 		pattern: /\b(?:invok(?:e|ing)|applied)\s+crystallize\b/i,
@@ -108,6 +110,16 @@ const APPLIED_SKILL_MARKERS = [
 
 const REVIEW_HEADER_DEPTH_PATTERN = /\bReview\s·\s*[^·]+\s·\s*(Quick|Standard|Thorough|Full)\b/i;
 const REVIEW_DEPTH_LABEL_PATTERN = /\*\*Depth:\*\*\s*(quick|standard|thorough|full)\b/i;
+const REVIEW_PASS_CLASS_DEPTH_PATTERNS: Array<{
+	pattern: RegExp;
+	depth: "quick" | "standard" | "thorough" | "full";
+}> = [
+	{ pattern: /\bPass:\s*targeted contextual\b/i, depth: "standard" },
+	{ pattern: /\bEscalation:\s*Stayed targeted contextual\b/i, depth: "standard" },
+	{ pattern: /\bStayed Thorough\b/i, depth: "thorough" },
+	{ pattern: /\bPass class:\s*closure-re-review\b/i, depth: "standard" },
+	{ pattern: /\bPass class:\s*first-baseline\b/i, depth: "thorough" },
+];
 
 /** Collapse whitespace so SDK token-chunked assistant prose still matches rubric patterns. */
 export function collapseTraceWhitespace(text: string): string {
@@ -202,7 +214,15 @@ export function inferReviewDepthFromText(
 		return headerMatch[1].toLowerCase() as "quick" | "standard" | "thorough" | "full";
 	}
 	const depthMatch = collapsed.match(REVIEW_DEPTH_LABEL_PATTERN);
-	return depthMatch?.[1]?.toLowerCase() as "quick" | "standard" | "thorough" | "full" | undefined;
+	if (depthMatch?.[1]) {
+		return depthMatch[1].toLowerCase() as "quick" | "standard" | "thorough" | "full";
+	}
+	for (const { pattern, depth } of REVIEW_PASS_CLASS_DEPTH_PATTERNS) {
+		if (pattern.test(collapsed)) {
+			return depth;
+		}
+	}
+	return undefined;
 }
 
 export function mergeSkillsInvoked(...lists: Array<string[] | undefined>): string[] {
@@ -461,22 +481,28 @@ export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): vo
 
 export function finalizeTraceAccumulator(
 	acc: TraceAccumulator,
-	options?: { gitDiff?: string },
+	options?: { gitDiff?: string; gitDiffTruncated?: boolean },
 ): AgentTrace {
 	// Join stream token chunks with "" — "\n" breaks markdown like **Tier:** into
 	// **\nTier\n:** which collapseTraceWhitespace cannot repair for regex matching.
-	const combined = [
-		...new Set([...acc.inferenceChunks, ...acc.textChunks, ...acc.toolOutputChunks]),
-	].join("");
+	// Dedupe within prose channels only; keep tool output separate for shell extraction.
+	const proseCombined = [...new Set([...acc.inferenceChunks, ...acc.textChunks])].join("");
+	const toolCombined = acc.toolOutputChunks.join("");
+	const combined = proseCombined + toolCombined;
 	const routing = inferRoutingFromText(combined);
 	const prBody = inferPrBodyFromText(combined);
-	const shellFromText = extractShellCommands(combined, ...acc.toolOutputChunks);
+	const shellFromText = extractShellCommands(proseCombined, toolCombined);
 	const shellFromTools = extractShellCommandsFromToolCalls(acc.toolCalls);
 	const skillsInvoked = mergeSkillsInvoked(
 		extractSkillsInvokedFromToolCalls(acc.toolCalls),
 		extractSkillsInvokedFromText(combined),
 		extractSkillsAppliedFromText(combined),
 	);
+
+	const artifacts: Record<string, string> = {};
+	if (options?.gitDiffTruncated) {
+		artifacts.gitDiffTruncated = "true";
+	}
 
 	return {
 		messages: acc.agentMessages,
@@ -485,7 +511,7 @@ export function finalizeTraceAccumulator(
 		skillsInvoked,
 		gitDiff: options?.gitDiff,
 		prBody,
-		artifacts: {},
+		artifacts,
 		routing,
 		assistantTextBeforeTools: acc.preToolAssistantChunks.join(""),
 	};

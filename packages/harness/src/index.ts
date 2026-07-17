@@ -59,6 +59,11 @@ export {
 	mergeMcpServers,
 	resolveMcpServers,
 } from "./mcp.js";
+export {
+	isTransientInfraError,
+	resolveRetryMaxAttempts,
+	withRetry,
+} from "./retry.js";
 export { buildRoutingContract } from "./routing-contract.js";
 export {
 	AgentRunTimeoutError,
@@ -98,6 +103,7 @@ export {
 	isPathUnderRoot,
 	porcelainPathFromStatusLine,
 	resolveHarnessArtifactIgnoreRoots,
+	restoreWorkingTreePaths,
 } from "./working-tree-guard.js";
 export {
 	cleanupStaleScenarioWorktrees,
@@ -105,6 +111,13 @@ export {
 	SCENARIO_WORKTREE_DIR_PREFIX,
 	type ScenarioWorktree,
 } from "./worktree.js";
+export {
+	loadUnifiedDiffPaths,
+	parseUnifiedDiffPaths,
+	partitionSeedCollateralLeaks,
+	porcelainPathsFromLines,
+	traceEditsOutsideWorktree,
+} from "./worktree-leak.js";
 export { type LoadContextOptions, loadContext };
 
 export interface RunAgentInput extends Omit<RunAgentOptions, "context"> {

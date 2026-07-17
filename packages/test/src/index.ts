@@ -38,6 +38,14 @@ export {
 	runAllSuites,
 	runSuite,
 } from "./run-suite.js";
+export {
+	type FailOnMode,
+	formatRunSummary,
+	shouldFailScenario,
+	summarizeFailures,
+	summarizeReportResults,
+	summarizeReports,
+} from "./suite-summary.js";
 export type {
 	AgentScenario,
 	AgentSuiteFile,
@@ -50,3 +58,14 @@ export type {
 	ScenarioRubric,
 	SuiteRunReport,
 } from "./types.js";
+export {
+	formatSeedValidationReport,
+	type SeedValidationReport,
+	validateSeedPatches,
+} from "./validate-seeds.js";
+export {
+	formatValidationReport,
+	type SuiteValidationReport,
+	validateSuiteFile,
+	validateSuitePaths,
+} from "./validate-suite.js";

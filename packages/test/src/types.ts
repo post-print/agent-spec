@@ -43,6 +43,8 @@ export interface AgentScenario {
 	mcpServers?: Record<string, McpServerConfig>;
 	/** Live-only: apply patch + commit in worktree so pr-mode branch diff exists. */
 	seedPatch?: string;
+	/** Live-only: with seedPatch, stage changes without committing (staged review mode). */
+	seedStageOnly?: boolean;
 	replayTrace?: string;
 	rubric: ScenarioRubric;
 	skip?: boolean;
@@ -74,6 +76,7 @@ export interface AssertionFailure {
 export type FailureCategory =
 	| "rubric_miss"
 	| "judge_infra"
+	| "judge_parse"
 	| "agent_runtime"
 	| "worktree_leak"
 	| "recording_error";
@@ -84,10 +87,10 @@ export interface JudgeVerdictResult {
 	pass: boolean;
 	rationale: string;
 	infraError?: string;
+	parseError?: string;
 	rawSdkStatus?: string;
 	sdkError?: { message?: string; code?: string };
 	attempt?: number;
-	durationMs?: number;
 	transcriptChars?: number;
 	promptChars?: number;
 }
@@ -107,6 +110,16 @@ export interface ScenarioResult {
 	debugBundleDir?: string;
 }
 
+export interface RunSummary {
+	infraFailures: number;
+	rubricFailures: number;
+	agentRuntimeFailures: number;
+	worktreeLeaks: number;
+	recordingErrors: number;
+	judgeParseFailures: number;
+	retriedScenarios: number;
+}
+
 export interface SuiteRunReport {
 	suite: string;
 	host: AgentHost;
@@ -114,4 +127,5 @@ export interface SuiteRunReport {
 	failed: number;
 	skipped: number;
 	results: ScenarioResult[];
+	summary?: RunSummary;
 }

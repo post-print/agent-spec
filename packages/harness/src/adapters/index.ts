@@ -41,8 +41,15 @@ export class CursorAdapter implements HostAdapter {
 				failOnUserInput: options.failOnUserInput,
 				onDeadlineStart: options.onDeadlineStart,
 			});
-			const gitDiff = await captureGitDiff(options.cwd);
-			const trace = enrichTrace({ ...streamedTrace, gitDiff });
+			const gitDiffResult = await captureGitDiff(options.cwd);
+			const trace = enrichTrace({
+				...streamedTrace,
+				gitDiff: gitDiffResult.diff,
+				artifacts: {
+					...streamedTrace.artifacts,
+					...(gitDiffResult.truncated ? { gitDiffTruncated: "true" } : {}),
+				},
+			});
 
 			return {
 				host: this.host,
@@ -53,6 +60,15 @@ export class CursorAdapter implements HostAdapter {
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "Failed to load or run @cursor/sdk";
+			if (
+				message.includes("Cannot find package '@cursor/sdk'") ||
+				message.includes("@cursor/sdk")
+			) {
+				return emptyFailed(
+					this.host,
+					"Install @cursor/sdk for live runs: npm i -D @cursor/sdk (peer dependency)",
+				);
+			}
 			return emptyFailed(this.host, message);
 		}
 	}

@@ -1,4 +1,5 @@
 import { runJudgeClassifier } from "./cursor-run.js";
+import { isTransientInfraError, resolveRetryMaxAttempts, withRetry } from "./retry.js";
 import type { AgentTrace } from "./types.js";
 
 // Optional info-string (`json`, `js`, `typescript`, …) on the opening fence line.
@@ -18,6 +19,8 @@ export interface JudgeVerdict {
 	evidence?: string[];
 	/** Present when the judge SDK run failed (distinct from a criterion miss). */
 	infraError?: string;
+	/** Present when the judge returned an unparseable contract (distinct from infra). */
+	parseError?: string;
 	/** Unnormalized SDK status when the judge run did not finish. */
 	rawSdkStatus?: string;
 	sdkError?: { message?: string; code?: string };
@@ -533,6 +536,64 @@ function formatJudgeInfraError(result: {
 	return `judge run status: ${result.status} (${details.join(", ")})`;
 }
 
+async function runJudgePromptOnce(
+	prompt: string,
+	options: JudgeTraceOptions,
+): Promise<{
+	pass: boolean;
+	rationale: string;
+	evidence: string[];
+	error?: string;
+	infraError?: string;
+	parseError?: string;
+	rawSdkStatus?: string;
+	sdkError?: { message?: string; code?: string };
+	durationMs: number;
+	retryable: boolean;
+}> {
+	const started = performance.now();
+	const result = await runJudgeClassifier({
+		cwd: options.cwd,
+		prompt,
+		apiKey: options.apiKey ?? process.env.CURSOR_API_KEY ?? "",
+	});
+	const durationMs = Math.round(performance.now() - started);
+	if (result.status !== "completed") {
+		const infraError = formatJudgeInfraError(result);
+		return {
+			pass: false,
+			rationale: infraError,
+			evidence: [],
+			error: infraError,
+			infraError,
+			rawSdkStatus: result.rawStatus ?? result.status,
+			sdkError: result.sdkError,
+			durationMs,
+			retryable: isTransientInfraError(infraError),
+		};
+	}
+	const parsed = parseJudgeResponse(result.text);
+	if (!parsed.valid) {
+		const rationale = `${parsed.rationale} (raw: ${result.text.slice(0, 160) || "empty"})`;
+		return {
+			pass: false,
+			rationale,
+			evidence: [],
+			error: rationale,
+			parseError: rationale,
+			durationMs,
+			retryable: false,
+		};
+	}
+	return {
+		pass: parsed.pass,
+		rationale: parsed.rationale,
+		evidence: parsed.evidence,
+		durationMs,
+		retryable: false,
+	};
+}
+
 async function runJudgePrompt(
 	prompt: string,
 	options: JudgeTraceOptions,
@@ -542,9 +603,11 @@ async function runJudgePrompt(
 	evidence: string[];
 	error?: string;
 	infraError?: string;
+	parseError?: string;
 	rawSdkStatus?: string;
 	sdkError?: { message?: string; code?: string };
 	durationMs: number;
+	attempt: number;
 }> {
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
 	if (!apiKey) {
@@ -555,47 +618,34 @@ async function runJudgePrompt(
 			error: "missing api key",
 			infraError: "missing api key",
 			durationMs: 0,
+			attempt: 1,
 		};
 	}
 
+	const maxAttempts = resolveRetryMaxAttempts();
 	const started = performance.now();
+	let lastAttempt = 1;
+
 	try {
-		const result = await runJudgeClassifier({
-			cwd: options.cwd,
-			prompt,
-			apiKey,
-		});
-		const durationMs = Math.round(performance.now() - started);
-		if (result.status !== "completed") {
-			const infraError = formatJudgeInfraError(result);
-			return {
-				pass: false,
-				rationale: infraError,
-				evidence: [],
-				error: infraError,
-				infraError,
-				rawSdkStatus: result.rawStatus ?? result.status,
-				sdkError: result.sdkError,
-				durationMs,
-			};
-		}
-		const parsed = parseJudgeResponse(result.text);
-		if (!parsed.valid) {
-			const rationale = `${parsed.rationale} (raw: ${result.text.slice(0, 160) || "empty"})`;
-			return {
-				pass: false,
-				rationale,
-				evidence: [],
-				error: rationale,
-				infraError: rationale,
-				durationMs,
-			};
-		}
+		const { result, attempt } = await withRetry(
+			async (attemptNumber) => {
+				lastAttempt = attemptNumber;
+				const outcome = await runJudgePromptOnce(prompt, { ...options, apiKey });
+				if (outcome.retryable && attemptNumber < maxAttempts) {
+					throw new Error(outcome.infraError ?? outcome.error ?? "judge infra error");
+				}
+				return outcome;
+			},
+			{
+				maxAttempts,
+				shouldRetry: (error) =>
+					isTransientInfraError(error instanceof Error ? error.message : String(error)),
+			},
+		);
 		return {
-			pass: parsed.pass,
-			rationale: parsed.rationale,
-			evidence: parsed.evidence,
-			durationMs,
+			...result,
+			durationMs: Math.round(performance.now() - started),
+			attempt,
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : "judge prompt failed";
@@ -606,6 +656,7 @@ async function runJudgePrompt(
 			error: message,
 			infraError: message,
 			durationMs: Math.round(performance.now() - started),
+			attempt: lastAttempt,
 		};
 	}
 }
@@ -642,9 +693,10 @@ export async function judgeTrace(
 			rationale: parsed.rationale,
 			evidence: parsed.evidence,
 			infraError: parsed.infraError,
+			parseError: parsed.parseError,
 			rawSdkStatus: parsed.rawSdkStatus,
 			sdkError: parsed.sdkError,
-			attempt: 1,
+			attempt: parsed.attempt,
 			durationMs: parsed.durationMs,
 			transcriptChars,
 			promptChars: prompt.length,

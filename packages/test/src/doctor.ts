@@ -11,6 +11,7 @@ export interface DoctorReport {
 	nodeOk: boolean;
 	cliPresent: boolean;
 	cursorApiKeySet: boolean;
+	cursorSdkPresent: boolean;
 	health: typeof HEALTH_CHECK_PATH;
 	messages: string[];
 }
@@ -22,6 +23,8 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	const nodeOk = nodeMajor >= 22;
 	if (!nodeOk) {
 		messages.push(`Node ${process.versions.node} is below the required >=22`);
+	} else {
+		messages.push(`Node ${process.versions.node}: OK`);
 	}
 
 	const cliPath = options?.cliPath ?? join(dirname(fileURLToPath(import.meta.url)), "cli.js");
@@ -29,20 +32,33 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	try {
 		accessSync(cliPath, constants.R_OK);
 		cliPresent = true;
+		messages.push(`CLI entry: ${cliPath}`);
 	} catch {
 		messages.push(`CLI entry missing at ${cliPath} (run bun run build)`);
 	}
 
-	const cursorApiKeySet = Boolean(process.env.CURSOR_API_KEY?.trim());
-	if (!cursorApiKeySet) {
-		messages.push("CURSOR_API_KEY unset (required only for --live)");
-	}
-
+	const require = createRequire(import.meta.url);
 	try {
-		const require = createRequire(import.meta.url);
 		require.resolve("@post-print/agent-harness");
+		messages.push("@post-print/agent-harness: resolvable");
 	} catch {
 		messages.push("@post-print/agent-harness not resolvable");
+	}
+
+	let cursorSdkPresent = false;
+	try {
+		require.resolve("@cursor/sdk");
+		cursorSdkPresent = true;
+		messages.push("@cursor/sdk: installed (live runs ready)");
+	} catch {
+		messages.push("@cursor/sdk not installed — required for --live (npm i -D @cursor/sdk)");
+	}
+
+	const cursorApiKeySet = Boolean(process.env.CURSOR_API_KEY?.trim());
+	if (cursorApiKeySet) {
+		messages.push("CURSOR_API_KEY: set");
+	} else {
+		messages.push("CURSOR_API_KEY unset (required only for --live)");
 	}
 
 	const health = getHealthStatus();
@@ -57,6 +73,7 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		nodeOk,
 		cliPresent,
 		cursorApiKeySet,
+		cursorSdkPresent,
 		health: HEALTH_CHECK_PATH,
 		messages,
 	};
