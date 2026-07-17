@@ -1,0 +1,17 @@
+{
+	"messages": [
+		{
+			"role": "assistant",
+			"content": "Calling the echo MCP tool, then confirming mcp echo ok."
+		}
+	],
+	"toolCalls": [
+		{
+			"name": "echo",
+			"args": { "text": "mcp echo ok" },
+			"result": "mcp echo ok"
+		}
+	],
+	"shellCommands": [],
+	"artifacts": {}
+}

@@ -36,6 +36,7 @@ export class CursorAdapter implements HostAdapter {
 			const { trace: streamedTrace, status } = await runCursorAgent({
 				cwd: options.cwd,
 				prompt,
+				mcpServers: options.mcpServers,
 				timeoutMs: options.timeoutMs,
 				failOnUserInput: options.failOnUserInput,
 				onDeadlineStart: options.onDeadlineStart,

@@ -45,6 +45,7 @@ export type {
 	FailureCategory,
 	JudgeRubricItem,
 	JudgeVerdictResult,
+	McpServerConfig,
 	ScenarioResult,
 	ScenarioRubric,
 	SuiteRunReport,

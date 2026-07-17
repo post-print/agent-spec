@@ -193,6 +193,24 @@ export class TraceAssertion {
 		return this;
 	}
 
+	/**
+	 * Assert a tool was called. Spec is a name substring, or `name:argFragment`
+	 * where argFragment must appear in JSON-serialized args.
+	 */
+	toHaveCalledTool(spec: string): this {
+		if (!toolSpecMatches(this.trace.toolCalls, spec)) {
+			this.push("toHaveCalledTool", `expected tool call matching "${spec}"`);
+		}
+		return this;
+	}
+
+	toHaveNotCalledTool(spec: string): this {
+		if (toolSpecMatches(this.trace.toolCalls, spec)) {
+			this.push("toHaveNotCalledTool", `forbidden tool call matching "${spec}"`);
+		}
+		return this;
+	}
+
 	toIncludeRoutingBlock(): this {
 		const haystack = this.assertionHaystack();
 		const collapsed = collapseTraceWhitespace(haystack);
@@ -351,6 +369,32 @@ function containsForbiddenPhrase(haystack: string, phrase: string): boolean {
 	return pattern.test(haystack);
 }
 
+function parseToolSpec(spec: string): { name: string; argFragment?: string } {
+	const separator = spec.indexOf(":");
+	if (separator === -1) {
+		return { name: spec };
+	}
+	return {
+		name: spec.slice(0, separator),
+		argFragment: spec.slice(separator + 1),
+	};
+}
+
+function toolSpecMatches(toolCalls: AgentTrace["toolCalls"], spec: string): boolean {
+	const { name, argFragment } = parseToolSpec(spec);
+	const nameNeedle = name.toLowerCase();
+	return toolCalls.some((call) => {
+		if (!call.name.toLowerCase().includes(nameNeedle)) {
+			return false;
+		}
+		if (argFragment === undefined || argFragment.length === 0) {
+			return true;
+		}
+		const argsText = JSON.stringify(call.args ?? {}).toLowerCase();
+		return argsText.includes(argFragment.toLowerCase());
+	});
+}
+
 export function expectTrace(trace: AgentTrace, options?: RubricAssertOptions): TraceAssertion {
 	return new TraceAssertion(trace, options);
 }
@@ -384,6 +428,12 @@ export function assertRubric(
 	}
 	for (const cmd of rubric.mustRun ?? []) {
 		assertion.toHaveRunCommand(cmd);
+	}
+	for (const tool of rubric.mustCallTool ?? []) {
+		assertion.toHaveCalledTool(tool);
+	}
+	for (const tool of rubric.mustNotCallTool ?? []) {
+		assertion.toHaveNotCalledTool(tool);
 	}
 	for (const required of rubric.must ?? []) {
 		assertion.mustInclude(required);

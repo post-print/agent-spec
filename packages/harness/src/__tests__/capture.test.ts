@@ -29,7 +29,9 @@ describe("capture", () => {
 		const cmds = extractShellCommandsFromToolCalls([
 			{
 				name: "shell",
-				args: { command: "bun run validate:changed apps/client/src/utils/post-login-redirect.ts" },
+				args: {
+					command: "bun run validate:changed apps/client/src/utils/post-login-redirect.ts",
+				},
 			},
 		]);
 		expect(cmds.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
@@ -53,7 +55,10 @@ describe("capture", () => {
 		const events = [
 			{
 				type: "assistant",
-				message: { role: "assistant", content: [{ type: "text", text: "Invoking grill" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "Invoking grill" }],
+				},
 			},
 			{
 				type: "tool_call",
@@ -70,6 +75,35 @@ describe("capture", () => {
 		expect(trace.skillsInvoked).toContain("grill");
 		expect(trace.toolCalls).toEqual([
 			{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" }, seq: 1 },
+		]);
+	});
+
+	it("captures MCP tool calls with args and result from SDK root result", () => {
+		const trace = buildTraceFromSdkMessages([
+			{
+				type: "tool_call",
+				call_id: "call-echo-1",
+				name: "echo",
+				args: { text: "mcp echo ok" },
+			},
+			{
+				type: "tool_call",
+				call_id: "call-echo-1",
+				name: "echo",
+				args: { text: "mcp echo ok" },
+				result: { content: [{ type: "text", text: "mcp echo ok" }], isError: false },
+			},
+		]);
+		expect(trace.toolCalls).toEqual([
+			{
+				name: "echo",
+				args: { text: "mcp echo ok" },
+				result: JSON.stringify({
+					content: [{ type: "text", text: "mcp echo ok" }],
+					isError: false,
+				}),
+				seq: 0,
+			},
 		]);
 	});
 
@@ -101,15 +135,28 @@ describe("capture", () => {
 		const trace = buildTraceFromSdkMessages([
 			{
 				type: "assistant",
-				message: { role: "assistant", content: [{ type: "text", text: "Running validate" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "Running validate" }],
+				},
 			},
 			{
 				type: "tool_result",
-				tool: { name: "shell", output: "bun run validate:changed apps/client/src/foo.ts" },
+				tool: {
+					name: "shell",
+					output: "bun run validate:changed apps/client/src/foo.ts",
+				},
 			},
 		]);
 		expect(trace.shellCommands.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
-		expect(trace.toolCalls).toEqual([{ name: "shell", args: undefined, seq: 1 }]);
+		expect(trace.toolCalls).toEqual([
+			{
+				name: "shell",
+				args: undefined,
+				result: "bun run validate:changed apps/client/src/foo.ts",
+				seq: 1,
+			},
+		]);
 	});
 
 	it("infers tier from routing prose", () => {
@@ -178,15 +225,24 @@ describe("capture", () => {
 		const trace = buildTraceFromSdkMessages([
 			{
 				type: "assistant",
-				message: { role: "assistant", content: [{ type: "text", text: "## Routing\n- **" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "## Routing\n- **" }],
+				},
 			},
 			{
 				type: "assistant",
-				message: { role: "assistant", content: [{ type: "text", text: "Tier" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "Tier" }],
+				},
 			},
 			{
 				type: "assistant",
-				message: { role: "assistant", content: [{ type: "text", text: ":**" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: ":**" }],
+				},
 			},
 			{
 				type: "assistant",

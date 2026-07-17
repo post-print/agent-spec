@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { isMcpServersMap } from "./mcp-config.js";
 import type { AgentScenario, AgentSuiteFile } from "./types.js";
 
 export async function loadSuiteFile(path: string): Promise<AgentSuiteFile> {
@@ -16,12 +17,18 @@ function isScenario(value: unknown): value is AgentScenario {
 		return false;
 	}
 	const scenario = value as AgentScenario;
-	return (
-		typeof scenario.name === "string" &&
-		typeof scenario.prompt === "string" &&
-		typeof scenario.rubric === "object" &&
-		scenario.rubric !== null
-	);
+	if (
+		typeof scenario.name !== "string" ||
+		typeof scenario.prompt !== "string" ||
+		typeof scenario.rubric !== "object" ||
+		scenario.rubric === null
+	) {
+		return false;
+	}
+	if (scenario.mcpServers !== undefined && !isMcpServersMap(scenario.mcpServers)) {
+		return false;
+	}
+	return true;
 }
 
 function isSuiteFile(value: unknown): value is AgentSuiteFile {
@@ -29,9 +36,11 @@ function isSuiteFile(value: unknown): value is AgentSuiteFile {
 		return false;
 	}
 	const suite = value as AgentSuiteFile;
-	return (
-		typeof suite.name === "string" &&
-		Array.isArray(suite.scenarios) &&
-		suite.scenarios.every(isScenario)
-	);
+	if (typeof suite.name !== "string" || !Array.isArray(suite.scenarios)) {
+		return false;
+	}
+	if (suite.defaults?.mcpServers !== undefined && !isMcpServersMap(suite.defaults.mcpServers)) {
+		return false;
+	}
+	return suite.scenarios.every(isScenario);
 }

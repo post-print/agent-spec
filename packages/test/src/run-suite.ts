@@ -5,6 +5,7 @@ import type {
 	AgentHost,
 	AgentTrace,
 	JudgeCriterion,
+	McpServerConfig,
 	RoutingContract,
 	SkillContextSetting,
 } from "@post-print/agent-harness";
@@ -16,6 +17,7 @@ import {
 	formatWorkingTreeLeak,
 	judgeTrace,
 	loadContext,
+	mergeMcpServers,
 	runAgent,
 	traceHasUserInputTool,
 } from "@post-print/agent-harness";
@@ -545,6 +547,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				defaultHost,
 				suite.defaults?.profile,
 				suite.defaults?.skills,
+				suite.defaults?.mcpServers,
 				options.record,
 				options.recordFixtures,
 				options.judge,
@@ -582,6 +585,7 @@ async function runScenario(
 	defaultHost: AgentHost,
 	defaultProfile?: AgentScenario["profile"],
 	defaultSkills?: SkillContextSetting,
+	defaultMcpServers?: Record<string, McpServerConfig>,
 	record?: boolean,
 	recordFixtures?: boolean,
 	judge?: boolean,
@@ -618,6 +622,7 @@ async function runScenario(
 	const host = scenario.host ?? defaultHost;
 	const profile = scenario.profile ?? defaultProfile ?? (host === "cursor" ? "cursor" : "shared");
 	const skills = scenario.skills ?? defaultSkills;
+	const mcpServers = mergeMcpServers(defaultMcpServers, scenario.mcpServers);
 	const isLive = host !== "replay";
 	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
 	const failOnUserInput = !allowUserInput;
@@ -677,6 +682,7 @@ async function runScenario(
 						profile,
 						prompt: scenario.prompt,
 						outputContract,
+						mcpServers,
 						timeoutMs: liveTimeoutMs,
 						failOnUserInput,
 						onDeadlineStart: agentStartMarkerPath
@@ -692,6 +698,7 @@ async function runScenario(
 					profile,
 					prompt: scenario.prompt,
 					replayTracePath: useReplay ? scenario.replayTrace : undefined,
+					mcpServers,
 				}));
 
 		if (isLive) {

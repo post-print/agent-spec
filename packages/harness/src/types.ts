@@ -1,8 +1,10 @@
 export type AgentHost = "cursor" | "claude" | "replay";
 
+import type { McpServerConfig } from "./mcp.js";
 import type { RoutingContract } from "./routing-contract.js";
 import type { SkillContextMode } from "./skills-context.js";
 
+export type { McpServerConfig } from "./mcp.js";
 export type { RoutingContract } from "./routing-contract.js";
 
 export type {
@@ -24,6 +26,8 @@ export interface AgentMessage {
 export interface AgentToolCall {
 	name: string;
 	args?: Record<string, unknown>;
+	/** Tool output when the SDK stream includes it (including MCP tools). */
+	result?: string;
 	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy/replay traces. */
 	seq?: number;
 }
@@ -72,6 +76,8 @@ export interface RunAgentOptions {
 	outputContract?: RoutingContract;
 	/** Required when host is replay. */
 	replayTracePath?: string;
+	/** Inline MCP servers for live Cursor runs (ignored by replay). */
+	mcpServers?: Record<string, McpServerConfig>;
 	/** Hard cap on live Cursor stream + wait (replay ignores). */
 	timeoutMs?: number;
 	/** Fail fast when the agent invokes AskQuestion-style tools (default true for live). */

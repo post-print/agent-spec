@@ -14,6 +14,23 @@
 			"rubric": {
 				"must": ["smoke suite ok"]
 			}
+		},
+		{
+			"name": "mcp echo tool",
+			"prompt": "Call the echo MCP tool with text \"mcp echo ok\".",
+			"mcpServers": {
+				"echo": {
+					"type": "stdio",
+					"command": "node",
+					"args": ["packages/test/fixtures/mcp-echo/server.mjs"]
+				}
+			},
+			"replayTrace": "packages/test/fixtures/smoke/fixtures/replays/mcp-echo.json",
+			"rubric": {
+				"mustCallTool": ["echo:mcp echo ok"],
+				"mustNotCallTool": ["shell"],
+				"must": ["mcp echo ok"]
+			}
 		}
 	]
 }

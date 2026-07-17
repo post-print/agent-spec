@@ -26,4 +26,6 @@ const session = await runAgent({
 
 `runAgent` / `runCursorAgent` accept optional `timeoutMs` (hard cap on `stream` + `wait`; cancels the SDK run on expiry) and `failOnUserInput` (default `true` — rejects `AskQuestion`-style tools in headless runs).
 
+Live Cursor runs accept inline `mcpServers` (stdio or HTTP/SSE), passed through to `Agent.create`. Replay ignores them and scores committed `toolCalls` only. Ambient MCP via `local.settingSources` is not enabled.
+
 Consumer: `@post-print/agent-test`.

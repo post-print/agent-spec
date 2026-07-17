@@ -102,6 +102,46 @@ Skills that expect multi-turn Socratic dialogue (for example `crystallize`) will
 
 Do not weaken dialogue-first product skills for CI; reshape the suite contract instead.
 
+## MCP servers
+
+Live Cursor runs can attach **inline** MCP servers from suite/scenario JSON. Ambient project/user MCP (`.cursor/mcp.json`) is not loaded — tests stay hermetic.
+
+```json
+{
+  "defaults": {
+    "mcpServers": {
+      "docs": {
+        "type": "http",
+        "url": "https://example.com/mcp",
+        "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" }
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "name": "use echo",
+      "prompt": "Call the echo tool with text hello.",
+      "mcpServers": {
+        "echo": {
+          "type": "stdio",
+          "command": "node",
+          "args": ["packages/test/fixtures/mcp-echo/server.mjs"]
+        }
+      },
+      "rubric": {
+        "mustCallTool": ["echo:hello"],
+        "mustNotCallTool": ["shell"]
+      }
+    }
+  ]
+}
+```
+
+- Suite `defaults.mcpServers` merge with scenario `mcpServers` by server name (scenario wins).
+- `${ENV_VAR}` placeholders expand in `command`, `args`, `env`, `url`, `headers`, and OAuth fields at run time.
+- Rubric `mustCallTool` / `mustNotCallTool` match tool **name** substrings (works with MCP name prefixes). Use `name:argFragment` to also require a substring in JSON args.
+- Replay hosts ignore `mcpServers` but still score recorded `toolCalls` against those matchers.
+
 ## Library
 
 ```ts

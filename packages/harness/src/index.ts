@@ -49,7 +49,16 @@ export {
 	parseJudgeResponse,
 } from "./judge.js";
 export { type Logger, type LogLevel, logger } from "./logger.js";
-export { getHealthStatus, HEALTH_CHECK_PATH, type HealthStatus } from "./main.js";
+export {
+	getHealthStatus,
+	HEALTH_CHECK_PATH,
+	type HealthStatus,
+} from "./main.js";
+export {
+	expandEnvPlaceholders,
+	mergeMcpServers,
+	resolveMcpServers,
+} from "./mcp.js";
 export { buildRoutingContract } from "./routing-contract.js";
 export {
 	AgentRunTimeoutError,
@@ -73,6 +82,7 @@ export type {
 	ContextProfile,
 	HostAdapter,
 	LoadedContext,
+	McpServerConfig,
 	RoutingContract,
 	RunAgentOptions,
 	RunStatus,

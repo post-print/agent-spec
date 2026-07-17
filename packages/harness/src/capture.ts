@@ -35,7 +35,10 @@ function tierFromMatch(match: RegExpMatchArray): "low" | "medium" | "high" | und
 /** Collect git diff after a live agent run. */
 export async function captureGitDiff(cwd: string): Promise<string | undefined> {
 	try {
-		const { stdout } = await execFileAsync("git", ["diff", "HEAD"], { cwd, maxBuffer: 10_000_000 });
+		const { stdout } = await execFileAsync("git", ["diff", "HEAD"], {
+			cwd,
+			maxBuffer: 10_000_000,
+		});
 		const trimmed = stdout.trim();
 		return trimmed.length > 0 ? trimmed : undefined;
 	} catch {
@@ -80,13 +83,22 @@ const APPLIED_SKILL_MARKERS = [
 	{ skill: "grill", pattern: /\bpressure-test(?:ing)?\b/i },
 	{ skill: "grill", pattern: /(?:^|\n)\s*\d+\.\s+.+(?:\n\s*\d+\.\s+.+)+/m },
 	{ skill: "grill", pattern: /\b\d+\.\s+\S+(?:\s+\d+\.\s+\S+)+\b/ },
-	{ skill: "crystallize", pattern: /\b(?:invok(?:e|ing)|applied)\s+crystallize\b/i },
+	{
+		skill: "crystallize",
+		pattern: /\b(?:invok(?:e|ing)|applied)\s+crystallize\b/i,
+	},
 	{ skill: "crystallize", pattern: /\bcrystalliz(?:e|ing|ation)\b/i },
 	{ skill: "crystallize", pattern: /\bhalf-formed\b/i },
 	{ skill: "crystallize", pattern: /\bfuzzy\s+intent\b/i },
-	{ skill: "crystallize", pattern: /\bmirror(?:ed|ing)?\s+(?:the\s+)?(?:fuzzy\s+)?intent\b/i },
+	{
+		skill: "crystallize",
+		pattern: /\bmirror(?:ed|ing)?\s+(?:the\s+)?(?:fuzzy\s+)?intent\b/i,
+	},
 	{ skill: "crystallize", pattern: /\bmight be assuming\b/i },
-	{ skill: "code-review", pattern: /\b(?:invok(?:e|ing)|applied)\s+code-review\b/i },
+	{
+		skill: "code-review",
+		pattern: /\b(?:invok(?:e|ing)|applied)\s+code-review\b/i,
+	},
 	{
 		skill: "code-review",
 		pattern: /\bReview\s·\s*[^·]+\s·\s*(?:Quick|Standard|Thorough|Full)\b/i,
@@ -291,6 +303,10 @@ export interface SdkMessage {
 	/** Cursor SDK tool_call — tool name at event root (read, shell, edit, …). */
 	name?: string;
 	args?: Record<string, unknown>;
+	/** Cursor SDK tool_call — correlates running/completed/error events. */
+	call_id?: string;
+	/** Cursor SDK tool_call — tool output (string or structured object). */
+	result?: unknown;
 	message?: {
 		role?: string;
 		content?: SdkTextBlock[];
@@ -303,9 +319,43 @@ function isToolRelatedEvent(event: SdkMessage): boolean {
 	return type.includes("tool") || Boolean(event.tool);
 }
 
+/** Normalize SDK tool results (string or object) for AgentToolCall.result. */
+export function serializeToolResult(result: unknown): string | undefined {
+	if (result === undefined || result === null) {
+		return undefined;
+	}
+	if (typeof result === "string") {
+		return result.length > 0 ? result : undefined;
+	}
+	if (typeof result === "number" || typeof result === "boolean") {
+		return String(result);
+	}
+	try {
+		return JSON.stringify(result);
+	} catch {
+		return undefined;
+	}
+}
+
+function toolResultFromEvent(event: SdkMessage): string | undefined {
+	// Prefer root `result` (current @cursor/sdk SDKToolUseMessage); keep tool.output as fallback.
+	return serializeToolResult(event.result) ?? serializeToolResult(event.tool?.output);
+}
+
 function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 	if (event.type === "tool_call" && event.name) {
-		return { name: event.name, args: event.args };
+		const result = toolResultFromEvent(event);
+		const args =
+			event.args !== undefined && typeof event.args === "object" && !Array.isArray(event.args)
+				? (event.args as Record<string, unknown>)
+				: event.args !== undefined
+					? { value: event.args }
+					: undefined;
+		return {
+			name: event.name,
+			args,
+			...(result !== undefined ? { result } : {}),
+		};
 	}
 
 	const name = event.tool?.name ?? (event.type?.includes("tool") ? event.type : undefined);
@@ -325,7 +375,12 @@ function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 			args = { command: event.tool.input };
 		}
 	}
-	return { name, args };
+	const result = toolResultFromEvent(event);
+	return {
+		name,
+		args,
+		...(result !== undefined ? { result } : {}),
+	};
 }
 
 export interface TraceAccumulator {
@@ -338,6 +393,8 @@ export interface TraceAccumulator {
 	hasSeenTool: boolean;
 	/** Shared counter for AgentMessage.seq / AgentToolCall.seq — preserves stream order across both arrays. */
 	nextSeq: number;
+	/** Index of toolCalls entries keyed by SDK call_id for running→completed merges. */
+	toolCallIndexByCallId: Map<string, number>;
 }
 
 export function createTraceAccumulator(): TraceAccumulator {
@@ -350,6 +407,7 @@ export function createTraceAccumulator(): TraceAccumulator {
 		preToolAssistantChunks: [],
 		hasSeenTool: false,
 		nextSeq: 0,
+		toolCallIndexByCallId: new Map(),
 	};
 }
 
@@ -377,7 +435,26 @@ export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): vo
 		const toolCall = toolCallFromEvent(event);
 		if (toolCall) {
 			acc.hasSeenTool = true;
-			acc.toolCalls.push({ ...toolCall, seq: acc.nextSeq++ });
+			const callId = typeof event.call_id === "string" ? event.call_id : undefined;
+			const existingIndex =
+				callId !== undefined ? acc.toolCallIndexByCallId.get(callId) : undefined;
+			if (existingIndex !== undefined) {
+				const previous = acc.toolCalls[existingIndex];
+				if (previous) {
+					acc.toolCalls[existingIndex] = {
+						...previous,
+						name: toolCall.name,
+						args: toolCall.args ?? previous.args,
+						result: toolCall.result ?? previous.result,
+					};
+				}
+			} else {
+				const index = acc.toolCalls.length;
+				acc.toolCalls.push({ ...toolCall, seq: acc.nextSeq++ });
+				if (callId !== undefined) {
+					acc.toolCallIndexByCallId.set(callId, index);
+				}
+			}
 		}
 	}
 }

@@ -4,6 +4,7 @@ import {
 	finalizeTraceAccumulator,
 	type SdkMessage,
 } from "./capture.js";
+import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
 	AgentRunTimeoutError,
 	isUserInputTool,
@@ -49,6 +50,7 @@ export interface CursorRunOptions {
 	prompt: string;
 	apiKey?: string;
 	model?: { id: string; params?: Array<{ id: string; value: string }> };
+	mcpServers?: Record<string, McpServerConfig>;
 	/** Hard cap on stream + wait; omit for no harness deadline. */
 	timeoutMs?: number;
 	/** Fail fast when the agent invokes AskQuestion-style tools (default true). */
@@ -119,10 +121,14 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 
 	const sdkModule = await import("@cursor/sdk");
 	const modelId = options.model?.id ?? process.env.CURSOR_AGENT_MODEL ?? DEFAULT_CURSOR_MODEL;
+	const mcpServers = resolveMcpServers(options.mcpServers, {
+		cwd: options.cwd,
+	});
 	await using agent = await sdkModule.Agent.create({
 		apiKey,
 		model: { id: modelId },
 		local: { cwd: options.cwd },
+		...(mcpServers ? { mcpServers } : {}),
 	});
 
 	const failOnUserInput = options.failOnUserInput !== false;
