@@ -255,6 +255,75 @@ describe("capture", () => {
 		expect(trace.routing?.tier).toBe("medium");
 		expect(trace.prBody).toContain("## Routing");
 		expect(trace.prBody).toContain("**Tier:** Medium");
+		expect(trace.messages).toEqual([
+			{
+				role: "assistant",
+				content: "## Routing\n- **Tier:** Medium\n- **Signals:** pr",
+				seq: 0,
+			},
+		]);
+	});
+
+	it("coalesces streamed assistant tokens and flushes a new turn after tools", () => {
+		const trace = buildTraceFromSdkMessages([
+			{
+				type: "assistant",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "##" }],
+				},
+			},
+			{
+				type: "assistant",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: " Routing" }],
+				},
+			},
+			{
+				type: "assistant",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "\n- **Tier:** Medium\n" }],
+				},
+			},
+			{
+				type: "tool_call",
+				name: "Read",
+				args: { path: "code-review/SKILL.md" },
+			},
+			{
+				type: "assistant",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "Review" }],
+				},
+			},
+			{
+				type: "assistant",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: " · staged" }],
+				},
+			},
+		]);
+		expect(trace.messages).toEqual([
+			{
+				role: "assistant",
+				content: "## Routing\n- **Tier:** Medium\n",
+				seq: 0,
+			},
+			{
+				role: "assistant",
+				content: "Review · staged",
+				seq: 2,
+			},
+		]);
+		expect(trace.toolCalls).toEqual([
+			{ name: "Read", args: { path: "code-review/SKILL.md" }, seq: 1 },
+		]);
+		expect(trace.assistantTextBeforeTools).toBe("## Routing\n- **Tier:** Medium\n");
+		expect(trace.routing?.tier).toBe("medium");
 	});
 
 	it("requires tier in assistant prefix before tool calls", () => {

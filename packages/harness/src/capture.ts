@@ -439,7 +439,15 @@ export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): vo
 	}
 	if (event.type === "assistant" || event.message?.role === "assistant") {
 		if (text) {
-			acc.agentMessages.push({ role: "assistant", content: text, seq: acc.nextSeq++ });
+			// Cursor SDK streams assistant prose as many tiny token events. Coalesce
+			// consecutive deltas into one AgentMessage; flush when a tool call (or
+			// any other seq-consuming event) lands between assistant chunks.
+			const last = acc.agentMessages.at(-1);
+			if (last?.role === "assistant" && last.seq === acc.nextSeq - 1) {
+				last.content += text;
+			} else {
+				acc.agentMessages.push({ role: "assistant", content: text, seq: acc.nextSeq++ });
+			}
 			acc.textChunks.push(text);
 			if (!acc.hasSeenTool) {
 				acc.preToolAssistantChunks.push(text);
