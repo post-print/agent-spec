@@ -7,6 +7,7 @@ import { scenarioArtifactSlug } from "./record-trace.js";
 import type {
 	AgentScenario,
 	AssertionFailure,
+	FailureCategory,
 	JudgeVerdictResult,
 	ScenarioResult,
 } from "./types.js";
@@ -66,6 +67,9 @@ const AGENT_TEST_ENV_KEYS = [
 	"AGENT_TEST_DEBUG",
 	"AGENT_TEST_CHILD",
 ] as const;
+
+const TOOL_ARG_COMPACT_CHARS = 500;
+const TOOL_RESULT_MAX_CHARS = 4_000;
 
 /** Shell-quote a single argument for POSIX sh. */
 export function shellQuote(value: string): string {
@@ -159,15 +163,87 @@ export function collectDebugEnvironment(options: {
 	};
 }
 
-function compactToolArgs(input: unknown): string {
+function compactText(input: unknown, maxChars: number): string {
 	if (input === undefined) {
 		return "";
 	}
 	const raw = typeof input === "string" ? input : JSON.stringify(input);
-	if (raw.length <= 160) {
+	if (raw.length <= maxChars) {
 		return raw;
 	}
-	return `${raw.slice(0, 160)}…`;
+	return `${raw.slice(0, maxChars)}…`;
+}
+
+function whyHint(category: FailureCategory): string {
+	switch (category) {
+		case "agent_runtime":
+			return "SDK/runtime did not finish cleanly — check raw status, sdkError, and the last tools/messages in the transcript.";
+		case "worktree_leak":
+			return "Caller checkout changed outside the scenario worktree — inspect porcelain lines and whether Shell ignored worktree cwd.";
+		case "judge_infra":
+			return "Judge SDK/API failure (not a criterion miss) — retry or check CURSOR_API_KEY / rate limits.";
+		case "judge_parse":
+			return "Judge returned unparseable JSON — see judge-debug.json and rationale.";
+		case "recording_error":
+			return "Failed to persist a staging/fixture trace — check disk permissions under the session root.";
+		default:
+			return "Rubric/judge criterion miss — compare expected rubric in scenario.json to transcript output.";
+	}
+}
+
+export function formatDebugWhySection(options: {
+	result: ScenarioResult;
+	trace?: AgentTrace;
+}): string[] {
+	const lines: string[] = ["## Why", ""];
+	if (options.result.passed) {
+		lines.push("_Scenario passed._", "");
+		return lines;
+	}
+	if (options.result.failures.length === 0) {
+		lines.push("_Failed with no recorded failures._", "");
+		return lines;
+	}
+	for (const [index, failure] of options.result.failures.entries()) {
+		lines.push(`### ${index + 1}. \`${failure.category}\` — ${failure.matcher}`, "");
+		lines.push(failure.message, "");
+		if (failure.evidence) {
+			lines.push("```", failure.evidence, "```", "");
+		}
+		lines.push(`_${whyHint(failure.category)}_`, "");
+	}
+	const trace = options.trace ?? options.result.trace;
+	if (trace) {
+		const skills = trace.skillsInvoked?.length ? trace.skillsInvoked.join(", ") : "(none)";
+		lines.push(
+			"**Trace stats:**",
+			"",
+			`- messages: ${trace.messages.length}`,
+			`- toolCalls: ${trace.toolCalls.length}`,
+			`- skillsInvoked: ${skills}`,
+			`- routing.tier: ${trace.routing?.tier ?? "(none)"}`,
+			"",
+		);
+	}
+	return lines;
+}
+
+export function formatDebugSummaryMarkdown(options: {
+	scenario: AgentScenario;
+	result: ScenarioResult;
+	trace?: AgentTrace;
+}): string {
+	const verdict = options.result.skipped ? "SKIPPED" : options.result.passed ? "PASSED" : "FAILED";
+	const lines: string[] = [
+		`# ${options.scenario.name}`,
+		"",
+		`- **verdict:** ${verdict}`,
+		`- **durationMs:** ${options.result.durationMs}`,
+		`- **failures:** ${options.result.failures.length}`,
+		"",
+		...formatDebugWhySection({ result: options.result, trace: options.trace }),
+	];
+	return `${lines.join("\n")}\n`;
 }
 
 export function formatTranscriptMarkdown(options: {
@@ -175,14 +251,32 @@ export function formatTranscriptMarkdown(options: {
 	trace?: AgentTrace;
 	failures: AssertionFailure[];
 	judgeVerdicts?: JudgeVerdictResult[];
+	result?: ScenarioResult;
 }): string {
+	const result: ScenarioResult = options.result ?? {
+		suite: "",
+		scenario: options.scenario.name,
+		passed: options.failures.length === 0,
+		failures: options.failures,
+		durationMs: 0,
+		judgeVerdicts: options.judgeVerdicts,
+		trace: options.trace,
+	};
+
 	const lines: string[] = [
 		`# ${options.scenario.name}`,
 		"",
+		...formatDebugWhySection({ result, trace: options.trace }),
 		"## Prompt",
 		"",
 		"```",
 		options.scenario.prompt,
+		"```",
+		"",
+		"## Rubric",
+		"",
+		"```json",
+		JSON.stringify(options.scenario.rubric, null, 2),
 		"```",
 		"",
 		"## Transcript",
@@ -221,11 +315,23 @@ export function formatTranscriptMarkdown(options: {
 				lines.push(
 					`### tool: ${event.tool.name}`,
 					"",
+					"**args**",
+					"",
 					"```",
-					compactToolArgs(event.tool.args),
+					compactText(event.tool.args, TOOL_ARG_COMPACT_CHARS),
 					"```",
 					"",
 				);
+				if (event.tool.result !== undefined) {
+					lines.push(
+						"**result**",
+						"",
+						"```",
+						compactText(event.tool.result, TOOL_RESULT_MAX_CHARS),
+						"```",
+						"",
+					);
+				}
 			}
 		}
 
@@ -245,6 +351,12 @@ export function formatTranscriptMarkdown(options: {
 			lines.push(`### ${mark} \`${verdict.id}\``, "", verdict.question, "", verdict.rationale, "");
 			if (verdict.infraError) {
 				lines.push(`**infraError:** ${verdict.infraError}`, "");
+			}
+			if (verdict.rawSdkStatus) {
+				lines.push(`**rawSdkStatus:** ${verdict.rawSdkStatus}`, "");
+			}
+			if (verdict.sdkError) {
+				lines.push(`**sdkError:** ${JSON.stringify(verdict.sdkError)}`, "");
 			}
 		}
 	}
@@ -285,9 +397,58 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 	const transcriptPath = join(dir, "transcript.md");
 	const environmentPath = join(dir, "environment.json");
 	const rerunPath = join(dir, "rerun.sh");
+	const summaryPath = join(dir, "summary.md");
+	const scenarioPath = join(dir, "scenario.json");
+	const resultPath = join(dir, "result.json");
+
+	const effectiveTrace = trace ?? result.trace;
 
 	await writeFile(failuresPath, `${JSON.stringify(result.failures, null, 2)}\n`, "utf8");
 	await writeFile(environmentPath, `${JSON.stringify(environment, null, 2)}\n`, "utf8");
+	await writeFile(
+		summaryPath,
+		formatDebugSummaryMarkdown({ scenario, result, trace: effectiveTrace }),
+		"utf8",
+	);
+	await writeFile(
+		scenarioPath,
+		`${JSON.stringify(
+			{
+				name: scenario.name,
+				prompt: scenario.prompt,
+				rubric: scenario.rubric,
+				seedPatch: scenario.seedPatch,
+				seedStageOnly: scenario.seedStageOnly,
+				replayTrace: scenario.replayTrace,
+				host: scenario.host,
+				skip: scenario.skip,
+			},
+			null,
+			2,
+		)}\n`,
+		"utf8",
+	);
+	await writeFile(
+		resultPath,
+		`${JSON.stringify(
+			{
+				suite: result.suite,
+				scenario: result.scenario,
+				passed: result.passed,
+				skipped: result.skipped,
+				durationMs: result.durationMs,
+				failures: result.failures,
+				skillsInvoked: effectiveTrace?.skillsInvoked ?? [],
+				routing: effectiveTrace?.routing,
+				messageCount: effectiveTrace?.messages.length ?? 0,
+				toolCallCount: effectiveTrace?.toolCalls.length ?? 0,
+				artifacts: effectiveTrace?.artifacts ?? {},
+			},
+			null,
+			2,
+		)}\n`,
+		"utf8",
+	);
 
 	if (trace) {
 		await writeFile(
@@ -297,6 +458,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 				trace,
 				failures: result.failures,
 				judgeVerdicts: result.judgeVerdicts,
+				result,
 			}),
 			"utf8",
 		);
@@ -330,6 +492,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 					trace,
 					failures: result.failures,
 					judgeVerdicts: result.judgeVerdicts,
+					result,
 				}),
 				"utf8",
 			);

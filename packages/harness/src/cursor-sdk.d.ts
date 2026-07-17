@@ -73,6 +73,7 @@ declare module "@cursor/sdk" {
 	export interface RunResult {
 		id: string;
 		status: string;
+		error?: { message?: string; code?: string };
 	}
 
 	export interface AgentRun {

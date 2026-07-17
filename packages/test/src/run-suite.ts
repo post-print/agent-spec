@@ -735,11 +735,29 @@ async function runScenario(
 		const failures: AssertionFailure[] = [];
 
 		if (session.status !== "completed") {
+			const runtimeEvidence = [
+				`durationMs=${session.durationMs}`,
+				`messages=${trace.messages.length}`,
+				`toolCalls=${trace.toolCalls.length}`,
+				`skillsInvoked=${trace.skillsInvoked?.length ? trace.skillsInvoked.join(",") : "(none)"}`,
+				trace.artifacts?.cursorRawStatus
+					? `cursorRawStatus=${trace.artifacts.cursorRawStatus}`
+					: undefined,
+				trace.artifacts?.cursorSdkErrorCode
+					? `cursorSdkErrorCode=${trace.artifacts.cursorSdkErrorCode}`
+					: undefined,
+				trace.artifacts?.cursorSdkErrorMessage
+					? `cursorSdkErrorMessage=${trace.artifacts.cursorSdkErrorMessage}`
+					: undefined,
+			]
+				.filter(Boolean)
+				.join("\n");
 			failures.push(
 				assertionFailure(
 					"runAgent",
 					session.error ?? `agent session ${session.status}`,
 					"agent_runtime",
+					runtimeEvidence,
 				),
 			);
 		} else if (isLive && failOnUserInput && traceHasUserInputTool(trace.toolCalls)) {
@@ -748,6 +766,7 @@ async function runScenario(
 					"runAgent",
 					"agent trace contains AskQuestion-style user-input tool in headless mode",
 					"agent_runtime",
+					`toolCalls=${trace.toolCalls.map((call) => call.name).join(", ")}`,
 				),
 			);
 		}
@@ -791,6 +810,11 @@ async function runScenario(
 						"workingTreeLeak",
 						`agent edited caller checkout outside worktree: ${outsideEdits.join(", ")}`,
 						"worktree_leak",
+						[
+							`outsideEdits=${outsideEdits.join(", ")}`,
+							`seedPaths=${seedPaths.join(", ") || "(none)"}`,
+							`collateralRestored=${collateral.length}`,
+						].join("\n"),
 					),
 				);
 			}
@@ -800,6 +824,12 @@ async function runScenario(
 						"workingTreeLeak",
 						`live agent mutated caller working tree (use worktree isolation):\n${formatWorkingTreeLeak(agentLeaks)}`,
 						"worktree_leak",
+						[
+							`agentLeaks=${agentLeaks.length}`,
+							`seedPaths=${seedPaths.join(", ") || "(none)"}`,
+							`collateralRestored=${collateral.length}`,
+							`outsideEdits=${outsideEdits.join(", ") || "(none)"}`,
+						].join("\n"),
 					),
 				);
 			}

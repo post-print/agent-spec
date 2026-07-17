@@ -65,7 +65,10 @@ npx agent-test --suites-dir agent-suites --live --debug --debug-dir "$TMPDIR/age
 
 ```
 sessions/<id>/<suite>/<scenario>.debug/
-  transcript.md
+  summary.md             # verdict + Why (category hint + evidence + trace stats)
+  transcript.md          # Why, prompt, rubric, interleaved messages/tools (incl. results), failures
+  scenario.json          # prompt + rubric + seed metadata
+  result.json            # pass/fail, duration, failures, skillsInvoked, routing, counts
   trace.json
   failures.json          # includes category + evidence
   judge-debug.json       # when judge criteria ran (SDK status/error, sizes, attempt)

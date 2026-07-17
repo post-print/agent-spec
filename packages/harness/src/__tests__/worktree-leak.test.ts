@@ -28,6 +28,14 @@ describe("worktree-leak", () => {
 		expect(agentLeaks).toEqual([]);
 	});
 
+	it("treats unstaged seed-target porcelain as collateral (git apply / reset noise)", () => {
+		const leaked = [" M agent-suites/fixtures/sample-app/src/auth.ts"];
+		const seedPaths = ["agent-suites/fixtures/sample-app/src/auth.ts"];
+		const { collateral, agentLeaks } = partitionSeedCollateralLeaks(leaked, seedPaths, []);
+		expect(collateral).toEqual(leaked);
+		expect(agentLeaks).toEqual([]);
+	});
+
 	it("flags real agent leaks on non-seed paths", () => {
 		const leaked = [" M agent-suites/fixtures/sample-app/src/classify.ts"];
 		const seedPaths = ["agent-suites/fixtures/sample-app/src/redirect.ts"];

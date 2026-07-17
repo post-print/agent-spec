@@ -3,6 +3,8 @@ export {
 	collectDebugEnvironment,
 	type DebugEnvironmentSnapshot,
 	type DebugRerunOptions,
+	formatDebugSummaryMarkdown,
+	formatDebugWhySection,
 	formatTranscriptMarkdown,
 	getDebugBundleDir,
 	shellQuote,

@@ -16,7 +16,7 @@ import type { AgentTrace } from "./types.js";
 /** Minimal Cursor SDK run surface for cancel + wait cleanup. */
 interface CancellableSdkRun {
 	stream: () => AsyncIterable<unknown>;
-	wait: () => Promise<{ status: string }>;
+	wait: () => Promise<{ status: string; error?: { message?: string; code?: string } }>;
 	supports?: (op: string) => boolean;
 	cancel?: () => void | Promise<void>;
 }
@@ -83,11 +83,36 @@ export interface JudgeClassifierResult {
 export interface CursorRunResult {
 	status: string;
 	trace: AgentTrace;
+	/** Unnormalized SDK terminal status from wait()/prompt. */
+	rawStatus?: string;
+	sdkError?: JudgeSdkError;
 }
 
 /** Map Cursor SDK terminal status to harness run status. */
 export function normalizeSdkRunStatus(status: string): "completed" | "failed" {
 	return status === "finished" || status === "completed" ? "completed" : "failed";
+}
+
+/** Human-readable cursor run failure line for AgentSession.error / assertion evidence. */
+export function formatCursorRunFailure(options: {
+	status: string;
+	rawStatus?: string;
+	sdkError?: JudgeSdkError;
+}): string {
+	const details: string[] = [];
+	if (options.rawStatus && options.rawStatus !== options.status) {
+		details.push(`sdk: ${options.rawStatus}`);
+	} else if (options.rawStatus) {
+		details.push(`sdk: ${options.rawStatus}`);
+	}
+	if (options.sdkError?.code) {
+		details.push(`code: ${options.sdkError.code}`);
+	}
+	if (options.sdkError?.message) {
+		details.push(`error: ${options.sdkError.message}`);
+	}
+	const suffix = details.length > 0 ? ` (${details.join(", ")})` : "";
+	return `cursor run status: ${options.status}${suffix}`;
 }
 
 function cancelSdkRun(run: CancellableSdkRun | undefined): void {
@@ -115,10 +140,20 @@ function cancelSdkRun(run: CancellableSdkRun | undefined): void {
 /** In-process Cursor SDK run currently owned by `runCursorAgent` (for Ctrl+C / SIGTERM). */
 let activeCursorRun: CancellableSdkRun | undefined;
 
+/** Latest finalized (or partial) trace from the in-process cursor run — for timeout/catch recovery. */
+let lastCursorRunTrace: AgentTrace | undefined;
+
 /** Best-effort cancel of the in-flight Cursor SDK run (no-op when idle). */
 export function cancelActiveCursorRun(): void {
 	cancelSdkRun(activeCursorRun);
 	activeCursorRun = undefined;
+}
+
+/** Consume the most recent partial/full cursor trace (clears the stash). */
+export function takeLastCursorRunTrace(): AgentTrace | undefined {
+	const trace = lastCursorRunTrace;
+	lastCursorRunTrace = undefined;
+	return trace;
 }
 
 /** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
@@ -144,13 +179,21 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 	const acc = createTraceAccumulator();
 	let timedOut = false;
 
+	const stashTrace = (): AgentTrace => {
+		const trace = finalizeTraceAccumulator(acc);
+		lastCursorRunTrace = trace;
+		return trace;
+	};
+
 	const execute = async (): Promise<CursorRunResult> => {
 		const run = (await agent.send(options.prompt)) as CancellableSdkRun;
 		activeCursorRun = run;
 		if (timedOut) {
 			cancelSdkRun(run);
 			activeCursorRun = undefined;
-			throw new AgentRunTimeoutError(options.timeoutMs ?? 0);
+			const timeoutError = new AgentRunTimeoutError(options.timeoutMs ?? 0);
+			timeoutError.trace = stashTrace();
+			throw timeoutError;
 		}
 
 		try {
@@ -159,17 +202,29 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 				if (failOnUserInput) {
 					const lastTool = acc.toolCalls.at(-1);
 					if (lastTool && isUserInputTool(lastTool.name)) {
-						throw new UserInputRequiredError(lastTool.name);
+						const userInputError = new UserInputRequiredError(lastTool.name);
+						userInputError.trace = stashTrace();
+						throw userInputError;
 					}
 				}
 			}
 			const result = await run.wait();
+			const rawStatus = result.status;
+			const status = normalizeSdkRunStatus(rawStatus);
+			const sdkError = extractJudgeSdkError(result.error);
 			return {
-				status: normalizeSdkRunStatus(result.status),
-				trace: finalizeTraceAccumulator(acc),
+				status,
+				trace: stashTrace(),
+				rawStatus,
+				sdkError,
 			};
 		} catch (error) {
 			cancelSdkRun(run);
+			const partial = stashTrace();
+			if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError) {
+				error.trace = error.trace ?? partial;
+				throw error;
+			}
 			throw error;
 		} finally {
 			if (activeCursorRun === run) {
@@ -180,12 +235,19 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 
 	if (options.timeoutMs && options.timeoutMs > 0) {
 		await options.onDeadlineStart?.();
-		return withRunTimeout(execute, options.timeoutMs, {
-			onTimeout: () => {
-				timedOut = true;
-				cancelSdkRun(activeCursorRun);
-			},
-		});
+		try {
+			return await withRunTimeout(execute, options.timeoutMs, {
+				onTimeout: () => {
+					timedOut = true;
+					cancelSdkRun(activeCursorRun);
+				},
+			});
+		} catch (error) {
+			if (error instanceof AgentRunTimeoutError) {
+				error.trace = error.trace ?? takeLastCursorRunTrace();
+			}
+			throw error;
+		}
 	}
 	return execute();
 }

@@ -217,9 +217,28 @@ describe("debug-bundle", () => {
 			expect(env.agentTestEnv.AGENT_TEST_VERBOSE).toBe("1");
 
 			const transcript = await readFile(join(dir, "transcript.md"), "utf8");
+			expect(transcript).toContain("## Why");
 			expect(transcript).toContain("## Prompt");
+			expect(transcript).toContain("## Rubric");
 			expect(transcript).toContain("goodbye");
 			expect(transcript).toContain("rubric_miss");
+
+			const summary = await readFile(join(dir, "summary.md"), "utf8");
+			expect(summary).toContain("FAILED");
+			expect(summary).toContain("## Why");
+			expect(summary).toContain("nearest: goodbye");
+
+			const scenarioJson = JSON.parse(await readFile(join(dir, "scenario.json"), "utf8")) as {
+				rubric: { must: string[] };
+			};
+			expect(scenarioJson.rubric.must).toEqual(["hello"]);
+
+			const resultJson = JSON.parse(await readFile(join(dir, "result.json"), "utf8")) as {
+				passed: boolean;
+				messageCount: number;
+			};
+			expect(resultJson.passed).toBe(false);
+			expect(resultJson.messageCount).toBe(1);
 
 			const judge = JSON.parse(await readFile(join(dir, "judge-debug.json"), "utf8")) as Array<{
 				infraError?: string;
@@ -334,5 +353,69 @@ describe("debug-bundle", () => {
 			category: string;
 		}>;
 		expect(failures[0]?.category).toBe("agent_runtime");
+	});
+
+	it("includes tool results in the transcript", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-debug-tools-"));
+		dirs.push(dir);
+
+		const scenario: AgentScenario = {
+			name: "tools",
+			prompt: "use tools",
+			rubric: { must: ["ok"] },
+		};
+		const result: ScenarioResult = {
+			suite: "smoke",
+			scenario: scenario.name,
+			passed: false,
+			durationMs: 3,
+			failures: [
+				{
+					matcher: "runAgent",
+					message: "cursor run status: failed (sdk: error)",
+					category: "agent_runtime",
+					evidence: "messages=1\ntoolCalls=1",
+				},
+			],
+			trace: {
+				messages: [{ role: "assistant", content: "working", seq: 1 }],
+				toolCalls: [
+					{
+						name: "Shell",
+						args: { command: "git status" },
+						result: "M agent-suites/fixtures/sample-app/src/auth.ts",
+						seq: 2,
+					},
+				],
+				shellCommands: ["git status"],
+				artifacts: {},
+			},
+		};
+
+		await writeDebugBundle({
+			dir,
+			result,
+			trace: result.trace,
+			scenario,
+			environment: collectDebugEnvironment({
+				suite: "smoke",
+				scenario: scenario.name,
+				packageVersion: "0.0.0-test",
+			}),
+			rerun: {
+				cliPath: "/cli.js",
+				cwd: "/repo",
+				suitesDir: "fixtures",
+				suite: "smoke",
+				scenario: scenario.name,
+				live: true,
+			},
+		});
+
+		const transcript = await readFile(join(dir, "transcript.md"), "utf8");
+		expect(transcript).toContain("**result**");
+		expect(transcript).toContain("M agent-suites/fixtures/sample-app/src/auth.ts");
+		expect(transcript).toContain("agent_runtime");
+		expect(transcript).toContain("SDK/runtime did not finish cleanly");
 	});
 });

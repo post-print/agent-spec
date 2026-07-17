@@ -1,3 +1,5 @@
+import type { AgentTrace } from "./types.js";
+
 /** Tools that block until the user replies — incompatible with single-shot headless runs. */
 const USER_INPUT_TOOL_PATTERN = /^(askquestion|ask_question|user_question|request_user_input)$/i;
 
@@ -9,8 +11,22 @@ export function traceHasUserInputTool(toolCalls: Array<{ name: string }>): boole
 	return toolCalls.some((call) => isUserInputTool(call.name));
 }
 
-export class AgentRunTimeoutError extends Error {
+/** Errors that may carry a partial streamed trace for debug bundles. */
+export interface PartialTraceCarrier {
+	trace?: AgentTrace;
+}
+
+export function getPartialTrace(error: unknown): AgentTrace | undefined {
+	if (!error || typeof error !== "object") {
+		return undefined;
+	}
+	const trace = (error as PartialTraceCarrier).trace;
+	return trace && typeof trace === "object" ? trace : undefined;
+}
+
+export class AgentRunTimeoutError extends Error implements PartialTraceCarrier {
 	readonly timeoutMs: number;
+	trace?: AgentTrace;
 
 	constructor(timeoutMs: number) {
 		super(`agent timed out after ${timeoutMs}ms waiting for run completion`);
@@ -19,8 +35,9 @@ export class AgentRunTimeoutError extends Error {
 	}
 }
 
-export class UserInputRequiredError extends Error {
+export class UserInputRequiredError extends Error implements PartialTraceCarrier {
 	readonly toolName: string;
+	trace?: AgentTrace;
 
 	constructor(toolName: string) {
 		super(

@@ -4,6 +4,7 @@ import {
 	filterWorkingTreeLeaks,
 	findWorkingTreeLeak,
 	isPathUnderRoot,
+	normalizePorcelainStatus,
 	porcelainPathFromStatusLine,
 	resolveHarnessArtifactIgnoreRoots,
 } from "../working-tree-guard.js";
@@ -27,9 +28,36 @@ describe("findWorkingTreeLeak", () => {
 	});
 });
 
+describe("normalizePorcelainStatus", () => {
+	it("keeps leading space on unstaged-only porcelain lines", () => {
+		expect(normalizePorcelainStatus(" M agent-suites/fixtures/sample-app/src/auth.ts\n")).toBe(
+			" M agent-suites/fixtures/sample-app/src/auth.ts",
+		);
+	});
+
+	it("strips only surrounding newlines, not XY columns", () => {
+		expect(normalizePorcelainStatus("\nM  staged.ts\n M unstaged.ts\n\n")).toBe(
+			"M  staged.ts\n M unstaged.ts",
+		);
+	});
+});
+
 describe("porcelainPathFromStatusLine", () => {
 	it("parses untracked directory lines", () => {
 		expect(porcelainPathFromStatusLine("?? agent-test-debug/")).toBe("agent-test-debug/");
+	});
+
+	it("parses unstaged-only modification lines", () => {
+		expect(porcelainPathFromStatusLine(" M agent-suites/fixtures/sample-app/src/auth.ts")).toBe(
+			"agent-suites/fixtures/sample-app/src/auth.ts",
+		);
+	});
+
+	it("does not recover paths from trim-corrupted porcelain (M␠path)", () => {
+		// Regression: stdout.trim() turned " M path" into "M path" and slice(3) ate the path prefix.
+		expect(porcelainPathFromStatusLine("M agent-suites/fixtures/sample-app/src/auth.ts")).toBe(
+			"gent-suites/fixtures/sample-app/src/auth.ts",
+		);
 	});
 
 	it("parses rename targets", () => {

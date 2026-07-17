@@ -100,3 +100,71 @@ describe("cancelActiveCursorRun", () => {
 		expect(() => cancelActiveCursorRun()).not.toThrow();
 	});
 });
+
+describe("runCursorAgent failure detail", () => {
+	it("propagates rawStatus and sdkError from wait()", async () => {
+		agentCreate.mockResolvedValue({
+			send: agentSend,
+			[Symbol.asyncDispose]: async () => {},
+		});
+		agentSend.mockResolvedValue({
+			stream: async function* () {
+				yield {
+					type: "assistant",
+					message: { role: "assistant", content: [{ type: "text", text: "partial" }] },
+				};
+			},
+			wait: async () => ({
+				status: "error",
+				error: { message: "upstream abort", code: "ABORT" },
+			}),
+		});
+
+		const { formatCursorRunFailure, runCursorAgent } = await import("../cursor-run.js");
+		const result = await runCursorAgent({
+			cwd: process.cwd(),
+			prompt: "test",
+			apiKey: "test-key",
+		});
+		expect(result.status).toBe("failed");
+		expect(result.rawStatus).toBe("error");
+		expect(result.sdkError).toEqual({ message: "upstream abort", code: "ABORT" });
+		expect(result.trace.messages.length).toBeGreaterThan(0);
+		expect(formatCursorRunFailure(result)).toContain("upstream abort");
+		vi.clearAllMocks();
+	});
+
+	it("attaches partial trace on user-input failure", async () => {
+		agentCreate.mockResolvedValue({
+			send: agentSend,
+			[Symbol.asyncDispose]: async () => {},
+		});
+		agentSend.mockResolvedValue({
+			stream: async function* () {
+				yield {
+					type: "tool_call",
+					name: "AskQuestion",
+					args: { prompt: "continue?" },
+				};
+			},
+			wait: async () => ({ status: "finished" }),
+		});
+
+		const { runCursorAgent } = await import("../cursor-run.js");
+		const { UserInputRequiredError } = await import("../run-guards.js");
+		await expect(
+			runCursorAgent({
+				cwd: process.cwd(),
+				prompt: "test",
+				apiKey: "test-key",
+			}),
+		).rejects.toMatchObject({
+			name: "UserInputRequiredError",
+			trace: expect.objectContaining({
+				toolCalls: expect.arrayContaining([expect.objectContaining({ name: "AskQuestion" })]),
+			}),
+		});
+		expect(UserInputRequiredError).toBeDefined();
+		vi.clearAllMocks();
+	});
+});

@@ -31,11 +31,13 @@ export {
 	type CursorRunOptions,
 	type CursorRunResult,
 	cancelActiveCursorRun,
+	formatCursorRunFailure,
 	type JudgeClassifierOptions,
 	type JudgeClassifierResult,
 	type JudgeSdkError,
 	runCursorAgent,
 	runJudgeClassifier,
+	takeLastCursorRunTrace,
 	textBlocksFromSdkMessage,
 } from "./cursor-run.js";
 export {
@@ -68,7 +70,9 @@ export {
 export { buildRoutingContract } from "./routing-contract.js";
 export {
 	AgentRunTimeoutError,
+	getPartialTrace,
 	isUserInputTool,
+	type PartialTraceCarrier,
 	type RunTimeoutOptions,
 	traceHasUserInputTool,
 	UserInputRequiredError,
@@ -102,6 +106,7 @@ export {
 	findWorkingTreeLeak,
 	formatWorkingTreeLeak,
 	isPathUnderRoot,
+	normalizePorcelainStatus,
 	porcelainPathFromStatusLine,
 	resolveHarnessArtifactIgnoreRoots,
 	restoreWorkingTreePaths,
