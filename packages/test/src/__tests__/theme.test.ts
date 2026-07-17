@@ -1,7 +1,46 @@
 import chalk from "chalk";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { configureCliColor, theme, truncatePath, wrapText } from "../theme.js";
+import { configureCliColor, formatFileHyperlink, theme, truncatePath, wrapText } from "../theme.js";
+
+describe("formatFileHyperlink", () => {
+	it("wraps an absolute path in an OSC-8 file:// hyperlink", () => {
+		const path = "/tmp/agent-test-report-abc/report.html";
+		const linked = formatFileHyperlink(path);
+		expect(linked).toContain("\u001b]8;;file:///tmp/agent-test-report-abc/report.html\u0007");
+		expect(linked).toContain(`${path}\u001b]8;;\u0007`);
+		expect(linked.endsWith("\u001b]8;;\u0007")).toBe(true);
+	});
+
+	it("percent-encodes spaces in the file URL while keeping display text plain", () => {
+		const path = "/tmp/my reports/report.html";
+		const linked = formatFileHyperlink(path);
+		expect(linked).toContain("file:///tmp/my%20reports/report.html");
+		expect(linked).toContain(path);
+	});
+
+	it("allows a custom display label", () => {
+		const linked = formatFileHyperlink("/tmp/report.html", "open report");
+		expect(linked).toContain("file:///tmp/report.html");
+		expect(linked).toContain("open report");
+	});
+});
+
+describe("theme.fileTip", () => {
+	const priorLevel = chalk.level;
+
+	afterEach(() => {
+		chalk.level = priorLevel;
+	});
+
+	it("prefixes a labeled tip with a clickable path", () => {
+		chalk.level = 0;
+		const line = theme.fileTip("HTML report", "/tmp/out/report.html");
+		expect(line).toContain("HTML report:");
+		expect(line).toContain("\u001b]8;;file:///tmp/out/report.html\u0007");
+		expect(line).toContain("/tmp/out/report.html");
+	});
+});
 
 describe("truncatePath", () => {
 	afterEach(() => {

@@ -1,7 +1,12 @@
 import { basename, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import chalk from "chalk";
 
 const RATIONALE_WRAP_COLS = 72;
+
+/** OSC 8 hyperlink: ESC ] 8 ; ; URL BEL text ESC ] 8 ; ; BEL */
+const OSC8_OPEN = "\u001b]8;;";
+const OSC8_CLOSE = "\u0007";
 
 /** Always enable ANSI color — agent-test is a human CLI, not a pipe filter. */
 export function configureCliColor(): void {
@@ -10,6 +15,15 @@ export function configureCliColor(): void {
 
 export function colorEnabled(): boolean {
 	return chalk.level > 0;
+}
+
+/**
+ * Wrap a filesystem path in an OSC-8 `file://` hyperlink for clickable terminals
+ * (Cursor, iTerm2, VS Code, etc.). Display text stays a plain path for copy-paste.
+ */
+export function formatFileHyperlink(absolutePath: string, display = absolutePath): string {
+	const url = pathToFileURL(absolutePath).href;
+	return `${OSC8_OPEN}${url}${OSC8_CLOSE}${display}${OSC8_OPEN}${OSC8_CLOSE}`;
 }
 
 /** Truncate long temp/session paths to `…/last` or `…/parent/last`. */
@@ -136,6 +150,11 @@ export const theme = {
 
 	tip(message: string): string {
 		return chalk.dim.italic(message);
+	},
+
+	/** Tip line with a clickable file path (OSC-8 file:// hyperlink). */
+	fileTip(label: string, absolutePath: string): string {
+		return theme.tip(`${label}: ${formatFileHyperlink(absolutePath)}`);
 	},
 
 	warn(message: string): string {

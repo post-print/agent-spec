@@ -383,7 +383,7 @@ async function main(): Promise<number> {
 		const written = await writeCompareReport({ outDir, report: compare });
 		console.log(theme.tip(`compare JSON: ${written.jsonPath}`));
 		console.log(theme.tip(`compare markdown: ${written.markdownPath}`));
-		console.log(theme.tip(`compare HTML: ${written.htmlPath}`));
+		console.log(theme.fileTip("compare HTML", written.htmlPath));
 		return compare.summary.passRegressions > 0 ? 1 : 0;
 	}
 
@@ -531,7 +531,7 @@ async function main(): Promise<number> {
 				const written = await writeCompareReport({ outDir, report: compare });
 				console.log(`\n${theme.tip(`compare JSON: ${written.jsonPath}`)}`);
 				console.log(theme.tip(`compare markdown: ${written.markdownPath}`));
-				console.log(theme.tip(`compare HTML: ${written.htmlPath}`));
+				console.log(theme.fileTip("compare HTML", written.htmlPath));
 			}
 		} else {
 			reports = await runAllSuites({
@@ -600,7 +600,7 @@ async function main(): Promise<number> {
 						compareALabel: pair ? labelForCompareSide(pair.a) : undefined,
 						compareBLabel: pair ? labelForCompareSide(pair.b) : undefined,
 					});
-					console.log(`\n${theme.tip(`HTML report: ${reportPath}`)}`);
+					console.log(`\n${theme.fileTip("HTML report", reportPath)}`);
 				} catch (error) {
 					console.warn(
 						theme.warn(

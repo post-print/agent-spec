@@ -40,7 +40,15 @@ describe("cli smoke", () => {
 			);
 
 			const ansiEscape = String.fromCharCode(27);
-			const output = `${stdout}${stderr}`.replace(new RegExp(`${ansiEscape}\\[[0-9;]*m`, "g"), "");
+			const bel = "\u0007";
+			const raw = `${stdout}${stderr}`;
+			expect(raw).toContain(`${ansiEscape}]8;;file://`);
+			expect(raw).toMatch(
+				new RegExp(`${ansiEscape}\\]8;;file:///.*/agent-test-report-[^/]+/report\\.html${bel}`),
+			);
+			const output = raw
+				.replace(new RegExp(`${ansiEscape}\\[[0-9;]*m`, "g"), "")
+				.replace(new RegExp(`${ansiEscape}\\]8;;[^${bel}]*${bel}`, "g"), "");
 			expect(output).toMatch(/smoke:.*passed/);
 			expect(output).not.toMatch(/No suites found/);
 			expect(output).toMatch(/HTML report:.*agent-test-report-.*report\.html/);
