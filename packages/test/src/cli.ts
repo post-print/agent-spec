@@ -2,7 +2,11 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type AgentHost, cleanupStaleScenarioWorktrees } from "@post-print/agent-harness";
+import {
+	type AgentHost,
+	cleanupStaleScenarioWorktrees,
+	isPathUnderRoot,
+} from "@post-print/agent-harness";
 
 import { isCliMain } from "./cli-entry.js";
 import { runDoctor } from "./doctor.js";
@@ -203,6 +207,14 @@ async function main(): Promise<number> {
 	}
 
 	const isChild = process.env.AGENT_TEST_CHILD === "1";
+	if (args.debugDir && isPathUnderRoot(args.debugDir, args.cwd) && !isChild) {
+		console.warn(
+			theme.warn(
+				`--debug-dir is inside the repo (${args.debugDir}). Default is $TMPDIR/agent-spec — prefer that for live runs so debug output stays out of git status.`,
+			),
+		);
+	}
+
 	const verbose =
 		args.debug || process.env.AGENT_TEST_VERBOSE === "1" || process.env.AGENT_TEST_DEBUG === "1";
 	const stagingSessionId =

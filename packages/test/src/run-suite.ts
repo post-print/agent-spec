@@ -13,11 +13,13 @@ import {
 	captureWorkingTreeStatus,
 	createScenarioWorktree,
 	enrichTrace,
+	filterWorkingTreeLeaks,
 	findWorkingTreeLeak,
 	formatWorkingTreeLeak,
 	judgeTrace,
 	loadContext,
 	mergeMcpServers,
+	resolveHarnessArtifactIgnoreRoots,
 	runAgent,
 	traceHasUserInputTool,
 } from "@post-print/agent-harness";
@@ -740,7 +742,12 @@ async function runScenario(
 
 		if (useWorktree && callerTreeBefore !== undefined) {
 			const callerTreeAfter = await captureWorkingTreeStatus(cwd);
-			const leaked = findWorkingTreeLeak(callerTreeBefore, callerTreeAfter);
+			const ignoreRoots = resolveHarnessArtifactIgnoreRoots(cwd, getLiveStagingRootOverride());
+			const leaked = filterWorkingTreeLeaks(
+				findWorkingTreeLeak(callerTreeBefore, callerTreeAfter),
+				ignoreRoots,
+				cwd,
+			);
 			if (leaked.length > 0) {
 				failures.push(
 					assertionFailure(

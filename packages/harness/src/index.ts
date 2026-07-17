@@ -92,8 +92,12 @@ export type {
 } from "./types.js";
 export {
 	captureWorkingTreeStatus,
+	filterWorkingTreeLeaks,
 	findWorkingTreeLeak,
 	formatWorkingTreeLeak,
+	isPathUnderRoot,
+	porcelainPathFromStatusLine,
+	resolveHarnessArtifactIgnoreRoots,
 } from "./working-tree-guard.js";
 export {
 	cleanupStaleScenarioWorktrees,
