@@ -7,7 +7,10 @@ export interface RunSummary {
 	worktreeLeaks: number;
 	recordingErrors: number;
 	judgeParseFailures: number;
+	/** Scenarios where the LLM judge used more than one attempt. */
 	retriedScenarios: number;
+	/** Scenarios where announce-stop scenario retry re-ran the agent. */
+	scenarioRetriedScenarios: number;
 }
 
 export type FailOnMode = "all" | "behavior" | "infra-only";
@@ -23,6 +26,7 @@ export function summarizeFailures(failures: AssertionFailure[]): RunSummary {
 		recordingErrors: 0,
 		judgeParseFailures: 0,
 		retriedScenarios: 0,
+		scenarioRetriedScenarios: 0,
 	};
 	for (const failure of failures) {
 		switch (failure.category) {
@@ -58,6 +62,7 @@ export function summarizeReports(reports: SuiteRunReport[]): RunSummary {
 		recordingErrors: 0,
 		judgeParseFailures: 0,
 		retriedScenarios: 0,
+		scenarioRetriedScenarios: 0,
 	};
 	for (const report of reports) {
 		const partial = report.summary ?? summarizeReportResults(report.results);
@@ -68,6 +73,7 @@ export function summarizeReports(reports: SuiteRunReport[]): RunSummary {
 		combined.recordingErrors += partial.recordingErrors;
 		combined.judgeParseFailures += partial.judgeParseFailures;
 		combined.retriedScenarios += partial.retriedScenarios;
+		combined.scenarioRetriedScenarios += partial.scenarioRetriedScenarios;
 	}
 	return combined;
 }
@@ -78,6 +84,10 @@ export function summarizeReportResults(results: ScenarioResult[]): RunSummary {
 	summary.retriedScenarios = results.reduce(
 		(count, result) =>
 			count + (result.judgeVerdicts?.some((verdict) => (verdict.attempt ?? 1) > 1) ? 1 : 0),
+		0,
+	);
+	summary.scenarioRetriedScenarios = results.reduce(
+		(count, result) => count + ((result.attempts ?? 1) > 1 ? 1 : 0),
 		0,
 	);
 	return summary;
@@ -104,5 +114,6 @@ export function formatRunSummary(summary: RunSummary): string {
 		`worktree=${summary.worktreeLeaks}`,
 		`recording=${summary.recordingErrors}`,
 		`retried=${summary.retriedScenarios}`,
+		`scenario_retried=${summary.scenarioRetriedScenarios}`,
 	].join(" · ");
 }

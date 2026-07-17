@@ -51,6 +51,7 @@ node packages/test/dist/cli.js --live --fail-on=behavior --suites-dir agent-suit
 | Variable                        | Default                                        | Purpose                                            |
 | ------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
 | `AGENT_TEST_LIVE_RETRIES`       | `3`                                            | Judge infra retry attempts                         |
+| `AGENT_TEST_SCENARIO_RETRIES`   | `1`                                            | Live announce-stop scenario retries (`0` disables) |
 | `AGENT_TEST_SCENARIO_SETTLE_MS` | adaptive (`500` after pass, `5000` after fail) | Subprocess settle delay                            |
 | `AGENT_TEST_TIMEOUT_MS`         | `600000`                                       | Live harness deadline                              |
 | `AGENT_TEST_DEBUG`              | unset                                          | Verbose failures + debug bundles (all non-skipped) |

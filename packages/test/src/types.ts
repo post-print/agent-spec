@@ -102,6 +102,8 @@ export interface ScenarioResult {
 	failures: AssertionFailure[];
 	skipped?: boolean;
 	durationMs: number;
+	/** Total live attempts including announce-stop retries (omit or 1 when no retry). */
+	attempts?: number;
 	/** LLM judge verdicts when judge criteria were evaluated. */
 	judgeVerdicts?: JudgeVerdictResult[];
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
@@ -117,7 +119,10 @@ export interface RunSummary {
 	worktreeLeaks: number;
 	recordingErrors: number;
 	judgeParseFailures: number;
+	/** Scenarios where the LLM judge used more than one attempt. */
 	retriedScenarios: number;
+	/** Scenarios where announce-stop scenario retry re-ran the agent. */
+	scenarioRetriedScenarios: number;
 }
 
 export interface SuiteRunReport {
