@@ -57,7 +57,8 @@ See repo-root `.env.example`. Common knobs:
 
 ```bash
 npx agent-test --suites-dir agent-suites --suite smoke --debug
-npx agent-test --suites-dir agent-suites --live --debug --debug-dir ./agent-test-debug
+npx agent-test --suites-dir agent-suites --live --debug
+npx agent-test --suites-dir agent-suites --live --debug --debug-dir "$TMPDIR/agent-test-debug"
 ```
 
 `--debug` (or `AGENT_TEST_DEBUG=1`) implies `--keep-recordings`, verbose failure detail, and full paths. Failed scenarios write a bundle under the session root:
@@ -72,6 +73,8 @@ sessions/<id>/<suite>/<scenario>.debug/
   rerun.sh               # shell-quoted exact re-run command (export CURSOR_API_KEY yourself)
 ```
 
+**Debug dir default:** omit `--debug-dir` to stage under `$TMPDIR/agent-spec/sessions/<id>/…` (outside the repo). Passing an in-repo `--debug-dir` (for example `./agent-test-debug`) is supported — harness staging paths under that dir are excluded from worktree leak checks — but prefer `$TMPDIR` so debug artifacts never appear in `git status`.
+
 `--debug-dir <path>` replaces `$TMPDIR/agent-spec` as the sessions parent (`<path>/sessions/<id>/…`).
 
 Failure categories printed on FAIL lines and in `failures.json`:
@@ -81,7 +84,7 @@ Failure categories printed on FAIL lines and in `failures.json`:
 | `rubric_miss` | Assertion/judge criterion miss |
 | `judge_infra` | Judge SDK/API failure (not a criterion miss) |
 | `agent_runtime` | Agent session error, timeout, AskQuestion, subprocess exit |
-| `worktree_leak` | Live agent mutated the caller working tree |
+| `worktree_leak` | Live agent mutated the caller working tree (harness `--debug-dir` staging is excluded) |
 | `recording_error` | Failed to persist a staging/fixture trace |
 
 ## Live dogfood
