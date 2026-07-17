@@ -54,6 +54,7 @@ export async function seedScenarioWorktree(
 	repoRoot: string,
 	worktreePath: string,
 	seedPatch: string | undefined,
+	options?: { stageOnly?: boolean },
 ): Promise<void> {
 	if (!seedPatch) {
 		return;
@@ -73,6 +74,9 @@ export async function seedScenarioWorktree(
 	});
 	if (!status.trim()) {
 		throw new Error(`seedPatch applied no changes: ${seedPatch}`);
+	}
+	if (options?.stageOnly) {
+		return;
 	}
 	await execFileAsync(
 		"git",

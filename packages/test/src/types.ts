@@ -43,6 +43,8 @@ export interface AgentScenario {
 	mcpServers?: Record<string, McpServerConfig>;
 	/** Live-only: apply patch + commit in worktree so pr-mode branch diff exists. */
 	seedPatch?: string;
+	/** Live-only: with seedPatch, stage changes without committing (staged review mode). */
+	seedStageOnly?: boolean;
 	replayTrace?: string;
 	rubric: ScenarioRubric;
 	skip?: boolean;

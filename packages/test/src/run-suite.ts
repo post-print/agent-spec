@@ -649,7 +649,9 @@ async function runScenario(
 		logPhase(theme.phase("worktree", theme.path(worktreeHandle.path)));
 		if (isLive && scenario.seedPatch) {
 			logPhase(theme.phase("seed", theme.basename(scenario.seedPatch)));
-			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch);
+			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch, {
+				stageOnly: scenario.seedStageOnly === true,
+			});
 		}
 	} else if (isLive) {
 		logPhase(theme.phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)")));
