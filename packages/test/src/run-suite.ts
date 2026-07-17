@@ -57,6 +57,7 @@ import {
 	restoreCallerHeadIfSeedCommit,
 	seedScenarioWorktree,
 } from "./scenario-seed.js";
+import { summarizeReportResults } from "./suite-summary.js";
 import { theme } from "./theme.js";
 import type {
 	AgentScenario,
@@ -204,6 +205,7 @@ function toJudgeVerdictResults(
 		pass: boolean;
 		rationale: string;
 		infraError?: string;
+		parseError?: string;
 		rawSdkStatus?: string;
 		sdkError?: { message?: string; code?: string };
 		attempt?: number;
@@ -219,6 +221,7 @@ function toJudgeVerdictResults(
 			pass: boolean;
 			rationale: string;
 			infraError?: string;
+			parseError?: string;
 			rawSdkStatus?: string;
 			sdkError?: { message?: string; code?: string };
 			attempt?: number;
@@ -232,6 +235,7 @@ function toJudgeVerdictResults(
 			pass: extended.pass,
 			rationale: extended.rationale,
 			infraError: extended.infraError,
+			parseError: extended.parseError,
 			rawSdkStatus: extended.rawSdkStatus,
 			sdkError: extended.sdkError,
 			attempt: extended.attempt,
@@ -399,6 +403,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const isLiveSuite = defaultHost !== "replay";
 	const isolateLive =
 		isLiveSuite && liveScenarioIsolationEnabled() && !options.scenarioFilter && filteredTotal > 1;
+	let previousIsolatedExitCode: number | undefined;
 
 	if (shouldPrintSuiteChrome()) {
 		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal)}`);
@@ -450,7 +455,9 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				allowUserInput: options.allowUserInput,
 				debug: options.debug,
 				debugDir: options.debugDir,
+				previousExitCode: previousIsolatedExitCode,
 			});
+			previousIsolatedExitCode = exitCode;
 			const durationMs = Math.round(performance.now() - started);
 			const failures: AssertionFailure[] = [];
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
@@ -577,6 +584,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 		skipped: results.filter((r) => r.skipped).length,
 		failed: results.filter((r) => !r.passed && !r.skipped).length,
 		results,
+		summary: summarizeReportResults(results),
 	};
 }
 
@@ -909,13 +917,12 @@ async function runJudgeRubric(
 	const failures: AssertionFailure[] = [];
 	for (const verdict of result.verdicts) {
 		if (!verdict.pass) {
-			failures.push(
-				assertionFailure(
-					`judge:${verdict.id}`,
-					verdict.rationale,
-					verdict.infraError ? "judge_infra" : "rubric_miss",
-				),
-			);
+			const category = verdict.infraError
+				? "judge_infra"
+				: verdict.parseError
+					? "judge_parse"
+					: "rubric_miss";
+			failures.push(assertionFailure(`judge:${verdict.id}`, verdict.rationale, category));
 		}
 	}
 	// Top-level only when no failing verdict already covers the error (avoids

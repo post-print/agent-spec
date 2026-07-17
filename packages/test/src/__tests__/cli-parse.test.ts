@@ -54,4 +54,20 @@ describe("parseCliArgs debug flags", () => {
 			/--debug-dir requires/,
 		);
 	});
+
+	it("parses validate and fail-on flags", () => {
+		const args = parseCliArgs([
+			"node",
+			"cli.js",
+			"--validate-only",
+			"--validate-seeds",
+			"--validate-paths",
+			"--fail-on",
+			"behavior",
+		]);
+		expect(args.validateOnly).toBe(true);
+		expect(args.validateSeeds).toBe(true);
+		expect(args.validatePaths).toBe(true);
+		expect(args.failOn).toBe("behavior");
+	});
 });

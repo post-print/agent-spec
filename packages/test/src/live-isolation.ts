@@ -41,16 +41,24 @@ function categoryFromLegacyFailure(failure: {
 }
 
 const DEFAULT_SCENARIO_SETTLE_MS = 5000;
+const FAST_SCENARIO_SETTLE_MS = 500;
 
 /** Child process per live scenario (default) — avoids macOS OOM (exit 137) across council runs. */
 export function liveScenarioIsolationEnabled(): boolean {
 	return process.env.AGENT_TEST_CHILD !== "1" && process.env.AGENT_TEST_NO_ISOLATE !== "1";
 }
 
-export function scenarioSettleMs(): number {
-	const raw = process.env.AGENT_TEST_SCENARIO_SETTLE_MS ?? String(DEFAULT_SCENARIO_SETTLE_MS);
-	const parsed = Number(raw);
-	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_SCENARIO_SETTLE_MS;
+/** Delay between isolated live subprocess scenarios (adaptive after success). */
+export function scenarioSettleMs(previousExitCode?: number): number {
+	const raw = process.env.AGENT_TEST_SCENARIO_SETTLE_MS?.trim();
+	if (raw !== undefined && raw !== "") {
+		const parsed = Number(raw);
+		return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_SCENARIO_SETTLE_MS;
+	}
+	if (previousExitCode === 0) {
+		return FAST_SCENARIO_SETTLE_MS;
+	}
+	return DEFAULT_SCENARIO_SETTLE_MS;
 }
 
 export interface SpawnLiveScenarioOptions {
@@ -70,6 +78,8 @@ export interface SpawnLiveScenarioOptions {
 	scenarioTotal?: number;
 	/** In-process harness timeout (parent adds a kill backstop). */
 	timeoutMs?: number;
+	/** Previous subprocess exit code — shortens settle after success when unsettled env default applies. */
+	previousExitCode?: number;
 	/** Disable harness deadline in the child (forwards --no-timeout). */
 	noTimeout?: boolean;
 	/** Allow AskQuestion-style tools (default false — live is single-shot). */
@@ -273,7 +283,7 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 		});
 	});
 
-	const settleMs = scenarioSettleMs();
+	const settleMs = scenarioSettleMs(exitCode);
 	if (settleMs > 0) {
 		await sleep(settleMs);
 	}

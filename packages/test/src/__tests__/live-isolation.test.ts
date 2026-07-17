@@ -31,11 +31,17 @@ describe("live-isolation", () => {
 		process.env.AGENT_TEST_NO_ISOLATE = undefined;
 	});
 
-	it("defaults settle ms to 5000", () => {
+	it("defaults settle ms to 5000 after failure and 500 after success", () => {
 		const prior = process.env.AGENT_TEST_SCENARIO_SETTLE_MS;
-		process.env.AGENT_TEST_SCENARIO_SETTLE_MS = undefined;
+		delete process.env.AGENT_TEST_SCENARIO_SETTLE_MS;
 		expect(scenarioSettleMs()).toBe(5000);
-		process.env.AGENT_TEST_SCENARIO_SETTLE_MS = prior;
+		expect(scenarioSettleMs(0)).toBe(500);
+		expect(scenarioSettleMs(1)).toBe(5000);
+		if (prior === undefined) {
+			delete process.env.AGENT_TEST_SCENARIO_SETTLE_MS;
+		} else {
+			process.env.AGENT_TEST_SCENARIO_SETTLE_MS = prior;
+		}
 	});
 
 	it("maps exit 137 to OOM guidance", () => {

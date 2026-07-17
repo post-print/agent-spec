@@ -88,7 +88,7 @@ describe("judgeTrace infra errors", () => {
 		expect(verdict?.rationale).toBe(verdict?.infraError);
 		expect(verdict?.rawSdkStatus).toBe("error");
 		expect(verdict?.sdkError).toEqual({ message: "upstream timeout", code: "TIMEOUT" });
-		expect(verdict?.attempt).toBe(1);
+		expect(verdict?.attempt).toBe(3);
 		expect(verdict?.durationMs).toBeGreaterThanOrEqual(0);
 		expect(verdict?.transcriptChars).toBeGreaterThan(0);
 		expect(verdict?.promptChars).toBeGreaterThan(0);
@@ -117,9 +117,9 @@ describe("judgeTrace infra errors", () => {
 		expect(result.verdicts).toHaveLength(1);
 		const verdict = result.verdicts[0];
 		expect(verdict?.pass).toBe(false);
-		expect(verdict?.infraError).toBeTruthy();
-		expect(verdict?.infraError).toContain("not-json-at-all");
-		expect(verdict?.rationale).toBe(verdict?.infraError);
+		expect(verdict?.parseError).toBeTruthy();
+		expect(verdict?.parseError).toContain("not-json-at-all");
+		expect(verdict?.rationale).toBe(verdict?.parseError);
 	});
 
 	it("marks truncated JSON judge replies as infra errors (no YES salvage)", async () => {
@@ -144,9 +144,9 @@ describe("judgeTrace infra errors", () => {
 		expect(result.verdicts).toHaveLength(1);
 		const verdict = result.verdicts[0];
 		expect(verdict?.pass).toBe(false);
-		expect(verdict?.infraError).toBeTruthy();
-		expect(verdict?.infraError).toMatch(/invalid JSON/i);
-		expect(verdict?.infraError).toContain('{"verdict":"yes"');
+		expect(verdict?.parseError).toBeTruthy();
+		expect(verdict?.parseError).toMatch(/invalid JSON/i);
+		expect(verdict?.parseError).toContain('{"verdict":"yes"');
 	});
 
 	it("marks array-wrapped judge JSON as infra errors (no inner-object salvage)", async () => {
@@ -171,7 +171,7 @@ describe("judgeTrace infra errors", () => {
 		expect(result.verdicts).toHaveLength(1);
 		const verdict = result.verdicts[0];
 		expect(verdict?.pass).toBe(false);
-		expect(verdict?.infraError).toBeTruthy();
-		expect(verdict?.infraError).toMatch(/invalid JSON/i);
+		expect(verdict?.parseError).toBeTruthy();
+		expect(verdict?.parseError).toMatch(/invalid JSON/i);
 	});
 });

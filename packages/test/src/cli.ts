@@ -9,6 +9,7 @@ import {
 } from "@post-print/agent-harness";
 
 import { isCliMain } from "./cli-entry.js";
+import { discoverSuites } from "./discover-suites.js";
 import { runDoctor } from "./doctor.js";
 import { writeHtmlReport } from "./html-report.js";
 import { assertLiveDogfoodPreflight } from "./preflight.js";
@@ -21,7 +22,15 @@ import {
 	setLiveStagingRootOverride,
 } from "./record-trace.js";
 import { registerLiveRunHandlers, runAllSuites } from "./run-suite.js";
+import {
+	type FailOnMode,
+	formatRunSummary,
+	shouldFailScenario,
+	summarizeReports,
+} from "./suite-summary.js";
 import { configureCliColor, theme } from "./theme.js";
+import { formatSeedValidationReport, validateSeedPatches } from "./validate-seeds.js";
+import { formatValidationReport, validateSuitePaths } from "./validate-suite.js";
 import { suppressNoisyRuntimeWarnings } from "./warnings.js";
 
 suppressNoisyRuntimeWarnings();
@@ -47,6 +56,10 @@ export interface ParsedCliArgs {
 	htmlReport: boolean;
 	debug: boolean;
 	debugDir?: string;
+	validateOnly: boolean;
+	validateSeeds: boolean;
+	validatePaths: boolean;
+	failOn: FailOnMode;
 }
 
 /** Parse agent-test CLI argv (exported for unit tests). */
@@ -70,6 +83,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let htmlReport = true;
 	let debug = process.env.AGENT_TEST_DEBUG === "1" || process.env.AGENT_TEST_DEBUG === "true";
 	let debugDir: string | undefined;
+	let validateOnly = false;
+	let validateSeeds = false;
+	let validatePaths = false;
+	let failOn: FailOnMode = "all";
 
 	for (let i = 2; i < argv.length; i++) {
 		const token = argv[i];
@@ -109,6 +126,18 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			allowUserInput = true;
 		} else if (token === "--doctor") {
 			doctor = true;
+		} else if (token === "--validate-only") {
+			validateOnly = true;
+		} else if (token === "--validate-seeds") {
+			validateSeeds = true;
+		} else if (token === "--validate-paths") {
+			validatePaths = true;
+		} else if (token === "--fail-on" && argv[i + 1]) {
+			const mode = argv[++i] as FailOnMode;
+			if (mode !== "all" && mode !== "behavior" && mode !== "infra-only") {
+				throw new Error("--fail-on must be all|behavior|infra-only");
+			}
+			failOn = mode;
 		} else if (token === "--no-html-report") {
 			htmlReport = false;
 		} else if (token === "--debug") {
@@ -159,6 +188,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		htmlReport,
 		debug,
 		debugDir: debugDir ? resolve(cwd, debugDir) : undefined,
+		validateOnly,
+		validateSeeds,
+		validatePaths,
+		failOn,
 	};
 }
 
@@ -200,6 +233,38 @@ async function main(): Promise<number> {
 			console.log(message);
 		}
 		return report.ok ? 0 : 1;
+	}
+
+	if (args.validateOnly || args.validateSeeds) {
+		if (args.validateOnly) {
+			const suitePaths = await discoverSuites(resolve(args.cwd, args.suitesDir));
+			const filtered = args.filter
+				? suitePaths.filter(
+						(path) =>
+							path.includes(`/${args.filter}/`) || path.endsWith(`/${args.filter}/scenarios.json`),
+					)
+				: suitePaths;
+			const report = await validateSuitePaths(filtered, {
+				validatePaths: args.validatePaths,
+				repoRoot: args.cwd,
+			});
+			console.log(formatValidationReport(report));
+			if (!report.ok) {
+				return 1;
+			}
+		}
+		if (args.validateSeeds) {
+			const report = await validateSeedPatches({
+				cwd: args.cwd,
+				suitesDir: args.suitesDir,
+				filter: args.filter,
+			});
+			console.log(formatSeedValidationReport(report));
+			if (!report.ok) {
+				return 1;
+			}
+		}
+		return 0;
 	}
 
 	if (args.debugDir) {
@@ -302,7 +367,12 @@ async function main(): Promise<number> {
 			for (const report of reports) {
 				const failed = report.results.filter((result) => !result.passed && !result.skipped);
 				if (failed.length > 0) {
-					exitCode = 1;
+					const behaviorFailures = failed.filter((result) =>
+						shouldFailScenario(result.failures, args.failOn),
+					);
+					if (behaviorFailures.length > 0) {
+						exitCode = 1;
+					}
 					console.log(`\n${theme.failedScenariosHeader()}`);
 					for (const result of failed) {
 						console.log(theme.failedScenarioName(result.scenario));
@@ -326,6 +396,14 @@ async function main(): Promise<number> {
 				console.log(theme.summary(report.suite, report.passed, report.failed, report.skipped));
 			}
 
+			const runSummary = summarizeReports(reports);
+			console.log(`\n${formatRunSummary(runSummary)}`);
+			if (args.failOn === "behavior" && runSummary.infraFailures > 0 && exitCode === 0) {
+				console.log(
+					theme.tip(`${runSummary.infraFailures} infra failure(s) ignored (--fail-on=behavior)`),
+				);
+			}
+
 			if (args.debug && stagingSessionRoot) {
 				console.log(`\n${theme.tip(`debug session: ${stagingSessionRoot}`)}`);
 			}
@@ -347,7 +425,8 @@ async function main(): Promise<number> {
 			}
 		} else {
 			for (const report of reports) {
-				if (report.failed > 0) {
+				const failed = report.results.filter((result) => !result.passed && !result.skipped);
+				if (failed.some((result) => shouldFailScenario(result.failures, args.failOn))) {
 					exitCode = 1;
 				}
 			}

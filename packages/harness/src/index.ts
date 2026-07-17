@@ -59,6 +59,11 @@ export {
 	mergeMcpServers,
 	resolveMcpServers,
 } from "./mcp.js";
+export {
+	isTransientInfraError,
+	resolveRetryMaxAttempts,
+	withRetry,
+} from "./retry.js";
 export { buildRoutingContract } from "./routing-contract.js";
 export {
 	AgentRunTimeoutError,
