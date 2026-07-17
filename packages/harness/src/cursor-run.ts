@@ -112,6 +112,15 @@ function cancelSdkRun(run: CancellableSdkRun | undefined): void {
 	})();
 }
 
+/** In-process Cursor SDK run currently owned by `runCursorAgent` (for Ctrl+C / SIGTERM). */
+let activeCursorRun: CancellableSdkRun | undefined;
+
+/** Best-effort cancel of the in-flight Cursor SDK run (no-op when idle). */
+export function cancelActiveCursorRun(): void {
+	cancelSdkRun(activeCursorRun);
+	activeCursorRun = undefined;
+}
+
 /** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
 export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
@@ -133,14 +142,14 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 
 	const failOnUserInput = options.failOnUserInput !== false;
 	const acc = createTraceAccumulator();
-	let activeRun: CancellableSdkRun | undefined;
 	let timedOut = false;
 
 	const execute = async (): Promise<CursorRunResult> => {
 		const run = (await agent.send(options.prompt)) as CancellableSdkRun;
-		activeRun = run;
+		activeCursorRun = run;
 		if (timedOut) {
 			cancelSdkRun(run);
+			activeCursorRun = undefined;
 			throw new AgentRunTimeoutError(options.timeoutMs ?? 0);
 		}
 
@@ -163,7 +172,9 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 			cancelSdkRun(run);
 			throw error;
 		} finally {
-			activeRun = undefined;
+			if (activeCursorRun === run) {
+				activeCursorRun = undefined;
+			}
 		}
 	};
 
@@ -172,7 +183,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 		return withRunTimeout(execute, options.timeoutMs, {
 			onTimeout: () => {
 				timedOut = true;
-				cancelSdkRun(activeRun);
+				cancelSdkRun(activeCursorRun);
 			},
 		});
 	}

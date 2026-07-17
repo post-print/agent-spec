@@ -330,6 +330,7 @@ async function main(): Promise<number> {
 				if (stagingSessionRoot) {
 					console.log(theme.bannerSession(stagingSessionRoot));
 				}
+				console.log(`  ${theme.tip("Ctrl+C cancels in-flight scenarios")}`);
 				if (worktreeDisabled) {
 					console.warn(
 						theme.warn("running in repo cwd — agent file edits will persist in your working tree"),

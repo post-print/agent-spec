@@ -10,6 +10,7 @@ import type {
 	SkillContextSetting,
 } from "@post-print/agent-harness";
 import {
+	cancelActiveCursorRun,
 	captureWorkingTreeStatus,
 	createScenarioWorktree,
 	enrichTrace,
@@ -35,6 +36,7 @@ import { assertRubric } from "./expect.js";
 import { assertionFailure } from "./failures.js";
 import {
 	failuresForLiveSubprocessExit,
+	killActiveLiveChildren,
 	liveScenarioIsolationEnabled,
 	parentScenarioCounters,
 	spawnLiveScenario,
@@ -107,7 +109,7 @@ export function shouldPrintSuiteChrome(): boolean {
 	return !isChildProcess();
 }
 
-/** Best-effort worktree cleanup when live runs are interrupted (SIGINT/SIGTERM). */
+/** Best-effort cancel + worktree cleanup when live runs are interrupted (Ctrl+C / SIGINT/SIGTERM). */
 export function registerLiveRunHandlers(): void {
 	if (liveSignalHandlersRegistered) {
 		return;
@@ -115,6 +117,8 @@ export function registerLiveRunHandlers(): void {
 	liveSignalHandlersRegistered = true;
 
 	const interrupt = (code: number) => {
+		killActiveLiveChildren();
+		cancelActiveCursorRun();
 		const cleanup = activeWorktreeCleanup;
 		const headRestore = activeCallerHeadRestore;
 		if (!cleanup && !headRestore) {

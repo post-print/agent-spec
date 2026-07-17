@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { assertionFailure } from "./failures.js";
 import {
@@ -13,6 +13,28 @@ import {
 	readAgentStartMarker,
 } from "./record-trace.js";
 import type { AssertionFailure, FailureCategory } from "./types.js";
+
+const activeChildren = new Set<ChildProcess>();
+
+function registerActiveChild(child: ChildProcess): void {
+	activeChildren.add(child);
+}
+
+function unregisterActiveChild(child: ChildProcess): void {
+	activeChildren.delete(child);
+}
+
+/** Kill in-flight live scenario children (Ctrl+C / SIGINT / SIGTERM from parent). */
+export function killActiveLiveChildren(): void {
+	for (const child of activeChildren) {
+		try {
+			child.kill("SIGTERM");
+		} catch {
+			// best-effort
+		}
+	}
+	activeChildren.clear();
+}
 
 function categoryFromLegacyFailure(failure: {
 	matcher: string;
@@ -199,6 +221,7 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 			env,
 			stdio: "inherit",
 		});
+		registerActiveChild(child);
 		let childClosed = false;
 		let killedForTimeout = false;
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -265,11 +288,13 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 
 		child.on("error", (error) => {
 			childClosed = true;
+			unregisterActiveChild(child);
 			clearKillTimers();
 			reject(error);
 		});
 		child.on("close", (code, signal) => {
 			childClosed = true;
+			unregisterActiveChild(child);
 			clearKillTimers();
 			if (killedForTimeout) {
 				resolveExit(124);

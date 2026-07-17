@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	buildLiveScenarioCommand,
 	failuresForLiveSubprocessExit,
+	killActiveLiveChildren,
 	liveScenarioIsolationEnabled,
 	parentScenarioCounters,
 	scenarioSettleMs,
@@ -178,6 +179,10 @@ describe("live-isolation", () => {
 				category: "agent_runtime",
 			},
 		]);
+	});
+
+	it("killActiveLiveChildren is safe when no children are tracked", () => {
+		expect(() => killActiveLiveChildren()).not.toThrow();
 	});
 });
 

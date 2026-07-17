@@ -30,6 +30,7 @@ export {
 	assistantTextFromSdkMessages,
 	type CursorRunOptions,
 	type CursorRunResult,
+	cancelActiveCursorRun,
 	type JudgeClassifierOptions,
 	type JudgeClassifierResult,
 	type JudgeSdkError,

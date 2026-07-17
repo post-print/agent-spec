@@ -55,3 +55,48 @@ describe("runCursorAgent onDeadlineStart", () => {
 		vi.clearAllMocks();
 	});
 });
+
+describe("cancelActiveCursorRun", () => {
+	it("cancels the in-flight SDK run", async () => {
+		const cancel = vi.fn(async () => {});
+		const wait = vi.fn(async () => ({ status: "cancelled" }));
+		let releaseStream: (() => void) | undefined;
+
+		agentCreate.mockResolvedValue({
+			send: agentSend,
+			[Symbol.asyncDispose]: async () => {},
+		});
+		agentSend.mockResolvedValue({
+			stream: async function* () {
+				await new Promise<void>((resolve) => {
+					releaseStream = resolve;
+				});
+			},
+			wait,
+			supports: (op: string) => op === "cancel",
+			cancel,
+		});
+
+		const { cancelActiveCursorRun, runCursorAgent } = await import("../cursor-run.js");
+		const runPromise = runCursorAgent({
+			cwd: process.cwd(),
+			prompt: "test",
+			apiKey: "test-key",
+		});
+
+		await vi.waitFor(() => {
+			expect(agentSend).toHaveBeenCalled();
+		});
+		cancelActiveCursorRun();
+		releaseStream?.();
+
+		await expect(runPromise).resolves.toMatchObject({ status: "failed" });
+		expect(cancel).toHaveBeenCalled();
+		vi.clearAllMocks();
+	});
+
+	it("is a no-op when no run is active", async () => {
+		const { cancelActiveCursorRun } = await import("../cursor-run.js");
+		expect(() => cancelActiveCursorRun()).not.toThrow();
+	});
+});

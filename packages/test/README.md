@@ -87,6 +87,8 @@ Failure categories printed on FAIL lines and in `failures.json`:
 | `worktree_leak`   | Live agent mutated the caller working tree (harness `--debug-dir` staging is excluded) |
 | `recording_error` | Failed to persist a staging/fixture trace                                              |
 
+**Cancel:** `Ctrl+C` (SIGINT) kills in-flight isolated scenario subprocesses and best-effort cancels the active Cursor SDK run, then cleans scenario worktrees.
+
 ## Live dogfood
 
 Live runs need `CURSOR_API_KEY` and a suites directory that exists. Preflight fails when the resolved suites directory is missing (default `agent-suites/` if `--suites-dir` is omitted).
