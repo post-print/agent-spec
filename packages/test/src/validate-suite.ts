@@ -7,7 +7,7 @@ import { loadSuiteFile } from "./load-suite.js";
 import type { AgentScenario, AgentSuiteFile, ScenarioRubric } from "./types.js";
 
 const VALID_HOSTS = new Set<AgentHost>(["cursor", "claude", "replay"]);
-const VALID_PROFILES = new Set<ContextProfile>(["shared", "cursor", "claude"]);
+const VALID_PROFILES = new Set<ContextProfile>(["shared", "cursor", "claude", "skeleton"]);
 const VALID_SKILLS = new Set<SkillContextSetting>(["none", "catalog", "full"]);
 const VALID_TIERS = new Set<NonNullable<ScenarioRubric["tier"]>>(["low", "medium", "high"]);
 const VALID_REVIEW_DEPTHS = new Set<NonNullable<ScenarioRubric["reviewDepth"]>>([
@@ -65,7 +65,15 @@ function validateRubric(
 			scenarioName,
 		);
 	}
-	for (const key of ["must", "mustNot", "mustRun", "mustCallTool", "mustNotCallTool"] as const) {
+	for (const key of [
+		"must",
+		"mustNot",
+		"mustRun",
+		"mustCallTool",
+		"mustNotCallTool",
+		"mustReadPath",
+		"mustNotReadPath",
+	] as const) {
 		const value = rubric[key];
 		if (value !== undefined && !Array.isArray(value)) {
 			pushIssue(
@@ -136,7 +144,16 @@ function validateScenario(
 			issues,
 			suitePath,
 			"profile",
-			`profile must be shared|cursor|claude, got ${JSON.stringify(scenario.profile)}`,
+			`profile must be shared|cursor|claude|skeleton, got ${JSON.stringify(scenario.profile)}`,
+			scenario.name,
+		);
+	}
+	if (scenario.contextSources !== undefined && !Array.isArray(scenario.contextSources)) {
+		pushIssue(
+			issues,
+			suitePath,
+			"contextSources",
+			"contextSources must be an array of strings",
 			scenario.name,
 		);
 	}
@@ -183,7 +200,15 @@ function validateDefaults(
 			issues,
 			suitePath,
 			"defaults.profile",
-			`profile must be shared|cursor|claude, got ${JSON.stringify(defaults.profile)}`,
+			`profile must be shared|cursor|claude|skeleton, got ${JSON.stringify(defaults.profile)}`,
+		);
+	}
+	if (defaults.contextSources !== undefined && !Array.isArray(defaults.contextSources)) {
+		pushIssue(
+			issues,
+			suitePath,
+			"defaults.contextSources",
+			"contextSources must be an array of strings",
 		);
 	}
 	if (defaults.skills !== undefined && !VALID_SKILLS.has(defaults.skills)) {

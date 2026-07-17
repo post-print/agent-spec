@@ -25,6 +25,8 @@ Works under **Node >= 22** (the published `agent-test` bin):
 npx agent-test --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --suite ambient-routing
 npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # exported CURSOR_API_KEY required
+npx agent-test --live --compare-pairs skeleton-clean:skeleton-messy --out-dir "$TMPDIR/compare"
+npx agent-test compare --a clean.suite-report.json --b messy.suite-report.json --out-dir "$TMPDIR/compare"
 npx agent-test --doctor
 ```
 
@@ -70,7 +72,7 @@ sessions/<id>/<suite>/<scenario>.debug/
   summary.md             # verdict + Why (category hint + evidence + trace stats)
   transcript.md          # Why, prompt, rubric, interleaved messages/tools (incl. results), failures
   scenario.json          # prompt + rubric + seed metadata
-  result.json            # pass/fail, duration, failures, skillsInvoked, routing, counts
+  result.json            # pass/fail, duration, failures, usage, skillsInvoked, routing, counts
   trace.json
   failures.json          # includes category + evidence
   judge-debug.json       # when judge criteria ran (SDK status/error, sizes, attempt)
@@ -152,6 +154,10 @@ Live Cursor runs can attach **inline** MCP servers from suite/scenario JSON. Amb
 - Suite `defaults.mcpServers` merge with scenario `mcpServers` by server name (scenario wins).
 - `${ENV_VAR}` placeholders expand in `command`, `args`, `env`, `url`, `headers`, and OAuth fields at run time.
 - Rubric `mustCallTool` / `mustNotCallTool` match tool **name** substrings (works with MCP name prefixes). Use `name:argFragment` to also require a substring in JSON args.
+- Rubric `mustReadPath` / `mustNotReadPath` match substrings on **Read** tool JSON args (registry-first / avoid inventing paths). Keep hallucination scoring in live `judge` questions — no heavy factuality engine in v1.
+- Suite defaults may set `profile: "skeleton"` and/or `contextSources` (additive paths / `.skeleton/customize/` basenames). Shared/cursor/claude defaults stay backwards-compatible.
+- Live runs surface provider `usage` on traces/results; suite summary + HTML report include token sum / p50 / p95 when present.
+- `--compare-pairs A:B` (or `agent-test compare --a/--b`) pairs scenarios by name and writes `compare-report.json` / `.md` / `.html` with pass/fail, tokens, toolCallCount, durationMs, and skill/registry hop proxies. Suite HTML also embeds an A/B table when two reports are present.
 - Replay hosts ignore `mcpServers` but still score recorded `toolCalls` against those matchers.
 
 ## Library

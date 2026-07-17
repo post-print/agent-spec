@@ -1,12 +1,13 @@
 import type {
 	AgentHost,
 	AgentTrace,
+	AgentUsage,
 	ContextProfile,
 	McpServerConfig,
 	SkillContextSetting,
 } from "@post-print/agent-harness";
 
-export type { McpServerConfig } from "@post-print/agent-harness";
+export type { AgentUsage, McpServerConfig } from "@post-print/agent-harness";
 
 export type JudgeRubricItem = string | { id?: string; question: string };
 
@@ -23,6 +24,13 @@ export interface ScenarioRubric {
 	 */
 	mustCallTool?: string[];
 	mustNotCallTool?: string[];
+	/**
+	 * Substring that must appear in a Read tool's JSON args (registry-first / path grounding).
+	 * Hallucination scoring stays in live `judge` questions — these are lightweight proxies.
+	 */
+	mustReadPath?: string[];
+	/** Substring that must not appear in any Read tool's JSON args. */
+	mustNotReadPath?: string[];
 	/** Skill folder names the agent must read via SKILL.md (e.g. grill, crystallize). */
 	mustInvokeSkill?: string[];
 	mustNotInvokeSkill?: string[];
@@ -39,6 +47,8 @@ export interface AgentScenario {
 	profile?: ContextProfile;
 	/** Override suite defaults for skill catalog loading. */
 	skills?: SkillContextSetting;
+	/** Additive context paths (merged after suite defaults.contextSources). */
+	contextSources?: string[];
 	/** Inline MCP servers for live Cursor (merged over suite defaults by server name). */
 	mcpServers?: Record<string, McpServerConfig>;
 	/** Live-only: apply patch + commit in worktree so pr-mode branch diff exists. */
@@ -58,6 +68,11 @@ export interface AgentSuiteFile {
 		profile?: ContextProfile;
 		/** none | catalog | full — ambient-routing uses full for IDE parity. */
 		skills?: SkillContextSetting;
+		/**
+		 * Additive repo-relative context paths (or `.skeleton/customize/` basenames).
+		 * Use with `profile: "skeleton"` or to extend shared/cursor/claude profiles.
+		 */
+		contextSources?: string[];
 		/** Inline MCP servers for live Cursor runs. */
 		mcpServers?: Record<string, McpServerConfig>;
 	};
@@ -106,10 +121,22 @@ export interface ScenarioResult {
 	attempts?: number;
 	/** LLM judge verdicts when judge criteria were evaluated. */
 	judgeVerdicts?: JudgeVerdictResult[];
+	/** Token usage when the host reported it (mirrored from trace.usage). */
+	usage?: AgentUsage;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
 	/** Absolute path to the debug bundle directory when --debug wrote one. */
 	debugBundleDir?: string;
+}
+
+/** Aggregate token usage across scenarios that reported it. */
+export interface UsageStats {
+	scenariosWithUsage: number;
+	sumTotalTokens?: number;
+	p50TotalTokens?: number;
+	p95TotalTokens?: number;
+	sumInputTokens?: number;
+	sumOutputTokens?: number;
 }
 
 export interface RunSummary {
@@ -123,6 +150,7 @@ export interface RunSummary {
 	retriedScenarios: number;
 	/** Scenarios where announce-stop scenario retry re-ran the agent. */
 	scenarioRetriedScenarios: number;
+	usage?: UsageStats;
 }
 
 export interface SuiteRunReport {

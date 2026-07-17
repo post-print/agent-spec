@@ -78,6 +78,38 @@ describe("capture", () => {
 		]);
 	});
 
+	it("accumulates usage events into trace.usage", () => {
+		const trace = buildTraceFromSdkMessages([
+			{
+				type: "usage",
+				usage: {
+					inputTokens: 10,
+					outputTokens: 5,
+					totalTokens: 15,
+					cacheReadTokens: 2,
+					cacheWriteTokens: 1,
+				},
+			},
+			{
+				type: "usage",
+				usage: {
+					inputTokens: 3,
+					outputTokens: 2,
+					totalTokens: 5,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			},
+		]);
+		expect(trace.usage).toEqual({
+			inputTokens: 13,
+			outputTokens: 7,
+			totalTokens: 20,
+			cacheReadTokens: 2,
+			cacheWriteTokens: 1,
+		});
+	});
+
 	it("captures MCP tool calls with args and result from SDK root result", () => {
 		const trace = buildTraceFromSdkMessages([
 			{

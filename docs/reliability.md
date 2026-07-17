@@ -33,7 +33,20 @@ node packages/test/dist/cli.js --suites-dir agent-suites
 
 # Live dogfood — ignore infra flakes in exit code
 node packages/test/dist/cli.js --live --fail-on=behavior --suites-dir agent-suites
+
+# Paired A/B compare (shared scenario names across two suite dirs)
+node packages/test/dist/cli.js --live --compare-pairs skeleton-clean:skeleton-messy --out-dir "$TMPDIR/compare"
+node packages/test/dist/cli.js compare --a a.suite-report.json --b b.suite-report.json --out-dir "$TMPDIR/compare"
 ```
+
+## Token / grounding metrics
+
+| Signal | Where |
+| ------ | ----- |
+| `usage.totalTokens` (plus input/output when reported) | `AgentTrace` / `ScenarioResult` / debug `result.json` |
+| Suite token sum / p50 / p95 | Console summary + HTML report |
+| `mustReadPath` / `mustNotReadPath` | Deterministic Read-arg substring rubrics (registry-first proxies) |
+| Hallucination scoring | Live `judge` questions authored in suites (no factuality engine in v1) |
 
 ## Failure categories
 

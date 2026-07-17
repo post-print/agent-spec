@@ -74,6 +74,108 @@ describe("html-report", () => {
 		expect(html).toContain("2026-07-16T12:00:00.000Z");
 	});
 
+	it("renders token usage in scenario and suite summary", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					usage: {
+						totalTokens: 1234,
+						inputTokens: 800,
+						outputTokens: 434,
+						cacheReadTokens: 12,
+					},
+					trace: {
+						messages: [{ role: "assistant", content: "ok" }],
+						toolCalls: [],
+						shellCommands: [],
+						artifacts: {},
+						skillsInvoked: ["skeleton"],
+						routing: { tier: "medium" },
+						usage: { totalTokens: 1234 },
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("1234 tok");
+		expect(html).toContain("tokens_sum=1234");
+		expect(html).toContain("p50 tokens");
+		expect(html).toContain("Token usage");
+		expect(html).toContain("Cache read");
+		expect(html).toContain("Skills invoked");
+		expect(html).toContain("skeleton");
+		expect(html).toContain("medium");
+	});
+
+	it("renders grounding matcher labels and failure evidence", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					passed: false,
+					failures: [
+						{
+							matcher: "toHaveReadPath",
+							message: 'expected Read tool args containing ".skeleton/registry"',
+							category: "rubric_miss",
+							evidence: "Read toolCalls=[]",
+						},
+					],
+				}),
+			]),
+		]);
+		expect(html).toContain("Missing read path");
+		expect(html).toContain("registry-first");
+		expect(html).toContain("Read toolCalls=[]");
+		expect(html).toContain("failure-evidence");
+	});
+
+	it("embeds A/B compare when two suites are present", () => {
+		const clean = makeReport([
+			makeResult({
+				suite: "clean",
+				scenario: "route",
+				passed: true,
+				usage: { totalTokens: 100 },
+				trace: {
+					messages: [],
+					toolCalls: [{ name: "Read", args: { path: ".skeleton/registry.md" } }],
+					shellCommands: [],
+					artifacts: {},
+					skillsInvoked: ["a"],
+				},
+			}),
+		]);
+		clean.suite = "clean";
+		const messy = makeReport([
+			makeResult({
+				suite: "messy",
+				scenario: "route",
+				passed: false,
+				usage: { totalTokens: 300 },
+				trace: {
+					messages: [],
+					toolCalls: [{ name: "Read", args: { path: "invented.ts" } }],
+					shellCommands: [],
+					artifacts: {},
+				},
+			}),
+		]);
+		messy.suite = "messy";
+
+		const html = renderHtmlReport([clean, messy], {
+			includeCompare: true,
+			compareALabel: "skeleton-clean",
+			compareBLabel: "skeleton-messy",
+		});
+		expect(html).toContain("A/B compare");
+		expect(html).toContain("skeleton-clean");
+		expect(html).toContain("skeleton-messy");
+		expect(html).toContain("Δ tokens");
+		expect(html).toContain("compare-regress");
+
+		const unrelated = renderHtmlReport([clean, messy]);
+		expect(unrelated).not.toContain("A/B compare");
+	});
+
 	it("interleaves messages and tool calls chronologically when seq is recorded", () => {
 		const html = renderHtmlReport([
 			makeReport([
