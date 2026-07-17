@@ -1,10 +1,6 @@
 {
 	"name": "@post-print/agent-harness",
-<<<<<<< HEAD
-	"version": "0.1.16",
-=======
 	"version": "0.1.17",
->>>>>>> 2a6a991 (fix(harness): exclude in-repo debug-dir staging from worktree leak checks)
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
