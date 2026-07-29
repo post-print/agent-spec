@@ -162,7 +162,7 @@ Live Cursor runs can attach **inline** MCP servers from suite/scenario JSON. Amb
 - Rubric `mustReadPath` / `mustNotReadPath` match substrings on **Read** tool JSON args (registry-first / avoid inventing paths). Keep hallucination scoring in live `judge` questions — no heavy factuality engine in v1.
 - Suite defaults may set `profile: "skeleton"` and/or `contextSources` (additive paths / `.skeleton/customize/` basenames). Shared/cursor/claude defaults stay backwards-compatible.
 - Live runs surface provider `usage` on traces/results; suite summary + HTML report include token sum / p50 / p95 when present.
-- `--compare-pairs A:B` (or `agent-test compare --a/--b`) pairs scenarios by name and writes `compare-report.json` / `.md` / `.html` with pass/fail, tokens, toolCallCount, durationMs, and skill/registry hop proxies. Suite HTML also embeds an A/B table when two reports are present.
+- `--compare-pairs A:B` (or `agent-test compare --a/--b`) pairs scenarios by **`compareId`** when present, else band-neutral scenario name (`outcome:` / `transfer:` stripped), and writes `compare-report.json` / `.md` / `.html` with pass/fail, tokens, toolCallCount, durationMs, and skill/registry hop proxies. Suite HTML also embeds an A/B table when two reports are present.
 - Replay hosts ignore `mcpServers` but still score recorded `toolCalls` against those matchers.
 
 ## Library

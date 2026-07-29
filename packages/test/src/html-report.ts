@@ -428,6 +428,13 @@ function deltaClass(value: number | undefined): string {
 	return value > 0 ? "delta-up" : "delta-down";
 }
 
+function compareScenarioLabel(row: ScenarioCompareDelta): string {
+	if (row.aScenario && row.bScenario && row.aScenario !== row.bScenario) {
+		return `${row.scenario}<br><span class="muted compare-aliases">A: ${escapeHtml(row.aScenario)}<br>B: ${escapeHtml(row.bScenario)}</span>`;
+	}
+	return escapeHtml(row.scenario);
+}
+
 /** Render an A/B compare table (fragment — no document chrome). */
 export function renderCompareHtmlSection(report: SuiteCompareReport): string {
 	const rows = report.paired
@@ -443,7 +450,7 @@ export function renderCompareHtmlSection(report: SuiteCompareReport): string {
 						: "";
 			return `
 <tr class="${rowClass}">
-  <td class="compare-name">${escapeHtml(row.scenario)}</td>
+  <td class="compare-name">${compareScenarioLabel(row)}</td>
   <td>${passCell(row.a.passed, row.a.skipped)}</td>
   <td>${passCell(row.b.passed, row.b.skipped)}</td>
   <td class="${deltaClass(row.deltas.durationMs)}">${escapeHtml(formatSigned(row.deltas.durationMs))}</td>

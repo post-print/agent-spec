@@ -3,6 +3,7 @@ import { basename, dirname, resolve } from "node:path";
 
 import type { AgentTrace, AgentUsage } from "@post-print/agent-harness";
 
+import { scenarioCompareKey } from "./record-trace.js";
 import type { ScenarioResult, SuiteRunReport } from "./types.js";
 
 export interface ComparePairSpec {
@@ -29,7 +30,12 @@ export interface ScenarioCompareMetrics {
 }
 
 export interface ScenarioCompareDelta {
+	/** Pair key (`compareId` or band-neutral scenario name). */
 	scenario: string;
+	/** Original scenario name on side A when it differs from B. */
+	aScenario?: string;
+	/** Original scenario name on side B when it differs from A. */
+	bScenario?: string;
 	a: ScenarioCompareMetrics;
 	b: ScenarioCompareMetrics;
 	deltas: {
@@ -108,30 +114,57 @@ function mean(values: number[]): number | undefined {
 	return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-/** Pair scenarios by shared name across two suite reports. */
+function pairKey(result: ScenarioResult): string {
+	const id = result.compareId?.trim();
+	if (id) {
+		return id;
+	}
+	return scenarioCompareKey(result.scenario);
+}
+
+function formatScenarioCell(row: ScenarioCompareDelta): string {
+	if (row.aScenario && row.bScenario && row.aScenario !== row.bScenario) {
+		return `${row.scenario} (A: ${row.aScenario} · B: ${row.bScenario})`;
+	}
+	return row.scenario;
+}
+
+/** Pair scenarios by `compareId`, then band-neutral name, across two suite reports. */
 export function compareSuiteReports(pair: ComparePairSpec): SuiteCompareReport {
-	const aByName = new Map(pair.a.results.map((result) => [result.scenario, result]));
-	const bByName = new Map(pair.b.results.map((result) => [result.scenario, result]));
-	const names = new Set([...aByName.keys(), ...bByName.keys()]);
+	const aByKey = new Map<string, ScenarioResult>();
+	for (const result of pair.a.results) {
+		const key = pairKey(result);
+		if (!aByKey.has(key)) {
+			aByKey.set(key, result);
+		}
+	}
+	const bByKey = new Map<string, ScenarioResult>();
+	for (const result of pair.b.results) {
+		const key = pairKey(result);
+		if (!bByKey.has(key)) {
+			bByKey.set(key, result);
+		}
+	}
+	const keys = new Set([...aByKey.keys(), ...bByKey.keys()]);
 	const paired: ScenarioCompareDelta[] = [];
 	const onlyInA: string[] = [];
 	const onlyInB: string[] = [];
 
-	for (const name of [...names].sort()) {
-		const aResult = aByName.get(name);
-		const bResult = bByName.get(name);
+	for (const key of [...keys].sort()) {
+		const aResult = aByKey.get(key);
+		const bResult = bByKey.get(key);
 		if (!aResult) {
-			onlyInB.push(name);
+			onlyInB.push(bResult?.scenario ?? key);
 			continue;
 		}
 		if (!bResult) {
-			onlyInA.push(name);
+			onlyInA.push(aResult.scenario);
 			continue;
 		}
 		const a = metricsFromResult(aResult);
 		const b = metricsFromResult(bResult);
-		paired.push({
-			scenario: name,
+		const delta: ScenarioCompareDelta = {
+			scenario: key,
 			a,
 			b,
 			deltas: {
@@ -142,7 +175,12 @@ export function compareSuiteReports(pair: ComparePairSpec): SuiteCompareReport {
 				registryHopCount: b.registryHopCount - a.registryHopCount,
 				totalTokens: optionalDelta(a.totalTokens, b.totalTokens),
 			},
-		});
+		};
+		if (aResult.scenario !== bResult.scenario) {
+			delta.aScenario = aResult.scenario;
+			delta.bScenario = bResult.scenario;
+		}
+		paired.push(delta);
 	}
 
 	const passRegressions = paired.filter((row) => row.a.passed && !row.b.passed).length;
@@ -223,7 +261,7 @@ export function formatCompareReportMarkdown(report: SuiteCompareReport): string 
 	);
 	for (const row of report.paired) {
 		lines.push(
-			`| ${row.scenario} | ${row.a.passed ? "pass" : "fail"} | ${row.b.passed ? "pass" : "fail"} | ${formatSigned(row.deltas.durationMs)} | ${formatSigned(row.deltas.toolCallCount)} | ${formatSigned(row.deltas.skillCount)} | ${formatSigned(row.deltas.registryHopCount)} | ${formatSigned(row.deltas.totalTokens)} |`,
+			`| ${formatScenarioCell(row)} | ${row.a.passed ? "pass" : "fail"} | ${row.b.passed ? "pass" : "fail"} | ${formatSigned(row.deltas.durationMs)} | ${formatSigned(row.deltas.toolCallCount)} | ${formatSigned(row.deltas.skillCount)} | ${formatSigned(row.deltas.registryHopCount)} | ${formatSigned(row.deltas.totalTokens)} |`,
 		);
 	}
 	lines.push("");

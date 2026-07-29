@@ -123,4 +123,83 @@ describe("compare", () => {
 			b: "skeleton-messy",
 		});
 	});
+
+	it("pairs by compareId when scenario names differ", () => {
+		const a = makeReport("investigate-outcomes", [
+			{
+				suite: "investigate-outcomes",
+				scenario: "outcome: fix invention pressure",
+				compareId: "fix-invention-pressure",
+				passed: true,
+				failures: [],
+				durationMs: 100,
+			},
+		]);
+		const b = makeReport("investigate-transfer", [
+			{
+				suite: "investigate-transfer",
+				scenario: "transfer: fix invention pressure",
+				compareId: "fix-invention-pressure",
+				passed: false,
+				failures: [],
+				durationMs: 200,
+			},
+		]);
+		const report = compareSuiteReports({ aLabel: "full", bLabel: "none", a, b });
+		expect(report.paired).toHaveLength(1);
+		expect(report.onlyInA).toHaveLength(0);
+		expect(report.onlyInB).toHaveLength(0);
+		expect(report.paired[0]?.scenario).toBe("fix-invention-pressure");
+		expect(report.paired[0]?.aScenario).toBe("outcome: fix invention pressure");
+		expect(report.paired[0]?.bScenario).toBe("transfer: fix invention pressure");
+	});
+
+	it("pairs by band-neutral name when compareId is absent", () => {
+		const a = makeReport("investigate-outcomes", [
+			{
+				suite: "investigate-outcomes",
+				scenario: "outcome: founded session guard",
+				passed: true,
+				failures: [],
+				durationMs: 10,
+			},
+		]);
+		const b = makeReport("investigate-transfer", [
+			{
+				suite: "investigate-transfer",
+				scenario: "transfer: founded session guard",
+				passed: true,
+				failures: [],
+				durationMs: 20,
+			},
+		]);
+		const report = compareSuiteReports({ aLabel: "full", bLabel: "none", a, b });
+		expect(report.paired).toHaveLength(1);
+		expect(report.paired[0]?.scenario).toBe("founded session guard");
+	});
+
+	it("leaves unrelated scenario names unpaired", () => {
+		const a = makeReport("a", [
+			{
+				suite: "a",
+				scenario: "only-a",
+				passed: true,
+				failures: [],
+				durationMs: 1,
+			},
+		]);
+		const b = makeReport("b", [
+			{
+				suite: "b",
+				scenario: "only-b",
+				passed: true,
+				failures: [],
+				durationMs: 2,
+			},
+		]);
+		const report = compareSuiteReports({ aLabel: "a", bLabel: "b", a, b });
+		expect(report.paired).toHaveLength(0);
+		expect(report.onlyInA).toEqual(["only-a"]);
+		expect(report.onlyInB).toEqual(["only-b"]);
+	});
 });
