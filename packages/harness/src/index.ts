@@ -132,6 +132,11 @@ export type {
 	SkillContextSetting,
 } from "./types.js";
 export {
+	buildScenarioUsageBreakdown,
+	type ScenarioUsageBreakdown,
+	sumUsageParts,
+} from "./usage-breakdown.js";
+export {
 	captureWorkingTreeStatus,
 	filterWorkingTreeLeaks,
 	findWorkingTreeLeak,

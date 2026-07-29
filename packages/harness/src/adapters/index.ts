@@ -55,6 +55,7 @@ export class CursorAdapter implements HostAdapter {
 				status,
 				rawStatus,
 				sdkError,
+				usage,
 			} = await runCursorAgent({
 				cwd: options.cwd,
 				prompt,
@@ -83,6 +84,7 @@ export class CursorAdapter implements HostAdapter {
 					status: "completed",
 					trace,
 					durationMs,
+					usage: usage ?? trace.usage,
 				};
 			}
 
@@ -91,6 +93,7 @@ export class CursorAdapter implements HostAdapter {
 				status: "failed",
 				trace,
 				durationMs,
+				usage: usage ?? trace.usage,
 				error: formatCursorRunFailure({ status, rawStatus, sdkError }),
 			};
 		} catch (error) {
@@ -168,6 +171,7 @@ export class ClaudeAdapter implements HostAdapter {
 					status: "completed",
 					trace,
 					durationMs,
+					usage: trace.usage,
 				};
 			}
 
@@ -176,6 +180,7 @@ export class ClaudeAdapter implements HostAdapter {
 				status: "failed",
 				trace,
 				durationMs,
+				usage: trace.usage,
 				error: formatClaudeRunFailure({
 					status,
 					rawStatus,

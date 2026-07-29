@@ -1,6 +1,7 @@
 import { runJudgeClassifier } from "./cursor-run.js";
 import { isTransientInfraError, resolveRetryMaxAttempts, withRetry } from "./retry.js";
-import type { AgentTrace } from "./types.js";
+import type { AgentTrace, AgentUsage } from "./types.js";
+import { sumUsageParts } from "./usage-breakdown.js";
 
 // Optional info-string (`json`, `js`, `typescript`, …) on the opening fence line.
 // Without this, ` ```js\n"yes"\n``` ` extracts `js\n"yes"` and never latches.
@@ -28,6 +29,8 @@ export interface JudgeVerdict {
 	attempt?: number;
 	/** Wall time for this judge criterion call (ms). */
 	durationMs?: number;
+	/** Token usage for this judge criterion call when reported. */
+	usage?: AgentUsage;
 	transcriptChars?: number;
 	promptChars?: number;
 }
@@ -41,6 +44,8 @@ export interface JudgeTraceResult {
 	verdicts: JudgeVerdict[];
 	skipped: boolean;
 	error?: string;
+	/** Sum of per-criterion judge usage when reported. */
+	usage?: AgentUsage;
 }
 
 export interface ParsedJudgeJson {
@@ -549,6 +554,7 @@ async function runJudgePromptOnce(
 	rawSdkStatus?: string;
 	sdkError?: { message?: string; code?: string };
 	durationMs: number;
+	usage?: AgentUsage;
 	retryable: boolean;
 }> {
 	const started = performance.now();
@@ -558,6 +564,7 @@ async function runJudgePromptOnce(
 		apiKey: options.apiKey ?? process.env.CURSOR_API_KEY ?? "",
 	});
 	const durationMs = Math.round(performance.now() - started);
+	const usage = result.usage;
 	if (result.status !== "completed") {
 		const infraError = formatJudgeInfraError(result);
 		return {
@@ -569,6 +576,7 @@ async function runJudgePromptOnce(
 			rawSdkStatus: result.rawStatus ?? result.status,
 			sdkError: result.sdkError,
 			durationMs,
+			usage,
 			retryable: isTransientInfraError(infraError),
 		};
 	}
@@ -582,6 +590,7 @@ async function runJudgePromptOnce(
 			error: rationale,
 			parseError: rationale,
 			durationMs,
+			usage,
 			retryable: false,
 		};
 	}
@@ -590,6 +599,7 @@ async function runJudgePromptOnce(
 		rationale: parsed.rationale,
 		evidence: parsed.evidence,
 		durationMs,
+		usage,
 		retryable: false,
 	};
 }
@@ -607,6 +617,7 @@ async function runJudgePrompt(
 	rawSdkStatus?: string;
 	sdkError?: { message?: string; code?: string };
 	durationMs: number;
+	usage?: AgentUsage;
 	attempt: number;
 }> {
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
@@ -698,13 +709,23 @@ export async function judgeTrace(
 			sdkError: parsed.sdkError,
 			attempt: parsed.attempt,
 			durationMs: parsed.durationMs,
+			usage: parsed.usage,
 			transcriptChars,
 			promptChars: prompt.length,
 		});
 		if (parsed.error) {
-			return { verdicts, skipped: false, error: parsed.error };
+			return {
+				verdicts,
+				skipped: false,
+				error: parsed.error,
+				usage: sumUsageParts(verdicts.map((v) => v.usage)),
+			};
 		}
 	}
 
-	return { verdicts, skipped: false };
+	return {
+		verdicts,
+		skipped: false,
+		usage: sumUsageParts(verdicts.map((v) => v.usage)),
+	};
 }

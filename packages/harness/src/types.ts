@@ -106,6 +106,8 @@ export interface AgentSession {
 	status: RunStatus;
 	trace: AgentTrace;
 	durationMs: number;
+	/** Agent-run token usage when the host reported it (mirrors trace.usage). */
+	usage?: AgentUsage;
 	error?: string;
 }
 

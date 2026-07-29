@@ -36,6 +36,19 @@ export function scenarioArtifactSlug(name: string): string {
 	return `${base}-${hash}`;
 }
 
+/**
+ * Band-neutral key for pairing outcome vs transfer scenarios in compare reports.
+ * Strips `outcome:` / `transfer:` prefixes and normalizes case.
+ */
+export function scenarioCompareKey(name: string): string {
+	return name
+		.replace(/^(outcome|transfer)[:-]\s*/i, "")
+		.replace(/-[a-f0-9]{8}$/i, "")
+		.replace(/-/g, " ")
+		.trim()
+		.toLowerCase();
+}
+
 export function getLiveStagingRoot(): string {
 	if (liveStagingRootOverride) {
 		return join(liveStagingRootOverride, "sessions");

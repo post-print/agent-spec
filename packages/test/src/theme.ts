@@ -83,6 +83,8 @@ export interface ScenarioVerdictOptions {
 	total?: number;
 	name: string;
 	durationMs: number;
+	/** Total tokens (agent + judge) when reported. */
+	totalTokens?: number;
 	judgeVerdicts?: JudgeVerdictDisplay[];
 	rubricFailures?: RubricFailureDisplay[];
 	/** Primary failure category for the FAIL line. */
@@ -90,6 +92,16 @@ export interface ScenarioVerdictOptions {
 	/** Show evidence and full failure detail (--debug / AGENT_TEST_VERBOSE). */
 	debug?: boolean;
 	debugBundleDir?: string;
+}
+
+export function formatTokenCount(totalTokens: number): string {
+	if (totalTokens >= 1_000_000) {
+		return `${(totalTokens / 1_000_000).toFixed(1)}M tok`;
+	}
+	if (totalTokens >= 1000) {
+		return `${(totalTokens / 1000).toFixed(1)}k tok`;
+	}
+	return `${totalTokens} tok`;
 }
 
 export function formatDurationLabel(ms: number): string {
@@ -224,6 +236,10 @@ export const theme = {
 				? `[${options.index}/${options.total}] `
 				: "";
 		const duration = chalk.yellow(`(${formatDurationLabel(options.durationMs)})`);
+		const tokens =
+			options.totalTokens !== undefined
+				? chalk.dim(` · ${formatTokenCount(options.totalTokens)}`)
+				: "";
 		const primaryCategory =
 			!options.passed && options.failureCategory
 				? chalk.yellow(options.failureCategory)
@@ -231,8 +247,8 @@ export const theme = {
 		const lines: string[] = [
 			`  ${chalk.dim("│")}`,
 			primaryCategory
-				? `  ${chalk.dim("│")}  ${mark} ${status}  ${primaryCategory}  ${counter}${chalk.bold.white(options.name)}  ${duration}`
-				: `  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}`,
+				? `  ${chalk.dim("│")}  ${mark} ${status}  ${primaryCategory}  ${counter}${chalk.bold.white(options.name)}  ${duration}${tokens}`
+				: `  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}${tokens}`,
 		];
 
 		for (const verdict of options.judgeVerdicts ?? []) {

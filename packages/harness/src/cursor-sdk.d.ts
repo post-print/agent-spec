@@ -109,6 +109,7 @@ declare module "@cursor/sdk" {
 			status: string;
 			result?: string;
 			error?: { message?: string; code?: string };
+			usage?: TokenUsage;
 		}>;
 		create: (options: CursorAgentOptions) => Promise<DisposableAgent>;
 	};

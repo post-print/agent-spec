@@ -61,7 +61,7 @@ export interface SuiteCompareReport {
 }
 
 function usageOf(result: ScenarioResult): AgentUsage | undefined {
-	return result.usage ?? result.trace?.usage;
+	return result.usage?.total ?? result.trace?.usage;
 }
 
 function registryHopCount(trace: AgentTrace | undefined): number {

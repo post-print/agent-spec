@@ -84,6 +84,8 @@ export interface JudgeClassifierResult {
 	rawStatus?: string;
 	/** SDK error payload when the judge run did not finish cleanly. */
 	sdkError?: JudgeSdkError;
+	/** Token usage when the judge SDK run reported it. */
+	usage?: AgentUsage;
 }
 
 export interface CursorRunResult {
@@ -92,6 +94,8 @@ export interface CursorRunResult {
 	/** Unnormalized SDK terminal status from wait()/prompt. */
 	rawStatus?: string;
 	sdkError?: JudgeSdkError;
+	/** Cumulative agent token usage when the SDK reported it. */
+	usage?: AgentUsage;
 }
 
 /** Map Cursor SDK terminal status to harness run status. */
@@ -227,6 +231,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 				trace: stashTrace(waitUsage),
 				rawStatus,
 				sdkError,
+				usage: waitUsage,
 			};
 		} catch (error) {
 			cancelSdkRun(run);
@@ -283,11 +288,13 @@ export async function runJudgeClassifier(
 	const rawStatus = result.status;
 	const status = rawStatus === "finished" ? "completed" : rawStatus;
 	const sdkError = extractJudgeSdkError(result.error);
+	const usage = normalizeAgentUsage((result as { usage?: unknown }).usage);
 	return {
 		status: normalizeSdkRunStatus(status),
 		text,
 		rawStatus,
 		sdkError,
+		usage,
 	};
 }
 

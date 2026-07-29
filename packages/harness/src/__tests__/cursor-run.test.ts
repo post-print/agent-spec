@@ -154,6 +154,7 @@ describe("runCursorAgent usage", () => {
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
 		});
+		expect(result.usage).toEqual(result.trace.usage);
 		vi.clearAllMocks();
 	});
 });

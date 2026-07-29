@@ -66,6 +66,7 @@ import {
 	restoreCallerHeadIfSeedCommit,
 	seedScenarioWorktree,
 } from "./scenario-seed.js";
+import { buildScenarioResultUsage, totalTokensFromScenarioUsage } from "./scenario-usage.js";
 import { summarizeReportResults } from "./suite-summary.js";
 import { theme } from "./theme.js";
 import type {
@@ -242,6 +243,7 @@ function toJudgeVerdictResults(
 			durationMs?: number;
 			transcriptChars?: number;
 			promptChars?: number;
+			usage?: { totalTokens?: number; inputTokens?: number; outputTokens?: number };
 		};
 		return {
 			id: extended.id,
@@ -256,6 +258,7 @@ function toJudgeVerdictResults(
 			durationMs: extended.durationMs,
 			transcriptChars: extended.transcriptChars,
 			promptChars: extended.promptChars,
+			usage: extended.usage,
 		};
 	});
 }
@@ -278,6 +281,7 @@ function emitScenarioVerdict(options: {
 	total?: number;
 	name: string;
 	durationMs: number;
+	totalTokens?: number;
 	judgeVerdicts?: JudgeVerdictResult[];
 	failures: AssertionFailure[];
 	debug?: boolean;
@@ -293,6 +297,7 @@ function emitScenarioVerdict(options: {
 			total: options.total,
 			name: options.name,
 			durationMs: options.durationMs,
+			totalTokens: options.totalTokens,
 			judgeVerdicts: options.judgeVerdicts,
 			rubricFailures: rubricFailuresOnly(options.failures),
 			failureCategory: options.failures[0]?.category,
@@ -546,16 +551,21 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 
 			const durationMs = Math.round(performance.now() - started);
 			const passed = failures.length === 0;
+			const usageFields = buildScenarioResultUsage({
+				agentUsage: scenarioTrace?.usage,
+				judgeVerdicts,
+			});
 			const scenarioResult: ScenarioResult = {
 				suite: suite.name,
 				scenario: scenario.name,
+				compareId: scenario.compareId,
 				passed,
 				failures,
 				durationMs,
 				attempts,
 				judgeVerdicts,
-				usage: scenarioTrace?.usage,
 				trace: scenarioTrace,
+				...usageFields,
 			};
 			const debugBundleDir = await maybeWriteDebugBundle({
 				debug,
@@ -582,6 +592,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				total: filteredTotal,
 				name: scenario.name,
 				durationMs,
+				totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, scenarioTrace?.usage),
 				judgeVerdicts,
 				failures,
 				debug,
@@ -663,6 +674,10 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				total: scenarioTotal,
 				name: scenario.name,
 				durationMs: scenarioResult.durationMs,
+				totalTokens: totalTokensFromScenarioUsage(
+					scenarioResult.usage,
+					scenarioResult.trace?.usage,
+				),
 				judgeVerdicts: scenarioResult.judgeVerdicts,
 				failures: scenarioResult.failures,
 				debug,
@@ -1037,12 +1052,16 @@ async function runScenario(
 		const scenarioResult: ScenarioResult = {
 			suite: suiteName,
 			scenario: scenario.name,
+			compareId: scenario.compareId,
 			passed: failures.length === 0,
 			failures,
 			durationMs,
 			judgeVerdicts,
-			usage: trace?.usage,
 			trace,
+			...buildScenarioResultUsage({
+				agentUsage: session.usage ?? trace?.usage,
+				judgeVerdicts,
+			}),
 		};
 		if (!suppressEmit) {
 			const debugBundleDir = await maybeWriteDebugBundle({
@@ -1071,6 +1090,7 @@ async function runScenario(
 				total: scenarioTotal,
 				name: scenario.name,
 				durationMs,
+				totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, trace?.usage),
 				judgeVerdicts,
 				failures,
 				debug,

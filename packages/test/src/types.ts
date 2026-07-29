@@ -4,10 +4,15 @@ import type {
 	AgentUsage,
 	ContextProfile,
 	McpServerConfig,
+	ScenarioUsageBreakdown,
 	SkillContextSetting,
 } from "@post-print/agent-harness";
 
-export type { AgentUsage, McpServerConfig } from "@post-print/agent-harness";
+export type {
+	AgentUsage,
+	McpServerConfig,
+	ScenarioUsageBreakdown,
+} from "@post-print/agent-harness";
 
 export type JudgeRubricItem = string | { id?: string; question: string };
 
@@ -42,6 +47,8 @@ export interface ScenarioRubric {
 
 export interface AgentScenario {
 	name: string;
+	/** Stable key for full vs transfer arm comparison (optional). */
+	compareId?: string;
 	prompt: string;
 	host?: AgentHost;
 	profile?: ContextProfile;
@@ -108,11 +115,14 @@ export interface JudgeVerdictResult {
 	attempt?: number;
 	transcriptChars?: number;
 	promptChars?: number;
+	usage?: AgentUsage;
 }
 
 export interface ScenarioResult {
 	suite: string;
 	scenario: string;
+	/** Stable compare key when scenario JSON defines compareId. */
+	compareId?: string;
 	passed: boolean;
 	failures: AssertionFailure[];
 	skipped?: boolean;
@@ -121,8 +131,12 @@ export interface ScenarioResult {
 	attempts?: number;
 	/** LLM judge verdicts when judge criteria were evaluated. */
 	judgeVerdicts?: JudgeVerdictResult[];
-	/** Token usage when the host reported it (mirrored from trace.usage). */
-	usage?: AgentUsage;
+	/** Agent + judge + total token usage when reported. */
+	usage?: ScenarioUsageBreakdown;
+	/** Denormalized agent-run usage. */
+	agentUsage?: AgentUsage;
+	/** Denormalized judge usage (sum of criteria). */
+	judgeUsage?: AgentUsage;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
 	/** Absolute path to the debug bundle directory when --debug wrote one. */

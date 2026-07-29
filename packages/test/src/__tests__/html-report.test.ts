@@ -79,10 +79,12 @@ describe("html-report", () => {
 			makeReport([
 				makeResult({
 					usage: {
-						totalTokens: 1234,
-						inputTokens: 800,
-						outputTokens: 434,
-						cacheReadTokens: 12,
+						total: {
+							totalTokens: 1234,
+							inputTokens: 800,
+							outputTokens: 434,
+							cacheReadTokens: 12,
+						},
 					},
 					trace: {
 						messages: [{ role: "assistant", content: "ok" }],
@@ -134,7 +136,7 @@ describe("html-report", () => {
 				suite: "clean",
 				scenario: "route",
 				passed: true,
-				usage: { totalTokens: 100 },
+				usage: { total: { totalTokens: 100 } },
 				trace: {
 					messages: [],
 					toolCalls: [{ name: "Read", args: { path: ".skeleton/registry.md" } }],
@@ -150,7 +152,7 @@ describe("html-report", () => {
 				suite: "messy",
 				scenario: "route",
 				passed: false,
-				usage: { totalTokens: 300 },
+				usage: { total: { totalTokens: 300 } },
 				trace: {
 					messages: [],
 					toolCalls: [{ name: "Read", args: { path: "invented.ts" } }],

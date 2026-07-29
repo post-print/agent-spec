@@ -7,6 +7,10 @@ import type {
 	UsageStats,
 } from "./types.js";
 
+function flatUsageFromResult(result: ScenarioResult) {
+	return result.usage?.total ?? result.trace?.usage;
+}
+
 export type { RunSummary, UsageStats } from "./types.js";
 
 export type FailOnMode = "all" | "behavior" | "infra-only";
@@ -46,7 +50,7 @@ export function summarizeUsage(results: ScenarioResult[]): UsageStats | undefine
 	let sawOutput = false;
 
 	for (const result of results) {
-		const usage = result.usage ?? result.trace?.usage;
+		const usage = flatUsageFromResult(result);
 		if (!usage) {
 			continue;
 		}

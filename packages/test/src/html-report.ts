@@ -301,7 +301,7 @@ function renderFailures(result: ScenarioResult): string {
 }
 
 function usageOf(result: ScenarioResult): AgentUsage | undefined {
-	return result.usage ?? result.trace?.usage;
+	return result.usage?.total ?? result.trace?.usage;
 }
 
 function formatTokensBadge(result: ScenarioResult): string | undefined {

@@ -84,7 +84,7 @@ describe("suite-summary", () => {
 				passed: true,
 				failures: [],
 				durationMs: 1,
-				usage: { totalTokens: 10, inputTokens: 6, outputTokens: 4 },
+				usage: { total: { totalTokens: 10, inputTokens: 6, outputTokens: 4 } },
 			},
 			{
 				suite: "s",
@@ -92,7 +92,7 @@ describe("suite-summary", () => {
 				passed: true,
 				failures: [],
 				durationMs: 1,
-				usage: { totalTokens: 20, inputTokens: 12, outputTokens: 8 },
+				usage: { total: { totalTokens: 20, inputTokens: 12, outputTokens: 8 } },
 			},
 			{
 				suite: "s",
@@ -100,7 +100,7 @@ describe("suite-summary", () => {
 				passed: true,
 				failures: [],
 				durationMs: 1,
-				usage: { totalTokens: 40, inputTokens: 30, outputTokens: 10 },
+				usage: { total: { totalTokens: 40, inputTokens: 30, outputTokens: 10 } },
 			},
 		]);
 		expect(usage?.sumTotalTokens).toBe(70);

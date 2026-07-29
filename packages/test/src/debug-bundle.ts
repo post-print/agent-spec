@@ -222,13 +222,33 @@ export function formatDebugWhySection(options: {
 	const trace = options.trace ?? options.result.trace;
 	if (trace) {
 		const skills = trace.skillsInvoked?.length ? trace.skillsInvoked.join(", ") : "(none)";
-		const usage = options.result.usage ?? trace.usage;
-		const usageLine =
-			usage?.totalTokens !== undefined
-				? `- totalTokens: ${usage.totalTokens}`
-				: usage
-					? `- usage: in=${usage.inputTokens ?? "?"} out=${usage.outputTokens ?? "?"}`
-					: `- totalTokens: (none)`;
+		const breakdown = options.result.usage;
+		const flat = breakdown?.total ?? trace.usage;
+		const usageLines: string[] = [];
+		if (breakdown?.total?.totalTokens !== undefined) {
+			const t = breakdown.total;
+			usageLines.push(
+				`- **tokens (total):** ${t.totalTokens?.toLocaleString() ?? "?"} (${t.inputTokens?.toLocaleString() ?? "?"} in / ${t.outputTokens?.toLocaleString() ?? "?"} out)`,
+			);
+		} else if (flat) {
+			usageLines.push(
+				flat.totalTokens !== undefined
+					? `- totalTokens: ${flat.totalTokens}`
+					: `- usage: in=${flat.inputTokens ?? "?"} out=${flat.outputTokens ?? "?"}`,
+			);
+		} else {
+			usageLines.push("- totalTokens: (none)");
+		}
+		if (breakdown?.agent) {
+			usageLines.push(
+				`- **tokens (agent):** ${breakdown.agent.totalTokens?.toLocaleString() ?? "?"} total`,
+			);
+		}
+		if (breakdown?.judge) {
+			usageLines.push(
+				`- **tokens (judge):** ${breakdown.judge.totalTokens?.toLocaleString() ?? "?"} total`,
+			);
+		}
 		lines.push(
 			"**Trace stats:**",
 			"",
@@ -236,7 +256,7 @@ export function formatDebugWhySection(options: {
 			`- toolCalls: ${trace.toolCalls.length}`,
 			`- skillsInvoked: ${skills}`,
 			`- routing.tier: ${trace.routing?.tier ?? "(none)"}`,
-			usageLine,
+			...usageLines,
 			"",
 		);
 	}
@@ -430,6 +450,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 		`${JSON.stringify(
 			{
 				name: scenario.name,
+				compareId: scenario.compareId,
 				prompt: scenario.prompt,
 				rubric: scenario.rubric,
 				seedPatch: scenario.seedPatch,
@@ -449,11 +470,14 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 			{
 				suite: result.suite,
 				scenario: result.scenario,
+				compareId: scenario.compareId ?? result.compareId,
 				passed: result.passed,
 				skipped: result.skipped,
 				durationMs: result.durationMs,
 				failures: result.failures,
-				usage: result.usage ?? effectiveTrace?.usage,
+				usage: result.usage,
+				agentUsage: result.agentUsage ?? result.usage?.agent,
+				judgeUsage: result.judgeUsage ?? result.usage?.judge,
 				skillsInvoked: effectiveTrace?.skillsInvoked ?? [],
 				routing: effectiveTrace?.routing,
 				messageCount: effectiveTrace?.messages.length ?? 0,
@@ -489,6 +513,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 			skillsInvoked: trace.skillsInvoked,
 			assistantTextBeforeTools: trace.assistantTextBeforeTools,
 			usage: trace.usage,
+			usageBreakdown: result.usage,
 			judgeVerdicts: trace.judgeVerdicts,
 		};
 		await writeFile(join(dir, "trace.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");

@@ -51,6 +51,7 @@ export {
 	recordTrace,
 	resolveRecordingPath,
 	scenarioArtifactSlug,
+	scenarioCompareKey,
 	setLiveStagingRootOverride,
 	writeStagingResult,
 } from "./record-trace.js";
@@ -65,6 +66,11 @@ export {
 	resolveScenarioRetryMaxAttempts,
 	shouldRetryAnnounceStopFlake,
 } from "./scenario-retry.js";
+export {
+	buildScenarioResultUsage,
+	judgeUsageFromVerdicts,
+	totalTokensFromScenarioUsage,
+} from "./scenario-usage.js";
 export {
 	type FailOnMode,
 	formatRunSummary,
@@ -88,6 +94,7 @@ export type {
 	RunSummary,
 	ScenarioResult,
 	ScenarioRubric,
+	ScenarioUsageBreakdown,
 	SuiteRunReport,
 	UsageStats,
 } from "./types.js";

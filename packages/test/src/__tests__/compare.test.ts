@@ -33,7 +33,7 @@ describe("compare", () => {
 				passed: true,
 				failures: [],
 				durationMs: 100,
-				usage: { totalTokens: 200, inputTokens: 120, outputTokens: 80 },
+				usage: { total: { totalTokens: 200, inputTokens: 120, outputTokens: 80 } },
 				trace: {
 					messages: [],
 					toolCalls: [{ name: "Read", args: { path: ".skeleton/registry.md" } }],
@@ -50,7 +50,7 @@ describe("compare", () => {
 				passed: false,
 				failures: [],
 				durationMs: 250,
-				usage: { totalTokens: 500, inputTokens: 300, outputTokens: 200 },
+				usage: { total: { totalTokens: 500, inputTokens: 300, outputTokens: 200 } },
 				trace: {
 					messages: [],
 					toolCalls: [
