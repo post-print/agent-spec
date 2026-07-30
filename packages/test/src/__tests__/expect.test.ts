@@ -302,14 +302,45 @@ describe("expectTrace", () => {
 		expect(assertRubric(trace, { mustReadPath: [".skeleton/registry"] })).toHaveLength(0);
 	});
 
-	it("fails mustNotReadPath when Read args contain the fragment", () => {
-		const trace: AgentTrace = {
+	it("fails mustNotReadPath only when a successful Read returned content for the path", () => {
+		const miss: AgentTrace = {
 			messages: [],
 			toolCalls: [{ name: "Read", args: { path: "invented/path.ts" } }],
 			shellCommands: [],
 			artifacts: {},
 		};
-		const failures = assertRubric(trace, { mustNotReadPath: ["invented/"] });
+		expect(assertRubric(miss, { mustNotReadPath: ["invented/"] })).toHaveLength(0);
+
+		const errorResult: AgentTrace = {
+			messages: [],
+			toolCalls: [
+				{
+					name: "Read",
+					args: { path: "diagnose/SKILL.md" },
+					result: JSON.stringify({ status: "error", value: "ENOENT" }),
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(assertRubric(errorResult, { mustNotReadPath: ["diagnose/SKILL.md"] })).toHaveLength(0);
+
+		const hit: AgentTrace = {
+			messages: [],
+			toolCalls: [
+				{
+					name: "Read",
+					args: { path: "diagnose/SKILL.md" },
+					result: JSON.stringify({
+						status: "success",
+						value: { content: "# Diagnose\n\nEntry gate — no loop\n" },
+					}),
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		const failures = assertRubric(hit, { mustNotReadPath: ["diagnose/SKILL.md"] });
 		expect(failures.some((f) => f.matcher === "toHaveNotReadPath")).toBe(true);
 	});
 });

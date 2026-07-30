@@ -224,12 +224,16 @@ export class TraceAssertion {
 		return this;
 	}
 
-	/** Substring must not appear in JSON args of any Read-family tool call. */
+	/**
+	 * Forbidden path fragment must not appear in a *successful* Read-family tool
+	 * call. Miss / ENOENT attempts do not fail — null-arm forage seals delete
+	 * answer keys, and agents often probe the path after seeing it in suite JSON.
+	 */
 	toHaveNotReadPath(fragment: string): this {
-		if (readToolArgsContain(this.trace.toolCalls, fragment)) {
+		if (successfulReadToolArgsContain(this.trace.toolCalls, fragment)) {
 			this.push(
 				"toHaveNotReadPath",
-				`forbidden Read tool args containing "${fragment}"`,
+				`forbidden successful Read of path containing "${fragment}"`,
 				readToolArgsEvidence(this.trace.toolCalls),
 			);
 		}
@@ -435,6 +439,49 @@ function readToolArgsContain(toolCalls: AgentTrace["toolCalls"], fragment: strin
 			.toLowerCase()
 			.includes(needle),
 	);
+}
+
+/** True when the tool result looks like a successful Read with body content. */
+function readToolCallReturnedContent(call: AgentTrace["toolCalls"][number]): boolean {
+	const result = call.result;
+	if (result == null || result === "") {
+		return false;
+	}
+	try {
+		const parsed = typeof result === "string" ? JSON.parse(result) : result;
+		if (parsed && typeof parsed === "object") {
+			const status = String((parsed as { status?: unknown }).status ?? "").toLowerCase();
+			if (status === "error" || status === "failed") {
+				return false;
+			}
+			if (status === "success") {
+				const value = (parsed as { value?: unknown }).value;
+				if (value && typeof value === "object" && "content" in value) {
+					const content = (value as { content?: unknown }).content;
+					return typeof content === "string" ? content.length > 0 : content != null;
+				}
+				return true;
+			}
+		}
+	} catch {
+		// Non-JSON result with a body counts as content.
+		return String(result).trim().length > 0;
+	}
+	return String(result).trim().length > 0;
+}
+
+function successfulReadToolArgsContain(
+	toolCalls: AgentTrace["toolCalls"],
+	fragment: string,
+): boolean {
+	const needle = fragment.toLowerCase();
+	return readToolCalls(toolCalls).some((call) => {
+		const argsText = JSON.stringify(call.args ?? {}).toLowerCase();
+		if (!argsText.includes(needle)) {
+			return false;
+		}
+		return readToolCallReturnedContent(call);
+	});
 }
 
 function readToolArgsEvidence(toolCalls: AgentTrace["toolCalls"]): string {

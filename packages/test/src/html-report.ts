@@ -100,7 +100,7 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	},
 	mustNotReadPath: {
 		label: "Forbidden read path",
-		hint: "A Read tool call mentioned a path the scenario forbids (hallucinated / invented path proxy).",
+		hint: "A successful Read returned content from a path the scenario forbids (miss attempts do not fail).",
 	},
 	toHaveReadPath: {
 		label: "Missing read path",
@@ -108,7 +108,7 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	},
 	toHaveNotReadPath: {
 		label: "Forbidden read path",
-		hint: "A Read tool call mentioned a path the scenario forbids (hallucinated / invented path proxy).",
+		hint: "A successful Read returned content from a path the scenario forbids (miss attempts do not fail).",
 	},
 	routingBlock: { label: "Routing", hint: "The routing announcement didn't match expectations." },
 	workingTreeLeak: {
