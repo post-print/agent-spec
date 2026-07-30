@@ -41,7 +41,8 @@
 		"vitest": "^4.0.17"
 	},
 	"overrides": {
-		"undici": "6.27.0"
+		"undici": "6.27.0",
+		"fast-uri": "4.1.1"
 	},
 	"dependencies": {
 		"@opentelemetry/api": "^1.9.1"
