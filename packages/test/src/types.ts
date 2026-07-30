@@ -63,6 +63,11 @@ export interface AgentScenario {
 	/** Live-only: with seedPatch, stage changes without committing (staged review mode). */
 	seedStageOnly?: boolean;
 	replayTrace?: string;
+	/**
+	 * Assertions / judge criteria. May be omitted in scenarios.json when supplied via
+	 * sibling `rubrics.json` / `scenarios.rubric.json` or `--rubrics-dir` (harness-only);
+	 * `loadSuiteFile` always normalizes to an object.
+	 */
 	rubric: ScenarioRubric;
 	skip?: boolean;
 }

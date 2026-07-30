@@ -2,7 +2,7 @@
 
 **Source of truth for** agent-test package.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-29 -->
 
 Jest-shaped agent scenario runner built on `@post-print/agent-harness`.
 
@@ -33,7 +33,16 @@ npx agent-test --doctor
 
 Bun is fine for local package development (`bun install` / `bun run build` in this monorepo), but consumers do not need Bun to run suites.
 
-Default suites root: `agent-suites/` (must exist, or pass `--suites-dir`).
+Default suites root: `agent-suites/` (must exist, or pass `--suites-dir`). Absolute `--suites-dir` is supported. Optional `--rubrics-dir` loads harness-only answer keys from `<rubricsDir>/<suite>/rubrics.json` (preferred over a sibling file when present).
+
+### Harness-only rubrics
+
+`scenarios.json` may omit `rubric` (or use `{}`) and keep only prompts / `seedPatch` / `compareId`. Put `must` / `mustNot` / `judge` / tool matchers in:
+
+- sibling `rubrics.json` or `scenarios.rubric.json`: `{ "scenarios": { "<scenario name>": { "must": […] } } }`
+- or `--rubrics-dir <path>` → `<path>/<suiteName>/rubrics.json`
+
+External entries **replace** the inline rubric for that scenario name. Unknown names in the rubrics file are an error. Keep rubrics off agent-visible roots (absolute `--suites-dir` / `--rubrics-dir` under `$TMPDIR`, or outside the IDE-open workspace).
 
 Live output always uses ANSI color (including under Cursor agent shells that set `NO_COLOR`).
 
@@ -103,9 +112,24 @@ Failure categories printed on FAIL lines and in `failures.json`:
 
 ## Live dogfood
 
-Live runs need `CURSOR_API_KEY` and a suites directory that exists. Preflight fails when the resolved suites directory is missing (default `agent-suites/` if `--suites-dir` is omitted).
+Live runs need `CURSOR_API_KEY` and a suites directory that exists. Preflight fails when the resolved suites directory is missing (default `agent-suites/` if `--suites-dir` is omitted). `--suites-dir` may be relative to the repo cwd or an absolute path (for example a scrubbed suite tree under `$TMPDIR`).
 
 Passing live runs write staging traces under `$TMPDIR/agent-spec/sessions/<pid>-<timestamp>/` (removed on exit unless `--keep-recordings`). Use `--record-fixtures` to overwrite each scenario's committed `replayTrace` path. `--no-worktree` requires `AGENT_TEST_ALLOW_IN_PLACE=1`.
+
+### Isolation model
+
+Live runs use a **detached git worktree** for agent file edits. That is not full filesystem isolation:
+
+- **Worktree does:** keep seed/apply edits and agent Write/Edit tools off the caller's working tree (leak checks catch escapes).
+- **Worktree does not:** stop context (skills/rules) from loading from the caller checkout by design, or stop Cursor **local** agents from Shell/Read against the IDE-open workspace instead of only `local.cwd`.
+
+Therefore: do **not** put answer keys, golden replays, or judge-bearing scenario text where a null-arm agent can forage them on the caller/IDE root. Prefer:
+
+- opaque prompts + `compareId`
+- seeds that only mutate fixtures (not skill bodies)
+- harness-only rubrics (sibling `rubrics.json` / `scenarios.rubric.json`, or `--rubrics-dir` outside the open workspace)
+- consumer orchestrators that park answer keys off the open workspace (toolbox pattern)
+- cloud runtime when true FS isolation is required
 
 Live agent runs have a **hard timeout** (default **10 minutes**, override with `--timeout-ms` or `AGENT_TEST_TIMEOUT_MS`; disable with `--no-timeout` or `AGENT_TEST_TIMEOUT_MS=0`). If the agent invokes `AskQuestion` or similar user-input tools, the harness fails fast with a clear error — live mode is single-shot and cannot supply follow-up turns. Use `--allow-user-input` only for intentional multi-turn dogfood (the run may still hang waiting for stdin).
 

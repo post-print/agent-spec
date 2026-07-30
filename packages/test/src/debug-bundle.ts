@@ -16,6 +16,7 @@ export interface DebugRerunOptions {
 	cliPath: string;
 	cwd: string;
 	suitesDir: string;
+	rubricsDir?: string;
 	suite: string;
 	scenario: string;
 	live: boolean;
@@ -104,6 +105,9 @@ export function buildRerunCommand(options: DebugRerunOptions): string {
 		"--scenario",
 		options.scenario,
 	);
+	if (options.rubricsDir) {
+		args.push("--rubrics-dir", options.rubricsDir);
+	}
 	if (options.host) {
 		args.push("--host", options.host);
 	}

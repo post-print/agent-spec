@@ -48,6 +48,8 @@ configureCliColor();
 export interface ParsedCliArgs {
 	cwd: string;
 	suitesDir: string;
+	/** Prefer `<rubricsDir>/<suite>/rubrics.json` (harness-only answer keys). */
+	rubricsDir?: string;
 	host?: AgentHost;
 	filter?: string;
 	scenarioFilter?: string;
@@ -84,6 +86,7 @@ export interface ParsedCliArgs {
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	const cwd = process.cwd();
 	let suitesDir = "agent-suites";
+	let rubricsDir: string | undefined;
 	let host: AgentHost | undefined;
 	let filter: string | undefined;
 	let scenarioFilter: string | undefined;
@@ -123,6 +126,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			host = argv[++i] as AgentHost;
 		} else if (token === "--suites-dir" && argv[i + 1]) {
 			suitesDir = argv[++i] as string;
+		} else if (token === "--rubrics-dir" && argv[i + 1]) {
+			rubricsDir = argv[++i] as string;
 		} else if (token === "--suite" && argv[i + 1]) {
 			filter = argv[++i];
 		} else if (token === "--scenario" && argv[i + 1]) {
@@ -222,6 +227,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	return {
 		cwd,
 		suitesDir,
+		rubricsDir,
 		host,
 		filter,
 		scenarioFilter,
@@ -309,6 +315,7 @@ async function loadOrRunCompareSide(
 		stagingSessionId,
 		keepRecordings: args.keepRecordings,
 		suitesDir: args.suitesDir,
+		rubricsDir: args.rubricsDir,
 		timeoutMs: args.timeoutMs,
 		allowUserInput: args.allowUserInput,
 		debug: args.debug,
@@ -399,6 +406,7 @@ async function main(): Promise<number> {
 			const report = await validateSuitePaths(filtered, {
 				validatePaths: args.validatePaths,
 				repoRoot: args.cwd,
+				rubricsDir: args.rubricsDir,
 			});
 			console.log(formatValidationReport(report));
 			if (!report.ok) {
@@ -409,6 +417,7 @@ async function main(): Promise<number> {
 			const report = await validateSeedPatches({
 				cwd: args.cwd,
 				suitesDir: args.suitesDir,
+				rubricsDir: args.rubricsDir,
 				filter: args.filter,
 			});
 			console.log(formatSeedValidationReport(report));

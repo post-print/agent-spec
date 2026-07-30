@@ -1,0 +1,7 @@
+{
+	"scenarios": {
+		"opaque hello": {
+			"must": ["split-rubric suite ok"]
+		}
+	}
+}
