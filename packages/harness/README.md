@@ -2,7 +2,7 @@
 
 **Source of truth for** agent-harness package.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-07-29 -->
 
 Host-agnostic agent runtime for capture, replay, and judging.
 
@@ -37,5 +37,7 @@ Live runs accept inline `mcpServers` (stdio or HTTP/SSE). Cursor passes them to 
 When `outputContract` is set, `buildRoutingContract` injects hands-on / hands-off routing announce rules and requires continuing the task after the announce (do not end the turn at Routing alone).
 
 Judge classifiers remain Cursor SDK–backed (`CURSOR_API_KEY`) for all hosts.
+
+`createScenarioWorktree` isolates **file edits** in a detached checkout. It does not prevent hosts from loading caller context or (for Cursor local) Shell/Read against the IDE-open root — see `@post-print/agent-test` README § Isolation model.
 
 Consumer: `@post-print/agent-test`.
