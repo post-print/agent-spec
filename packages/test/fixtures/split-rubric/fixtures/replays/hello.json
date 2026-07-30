@@ -1,0 +1,11 @@
+{
+	"messages": [
+		{
+			"role": "assistant",
+			"content": "split-rubric suite ok — harness loaded must from rubrics.json."
+		}
+	],
+	"toolCalls": [],
+	"shellCommands": [],
+	"artifacts": {}
+}

@@ -183,6 +183,8 @@ export interface RunSuiteOptions {
 	debugDir?: string;
 	/** Live announce-stop retries (overrides AGENT_TEST_SCENARIO_RETRIES). */
 	scenarioRetries?: number;
+	/** Prefer `<rubricsDir>/<suite>/rubrics.json` over sibling rubrics (harness-only). */
+	rubricsDir?: string;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -311,6 +313,7 @@ async function maybeWriteDebugBundle(options: {
 	debug: boolean;
 	cwd: string;
 	suitesDir: string;
+	rubricsDir?: string;
 	stagingSessionId?: string;
 	debugDir?: string;
 	suiteName: string;
@@ -360,6 +363,7 @@ async function maybeWriteDebugBundle(options: {
 				cliPath,
 				cwd: options.cwd,
 				suitesDir: options.suitesDir,
+				rubricsDir: options.rubricsDir,
 				suite: options.suiteName,
 				scenario: options.scenario.name,
 				live: options.live,
@@ -405,7 +409,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 }
 
 async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
-	const suite = await loadSuiteFile(options.suitePath);
+	const suite = await loadSuiteFile(options.suitePath, { rubricsDir: options.rubricsDir });
 	const defaultHost = options.host ?? suite.defaults?.host ?? "replay";
 	const results: ScenarioResult[] = [];
 	const scenarios = options.scenarioFilter
@@ -473,6 +477,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					suiteName: suite.name,
 					scenarioName: scenario.name,
 					suitesDir: options.suitesDir ?? "agent-suites",
+					rubricsDir: options.rubricsDir,
 					suiteFilter: options.suiteFilter ?? suite.name,
 					stagingSessionId: options.stagingSessionId,
 					keepRecordings: options.keepRecordings,
@@ -571,6 +576,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				debug,
 				cwd: options.cwd,
 				suitesDir: options.suitesDir ?? "agent-suites",
+				rubricsDir: options.rubricsDir,
 				stagingSessionId: options.stagingSessionId,
 				debugDir: options.debugDir,
 				suiteName: suite.name,
@@ -634,6 +640,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					options.debugDir,
 					options.suitesDir ?? "agent-suites",
 					options.keepRecordings,
+					options.rubricsDir,
 					{ suppressEmit: true },
 				);
 				const canRetry =
@@ -653,6 +660,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				debug,
 				cwd: options.cwd,
 				suitesDir: options.suitesDir ?? "agent-suites",
+				rubricsDir: options.rubricsDir,
 				stagingSessionId: options.stagingSessionId,
 				debugDir: options.debugDir,
 				suiteName: suite.name,
@@ -708,6 +716,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					options.debugDir,
 					options.suitesDir ?? "agent-suites",
 					options.keepRecordings,
+					options.rubricsDir,
 				),
 			);
 		}
@@ -759,6 +768,7 @@ async function runScenario(
 	debugDir?: string,
 	suitesDir = "agent-suites",
 	keepRecordings?: boolean,
+	rubricsDir?: string,
 	runOptions?: { suppressEmit?: boolean },
 ): Promise<ScenarioResult> {
 	const started = performance.now();
@@ -1068,6 +1078,7 @@ async function runScenario(
 				debug,
 				cwd,
 				suitesDir,
+				rubricsDir,
 				stagingSessionId,
 				debugDir,
 				suiteName,
@@ -1189,6 +1200,7 @@ export async function runAllSuites(options: {
 	debug?: boolean;
 	debugDir?: string;
 	scenarioRetries?: number;
+	rubricsDir?: string;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
@@ -1219,6 +1231,7 @@ export async function runAllSuites(options: {
 				debug: options.debug,
 				debugDir: options.debugDir,
 				scenarioRetries: options.scenarioRetries,
+				rubricsDir: options.rubricsDir,
 			}),
 		);
 	}

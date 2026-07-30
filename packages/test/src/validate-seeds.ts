@@ -23,6 +23,7 @@ export interface SeedValidationReport {
 export async function validateSeedPatches(options: {
 	cwd: string;
 	suitesDir: string;
+	rubricsDir?: string;
 	filter?: string;
 }): Promise<SeedValidationReport> {
 	const suitesDir = resolve(options.cwd, options.suitesDir);
@@ -39,7 +40,7 @@ export async function validateSeedPatches(options: {
 	let checked = 0;
 
 	for (const suitePath of filtered) {
-		const suite = await loadSuiteFile(suitePath);
+		const suite = await loadSuiteFile(suitePath, { rubricsDir: options.rubricsDir });
 		for (const scenario of suite.scenarios) {
 			if (!scenario.seedPatch) {
 				continue;

@@ -88,6 +88,7 @@ export interface SpawnLiveScenarioOptions {
 	suiteName: string;
 	scenarioName: string;
 	suitesDir: string;
+	rubricsDir?: string;
 	suiteFilter?: string;
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
@@ -126,6 +127,9 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	}
 	if (options.suitesDir !== "agent-suites") {
 		args.push("--suites-dir", options.suitesDir);
+	}
+	if (options.rubricsDir) {
+		args.push("--rubrics-dir", options.rubricsDir);
 	}
 	if (options.stagingSessionId) {
 		args.push("--staging-session-id", options.stagingSessionId);

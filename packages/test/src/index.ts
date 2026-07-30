@@ -34,7 +34,15 @@ export {
 	renderHtmlReport,
 	writeHtmlReport,
 } from "./html-report.js";
-export { loadSuiteFile } from "./load-suite.js";
+export {
+	applyExternalRubrics,
+	type LoadSuiteOptions,
+	loadSuiteFile,
+	parseRubricsFile,
+	resolveRubricsPath,
+	type SuiteRubricsFile,
+	suiteNameFromSuitePath,
+} from "./load-suite.js";
 export { assertLiveDogfoodPreflight } from "./preflight.js";
 export {
 	cleanupLegacyRepoRecordings,

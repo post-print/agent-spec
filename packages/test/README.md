@@ -33,7 +33,16 @@ npx agent-test --doctor
 
 Bun is fine for local package development (`bun install` / `bun run build` in this monorepo), but consumers do not need Bun to run suites.
 
-Default suites root: `agent-suites/` (must exist, or pass `--suites-dir`).
+Default suites root: `agent-suites/` (must exist, or pass `--suites-dir`). Absolute `--suites-dir` is supported. Optional `--rubrics-dir` loads harness-only answer keys from `<rubricsDir>/<suite>/rubrics.json` (preferred over a sibling file when present).
+
+### Harness-only rubrics
+
+`scenarios.json` may omit `rubric` (or use `{}`) and keep only prompts / `seedPatch` / `compareId`. Put `must` / `mustNot` / `judge` / tool matchers in:
+
+- sibling `rubrics.json` or `scenarios.rubric.json`: `{ "scenarios": { "<scenario name>": { "must": […] } } }`
+- or `--rubrics-dir <path>` → `<path>/<suiteName>/rubrics.json`
+
+External entries **replace** the inline rubric for that scenario name. Unknown names in the rubrics file are an error. Keep rubrics off agent-visible roots (absolute `--suites-dir` / `--rubrics-dir` under `$TMPDIR`, or outside the IDE-open workspace).
 
 Live output always uses ANSI color (including under Cursor agent shells that set `NO_COLOR`).
 
@@ -118,6 +127,7 @@ Therefore: do **not** put answer keys, golden replays, or judge-bearing scenario
 
 - opaque prompts + `compareId`
 - seeds that only mutate fixtures (not skill bodies)
+- harness-only rubrics (sibling `rubrics.json` / `scenarios.rubric.json`, or `--rubrics-dir` outside the open workspace)
 - consumer orchestrators that park answer keys off the open workspace (toolbox pattern)
 - cloud runtime when true FS isolation is required
 

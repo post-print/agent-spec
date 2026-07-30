@@ -236,7 +236,7 @@ export function validateSuiteFile(
 
 export async function validateSuitePaths(
 	suitePaths: string[],
-	options?: { validatePaths?: boolean; repoRoot?: string },
+	options?: { validatePaths?: boolean; repoRoot?: string; rubricsDir?: string },
 ): Promise<SuiteValidationReport> {
 	const issues: SuiteValidationIssue[] = [];
 	let scenariosChecked = 0;
@@ -245,7 +245,7 @@ export async function validateSuitePaths(
 	for (const suitePath of suitePaths) {
 		let suite: AgentSuiteFile;
 		try {
-			suite = await loadSuiteFile(suitePath);
+			suite = await loadSuiteFile(suitePath, { rubricsDir: options?.rubricsDir });
 		} catch (error) {
 			pushIssue(
 				issues,

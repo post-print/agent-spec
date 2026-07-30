@@ -51,6 +51,18 @@ describe("live-isolation", () => {
 		expect(subprocessFailureMessage(1)).toContain("exited 1");
 	});
 
+	it("forwards --rubrics-dir to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "medium: grill",
+			suitesDir: "agent-suites",
+			rubricsDir: "/tmp/parked-rubrics",
+		});
+		expect(args).toContain("--rubrics-dir");
+		expect(args).toContain("/tmp/parked-rubrics");
+	});
+
 	it("forwards --debug and --debug-dir to the child CLI", () => {
 		const { args } = buildLiveScenarioCommand({
 			cwd: "/repo",
