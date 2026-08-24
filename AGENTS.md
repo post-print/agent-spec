@@ -10,7 +10,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 
 - Bun `1.2.x` (see `packageManager` in `package.json`)
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
-- Live `--live` runs require an **exported** `CURSOR_API_KEY` for Cursor (default) or `ANTHROPIC_API_KEY` for `--host claude` (copy `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless `--no-judge`.
+- Live `--live` runs require an **exported** `CURSOR_API_KEY` for Cursor (default). `--host claude` requires an explicit `CLAUDE_AUTH_MODE=api-key` (plus `ANTHROPIC_API_KEY`) or `CLAUDE_AUTH_MODE=subscription` (the Claude Code CLI login) — there is no default and no fallback (copy `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless `--no-judge`.
 
 ## First hour
 

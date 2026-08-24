@@ -3,7 +3,11 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getHealthStatus, HEALTH_CHECK_PATH } from "@post-print/agent-harness";
+import {
+	CLAUDE_AUTH_MODE_ENV,
+	getHealthStatus,
+	HEALTH_CHECK_PATH,
+} from "@post-print/agent-harness";
 
 export interface DoctorReport {
 	ok: boolean;
@@ -107,7 +111,18 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	if (anthropicApiKeySet) {
 		messages.push("ANTHROPIC_API_KEY: set");
 	} else {
-		messages.push("ANTHROPIC_API_KEY unset (required only for --live --host claude)");
+		messages.push("ANTHROPIC_API_KEY unset (required for CLAUDE_AUTH_MODE=api-key)");
+	}
+
+	const claudeAuthMode = process.env[CLAUDE_AUTH_MODE_ENV]?.trim();
+	if (claudeAuthMode === "api-key" || claudeAuthMode === "subscription") {
+		messages.push(`${CLAUDE_AUTH_MODE_ENV}: ${claudeAuthMode}`);
+	} else if (claudeAuthMode) {
+		messages.push(`${CLAUDE_AUTH_MODE_ENV}="${claudeAuthMode}" invalid (api-key or subscription)`);
+	} else {
+		messages.push(
+			`${CLAUDE_AUTH_MODE_ENV} unset (required for --live --host claude: api-key or subscription)`,
+		);
 	}
 
 	const claudeBinPresent = claudeBinOnPath();

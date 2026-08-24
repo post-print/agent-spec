@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClaudeAdapter } from "../adapters/index.js";
+import { buildClaudeEnv, CLAUDE_AUTH_MODE_ENV, parseClaudeAuthMode } from "../claude-run.js";
 import { AgentRunTimeoutError, UserInputRequiredError } from "../run-guards.js";
 import type { LoadedContext } from "../types.js";
 
@@ -84,10 +85,20 @@ function mockChild(options?: {
 describe("runClaudeAgent", () => {
 	afterEach(() => {
 		delete process.env.ANTHROPIC_API_KEY;
+		delete process.env[CLAUDE_AUTH_MODE_ENV];
 		spawnMock.mockReset();
 	});
 
-	it("fails when ANTHROPIC_API_KEY is unset", async () => {
+	it("rejects an unset or unknown auth mode instead of picking one", () => {
+		expect(() => parseClaudeAuthMode(undefined)).toThrow(/not set/);
+		expect(() => parseClaudeAuthMode("   ")).toThrow(/not set/);
+		expect(() => parseClaudeAuthMode("subscription-ish")).toThrow(/invalid/);
+		expect(parseClaudeAuthMode("api-key")).toBe("api-key");
+		expect(parseClaudeAuthMode(" subscription ")).toBe("subscription");
+	});
+
+	it("fails an api-key run when ANTHROPIC_API_KEY is unset", async () => {
+		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
 		delete process.env.ANTHROPIC_API_KEY;
 		const adapter = new ClaudeAdapter();
 		const session = await adapter.run({
@@ -101,8 +112,35 @@ describe("runClaudeAgent", () => {
 		expect(spawnMock).not.toHaveBeenCalled();
 	});
 
+	it("fails a run when CLAUDE_AUTH_MODE is unset", async () => {
+		process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+		const adapter = new ClaudeAdapter();
+		const session = await adapter.run({
+			host: "claude",
+			cwd: process.cwd(),
+			context: emptyContext(),
+			prompt: "hi",
+		});
+		expect(session.status).toBe("failed");
+		expect(session.error).toMatch(/CLAUDE_AUTH_MODE not set/);
+		expect(spawnMock).not.toHaveBeenCalled();
+	});
+
+	it("passes the key through in api-key mode", () => {
+		const env = buildClaudeEnv("api-key", "sk-ant-test");
+		expect(env.ANTHROPIC_API_KEY).toBe("sk-ant-test");
+	});
+
+	it("strips a stale key in subscription mode", () => {
+		// --bare never reads OAuth or the keychain, so a stale key left in the
+		// parent shell would silently bill the API instead of the plan.
+		const env = buildClaudeEnv("subscription", "sk-ant-stale");
+		expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+	});
+
 	it("maps a successful stream-json run", async () => {
 		process.env.ANTHROPIC_API_KEY = "test-key";
+		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
 		spawnMock.mockImplementation(() =>
 			mockChild({
 				lines: [
@@ -142,6 +180,7 @@ describe("runClaudeAgent", () => {
 
 	it("fails fast on AskUserQuestion", async () => {
 		process.env.ANTHROPIC_API_KEY = "test-key";
+		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
 		spawnMock.mockImplementation(() =>
 			mockChild({
 				lines: [
@@ -176,6 +215,7 @@ describe("runClaudeAgent", () => {
 
 	it("times out and cancels the child via abort", async () => {
 		process.env.ANTHROPIC_API_KEY = "test-key";
+		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
 		spawnMock.mockImplementation(() => mockChild({ hang: true }));
 
 		const { runClaudeAgent } = await import("../claude-run.js");
@@ -194,6 +234,7 @@ describe("runClaudeAgent", () => {
 
 	it("surfaces missing binary errors from spawn", async () => {
 		process.env.ANTHROPIC_API_KEY = "test-key";
+		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
 		spawnMock.mockImplementation(() => {
 			const child = mockChild({ hang: true });
 			queueMicrotask(() => {

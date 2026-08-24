@@ -41,11 +41,15 @@ export {
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
 export {
+	buildClaudeEnv,
 	buildClaudeMcpConfigJson,
+	CLAUDE_AUTH_MODE_ENV,
+	type ClaudeAuthMode,
 	type ClaudeRunOptions,
 	type ClaudeRunResult,
 	cancelActiveClaudeRun,
 	formatClaudeRunFailure,
+	parseClaudeAuthMode,
 	resolveClaudeBin,
 	runClaudeAgent,
 	takeLastClaudeRunTrace,

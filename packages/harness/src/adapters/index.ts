@@ -117,18 +117,16 @@ export class CursorAdapter implements HostAdapter {
 	}
 }
 
-/** Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN) + ANTHROPIC_API_KEY. */
+/**
+ * Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN) and
+ * an explicit CLAUDE_AUTH_MODE: `api-key` (ANTHROPIC_API_KEY) or
+ * `subscription` (the CLI's own login — keychain OAuth or
+ * CLAUDE_CODE_OAUTH_TOKEN). There is no default and no fallback between them.
+ */
 export class ClaudeAdapter implements HostAdapter {
 	readonly host = "claude" as const;
 
 	async run(options: RunAgentOptions): Promise<AgentSession> {
-		if (!process.env.ANTHROPIC_API_KEY?.trim()) {
-			return emptyFailed(
-				this.host,
-				"ANTHROPIC_API_KEY not set — use host replay or set API key for live runs",
-			);
-		}
-
 		const started = performance.now();
 		try {
 			const contract = options.outputContract

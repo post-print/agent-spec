@@ -15,7 +15,7 @@ node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
 node packages/test/dist/cli.js --doctor
 ```
 
-There is no top-level `agent-suites/` here — consumer examples below assume a consuming repo. Live `--live` needs an **exported** `CURSOR_API_KEY` for Cursor (default) or `ANTHROPIC_API_KEY` for `--host claude` (copy repo-root `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless you pass `--no-judge`.
+There is no top-level `agent-suites/` here — consumer examples below assume a consuming repo. Live `--live` needs an **exported** `CURSOR_API_KEY` for Cursor (default). `--host claude` needs an explicit `CLAUDE_AUTH_MODE=api-key` (with `ANTHROPIC_API_KEY`) or `CLAUDE_AUTH_MODE=subscription` (the Claude Code CLI login); nothing is inferred (copy repo-root `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless you pass `--no-judge`.
 
 ## CLI (consumers, Node >= 22)
 
@@ -25,7 +25,7 @@ Works under **Node >= 22** (the published `agent-test` bin):
 npx agent-test --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --suite ambient-routing
 npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # exported CURSOR_API_KEY required
-npx agent-test --suites-dir agent-suites --live --host claude --suite ambient-routing  # ANTHROPIC_API_KEY + claude CLI
+npx agent-test --suites-dir agent-suites --live --host claude --suite ambient-routing  # CLAUDE_AUTH_MODE + claude CLI
 npx agent-test --live --compare-pairs skeleton-clean:skeleton-messy --out-dir "$TMPDIR/compare"
 npx agent-test compare --a clean.suite-report.json --b messy.suite-report.json --out-dir "$TMPDIR/compare"
 npx agent-test --doctor
@@ -53,7 +53,8 @@ See repo-root `.env.example`. Common knobs:
 | Variable                                    | Purpose                                                       |
 | ------------------------------------------- | ------------------------------------------------------------- |
 | `CURSOR_API_KEY`                            | Required for `--live` Cursor and judge classifiers            |
-| `ANTHROPIC_API_KEY`                         | Required for `--live --host claude`                           |
+| `CLAUDE_AUTH_MODE`                          | Required for `--live --host claude`: `api-key` or `subscription` (no default) |
+| `ANTHROPIC_API_KEY`                         | Required when `CLAUDE_AUTH_MODE=api-key`                      |
 | `CLAUDE_CODE_BIN`                           | Optional path to Claude Code CLI binary                       |
 | `CLAUDE_AGENT_MODEL`                        | Optional Claude model override                                |
 | `CLAUDE_CODE_ALLOWED_TOOLS`                 | Optional `--allowedTools` list for Claude live runs           |

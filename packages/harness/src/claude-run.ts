@@ -40,6 +40,8 @@ export interface ClaudeRunOptions {
 	bin?: string;
 	/** Override --allowedTools; defaults to CLAUDE_CODE_ALLOWED_TOOLS or built-in list. */
 	allowedTools?: string;
+	/** Auth mode; when omitted it is read from CLAUDE_AUTH_MODE (which is required). */
+	authMode?: ClaudeAuthMode;
 }
 
 export interface ClaudeRunResult {
@@ -164,6 +166,20 @@ export async function resolveClaudeBin(override?: string): Promise<string> {
 	return candidate;
 }
 
+/**
+ * Child env for the CLI. In subscription mode ANTHROPIC_API_KEY is stripped:
+ * the CLI prefers a key over OAuth, so a stale one in the parent shell would
+ * silently bill the API instead of the plan.
+ */
+export function buildClaudeEnv(authMode: ClaudeAuthMode, apiKey?: string): NodeJS.ProcessEnv {
+	if (authMode === "api-key") {
+		return { ...process.env, ANTHROPIC_API_KEY: apiKey };
+	}
+	const env = { ...process.env };
+	delete env.ANTHROPIC_API_KEY;
+	return env;
+}
+
 function resolveAllowedTools(override?: string): string {
 	return override?.trim() || process.env.CLAUDE_CODE_ALLOWED_TOOLS?.trim() || DEFAULT_ALLOWED_TOOLS;
 }
@@ -208,16 +224,57 @@ async function writeMcpConfigFile(
 	return { path, dir };
 }
 
+/**
+ * How the spawned CLI authenticates. Always selected explicitly — there is no
+ * default and no fallback between the two.
+ *
+ *   "api-key"      — ANTHROPIC_API_KEY, metered API billing. Uses `--bare`.
+ *   "subscription" — the user's Claude plan, via OAuth in the keychain or
+ *                    CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`.
+ *
+ * `--bare` never reads OAuth or the keychain (it exists to make CI runs
+ * reproducible), so subscription auth has to drop it. Dropping `--bare` lets
+ * the host's own hooks, plugins and CLAUDE.md into the run, so this mode is
+ * less hermetic than the API-key one — `--strict-mcp-config` at least keeps
+ * the MCP surface to the servers the scenario declared.
+ */
+export type ClaudeAuthMode = "api-key" | "subscription";
+
+export const CLAUDE_AUTH_MODE_ENV = "CLAUDE_AUTH_MODE";
+
+const CLAUDE_AUTH_MODES: ClaudeAuthMode[] = ["api-key", "subscription"];
+
+/**
+ * Parse an explicit auth-mode selection. Throws on anything else: an unset or
+ * misspelled value must never silently pick a mode, because the two bill
+ * different accounts.
+ */
+export function parseClaudeAuthMode(raw: string | undefined): ClaudeAuthMode {
+	const value = raw?.trim();
+	if (!value) {
+		throw new Error(
+			`${CLAUDE_AUTH_MODE_ENV} not set — choose ${CLAUDE_AUTH_MODES.join(" or ")} (no default)`,
+		);
+	}
+	if (!(CLAUDE_AUTH_MODES as string[]).includes(value)) {
+		throw new Error(
+			`${CLAUDE_AUTH_MODE_ENV}="${value}" is invalid — choose ${CLAUDE_AUTH_MODES.join(" or ")}`,
+		);
+	}
+	return value as ClaudeAuthMode;
+}
+
 function buildClaudeArgs(options: {
 	prompt: string;
 	model?: string;
 	allowedTools: string;
 	mcpConfigPath?: string;
+	authMode: ClaudeAuthMode;
 }): string[] {
 	const args = [
 		"-p",
 		options.prompt,
-		"--bare",
+		...(options.authMode === "api-key" ? ["--bare"] : ["--strict-mcp-config"]),
 		"--output-format",
 		"stream-json",
 		"--verbose",
@@ -312,8 +369,9 @@ async function drainNdjson(
 /** Shared Claude Code CLI path — spawn + stream-json → AgentTrace. */
 export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
 	const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
-	if (!apiKey?.trim()) {
-		throw new Error("ANTHROPIC_API_KEY not set");
+	const authMode = options.authMode ?? parseClaudeAuthMode(process.env[CLAUDE_AUTH_MODE_ENV]);
+	if (authMode === "api-key" && !apiKey?.trim()) {
+		throw new Error(`${CLAUDE_AUTH_MODE_ENV}=api-key but ANTHROPIC_API_KEY is not set`);
 	}
 
 	const bin = await resolveClaudeBin(options.bin);
@@ -329,6 +387,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			model: options.model,
 			allowedTools,
 			mcpConfigPath: mcpConfig?.path,
+			authMode,
 		});
 
 		const execute = async (): Promise<ClaudeRunResult> => {
@@ -336,10 +395,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			const abort = new AbortController();
 			const child = spawn(bin, args, {
 				cwd: options.cwd,
-				env: {
-					...process.env,
-					ANTHROPIC_API_KEY: apiKey,
-				},
+				env: buildClaudeEnv(authMode, apiKey),
 				stdio: ["ignore", "pipe", "pipe"],
 				detached: process.platform !== "win32",
 			}) as ClaudeChildProcess;
