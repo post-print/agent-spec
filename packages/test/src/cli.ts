@@ -65,6 +65,8 @@ export interface ParsedCliArgs {
 	allowUserInput: boolean;
 	doctor: boolean;
 	htmlReport: boolean;
+	/** Explicit HTML report path (ends in .html) or output directory for all report content. */
+	reportOut?: string;
 	debug: boolean;
 	debugDir?: string;
 	validateOnly: boolean;
@@ -102,6 +104,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let allowUserInput = false;
 	let doctor = false;
 	let htmlReport = true;
+	let reportOut: string | undefined;
 	let debug = process.env.AGENT_TEST_DEBUG === "1" || process.env.AGENT_TEST_DEBUG === "true";
 	let debugDir: string | undefined;
 	let validateOnly = false;
@@ -188,6 +191,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			compareMode = true;
 		} else if ((token === "--out-dir" || token === "--compare-out") && argv[i + 1]) {
 			compareOutDir = argv[++i];
+		} else if (token === "--report-out" && argv[i + 1]) {
+			reportOut = argv[++i];
 		} else if (token === "--no-html-report") {
 			htmlReport = false;
 		} else if (token === "--debug") {
@@ -243,6 +248,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		allowUserInput,
 		doctor,
 		htmlReport,
+		reportOut: reportOut ? resolve(cwd, reportOut) : undefined,
 		debug,
 		debugDir: debugDir ? resolve(cwd, debugDir) : undefined,
 		validateOnly,
@@ -324,6 +330,20 @@ async function loadOrRunCompareSide(
 	});
 }
 
+/**
+ * Split `--report-out` into an HTML file path and, when a directory was given,
+ * the directory every other report artifact is written to.
+ */
+export function resolveReportOutput(reportOut?: string): { htmlPath?: string; outDir?: string } {
+	if (!reportOut) {
+		return {};
+	}
+	if (reportOut.toLowerCase().endsWith(".html")) {
+		return { htmlPath: reportOut };
+	}
+	return { htmlPath: join(reportOut, "report.html"), outDir: reportOut };
+}
+
 async function writeSuiteReportDump(
 	outDir: string,
 	label: string,
@@ -380,7 +400,10 @@ async function main(): Promise<number> {
 		const bPath = resolve(args.cwd, args.compareB as string);
 		const aReport = await loadSuiteRunReport(aPath);
 		const bReport = await loadSuiteRunReport(bPath);
-		const outDir = args.compareOutDir ?? resolve(args.cwd, "compare-out");
+		const outDir =
+			args.compareOutDir ??
+			resolveReportOutput(args.reportOut).outDir ??
+			resolve(args.cwd, "compare-out");
 		const compare = compareSuiteReports({
 			aLabel: labelForCompareSide(aPath),
 			bLabel: labelForCompareSide(bPath),
@@ -452,6 +475,7 @@ async function main(): Promise<number> {
 	const stagingSessionRoot = stagingSessionId
 		? getLiveStagingSessionRoot(stagingSessionId)
 		: undefined;
+	const reportOutput = resolveReportOutput(args.reportOut);
 
 	try {
 		if (args.live) {
@@ -539,6 +563,7 @@ async function main(): Promise<number> {
 			if (!isChild) {
 				const outDir =
 					args.compareOutDir ??
+					reportOutput.outDir ??
 					(stagingSessionRoot
 						? join(stagingSessionRoot, "compare")
 						: resolve(args.cwd, "compare-out"));
@@ -616,14 +641,29 @@ async function main(): Promise<number> {
 			if (args.htmlReport && reports.length > 0) {
 				try {
 					const pair = args.comparePairs ? parseComparePairToken(args.comparePairs) : undefined;
-					const reportPath = await writeHtmlReport(reports, {
-						host: args.host,
-						suitesDir: args.suitesDir,
-						includeCompare: Boolean(args.comparePairs),
-						compareALabel: pair ? labelForCompareSide(pair.a) : undefined,
-						compareBLabel: pair ? labelForCompareSide(pair.b) : undefined,
-					});
+					const reportPath = await writeHtmlReport(
+						reports,
+						{
+							host: args.host,
+							suitesDir: args.suitesDir,
+							includeCompare: Boolean(args.comparePairs),
+							compareALabel: pair ? labelForCompareSide(pair.a) : undefined,
+							compareBLabel: pair ? labelForCompareSide(pair.b) : undefined,
+						},
+						reportOutput.htmlPath,
+					);
 					console.log(`\n${theme.fileTip("HTML report", reportPath)}`);
+					// A directory collects everything, not just the HTML.
+					if (reportOutput.outDir && !args.comparePairs) {
+						for (const report of reports) {
+							const dumpPath = await writeSuiteReportDump(
+								reportOutput.outDir,
+								report.suite,
+								report,
+							);
+							console.log(theme.tip(`suite JSON: ${dumpPath}`));
+						}
+					}
 				} catch (error) {
 					console.warn(
 						theme.warn(

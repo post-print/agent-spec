@@ -28,8 +28,21 @@ npx agent-test --suites-dir agent-suites --live --suite ambient-routing   # expo
 npx agent-test --suites-dir agent-suites --live --host claude --suite ambient-routing  # ANTHROPIC_API_KEY + claude CLI
 npx agent-test --live --compare-pairs skeleton-clean:skeleton-messy --out-dir "$TMPDIR/compare"
 npx agent-test compare --a clean.suite-report.json --b messy.suite-report.json --out-dir "$TMPDIR/compare"
+npx agent-test --suites-dir agent-suites --report-out "$TMPDIR/agent-test-report"       # dir: html + suite JSON
+npx agent-test --suites-dir agent-suites --report-out "$TMPDIR/reports/run.html"        # file: html only
 npx agent-test --doctor
 ```
+
+### Report output
+
+By default the HTML report goes to a fresh temp directory. `--report-out <path>` puts it where you want:
+
+| `--report-out` value | Result |
+| --- | --- |
+| ends with `.html` | the HTML report is written to exactly that file (parent dirs created) |
+| any other path | treated as a directory: `report.html` plus all other report content — per-suite `<suite>.suite-report.json`, and the compare JSON / markdown / HTML when `--compare-pairs` is used |
+
+`--out-dir` still wins for compare output when both are given. `--no-html-report` skips the HTML report entirely.
 
 Bun is fine for local package development (`bun install` / `bun run build` in this monorepo), but consumers do not need Bun to run suites.
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { parseCliArgs } from "../cli.js";
+import { parseCliArgs, resolveReportOutput } from "../cli.js";
 
 describe("parseCliArgs debug flags", () => {
 	const priorDebug = process.env.AGENT_TEST_DEBUG;
@@ -112,5 +112,29 @@ describe("parseCliArgs debug flags", () => {
 		]);
 		expect(pairs.comparePairs).toBe("skeleton-clean:skeleton-messy");
 		expect(pairs.live).toBe(true);
+	});
+});
+
+describe("--report-out", () => {
+	it("resolves a path relative to cwd", () => {
+		const args = parseCliArgs(["node", "cli.js", "--report-out", "out/reports"]);
+		expect(args.reportOut).toBe(`${process.cwd()}/out/reports`);
+		expect(args.htmlReport).toBe(true);
+	});
+
+	it("treats a .html path as the report file and writes nothing else there", () => {
+		expect(resolveReportOutput("/tmp/x/run.html")).toEqual({ htmlPath: "/tmp/x/run.html" });
+		expect(resolveReportOutput("/tmp/x/RUN.HTML")).toEqual({ htmlPath: "/tmp/x/RUN.HTML" });
+	});
+
+	it("treats any other path as a directory that collects all report content", () => {
+		expect(resolveReportOutput("/tmp/x/reports")).toEqual({
+			htmlPath: "/tmp/x/reports/report.html",
+			outDir: "/tmp/x/reports",
+		});
+	});
+
+	it("is inert when unset", () => {
+		expect(resolveReportOutput(undefined)).toEqual({});
 	});
 });
