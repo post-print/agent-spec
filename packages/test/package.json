@@ -19,9 +19,9 @@
 		"typecheck": "bunx tsc --build",
 		"lint": "bunx biome check .",
 		"lint:fix": "bunx biome check . --write",
-		"test": "vitest run",
-		"test:sandbox-safe": "vitest run --exclude 'src/**/scenario-seed.test.ts'",
-		"test:coverage": "vitest run --coverage",
+		"test": "bun test",
+		"test:sandbox-safe": "bun test --path-ignore-patterns '**/scenario-seed.test.ts'",
+		"test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {
@@ -30,9 +30,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "^26.1.1",
-		"@vitest/coverage-v8": "^4.0.17",
-		"typescript": "~7.0.2",
-		"vitest": "^4.0.17"
+		"typescript": "~7.0.2"
 	},
 	"description": "Scenario runner and CLI for agent-spec suites",
 	"repository": {

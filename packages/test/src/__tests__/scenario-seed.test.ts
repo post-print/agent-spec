@@ -1,11 +1,10 @@
+import { describe, expect, it } from "bun:test";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-
 import { createScenarioWorktree } from "@post-print/agent-harness";
-import { describe, expect, it } from "vitest";
 
 import {
 	captureCallerHead,

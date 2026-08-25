@@ -1,18 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, jest, mock } from "bun:test";
 
-const agentPrompt = vi.fn();
+const agentPrompt = jest.fn();
 
-vi.mock("@cursor/sdk", () => ({
+mock.module("@cursor/sdk", () => ({
 	Agent: {
 		prompt: agentPrompt,
-		create: vi.fn(),
+		create: jest.fn(),
 	},
 }));
 
 describe("runJudgeClassifier", () => {
 	afterEach(() => {
-		vi.clearAllMocks();
-		vi.resetModules();
+		jest.clearAllMocks();
 	});
 
 	it("propagates rawStatus and sdkError when Agent.prompt does not finish", async () => {
@@ -55,8 +54,7 @@ describe("runJudgeClassifier", () => {
 
 describe("judgeTrace infra errors", () => {
 	afterEach(() => {
-		vi.clearAllMocks();
-		vi.resetModules();
+		jest.clearAllMocks();
 	});
 
 	it("includes SDK error detail in the verdict rationale", async () => {
