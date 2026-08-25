@@ -2,7 +2,7 @@
 	"name": "agent-spec",
 	"private": true,
 	"type": "module",
-	"packageManager": "bun@1.2.21",
+	"packageManager": "bun@1.4.0",
 	"engines": {
 		"node": ">=22"
 	},
