@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 
 import {
 	type AgentHost,
+	CLAUDE_AUTH_MODE_ENV,
 	cleanupStaleScenarioWorktrees,
 	isPathUnderRoot,
+	parseClaudeAuthMode,
 } from "@post-print/agent-harness";
 
 import { isCliMain } from "./cli-entry.js";
@@ -480,9 +482,19 @@ async function main(): Promise<number> {
 	try {
 		if (args.live) {
 			const host = args.host ?? "cursor";
-			if (host === "claude" && !process.env.ANTHROPIC_API_KEY?.trim()) {
-				console.error("ANTHROPIC_API_KEY required for --live --host claude (Claude Code CLI)");
-				return 1;
+			if (host === "claude") {
+				try {
+					const authMode = parseClaudeAuthMode(process.env[CLAUDE_AUTH_MODE_ENV]);
+					if (authMode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
+						console.error(
+							`${CLAUDE_AUTH_MODE_ENV}=api-key requires ANTHROPIC_API_KEY for --live --host claude`,
+						);
+						return 1;
+					}
+				} catch (error) {
+					console.error(error instanceof Error ? error.message : error);
+					return 1;
+				}
 			}
 			if (host === "cursor" && !process.env.CURSOR_API_KEY?.trim()) {
 				console.error("CURSOR_API_KEY required for --live (Cursor SDK runs)");

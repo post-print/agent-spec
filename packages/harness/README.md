@@ -26,7 +26,11 @@ const session = await runAgent({
 
 `runAgent` / `runCursorAgent` / `runClaudeAgent` accept optional `timeoutMs` (hard cap; cancels the Cursor SDK run or kills the Claude CLI process group on expiry) and `failOnUserInput` (default `true` — rejects AskQuestion / AskUserQuestion-style tools in headless runs).
 
-Live Cursor runs use `@cursor/sdk` + `CURSOR_API_KEY`. Live Claude runs use the Claude Code CLI (`claude -p --bare --output-format stream-json`) + `ANTHROPIC_API_KEY` (binary via `CLAUDE_CODE_BIN` or `claude` on `PATH`). `--bare` skips ambient CLAUDE.md / skills discovery; the harness injects context via `loadContext` preamble instead. Claude tool names are Claude-native (`Bash`, `Read`, `Edit`, …).
+Live Cursor runs use `@cursor/sdk` + `CURSOR_API_KEY`. Live Claude runs use the Claude Code CLI (binary via `CLAUDE_CODE_BIN` or `claude` on `PATH`) and require an explicit `CLAUDE_AUTH_MODE` — no default, no fallback:
+
+- `api-key`: `ANTHROPIC_API_KEY` (metered API billing). Runs `claude -p --bare --output-format stream-json`; `--bare` skips ambient CLAUDE.md / skills discovery, and the harness injects context via the `loadContext` preamble instead.
+- `subscription`: the CLI's own login (keychain OAuth, or `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`). `--bare` never reads OAuth, so this mode drops it and uses `--strict-mcp-config`; the host's own hooks, plugins and CLAUDE.md are then in play, so it is less hermetic. `ANTHROPIC_API_KEY` is stripped from the child env so a stale key cannot silently bill the API.
+ Claude tool names are Claude-native (`Bash`, `Read`, `Edit`, …).
 
 Live Cursor/Claude runs capture optional `trace.usage` (`inputTokens` / `outputTokens` / `totalTokens`, plus provider cache/reasoning fields when present).
 
