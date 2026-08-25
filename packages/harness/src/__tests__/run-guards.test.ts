@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, jest } from "bun:test";
 
 import {
 	AgentRunTimeoutError,
@@ -36,7 +36,6 @@ describe("withRunTimeout", () => {
 	});
 
 	it("rejects with AgentRunTimeoutError when the deadline is exceeded", async () => {
-		vi.useFakeTimers();
 		const late = withRunTimeout(
 			() =>
 				new Promise<string>((resolve) => {
@@ -44,15 +43,11 @@ describe("withRunTimeout", () => {
 				}),
 			50,
 		);
-		const expectation = expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
-		await vi.advanceTimersByTimeAsync(50);
-		await expectation;
-		vi.useRealTimers();
+		await expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
 	});
 
 	it("invokes onTimeout before rejecting", async () => {
-		vi.useFakeTimers();
-		const onTimeout = vi.fn();
+		const onTimeout = jest.fn();
 		const late = withRunTimeout(
 			() =>
 				new Promise<string>((resolve) => {
@@ -61,16 +56,12 @@ describe("withRunTimeout", () => {
 			50,
 			{ onTimeout },
 		);
-		const expectation = expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
-		await vi.advanceTimersByTimeAsync(50);
-		await expectation;
+		await expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
 		expect(onTimeout).toHaveBeenCalledOnce();
-		vi.useRealTimers();
 	});
 
 	it("rejects on deadline even when onTimeout does not settle", async () => {
-		vi.useFakeTimers();
-		const onTimeout = vi.fn(() => new Promise<void>(() => {}));
+		const onTimeout = jest.fn(() => new Promise<void>(() => {}));
 		const late = withRunTimeout(
 			() =>
 				new Promise<string>((resolve) => {
@@ -79,11 +70,8 @@ describe("withRunTimeout", () => {
 			50,
 			{ onTimeout },
 		);
-		const expectation = expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
-		await vi.advanceTimersByTimeAsync(50);
-		await expectation;
+		await expect(late).rejects.toBeInstanceOf(AgentRunTimeoutError);
 		expect(onTimeout).toHaveBeenCalledOnce();
-		vi.useRealTimers();
 	});
 });
 

@@ -1,22 +1,19 @@
+import { afterEach, describe, expect, it, jest, mock } from "bun:test";
+import * as childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClaudeAdapter } from "../adapters/index.js";
 import { buildClaudeEnv, CLAUDE_AUTH_MODE_ENV, parseClaudeAuthMode } from "../claude-run.js";
 import { AgentRunTimeoutError, UserInputRequiredError } from "../run-guards.js";
 import type { LoadedContext } from "../types.js";
 
-const spawnMock = vi.hoisted(() => vi.fn());
+const spawnMock = jest.fn();
 
-vi.mock("node:child_process", async () => {
-	const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
-	return {
-		...actual,
-		spawn: spawnMock,
-	};
-});
+mock.module("node:child_process", () => ({
+	...childProcess,
+	spawn: spawnMock,
+}));
 
 function emptyContext(): LoadedContext {
 	return {
@@ -37,19 +34,19 @@ function mockChild(options?: {
 	stdout: PassThrough;
 	stderr: PassThrough;
 	pid: number;
-	kill: ReturnType<typeof vi.fn>;
+	kill: ReturnType<typeof jest.fn>;
 } {
 	const child = new EventEmitter() as EventEmitter & {
 		stdout: PassThrough;
 		stderr: PassThrough;
 		pid: number;
-		kill: ReturnType<typeof vi.fn>;
+		kill: ReturnType<typeof jest.fn>;
 	};
 	child.stdout = new PassThrough();
 	child.stderr = new PassThrough();
 	// Invalid pid so killClaudeChild skips process.kill(-pid) process-group signaling.
 	Object.defineProperty(child, "pid", { value: undefined, configurable: true });
-	child.kill = vi.fn(() => {
+	child.kill = jest.fn(() => {
 		child.stdout.destroy();
 		child.stderr.destroy();
 		queueMicrotask(() => child.emit("close", null));
@@ -228,7 +225,7 @@ describe("runClaudeAgent", () => {
 				timeoutMs: 40,
 			}),
 		).rejects.toBeInstanceOf(AgentRunTimeoutError);
-		const child = spawnMock.mock.results[0]?.value as { kill: ReturnType<typeof vi.fn> };
+		const child = spawnMock.mock.results[0]?.value as { kill: ReturnType<typeof jest.fn> };
 		expect(child.kill).toHaveBeenCalled();
 	});
 

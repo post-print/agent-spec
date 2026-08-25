@@ -1,16 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { isTransientInfraError, withRetry } from "../retry.js";
 
 describe("retry", () => {
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-
 	it("retries transient infra errors", async () => {
-		vi.useFakeTimers();
 		let calls = 0;
-		const promise = withRetry(
+		const { result, attempt } = await withRetry(
 			async () => {
 				calls++;
 				if (calls < 3) {
@@ -25,8 +20,6 @@ describe("retry", () => {
 					isTransientInfraError(error instanceof Error ? error.message : String(error)),
 			},
 		);
-		await vi.runAllTimersAsync();
-		const { result, attempt } = await promise;
 		expect(result).toBe("ok");
 		expect(attempt).toBe(3);
 		expect(calls).toBe(3);

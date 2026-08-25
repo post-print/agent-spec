@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, jest, mock } from "bun:test";
 
 import { AgentRunTimeoutError } from "../run-guards.js";
 
-const agentCreate = vi.fn();
-const agentSend = vi.fn();
+const agentCreate = jest.fn();
+const agentSend = jest.fn();
 
-vi.mock("@cursor/sdk", () => ({
+mock.module("@cursor/sdk", () => ({
 	Agent: {
 		create: agentCreate,
 	},
@@ -13,7 +13,6 @@ vi.mock("@cursor/sdk", () => ({
 
 describe("runCursorAgent onDeadlineStart", () => {
 	it("fires after Agent.create and before the harness deadline arms", async () => {
-		vi.useFakeTimers();
 		const events: string[] = [];
 
 		agentCreate.mockImplementation(async () => {
@@ -54,21 +53,17 @@ describe("runCursorAgent onDeadlineStart", () => {
 			},
 		});
 
-		const expectation = expect(run).rejects.toBeInstanceOf(AgentRunTimeoutError);
-		await vi.advanceTimersByTimeAsync(40);
-		await vi.advanceTimersByTimeAsync(50);
-		await expectation;
+		await expect(run).rejects.toBeInstanceOf(AgentRunTimeoutError);
 
 		expect(events).toEqual(["create", "create-done", "deadline-start", "stream"]);
-		vi.useRealTimers();
-		vi.clearAllMocks();
+		jest.clearAllMocks();
 	});
 });
 
 describe("cancelActiveCursorRun", () => {
 	it("cancels the in-flight SDK run", async () => {
-		const cancel = vi.fn(async () => {});
-		const wait = vi.fn(async () => ({ status: "cancelled" }));
+		const cancel = jest.fn(async () => {});
+		const wait = jest.fn(async () => ({ status: "cancelled" }));
 		let releaseStream: (() => void) | undefined;
 
 		agentCreate.mockResolvedValue({
@@ -93,15 +88,15 @@ describe("cancelActiveCursorRun", () => {
 			apiKey: "test-key",
 		});
 
-		await vi.waitFor(() => {
-			expect(agentSend).toHaveBeenCalled();
-		});
+		while (agentSend.mock.calls.length === 0) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
 		cancelActiveCursorRun();
 		releaseStream?.();
 
 		await expect(runPromise).resolves.toMatchObject({ status: "failed" });
 		expect(cancel).toHaveBeenCalled();
-		vi.clearAllMocks();
+		jest.clearAllMocks();
 	});
 
 	it("is a no-op when no run is active", async () => {
@@ -155,7 +150,7 @@ describe("runCursorAgent usage", () => {
 			cacheWriteTokens: 0,
 		});
 		expect(result.usage).toEqual(result.trace.usage);
-		vi.clearAllMocks();
+		jest.clearAllMocks();
 	});
 });
 
@@ -189,7 +184,7 @@ describe("runCursorAgent failure detail", () => {
 		expect(result.sdkError).toEqual({ message: "upstream abort", code: "ABORT" });
 		expect(result.trace.messages.length).toBeGreaterThan(0);
 		expect(formatCursorRunFailure(result)).toContain("upstream abort");
-		vi.clearAllMocks();
+		jest.clearAllMocks();
 	});
 
 	it("attaches partial trace on user-input failure", async () => {
@@ -223,6 +218,6 @@ describe("runCursorAgent failure detail", () => {
 			}),
 		});
 		expect(UserInputRequiredError).toBeDefined();
-		vi.clearAllMocks();
+		jest.clearAllMocks();
 	});
 });

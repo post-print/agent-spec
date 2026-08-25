@@ -1,8 +1,7 @@
+import { describe, expect, it } from "bun:test";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-
-import { describe, expect, it } from "vitest";
 
 import { renderHtmlReport, writeHtmlReport } from "../html-report.js";
 import type { ScenarioResult, SuiteRunReport } from "../types.js";

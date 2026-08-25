@@ -35,7 +35,7 @@ Use `bun run lint` / `bunx biome` (pinned 2.5.4). A global `biome` on PATH is of
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | Docs / registry / `.skeleton/`                               | `bun run validate:changed -- <path>` or `bun run audit:self`                                                              |
 | Synced toolbox skills (`.agents/skills/`, `.claude/skills/`) | skipped — lint in [csark0812/toolbox](https://github.com/csark0812/toolbox); override via `.skeleton/customize/<slug>.md` |
-| TypeScript under `packages/` (scoped)                        | `bunx vitest run <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed                          |
+| TypeScript under `packages/` (scoped)                        | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed                          |
 | TypeScript under `packages/` (full)                          | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions)                                                   |
 
 ## Layout

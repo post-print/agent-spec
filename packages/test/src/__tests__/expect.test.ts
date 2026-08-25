@@ -1,5 +1,5 @@
+import { describe, expect, it } from "bun:test";
 import type { AgentTrace } from "@post-print/agent-harness";
-import { describe, expect, it } from "vitest";
 
 import { assertRubric, expectTrace } from "../expect.js";
 

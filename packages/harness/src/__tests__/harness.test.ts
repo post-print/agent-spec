@@ -1,8 +1,7 @@
+import { describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { describe, expect, it } from "vitest";
 
 import { ReplayAdapter } from "../adapters/replay.js";
 import { loadContext } from "../context.js";

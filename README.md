@@ -45,7 +45,7 @@ node packages/test/dist/cli.js --validate-seeds --suites-dir agent-suites
 
 Reliability targets and failure categories: [docs/reliability.md](docs/reliability.md).
 
-Scoped checks: `bunx vitest run <file>` and `bunx biome check <path>` (use `bunx biome`, not a global `biome`).
+Scoped checks: `bun test <file>` and `bunx biome check <path>` (use `bunx biome`, not a global `biome`).
 
 ## Debug / troubleshoot
 

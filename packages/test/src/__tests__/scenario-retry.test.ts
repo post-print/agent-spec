@@ -1,5 +1,5 @@
+import { afterEach, describe, expect, it } from "bun:test";
 import type { AgentTrace } from "@post-print/agent-harness";
-import { afterEach, describe, expect, it } from "vitest";
 
 import { assertionFailure } from "../failures.js";
 import {
