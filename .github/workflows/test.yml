@@ -15,7 +15,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.4.0"
 
       - run: bun install --frozen-lockfile
       - run: bun run validate:ci
@@ -32,7 +32,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.4.0"
 
       - uses: actions/setup-node@v7
         with:
@@ -62,7 +62,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.4.0"
       - run: bun install --frozen-lockfile
       - name: Dependency audit
         run: bun audit
