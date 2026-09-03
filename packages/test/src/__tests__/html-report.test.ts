@@ -20,7 +20,7 @@ function makeResult(overrides: Partial<ScenarioResult> = {}): ScenarioResult {
 function makeReport(results: ScenarioResult[]): SuiteRunReport {
 	return {
 		suite: "smoke",
-		host: "replay",
+		host: "cursor",
 		passed: results.filter((r) => r.passed && !r.skipped).length,
 		failed: results.filter((r) => !r.passed && !r.skipped).length,
 		skipped: results.filter((r) => r.skipped).length,

@@ -42,7 +42,7 @@ export class UserInputRequiredError extends Error implements PartialTraceCarrier
 
 	constructor(toolName: string) {
 		super(
-			`agent invoked ${toolName} in headless mode (no follow-up turn; use replay, skip live, or reshape the scenario for one-shot completion)`,
+			`agent invoked ${toolName} in headless mode (no follow-up turn; allow user input or reshape the scenario for one-shot completion)`,
 		);
 		this.name = "UserInputRequiredError";
 		this.toolName = toolName;

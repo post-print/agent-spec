@@ -44,15 +44,18 @@ jobs:
       - name: Node can import published harness ESM
         run: node -e "import('@post-print/agent-harness').then(() => console.log('harness ok'))"
 
-      - name: Node can run agent-test CLI smoke suite
-        run: node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
+      - name: Node can import published agent-test ESM
+        run: node -e "import('@post-print/agent-test').then(() => console.log('agent-test ok'))"
 
-      - name: Node can run agent-test via package bin symlink
+      - name: Node can validate suite JSON via package bin symlink
         run: |
           mkdir -p node_modules/.bin
           chmod +x packages/test/dist/cli.js
           ln -sfn ../@post-print/agent-test/dist/cli.js node_modules/.bin/agent-test
-          node_modules/.bin/agent-test --suites-dir packages/test/fixtures --suite smoke
+          node_modules/.bin/agent-test --validate-only --suites-dir packages/test/fixtures --suite smoke
+
+      - name: Node can run agent-test doctor
+        run: node packages/test/dist/cli.js --doctor
 
   security:
     runs-on: ubuntu-latest

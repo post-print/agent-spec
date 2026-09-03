@@ -2,7 +2,7 @@
 	"name": "split-rubric",
 	"description": "Prompts without answer keys; rubrics loaded from sibling rubrics.json",
 	"defaults": {
-		"host": "replay",
+		"host": "cursor",
 		"profile": "cursor",
 		"skills": "none"
 	},
@@ -10,7 +10,6 @@
 		{
 			"name": "opaque hello",
 			"prompt": "Say hello and confirm the split-rubric suite ran.",
-			"replayTrace": "packages/test/fixtures/split-rubric/fixtures/replays/hello.json",
 			"compareId": "opaque-hello"
 		}
 	]

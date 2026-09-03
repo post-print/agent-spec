@@ -11,7 +11,6 @@ import {
 	parseRubricsFile,
 	resolveRubricsPath,
 } from "../load-suite.js";
-import { runSuite } from "../run-suite.js";
 
 const splitRubricSuite = fileURLToPath(
 	new URL("../../fixtures/split-rubric/scenarios.json", import.meta.url),
@@ -86,14 +85,29 @@ describe("loadSuiteFile external rubrics", () => {
 	});
 });
 
-describe("runSuite with split rubrics", () => {
-	it("passes replay assertions from harness-only rubrics.json", async () => {
-		const report = await runSuite({
-			cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
-			suitePath: splitRubricSuite,
-		});
-		expect(report.failed).toBe(0);
-		expect(report.passed).toBe(1);
-		expect(report.results[0]?.failures).toEqual([]);
+describe("loadSuiteFile replay deprecation", () => {
+	it("rejects replay hosts and replayTrace fields with migration guidance", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-replay-deprecated-"));
+		const hostPath = join(dir, "host.json");
+		const tracePath = join(dir, "trace.json");
+		await writeFile(
+			hostPath,
+			JSON.stringify({
+				name: "legacy",
+				defaults: { host: "replay" },
+				scenarios: [{ name: "legacy", prompt: "p", rubric: {} }],
+			}),
+		);
+		await writeFile(
+			tracePath,
+			JSON.stringify({
+				name: "legacy",
+				scenarios: [{ name: "legacy", prompt: "p", replayTrace: "trace.json", rubric: {} }],
+			}),
+		);
+
+		await expect(loadSuiteFile(hostPath)).rejects.toThrow(/deprecated and no longer supported/);
+		await expect(loadSuiteFile(tracePath)).rejects.toThrow(/deprecated and no longer supported/);
+		await rm(dir, { recursive: true, force: true });
 	});
 });

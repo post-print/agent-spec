@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { AgentTrace } from "@post-print/agent-harness";
 import { enrichTrace } from "@post-print/agent-harness";
@@ -130,47 +130,19 @@ export function createLiveStagingSessionId(): string {
 	return `${process.pid}-${Date.now()}`;
 }
 
-export type RecordingPathKind = "staging" | "fixture";
-
-export interface ResolvedRecordingPath {
-	path: string;
-	kind: RecordingPathKind;
-}
-
-export interface ResolveRecordingPathOptions {
-	repoRoot: string;
-	stagingSessionId?: string;
-}
-
-/** Staging lives under $TMPDIR; use --record-fixtures to overwrite committed replayTrace. */
+/** Resolve the transient trace used by isolated direct-agent runs. */
 export function resolveRecordingPath(
 	suiteName: string,
 	scenarioName: string,
-	replayTrace: string | undefined,
-	recordFixtures: boolean,
-	options: ResolveRecordingPathOptions,
-): ResolvedRecordingPath | undefined {
-	if (recordFixtures) {
-		if (!replayTrace) {
-			return undefined;
-		}
-		return {
-			path: resolve(options.repoRoot, replayTrace),
-			kind: "fixture",
-		};
-	}
-
-	if (!options.stagingSessionId) {
+	stagingSessionId: string | undefined,
+): string | undefined {
+	if (!stagingSessionId) {
 		return undefined;
 	}
-
-	return {
-		path: getStagingTracePath(options.stagingSessionId, suiteName, scenarioName),
-		kind: "staging",
-	};
+	return getStagingTracePath(stagingSessionId, suiteName, scenarioName);
 }
 
-/** Persist a live trace for replay regression (strip raw SDK payload). */
+/** Persist a direct-run trace for parent-process judging and diagnostics. */
 export async function recordTrace(outputPath: string, trace: AgentTrace): Promise<string> {
 	const enriched = enrichTrace(trace);
 	const payload = {
@@ -221,30 +193,4 @@ export async function loadStagingResult(
 /** Remove a live staging session directory under $TMPDIR. */
 export async function cleanupStagingSession(sessionRoot: string): Promise<void> {
 	await rm(sessionRoot, { recursive: true, force: true });
-}
-
-/** Remove legacy in-repo staging dirs from before tmpdir staging (best-effort). */
-export async function cleanupLegacyRepoRecordings(repoRoot: string): Promise<string[]> {
-	const suitesRoot = join(repoRoot, "agent-suites");
-	const removed: string[] = [];
-
-	let suiteNames: string[];
-	try {
-		suiteNames = await readdir(suitesRoot);
-	} catch {
-		return removed;
-	}
-
-	for (const suiteName of suiteNames) {
-		const recordingsDir = join(suitesRoot, suiteName, "fixtures", "recordings");
-		try {
-			await stat(recordingsDir);
-			await rm(recordingsDir, { recursive: true, force: true });
-			removed.push(recordingsDir);
-		} catch {
-			// absent
-		}
-	}
-
-	return removed;
 }

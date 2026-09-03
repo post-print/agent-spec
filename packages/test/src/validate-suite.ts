@@ -6,7 +6,9 @@ import type { AgentHost, ContextProfile, SkillContextSetting } from "@post-print
 import { loadSuiteFile } from "./load-suite.js";
 import type { AgentScenario, AgentSuiteFile, ScenarioRubric } from "./types.js";
 
-const VALID_HOSTS = new Set<AgentHost>(["cursor", "claude", "replay"]);
+const VALID_HOSTS = new Set<AgentHost>(["cursor", "claude"]);
+const REPLAY_DEPRECATION =
+	"Replay-based testing is deprecated and no longer supported; use Cursor or Claude.";
 const VALID_PROFILES = new Set<ContextProfile>(["shared", "cursor", "claude", "skeleton"]);
 const VALID_SKILLS = new Set<SkillContextSetting>(["none", "catalog", "full"]);
 const VALID_TIERS = new Set<NonNullable<ScenarioRubric["tier"]>>(["low", "medium", "high"]);
@@ -135,9 +137,14 @@ function validateScenario(
 			issues,
 			suitePath,
 			"host",
-			`host must be cursor|claude|replay, got ${JSON.stringify(scenario.host)}`,
+			scenario.host === ("replay" as AgentHost)
+				? REPLAY_DEPRECATION
+				: `host must be cursor|claude, got ${JSON.stringify(scenario.host)}`,
 			scenario.name,
 		);
+	}
+	if ("replayTrace" in scenario) {
+		pushIssue(issues, suitePath, "replayTrace", REPLAY_DEPRECATION, scenario.name);
 	}
 	if (scenario.profile !== undefined && !VALID_PROFILES.has(scenario.profile)) {
 		pushIssue(
@@ -192,7 +199,9 @@ function validateDefaults(
 			issues,
 			suitePath,
 			"defaults.host",
-			`host must be cursor|claude|replay, got ${JSON.stringify(defaults.host)}`,
+			defaults.host === ("replay" as AgentHost)
+				? REPLAY_DEPRECATION
+				: `host must be cursor|claude, got ${JSON.stringify(defaults.host)}`,
 		);
 	}
 	if (defaults.profile !== undefined && !VALID_PROFILES.has(defaults.profile)) {
@@ -260,20 +269,6 @@ export async function validateSuitePaths(
 
 		if (options?.validatePaths && repoRoot) {
 			for (const scenario of suite.scenarios) {
-				if (scenario.replayTrace) {
-					const replayPath = resolve(repoRoot, scenario.replayTrace);
-					try {
-						await access(replayPath);
-					} catch {
-						pushIssue(
-							issues,
-							suitePath,
-							"replayTrace",
-							`replay trace not found: ${scenario.replayTrace}`,
-							scenario.name,
-						);
-					}
-				}
 				if (scenario.seedPatch) {
 					const patchPath = resolve(repoRoot, scenario.seedPatch);
 					try {

@@ -1,13 +1,19 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { discoverSuites } from "../discover-suites.js";
 import * as liveIsolation from "../live-isolation.js";
 import * as recordTrace from "../record-trace.js";
-import { outputContractForRubric, runSuite, shouldPrintSuiteChrome } from "../run-suite.js";
+import {
+	outputContractForRubric,
+	runAgentTest,
+	runSuite,
+	shouldPrintSuiteChrome,
+} from "../run-suite.js";
 
 describe("discoverSuites", () => {
 	it("skips directories without scenarios.json", async () => {
@@ -42,6 +48,67 @@ describe("outputContractForRubric", () => {
 
 	it("returns undefined when no routing rubric flags are set", () => {
 		expect(outputContractForRubric({ tier: "medium" })).toBeUndefined();
+	});
+});
+
+describe("runAgentTest direct host selection", () => {
+	it("defaults to Cursor and supports a Claude scenario override", async () => {
+		const cursorKey = process.env.CURSOR_API_KEY;
+		const anthropicKey = process.env.ANTHROPIC_API_KEY;
+		delete process.env.CURSOR_API_KEY;
+		delete process.env.ANTHROPIC_API_KEY;
+		try {
+			const cursor = await runAgentTest({
+				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
+				scenario: { name: "cursor default", prompt: "p", rubric: {} },
+				worktree: false,
+				judge: false,
+				scenarioRetries: 0,
+			});
+			const claude = await runAgentTest({
+				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
+				scenario: { name: "claude override", prompt: "p", host: "claude", rubric: {} },
+				worktree: false,
+				judge: false,
+				scenarioRetries: 0,
+			});
+			const claudeDefault = await runAgentTest({
+				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
+				scenario: { name: "claude default", prompt: "p", rubric: {} },
+				defaults: { host: "claude" },
+				worktree: false,
+				judge: false,
+				scenarioRetries: 0,
+			});
+			const scenarioWins = await runAgentTest({
+				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
+				host: "claude",
+				scenario: { name: "scenario wins", prompt: "p", host: "cursor", rubric: {} },
+				worktree: false,
+				judge: false,
+				scenarioRetries: 0,
+			});
+
+			expect(cursor.suite).toBe("direct");
+			expect(cursor.failures[0]?.message).toContain("CURSOR_API_KEY");
+			expect(claude.failures[0]?.message).toContain("ANTHROPIC_API_KEY");
+			expect(claudeDefault.failures[0]?.message).toContain("ANTHROPIC_API_KEY");
+			expect(scenarioWins.failures[0]?.message).toContain("CURSOR_API_KEY");
+		} finally {
+			if (cursorKey === undefined) delete process.env.CURSOR_API_KEY;
+			else process.env.CURSOR_API_KEY = cursorKey;
+			if (anthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+			else process.env.ANTHROPIC_API_KEY = anthropicKey;
+		}
+	});
+
+	it("rejects replay inputs from untyped callers", async () => {
+		await expect(
+			runAgentTest({
+				cwd: process.cwd(),
+				scenario: { name: "legacy", prompt: "p", rubric: {}, host: "replay" } as never,
+			}),
+		).rejects.toThrow(/deprecated and no longer supported/);
 	});
 });
 

@@ -62,7 +62,6 @@ export interface AgentScenario {
 	seedPatch?: string;
 	/** Live-only: with seedPatch, stage changes without committing (staged review mode). */
 	seedStageOnly?: boolean;
-	replayTrace?: string;
 	/**
 	 * Assertions / judge criteria. May be omitted in scenarios.json when supplied via
 	 * sibling `rubrics.json` / `scenarios.rubric.json` or `--rubrics-dir` (harness-only);
@@ -72,22 +71,21 @@ export interface AgentScenario {
 	skip?: boolean;
 }
 
+export interface AgentSuiteDefaults {
+	host?: AgentHost;
+	profile?: ContextProfile;
+	/** none | catalog | full — ambient-routing uses full for IDE parity. */
+	skills?: SkillContextSetting;
+	/** Additive repo-relative context paths or `.skeleton/customize/` basenames. */
+	contextSources?: string[];
+	/** Inline MCP servers for direct agent runs. */
+	mcpServers?: Record<string, McpServerConfig>;
+}
+
 export interface AgentSuiteFile {
 	name: string;
 	description?: string;
-	defaults?: {
-		host?: AgentHost;
-		profile?: ContextProfile;
-		/** none | catalog | full — ambient-routing uses full for IDE parity. */
-		skills?: SkillContextSetting;
-		/**
-		 * Additive repo-relative context paths (or `.skeleton/customize/` basenames).
-		 * Use with `profile: "skeleton"` or to extend shared/cursor/claude profiles.
-		 */
-		contextSources?: string[];
-		/** Inline MCP servers for live Cursor runs. */
-		mcpServers?: Record<string, McpServerConfig>;
-	};
+	defaults?: AgentSuiteDefaults;
 	scenarios: AgentScenario[];
 }
 

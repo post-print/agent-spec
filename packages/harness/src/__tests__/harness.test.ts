@@ -4,10 +4,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ReplayAdapter } from "../adapters/replay.js";
+import { createAdapter } from "../adapters/index.js";
 import { loadContext } from "../context.js";
-
-const INVALID_REPLAY_TRACE = /invalid replay trace/i;
 
 async function fixtureRepo(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "agent-harness-ctx-"));
@@ -98,51 +96,10 @@ describe("loadContext", () => {
 	});
 });
 
-describe("ReplayAdapter", () => {
-	it("fails without replayTracePath", async () => {
-		const adapter = new ReplayAdapter();
-		const repoRoot = await fixtureRepo();
-		const context = await loadContext({ cwd: repoRoot });
-		const session = await adapter.run({
-			host: "replay",
-			cwd: context.cwd,
-			context,
-			prompt: "test",
-		});
-		expect(session.status).toBe("failed");
-	});
-
-	it("fails on malformed JSON", async () => {
-		const adapter = new ReplayAdapter();
-		const dir = await mkdtemp(join(tmpdir(), "agent-harness-"));
-		const tracePath = join(dir, "broken.json");
-		await writeFile(tracePath, "{not json");
-		const context = await loadContext({ cwd: dir });
-		const session = await adapter.run({
-			host: "replay",
-			cwd: dir,
-			context,
-			prompt: "test",
-			replayTracePath: tracePath,
-		});
-		expect(session.status).toBe("failed");
-		expect(session.error).toMatch(INVALID_REPLAY_TRACE);
-	});
-
-	it("fails on invalid trace shape", async () => {
-		const adapter = new ReplayAdapter();
-		const dir = await mkdtemp(join(tmpdir(), "agent-harness-"));
-		const tracePath = join(dir, "shape.json");
-		await writeFile(tracePath, JSON.stringify({ foo: "bar" }));
-		const context = await loadContext({ cwd: dir });
-		const session = await adapter.run({
-			host: "replay",
-			cwd: dir,
-			context,
-			prompt: "test",
-			replayTracePath: tracePath,
-		});
-		expect(session.status).toBe("failed");
-		expect(session.error).toMatch(INVALID_REPLAY_TRACE);
+describe("createAdapter", () => {
+	it("rejects the deprecated replay host for untyped callers", () => {
+		expect(() => createAdapter("replay" as never)).toThrow(
+			"Replay-based testing is deprecated and no longer supported",
+		);
 	});
 });

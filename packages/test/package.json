@@ -34,7 +34,7 @@
 		"typescript": "~7.0.2",
 		"vitest": "^4.0.17"
 	},
-	"description": "Scenario runner and CLI for agent-spec suites",
+	"description": "Direct-agent scenario runner and CLI for agent-spec suites",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/post-print/agent-spec.git",

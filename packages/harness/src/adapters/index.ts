@@ -4,7 +4,9 @@ import { formatCursorRunFailure, runCursorAgent, takeLastCursorRunTrace } from "
 import { buildRoutingContract } from "../routing-contract.js";
 import { getPartialTrace } from "../run-guards.js";
 import type { AgentSession, AgentTrace, HostAdapter, RunAgentOptions } from "../types.js";
-import { ReplayAdapter } from "./replay.js";
+
+const REPLAY_DEPRECATION =
+	"Replay-based testing is deprecated and no longer supported; use the cursor or claude host.";
 
 function emptyFailed(host: "cursor" | "claude", error: string): AgentSession {
 	return {
@@ -37,10 +39,7 @@ export class CursorAdapter implements HostAdapter {
 
 	async run(options: RunAgentOptions): Promise<AgentSession> {
 		if (!process.env.CURSOR_API_KEY) {
-			return emptyFailed(
-				this.host,
-				"CURSOR_API_KEY not set — use host replay or set API key for live runs",
-			);
+			return emptyFailed(this.host, "CURSOR_API_KEY not set — required for Cursor agent runs");
 		}
 
 		const started = performance.now();
@@ -123,10 +122,7 @@ export class ClaudeAdapter implements HostAdapter {
 
 	async run(options: RunAgentOptions): Promise<AgentSession> {
 		if (!process.env.ANTHROPIC_API_KEY?.trim()) {
-			return emptyFailed(
-				this.host,
-				"ANTHROPIC_API_KEY not set — use host replay or set API key for live runs",
-			);
+			return emptyFailed(this.host, "ANTHROPIC_API_KEY not set — required for Claude agent runs");
 		}
 
 		const started = performance.now();
@@ -202,14 +198,15 @@ export class ClaudeAdapter implements HostAdapter {
 }
 
 export function createAdapter(host: RunAgentOptions["host"]): HostAdapter {
+	if ((host as string) === "replay") {
+		throw new Error(REPLAY_DEPRECATION);
+	}
 	switch (host) {
 		case "cursor":
 			return new CursorAdapter();
 		case "claude":
 			return new ClaudeAdapter();
 		default:
-			return new ReplayAdapter();
+			throw new Error(`Unsupported agent host: ${String(host)}`);
 	}
 }
-
-export { ReplayAdapter };

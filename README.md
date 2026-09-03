@@ -2,7 +2,7 @@
 
 **Source of truth for** package overview.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-02 -->
 
 Executable specs for coding-agent behavior.
 
@@ -10,10 +10,12 @@ Executable specs for coding-agent behavior.
 
 | Package                                         | Purpose                                                                           |
 | ----------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`@post-print/agent-harness`](packages/harness) | Host-agnostic agent runtime: context load, replay, Cursor adapter, capture, judge |
-| [`@post-print/agent-test`](packages/test)       | Scenario runner + `agent-test` CLI                                                |
+| [`@post-print/agent-harness`](packages/harness) | Host-agnostic agent runtime: context load, Cursor/Claude adapters, capture, judge |
+| [`@post-print/agent-test`](packages/test)       | Direct-agent scenario runner + `agent-test` CLI                                  |
 
-Consumer repos keep suites locally (for example `agent-suites/<suite>/scenarios.json`) and depend on these packages from npm.
+Consumer repos can call the typed `runAgentTest` API directly or keep JSON suites locally (for example `agent-suites/<suite>/scenarios.json`). JSON is an authoring adapter: every test execution launches Cursor or Claude.
+
+> **Deprecated and removed:** replay-based tests and committed replay traces are no longer supported. `host: "replay"`, `replayTrace`, `--record-fixtures`, and the old `--live` mode flag fail with migration guidance.
 
 ## Consumer usage (Node >= 22)
 
@@ -21,7 +23,7 @@ Published packages are native ESM and run under Node (no Bun required at runtime
 
 ```bash
 npx agent-test --suites-dir agent-suites
-npx agent-test --suites-dir agent-suites --live   # CURSOR_API_KEY required
+npx agent-test --suites-dir agent-suites --host claude
 ```
 
 ## Develop
@@ -37,7 +39,7 @@ bun run test:sandbox-safe
 Full gate: `bun run check` (needs unrestricted Cursor sandbox / `all` — some tests run `git init`). Or `bun run dev` for lint + typecheck + all tests. In-repo CLI smoke (after build):
 
 ```bash
-node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
+node packages/test/dist/cli.js --validate-only --suites-dir packages/test/fixtures --suite smoke
 node packages/test/dist/cli.js --doctor
 node packages/test/dist/cli.js --validate-only --validate-paths --suites-dir agent-suites
 node packages/test/dist/cli.js --validate-seeds --suites-dir agent-suites
@@ -51,7 +53,7 @@ Scoped checks: `bunx vitest run <file>` and `bunx biome check <path>` (use `bunx
 
 - Prefer `bun run test:sandbox-safe` under the default Cursor sandbox (skips git-init and `.cursor` tmp fixtures). Full `bun run test` / `bun run check` need unrestricted (`all`) permissions.
 - `bun install` may warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox; install still succeeds.
-- Live `--live` runs need `CURSOR_API_KEY` **exported** (see `.env.example`; CLI does not load `.env`). Missing suites directory (default `agent-suites/`) errors with ENOENT in this monorepo; use `packages/test/fixtures` for local smoke.
+- Direct runs need `CURSOR_API_KEY` **exported** for Cursor or `ANTHROPIC_API_KEY` for Claude (see `.env.example`; CLI does not load `.env`). They can incur provider usage. Missing suites directory (default `agent-suites/`) is an error.
 - Prefer CI publish (provenance) over manual `npm publish`; see Publish below.
 
 ## Publish

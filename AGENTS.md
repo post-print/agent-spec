@@ -2,7 +2,7 @@
 
 **Source of truth for** agent cold-start in this repo.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-07-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-02 -->
 
 Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agent-harness` and `@post-print/agent-test`.
 
@@ -10,7 +10,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 
 - Bun `1.2.x` (see `packageManager` in `package.json`)
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
-- Live `--live` runs require an **exported** `CURSOR_API_KEY` for Cursor (default) or `ANTHROPIC_API_KEY` for `--host claude` (copy `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless `--no-judge`.
+- Agent tests require an **exported** `CURSOR_API_KEY` for Cursor (default) or `ANTHROPIC_API_KEY` for `--host claude` (copy `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless `--no-judge`. Every test execution launches a real agent and can incur provider usage.
 
 ## First hour
 
@@ -19,7 +19,7 @@ bun install
 bun run build
 bun run test:sandbox-safe   # default Cursor sandbox OK
 bun run audit:self
-node packages/test/dist/cli.js --suites-dir packages/test/fixtures --suite smoke
+node packages/test/dist/cli.js --validate-only --suites-dir packages/test/fixtures --suite smoke
 node packages/test/dist/cli.js --doctor
 ```
 
@@ -41,6 +41,6 @@ Use `bun run lint` / `bunx biome` (pinned 2.5.4). A global `biome` on PATH is of
 ## Layout
 
 - `packages/harness` — host-agnostic agent runtime
-- `packages/test` — scenario runner + `agent-test` CLI
+- `packages/test` — direct-agent scenario runner + `agent-test` CLI; JSON suites are an input adapter
 - `.agents/skills/` — project skills (Cursor/Codex); `.claude/skills/` mirrors for Claude Code
 - Team skills from [csark0812/toolbox](https://github.com/csark0812/toolbox); lockfile: `skills-lock.json`

@@ -16,7 +16,7 @@ import type { SuiteRunReport } from "../types.js";
 function makeReport(suite: string, results: SuiteRunReport["results"]): SuiteRunReport {
 	return {
 		suite,
-		host: "replay",
+		host: "cursor",
 		passed: results.filter((r) => r.passed && !r.skipped).length,
 		failed: results.filter((r) => !r.passed && !r.skipped).length,
 		skipped: results.filter((r) => r.skipped).length,
