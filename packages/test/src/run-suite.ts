@@ -46,6 +46,8 @@ import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
 import { formatDuration, logPhase, logProgress, logVerdict, withHeartbeat } from "./progress.js";
 import {
+	cleanupStagingSession,
+	createLiveStagingSessionId,
 	getLiveStagingRootOverride,
 	getLiveStagingSessionRoot,
 	getStagingAgentStartPath,
@@ -71,6 +73,7 @@ import { summarizeReportResults } from "./suite-summary.js";
 import { theme } from "./theme.js";
 import type {
 	AgentScenario,
+	AgentSuiteDefaults,
 	AssertionFailure,
 	JudgeRubricItem,
 	JudgeVerdictResult,
@@ -78,6 +81,7 @@ import type {
 	ScenarioRubric,
 	SuiteRunReport,
 } from "./types.js";
+import { validateSuiteFile } from "./validate-suite.js";
 
 const require = createRequire(import.meta.url);
 const packageVersion = (require("../package.json") as { version: string }).version;
@@ -160,15 +164,11 @@ export interface RunSuiteOptions {
 	host?: AgentHost;
 	/** Run only this scenario name (used by live subprocess isolation). */
 	scenarioFilter?: string;
-	/** Write live traces after a fully passing run. */
-	record?: boolean;
-	/** Overwrite committed replayTrace paths (default: write staging traces under $TMPDIR). */
-	recordFixtures?: boolean;
-	/** Run harness LLM judge for rubric.judge criteria (live hosts only). */
+	/** Run the harness LLM judge for rubric.judge criteria. */
 	judge?: boolean;
-	/** Isolate each live scenario in a detached git worktree. */
+	/** Isolate each scenario in a detached git worktree. */
 	worktree?: boolean;
-	/** Session id for live staging traces under $TMPDIR (see record-trace.ts). */
+	/** Session id for transient staging traces under $TMPDIR (see record-trace.ts). */
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
 	suitesDir?: string;
@@ -185,6 +185,29 @@ export interface RunSuiteOptions {
 	scenarioRetries?: number;
 	/** Prefer `<rubricsDir>/<suite>/rubrics.json` over sibling rubrics (harness-only). */
 	rubricsDir?: string;
+}
+
+export interface RunAgentTestOptions {
+	cwd: string;
+	scenario: AgentScenario;
+	suiteName?: string;
+	defaults?: AgentSuiteDefaults;
+	/** Overrides the suite default; a scenario host still wins. */
+	host?: AgentHost;
+	judge?: boolean;
+	worktree?: boolean;
+	timeoutMs?: number;
+	allowUserInput?: boolean;
+	debug?: boolean;
+	debugDir?: string;
+	keepRecordings?: boolean;
+	scenarioRetries?: number;
+	/** Internal suite orchestration metadata; safe for programmatic callers to omit. */
+	stagingSessionId?: string;
+	suitesDir?: string;
+	rubricsDir?: string;
+	scenarioIndex?: number;
+	scenarioTotal?: number;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -324,7 +347,6 @@ async function maybeWriteDebugBundle(options: {
 	timeoutMs?: number;
 	worktree?: boolean;
 	judge?: boolean;
-	live: boolean;
 	allowUserInput?: boolean;
 	keepRecordings?: boolean;
 }): Promise<string | undefined> {
@@ -357,7 +379,7 @@ async function maybeWriteDebugBundle(options: {
 				host: options.host,
 				timeoutMs: options.timeoutMs,
 				worktree: options.worktree,
-				isolateLive: options.live && liveScenarioIsolationEnabled(),
+				isolateLive: liveScenarioIsolationEnabled(),
 			}),
 			rerun: {
 				cliPath,
@@ -366,7 +388,6 @@ async function maybeWriteDebugBundle(options: {
 				rubricsDir: options.rubricsDir,
 				suite: options.suiteName,
 				scenario: options.scenario.name,
-				live: options.live,
 				host: options.host,
 				judge: options.judge,
 				worktree: options.worktree,
@@ -398,10 +419,17 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 	if (options.debugDir !== undefined) {
 		setLiveStagingRootOverride(options.debugDir);
 	}
+	const ownsStagingSession = options.stagingSessionId === undefined;
+	const stagingSessionId = options.stagingSessionId ?? createLiveStagingSessionId();
 
 	try {
-		return await runSuiteBody(options);
+		return await runSuiteBody({ ...options, stagingSessionId });
 	} finally {
+		if (ownsStagingSession && !options.keepRecordings && !options.debug) {
+			await cleanupStagingSession(getLiveStagingSessionRoot(stagingSessionId)).catch(
+				() => undefined,
+			);
+		}
 		if (options.debugDir !== undefined) {
 			setLiveStagingRootOverride(previousStagingRoot);
 		}
@@ -410,7 +438,17 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 
 async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const suite = await loadSuiteFile(options.suitePath, { rubricsDir: options.rubricsDir });
-	const defaultHost = options.host ?? suite.defaults?.host ?? "replay";
+	const validationIssues = validateSuiteFile(options.suitePath, suite);
+	if (validationIssues.length > 0) {
+		const details = validationIssues
+			.map(
+				(issue) =>
+					`${issue.scenario ? `${issue.scenario} · ` : ""}${issue.field}: ${issue.message}`,
+			)
+			.join("\n");
+		throw new Error(`Invalid suite file ${options.suitePath}:\n${details}`);
+	}
+	const defaultHost = options.host ?? suite.defaults?.host ?? "cursor";
 	const results: ScenarioResult[] = [];
 	const scenarios = options.scenarioFilter
 		? suite.scenarios.filter((scenario) => scenario.name === options.scenarioFilter)
@@ -423,9 +461,8 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const filteredTotal = scenarios.length;
 	const parentCounters = parentScenarioCounters();
 	const displayTotal = parentCounters?.total ?? filteredTotal;
-	const isLiveSuite = defaultHost !== "replay";
 	const isolateLive =
-		isLiveSuite && liveScenarioIsolationEnabled() && !options.scenarioFilter && filteredTotal > 1;
+		liveScenarioIsolationEnabled() && !options.scenarioFilter && filteredTotal > 1;
 	let previousIsolatedExitCode: number | undefined;
 
 	if (shouldPrintSuiteChrome()) {
@@ -461,10 +498,9 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 
 			const started = performance.now();
 			const debug = isDebugEnabled(options);
-			const maxAttempts =
-				!isChildProcess() && isLiveSuite
-					? resolveScenarioRetryMaxAttempts(options.scenarioRetries)
-					: 1;
+			const maxAttempts = !isChildProcess()
+				? resolveScenarioRetryMaxAttempts(options.scenarioRetries)
+				: 1;
 			let attempts = 0;
 			let failures: AssertionFailure[] = [];
 			let scenarioTrace: AgentTrace | undefined;
@@ -481,7 +517,6 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					suiteFilter: options.suiteFilter ?? suite.name,
 					stagingSessionId: options.stagingSessionId,
 					keepRecordings: options.keepRecordings,
-					recordFixtures: options.recordFixtures,
 					worktree: options.worktree,
 					judge: options.judge,
 					host: defaultHost,
@@ -588,7 +623,6 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				timeoutMs: options.timeoutMs,
 				worktree: options.worktree,
 				judge: options.judge,
-				live: true,
 				allowUserInput: options.allowUserInput,
 				keepRecordings: options.keepRecordings,
 			});
@@ -610,120 +644,29 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 			continue;
 		}
 
-		const inProcessMaxAttempts =
-			!isChildProcess() && isLiveSuite
-				? resolveScenarioRetryMaxAttempts(options.scenarioRetries)
-				: 1;
-		if (inProcessMaxAttempts > 1) {
-			let attempts = 0;
-			let scenarioResult!: ScenarioResult;
-			while (true) {
-				attempts++;
-				scenarioResult = await runScenario(
-					options.cwd,
-					suite.name,
-					scenario,
-					defaultHost,
-					suite.defaults?.profile,
-					suite.defaults?.skills,
-					suite.defaults?.contextSources,
-					suite.defaults?.mcpServers,
-					options.record,
-					options.recordFixtures,
-					options.judge,
-					options.worktree,
-					options.stagingSessionId,
-					scenarioIndex,
-					scenarioTotal,
-					options.timeoutMs,
-					options.allowUserInput,
-					options.debug,
-					options.debugDir,
-					options.suitesDir ?? "agent-suites",
-					options.keepRecordings,
-					options.rubricsDir,
-					{ suppressEmit: true },
-				);
-				const canRetry =
-					!scenarioResult.skipped &&
-					!scenarioResult.passed &&
-					attempts < inProcessMaxAttempts &&
-					shouldRetryAnnounceStopFlake(scenarioResult.failures, scenarioResult.trace);
-				if (canRetry) {
-					logPhase(theme.phase("retry", `${attempts}/${inProcessMaxAttempts - 1}`));
-					continue;
-				}
-				break;
-			}
-			scenarioResult.attempts = attempts;
-			const debug = isDebugEnabled(options);
-			const debugBundleDir = await maybeWriteDebugBundle({
-				debug,
+		results.push(
+			await runAgentTest({
 				cwd: options.cwd,
-				suitesDir: options.suitesDir ?? "agent-suites",
-				rubricsDir: options.rubricsDir,
-				stagingSessionId: options.stagingSessionId,
-				debugDir: options.debugDir,
 				suiteName: suite.name,
 				scenario,
-				host: scenario.host ?? defaultHost,
-				result: scenarioResult,
-				trace: scenarioResult.trace,
-				timeoutMs: options.timeoutMs,
-				worktree: options.worktree,
+				defaults: suite.defaults,
+				host: options.host,
 				judge: options.judge,
-				live: true,
+				worktree: options.worktree,
+				stagingSessionId: options.stagingSessionId,
+				scenarioIndex,
+				scenarioTotal,
+				timeoutMs: options.timeoutMs,
 				allowUserInput: options.allowUserInput,
+				debug: options.debug,
+				debugDir: options.debugDir,
+				suitesDir: options.suitesDir,
 				keepRecordings: options.keepRecordings,
-			});
-			scenarioResult.debugBundleDir = debugBundleDir;
-			emitScenarioVerdict({
-				passed: scenarioResult.passed,
-				index: scenarioIndex,
-				total: scenarioTotal,
-				name: scenario.name,
-				durationMs: scenarioResult.durationMs,
-				totalTokens: totalTokensFromScenarioUsage(
-					scenarioResult.usage,
-					scenarioResult.trace?.usage,
-				),
-				judgeVerdicts: scenarioResult.judgeVerdicts,
-				failures: scenarioResult.failures,
-				debug,
-				debugBundleDir,
-			});
-			results.push(scenarioResult);
-		} else {
-			results.push(
-				await runScenario(
-					options.cwd,
-					suite.name,
-					scenario,
-					defaultHost,
-					suite.defaults?.profile,
-					suite.defaults?.skills,
-					suite.defaults?.contextSources,
-					suite.defaults?.mcpServers,
-					options.record,
-					options.recordFixtures,
-					options.judge,
-					options.worktree,
-					options.stagingSessionId,
-					scenarioIndex,
-					scenarioTotal,
-					options.timeoutMs,
-					options.allowUserInput,
-					options.debug,
-					options.debugDir,
-					options.suitesDir ?? "agent-suites",
-					options.keepRecordings,
-					options.rubricsDir,
-				),
-			);
-		}
-		if (isLiveSuite) {
-			releaseLiveMemory();
-		}
+				rubricsDir: options.rubricsDir,
+				scenarioRetries: isChildProcess() ? 0 : options.scenarioRetries,
+			}),
+		);
+		releaseLiveMemory();
 	}
 
 	return {
@@ -747,7 +690,120 @@ function mergeContextSources(
 	return merged.length > 0 ? merged : undefined;
 }
 
-async function runScenario(
+/** Run one real agent scenario. JSON suites delegate to this same execution boundary. */
+export async function runAgentTest(options: RunAgentTestOptions): Promise<ScenarioResult> {
+	const previousStagingRoot = getLiveStagingRootOverride();
+	if (options.debugDir !== undefined) {
+		setLiveStagingRootOverride(options.debugDir);
+	}
+	const stagingSessionId =
+		options.stagingSessionId ??
+		(options.debug || options.keepRecordings ? createLiveStagingSessionId() : undefined);
+	try {
+		return await runAgentTestBody({ ...options, stagingSessionId });
+	} finally {
+		if (options.debugDir !== undefined) {
+			setLiveStagingRootOverride(previousStagingRoot);
+		}
+	}
+}
+
+async function runAgentTestBody(options: RunAgentTestOptions): Promise<ScenarioResult> {
+	const legacyScenario = options.scenario as unknown as {
+		host?: unknown;
+		replayTrace?: unknown;
+	};
+	const legacyDefaults = options.defaults as unknown as { host?: unknown } | undefined;
+	if (
+		legacyScenario.host === "replay" ||
+		legacyDefaults?.host === "replay" ||
+		"replayTrace" in legacyScenario
+	) {
+		throw new Error(
+			"Replay-based testing is deprecated and no longer supported; use Cursor or Claude.",
+		);
+	}
+	const suiteName = options.suiteName ?? "direct";
+	const defaultHost = options.host ?? options.defaults?.host ?? "cursor";
+	const maxAttempts = resolveScenarioRetryMaxAttempts(options.scenarioRetries);
+	let attempts = 0;
+	let result!: ScenarioResult;
+
+	while (true) {
+		attempts++;
+		result = await runAgentTestOnce(
+			options.cwd,
+			suiteName,
+			options.scenario,
+			defaultHost,
+			options.defaults?.profile,
+			options.defaults?.skills,
+			options.defaults?.contextSources,
+			options.defaults?.mcpServers,
+			options.judge ?? true,
+			options.worktree ?? true,
+			options.stagingSessionId,
+			options.scenarioIndex,
+			options.scenarioTotal,
+			options.timeoutMs,
+			options.allowUserInput,
+			options.debug,
+			options.debugDir,
+			options.suitesDir ?? "agent-suites",
+			options.keepRecordings,
+			options.rubricsDir,
+			{ suppressEmit: maxAttempts > 1 },
+		);
+		const canRetry =
+			!result.skipped &&
+			!result.passed &&
+			attempts < maxAttempts &&
+			shouldRetryAnnounceStopFlake(result.failures, result.trace);
+		if (!canRetry) {
+			break;
+		}
+		logPhase(theme.phase("retry", `${attempts}/${maxAttempts - 1}`));
+	}
+
+	result.attempts = attempts;
+	if (maxAttempts > 1) {
+		const debug = isDebugEnabled(options);
+		const debugBundleDir = await maybeWriteDebugBundle({
+			debug,
+			cwd: options.cwd,
+			suitesDir: options.suitesDir ?? "agent-suites",
+			rubricsDir: options.rubricsDir,
+			stagingSessionId: options.stagingSessionId,
+			debugDir: options.debugDir,
+			suiteName,
+			scenario: options.scenario,
+			host: options.scenario.host ?? defaultHost,
+			result,
+			trace: result.trace,
+			timeoutMs: options.timeoutMs,
+			worktree: options.worktree,
+			judge: options.judge ?? true,
+			allowUserInput: options.allowUserInput,
+			keepRecordings: options.keepRecordings,
+		});
+		result.debugBundleDir = debugBundleDir;
+		emitScenarioVerdict({
+			passed: result.passed,
+			index: options.scenarioIndex,
+			total: options.scenarioTotal,
+			name: options.scenario.name,
+			durationMs: result.durationMs,
+			totalTokens: totalTokensFromScenarioUsage(result.usage, result.trace?.usage),
+			judgeVerdicts: result.judgeVerdicts,
+			failures: result.failures,
+			debug,
+			debugBundleDir,
+		});
+	}
+	return result;
+}
+
+async function runAgentTestOnce(
 	cwd: string,
 	suiteName: string,
 	scenario: AgentScenario,
@@ -756,8 +812,6 @@ async function runScenario(
 	defaultSkills?: SkillContextSetting,
 	defaultContextSources?: string[],
 	defaultMcpServers?: Record<string, McpServerConfig>,
-	record?: boolean,
-	recordFixtures?: boolean,
 	judge?: boolean,
 	worktree?: boolean,
 	stagingSessionId?: string,
@@ -797,8 +851,7 @@ async function runScenario(
 	const skills = scenario.skills ?? defaultSkills;
 	const contextSources = mergeContextSources(defaultContextSources, scenario.contextSources);
 	const mcpServers = mergeMcpServers(defaultMcpServers, scenario.mcpServers);
-	const isLive = host !== "replay";
-	const liveTimeoutMs = isLive ? resolveLiveTimeoutMs(timeoutMs) : undefined;
+	const liveTimeoutMs = resolveLiveTimeoutMs(timeoutMs);
 	const failOnUserInput = !allowUserInput;
 
 	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
@@ -807,89 +860,72 @@ async function runScenario(
 		logProgress(theme.scenarioLabel(scenario.name, host));
 	}
 
-	const useWorktree = isLive && worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
+	const useWorktree = worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
 	let worktreeHandle: Awaited<ReturnType<typeof createScenarioWorktree>> | undefined;
 	let callerHeadBefore: Awaited<ReturnType<typeof captureCallerHead>> | undefined;
 	const callerTreeBefore = useWorktree ? await captureWorkingTreeStatus(cwd) : undefined;
 	if (useWorktree) {
-		if (isLive && scenario.seedPatch) {
+		if (scenario.seedPatch) {
 			callerHeadBefore = await captureCallerHead(cwd);
 			setCallerHeadRestore(cwd, callerHeadBefore);
 		}
 		worktreeHandle = await createScenarioWorktree(cwd, `${suiteName}-${scenario.name}`);
 		activeWorktreeCleanup = worktreeHandle.cleanup;
 		logPhase(theme.phase("worktree", theme.path(worktreeHandle.path)));
-		if (isLive && scenario.seedPatch) {
+		if (scenario.seedPatch) {
 			logPhase(theme.phase("seed", theme.basename(scenario.seedPatch)));
 			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch, {
 				stageOnly: scenario.seedStageOnly === true,
 			});
 		}
-	} else if (isLive) {
+	} else {
 		logPhase(theme.phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)")));
 	}
 	const runCwd = worktreeHandle?.path ?? cwd;
 
 	try {
 		logPhase(theme.phase("context"));
-		// Live worktree runs code in an isolated checkout; load rules/AGENTS from caller cwd
+		// Worktree runs code in an isolated checkout; load rules/AGENTS from caller cwd
 		// so uncommitted .cursor/rules and AGENTS.md edits apply during dogfood.
-		const contextRoot = isLive && useWorktree ? cwd : runCwd;
+		const contextRoot = useWorktree ? cwd : runCwd;
 		const context = await loadContext({
 			cwd: contextRoot,
 			profile,
 			skills,
 			contextSources,
 		});
-		const useReplay = host === "replay";
-		if (useReplay) {
-			logPhase(theme.phase("replay", theme.path(scenario.replayTrace ?? "trace")));
-		} else {
-			logPhase(theme.phase("agent"));
-		}
+		logPhase(theme.phase("agent"));
 
-		const outputContract = isLive ? outputContractForRubric(scenario.rubric) : undefined;
+		const outputContract = outputContractForRubric(scenario.rubric);
 		const agentStartMarkerPath =
-			isChildProcess() && isLive && stagingSessionId
+			isChildProcess() && stagingSessionId
 				? getStagingAgentStartPath(stagingSessionId, suiteName, scenario.name)
 				: undefined;
 		const agentStarted = performance.now();
-		const session = await (isLive
-			? withHeartbeat(
-					runAgent({
-						host,
-						cwd: runCwd,
-						context,
-						profile,
-						prompt: scenario.prompt,
-						outputContract,
-						mcpServers,
-						timeoutMs: liveTimeoutMs,
-						failOnUserInput,
-						onDeadlineStart: agentStartMarkerPath
-							? () => writeAgentStartMarker(agentStartMarkerPath)
-							: undefined,
-					}),
-					{ started: agentStarted },
-				)
-			: runAgent({
-					host,
-					cwd: runCwd,
-					context,
-					profile,
-					prompt: scenario.prompt,
-					replayTracePath: useReplay ? scenario.replayTrace : undefined,
-					mcpServers,
-				}));
+		const session = await withHeartbeat(
+			runAgent({
+				host,
+				cwd: runCwd,
+				context,
+				profile,
+				prompt: scenario.prompt,
+				outputContract,
+				mcpServers,
+				timeoutMs: liveTimeoutMs,
+				failOnUserInput,
+				onDeadlineStart: agentStartMarkerPath
+					? () => writeAgentStartMarker(agentStartMarkerPath)
+					: undefined,
+			}),
+			{ started: agentStarted },
+		);
 
-		if (isLive) {
-			logPhase(
-				theme.phase(
-					"agent",
-					`${theme.statusCompleted(session.status)} ${theme.duration(formatDuration(performance.now() - agentStarted))}`,
-				),
-			);
-		}
+		logPhase(
+			theme.phase(
+				"agent",
+				`${theme.statusCompleted(session.status)} ${theme.duration(formatDuration(performance.now() - agentStarted))}`,
+			),
+		);
 
 		let trace = enrichTrace(session.trace);
 		const failures: AssertionFailure[] = [];
@@ -920,7 +956,7 @@ async function runScenario(
 					runtimeEvidence,
 				),
 			);
-		} else if (isLive && failOnUserInput && traceHasUserInputTool(trace.toolCalls)) {
+		} else if (failOnUserInput && traceHasUserInputTool(trace.toolCalls)) {
 			failures.push(
 				assertionFailure(
 					"runAgent",
@@ -946,10 +982,9 @@ async function runScenario(
 				ignoreRoots,
 				cwd,
 			);
-			const seedPaths =
-				isLive && scenario.seedPatch
-					? await loadUnifiedDiffPaths(resolve(cwd, scenario.seedPatch)).catch(() => [])
-					: [];
+			const seedPaths = scenario.seedPatch
+				? await loadUnifiedDiffPaths(resolve(cwd, scenario.seedPatch)).catch(() => [])
+				: [];
 			const outsideEdits =
 				worktreeHandle !== undefined
 					? traceEditsOutsideWorktree(trace, worktreeHandle.path, cwd)
@@ -995,34 +1030,25 @@ async function runScenario(
 			}
 		}
 
-		if (record && isLive) {
-			const resolved = resolveRecordingPath(
-				suiteName,
-				scenario.name,
-				scenario.replayTrace,
-				recordFixtures === true,
-				{ repoRoot: cwd, stagingSessionId },
-			);
-			if (resolved) {
-				try {
-					const path = await recordTrace(resolved.path, trace);
-					const recordLabel = resolved.kind === "fixture" ? "fixture" : "trace";
-					logPhase(theme.phase(recordLabel, theme.path(path)));
-				} catch (error) {
-					failures.push(
-						assertionFailure(
-							"recordTrace",
-							error instanceof Error ? error.message : "failed to record trace",
-							"recording_error",
-						),
-					);
-				}
+		const stagingTracePath = resolveRecordingPath(suiteName, scenario.name, stagingSessionId);
+		if (stagingTracePath) {
+			try {
+				const path = await recordTrace(stagingTracePath, trace);
+				logPhase(theme.phase("trace", theme.path(path)));
+			} catch (error) {
+				failures.push(
+					assertionFailure(
+						"recordTrace",
+						error instanceof Error ? error.message : "failed to record trace",
+						"recording_error",
+					),
+				);
 			}
 		}
 
 		const deferJudgeToParent = isChildProcess();
 		let judgeVerdicts: JudgeVerdictResult[] | undefined;
-		if (judge && isLive && !deferJudgeToParent) {
+		if (judge && !deferJudgeToParent) {
 			const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
 			if (criteria.length > 0) {
 				logPhase(theme.judgePhase(criteria.length), { last: true });
@@ -1035,7 +1061,7 @@ async function runScenario(
 
 		const durationMs = Math.round(performance.now() - started);
 
-		if (isChildProcess() && isLive && stagingSessionId) {
+		if (isChildProcess() && stagingSessionId) {
 			await writeStagingResult(getStagingResultPath(stagingSessionId, suiteName, scenario.name), {
 				passed: failures.length === 0,
 				failures,
@@ -1046,7 +1072,6 @@ async function runScenario(
 		if (worktreeHandle) {
 			const willJudge =
 				Boolean(judge) &&
-				isLive &&
 				!isChildProcess() &&
 				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
 			logPhase(theme.phase("cleanup"), { last: !willJudge });
@@ -1090,7 +1115,6 @@ async function runScenario(
 				timeoutMs,
 				worktree,
 				judge,
-				live: isLive,
 				allowUserInput,
 				keepRecordings,
 			});
@@ -1190,8 +1214,6 @@ export async function runAllSuites(options: {
 	host?: AgentHost;
 	filter?: string;
 	scenarioFilter?: string;
-	record?: boolean;
-	recordFixtures?: boolean;
 	judge?: boolean;
 	worktree?: boolean;
 	stagingSessionId?: string;
@@ -1219,8 +1241,6 @@ export async function runAllSuites(options: {
 				suitePath,
 				host: options.host,
 				scenarioFilter: options.scenarioFilter,
-				record: options.record,
-				recordFixtures: options.recordFixtures,
 				judge: options.judge,
 				worktree: options.worktree,
 				stagingSessionId: options.stagingSessionId,

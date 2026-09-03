@@ -95,16 +95,16 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	try {
 		require.resolve("@cursor/sdk");
 		cursorSdkPresent = true;
-		messages.push("@cursor/sdk: installed (live Cursor runs ready)");
+		messages.push("@cursor/sdk: installed (direct Cursor runs ready)");
 	} catch {
-		messages.push("@cursor/sdk not installed — required for --live Cursor (npm i -D @cursor/sdk)");
+		messages.push("@cursor/sdk not installed — required for Cursor runs (npm i -D @cursor/sdk)");
 	}
 
 	const cursorApiKeySet = Boolean(process.env.CURSOR_API_KEY?.trim());
 	if (cursorApiKeySet) {
 		messages.push("CURSOR_API_KEY: set");
 	} else {
-		messages.push("CURSOR_API_KEY unset (required for --live Cursor / judge)");
+		messages.push("CURSOR_API_KEY unset (required for Cursor runs / judge)");
 	}
 
 	const anthropicApiKeySet = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
@@ -121,7 +121,7 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		messages.push(`${CLAUDE_AUTH_MODE_ENV}="${claudeAuthMode}" invalid (api-key or subscription)`);
 	} else {
 		messages.push(
-			`${CLAUDE_AUTH_MODE_ENV} unset (required for --live --host claude: api-key or subscription)`,
+			`${CLAUDE_AUTH_MODE_ENV} unset (required for --host claude: api-key or subscription)`,
 		);
 	}
 

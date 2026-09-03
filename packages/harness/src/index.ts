@@ -6,7 +6,6 @@ export {
 	ClaudeAdapter,
 	CursorAdapter,
 	createAdapter,
-	ReplayAdapter,
 } from "./adapters/index.js";
 export type { SdkMessage } from "./capture.js";
 export {

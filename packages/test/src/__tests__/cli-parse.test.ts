@@ -72,9 +72,22 @@ describe("parseCliArgs debug flags", () => {
 	});
 
 	it("parses --scenario-retries", () => {
-		const args = parseCliArgs(["node", "cli.js", "--scenario-retries", "0", "--live"]);
+		const args = parseCliArgs(["node", "cli.js", "--scenario-retries", "0"]);
 		expect(args.scenarioRetries).toBe(0);
-		expect(args.live).toBe(true);
+		expect(args.host).toBeUndefined();
+	});
+
+	it("rejects removed replay-era flags", () => {
+		expect(() => parseCliArgs(["node", "cli.js", "--live"])).toThrow(/always runs a real agent/);
+		expect(() => parseCliArgs(["node", "cli.js", "--record"])).toThrow(
+			/capture transient traces automatically/,
+		);
+		expect(() => parseCliArgs(["node", "cli.js", "--record-fixtures"])).toThrow(
+			/replay-based testing is deprecated/,
+		);
+		expect(() => parseCliArgs(["node", "cli.js", "--host", "replay"])).toThrow(
+			/replay-based testing is deprecated/i,
+		);
 	});
 
 	it("rejects invalid --scenario-retries", () => {
@@ -106,12 +119,11 @@ describe("parseCliArgs debug flags", () => {
 		const pairs = parseCliArgs([
 			"node",
 			"cli.js",
-			"--live",
 			"--compare-pairs",
 			"skeleton-clean:skeleton-messy",
 		]);
 		expect(pairs.comparePairs).toBe("skeleton-clean:skeleton-messy");
-		expect(pairs.live).toBe(true);
+		expect(pairs.host).toBeUndefined();
 	});
 });
 

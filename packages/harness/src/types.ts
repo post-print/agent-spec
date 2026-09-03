@@ -1,4 +1,4 @@
-export type AgentHost = "cursor" | "claude" | "replay";
+export type AgentHost = "cursor" | "claude";
 
 import type { McpServerConfig } from "./mcp.js";
 import type { RoutingContract } from "./routing-contract.js";
@@ -19,7 +19,7 @@ export type ContextProfile = "shared" | "cursor" | "claude" | "skeleton";
 export interface AgentMessage {
 	role: "user" | "assistant" | "system" | "tool";
 	content: string;
-	/** Monotonic emission order shared with toolCalls, for chronological interleaving. Absent on legacy/replay traces. */
+	/** Monotonic emission order shared with toolCalls, for chronological interleaving. Absent on legacy traces. */
 	seq?: number;
 }
 
@@ -28,11 +28,11 @@ export interface AgentToolCall {
 	args?: Record<string, unknown>;
 	/** Tool output when the SDK stream includes it (including MCP tools). */
 	result?: string;
-	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy/replay traces. */
+	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy traces. */
 	seq?: number;
 }
 
-/** Provider-reported token usage when the host SDK surfaces it (optional on replay). */
+/** Provider-reported token usage when the host SDK surfaces it. */
 export interface AgentUsage {
 	inputTokens?: number;
 	outputTokens?: number;
@@ -57,7 +57,7 @@ export interface AgentTrace {
 		invariantApplied?: string[];
 		escalations?: string[];
 	};
-	/** Live SDK: assistant prose before the first tool call. Replay: omit (all messages[] precede toolCalls[]). */
+	/** Assistant prose before the first tool call when the host surfaces chronological events. */
 	assistantTextBeforeTools?: string;
 	/** Cumulative token usage when the host reported it. */
 	usage?: AgentUsage;
@@ -86,11 +86,9 @@ export interface RunAgentOptions {
 	prompt: string;
 	/** Live dogfood: rubric-derived hands-off ## Routing contract (not the user prompt). */
 	outputContract?: RoutingContract;
-	/** Required when host is replay. */
-	replayTracePath?: string;
-	/** Inline MCP servers for live Cursor runs (ignored by replay). */
+	/** Inline MCP servers for direct agent runs. */
 	mcpServers?: Record<string, McpServerConfig>;
-	/** Hard cap on live Cursor stream + wait (replay ignores). */
+	/** Hard cap on the direct agent stream + wait. */
 	timeoutMs?: number;
 	/** Fail fast when the agent invokes AskQuestion-style tools (default true for live). */
 	failOnUserInput?: boolean;

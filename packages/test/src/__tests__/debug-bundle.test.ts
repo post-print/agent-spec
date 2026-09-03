@@ -66,7 +66,6 @@ describe("debug-bundle", () => {
 				suitesDir: "fixtures",
 				suite: "smoke",
 				scenario: scenario.name,
-				live: false,
 			},
 		});
 
@@ -87,10 +86,9 @@ describe("debug-bundle", () => {
 			suitesDir: "agent-suites",
 			suite: "code-review",
 			scenario: "pr: anti-thrash targeted contextual",
-			live: true,
 			debugDir: "/tmp/debug-out",
 		});
-		expect(cmd).toContain("--live");
+		expect(cmd).not.toContain("--live");
 		expect(cmd).toContain("--debug");
 		expect(cmd).toContain("--debug-dir");
 		expect(cmd).toContain("--keep-recordings");
@@ -110,7 +108,6 @@ describe("debug-bundle", () => {
 				suitesDir: "agent-suites",
 				suite: "smoke",
 				scenario: "hello",
-				live: false,
 			});
 			expect(cmd.startsWith("'/Users/John Smith/.nvm/versions/node/v22.0.0/bin/node' ")).toBe(true);
 		} finally {
@@ -191,7 +188,7 @@ describe("debug-bundle", () => {
 					suite: "smoke",
 					scenario: scenario.name,
 					packageVersion: "0.0.0-test",
-					host: "replay",
+					host: "cursor",
 				}),
 				rerun: {
 					cliPath: "/cli.js",
@@ -199,7 +196,6 @@ describe("debug-bundle", () => {
 					suitesDir: "fixtures",
 					suite: "smoke",
 					scenario: scenario.name,
-					live: false,
 				},
 			});
 
@@ -303,7 +299,6 @@ describe("debug-bundle", () => {
 				suitesDir: "fixtures",
 				suite: "smoke",
 				scenario: scenario.name,
-				live: true,
 			},
 		});
 
@@ -335,7 +330,6 @@ describe("debug-bundle", () => {
 				suitesDir: "fixtures",
 				suite: "smoke",
 				scenario: scenario.name,
-				live: true,
 			},
 		});
 
@@ -407,7 +401,6 @@ describe("debug-bundle", () => {
 				suitesDir: "fixtures",
 				suite: "smoke",
 				scenario: scenario.name,
-				live: true,
 			},
 		});
 

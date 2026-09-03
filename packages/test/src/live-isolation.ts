@@ -93,7 +93,6 @@ export interface SpawnLiveScenarioOptions {
 	suiteFilter?: string;
 	stagingSessionId?: string;
 	keepRecordings?: boolean;
-	recordFixtures?: boolean;
 	worktree?: boolean;
 	judge?: boolean;
 	/** Agent host; forwarded so the child does not fall back to the cursor default. */
@@ -124,7 +123,7 @@ export interface LiveScenarioCommand {
 export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): LiveScenarioCommand {
 	const cliPath =
 		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
-	const args = [cliPath, "--live", "--scenario", options.scenarioName];
+	const args = [cliPath, "--scenario", options.scenarioName];
 	if (options.suiteFilter) {
 		args.push("--suite", options.suiteFilter);
 	}
@@ -139,9 +138,6 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	}
 	if (options.keepRecordings) {
 		args.push("--keep-recordings");
-	}
-	if (options.recordFixtures) {
-		args.push("--record-fixtures");
 	}
 	if (options.worktree === false) {
 		args.push("--no-worktree");

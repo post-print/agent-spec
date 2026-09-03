@@ -5,6 +5,7 @@ scan:
     - "README.md"
     - "AGENTS.md"
     - "packages/*/README.md"
+    - "docs/*.md"
     - ".skeleton/registry.md"
   exclude:
     - ".agents/skills/**"

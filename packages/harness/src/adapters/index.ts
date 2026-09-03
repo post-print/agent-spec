@@ -4,7 +4,9 @@ import { formatCursorRunFailure, runCursorAgent, takeLastCursorRunTrace } from "
 import { buildRoutingContract } from "../routing-contract.js";
 import { getPartialTrace } from "../run-guards.js";
 import type { AgentSession, AgentTrace, HostAdapter, RunAgentOptions } from "../types.js";
-import { ReplayAdapter } from "./replay.js";
+
+const REPLAY_DEPRECATION =
+	"Replay-based testing is deprecated and no longer supported; use the cursor or claude host.";
 
 function emptyFailed(host: "cursor" | "claude", error: string): AgentSession {
 	return {
@@ -37,10 +39,7 @@ export class CursorAdapter implements HostAdapter {
 
 	async run(options: RunAgentOptions): Promise<AgentSession> {
 		if (!process.env.CURSOR_API_KEY) {
-			return emptyFailed(
-				this.host,
-				"CURSOR_API_KEY not set — use host replay or set API key for live runs",
-			);
+			return emptyFailed(this.host, "CURSOR_API_KEY not set — required for Cursor agent runs");
 		}
 
 		const started = performance.now();
@@ -118,10 +117,8 @@ export class CursorAdapter implements HostAdapter {
 }
 
 /**
- * Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN) and
- * an explicit CLAUDE_AUTH_MODE: `api-key` (ANTHROPIC_API_KEY) or
- * `subscription` (the CLI's own login — keychain OAuth or
- * CLAUDE_CODE_OAUTH_TOKEN). There is no default and no fallback between them.
+ * Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN)
+ * and an explicit auth mode.
  */
 export class ClaudeAdapter implements HostAdapter {
 	readonly host = "claude" as const;
@@ -189,25 +186,30 @@ export class ClaudeAdapter implements HostAdapter {
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "Failed to run Claude Code CLI";
+			const enrichedMessage =
+				message.includes("CLAUDE_AUTH_MODE not set") && !process.env.ANTHROPIC_API_KEY?.trim()
+					? `${message}; ANTHROPIC_API_KEY is required for api-key mode`
+					: message;
 			const durationMs = Math.round(performance.now() - started);
 			const partial = getPartialTrace(error) ?? takeLastClaudeRunTrace();
 			if (partial && (partial.messages.length > 0 || partial.toolCalls.length > 0)) {
-				return sessionFromTrace(this.host, partial, message, durationMs);
+				return sessionFromTrace(this.host, partial, enrichedMessage, durationMs);
 			}
-			return emptyFailed(this.host, message);
+			return emptyFailed(this.host, enrichedMessage);
 		}
 	}
 }
 
 export function createAdapter(host: RunAgentOptions["host"]): HostAdapter {
+	if ((host as string) === "replay") {
+		throw new Error(REPLAY_DEPRECATION);
+	}
 	switch (host) {
 		case "cursor":
 			return new CursorAdapter();
 		case "claude":
 			return new ClaudeAdapter();
 		default:
-			return new ReplayAdapter();
+			throw new Error(`Unsupported agent host: ${String(host)}`);
 	}
 }
-
-export { ReplayAdapter };

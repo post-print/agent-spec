@@ -24,7 +24,7 @@ function distCliExists(): boolean {
 }
 
 describe("cli smoke", () => {
-	it.skipIf(!distCliExists())("runs the smoke suite through a symlink like npm bin", async () => {
+	it.skipIf(!distCliExists())("validates suite JSON through a symlink like npm bin", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "agent-test-bin-"));
 		try {
 			const binDir = join(dir, "bin");
@@ -34,23 +34,12 @@ describe("cli smoke", () => {
 
 			const { stdout, stderr } = await execFileAsync(
 				process.execPath,
-				[binLink, "--suites-dir", fixturesDir, "--suite", "smoke"],
+				[binLink, "--validate-only", "--suites-dir", fixturesDir, "--suite", "smoke"],
 				{ cwd: repoRoot },
 			);
 
-			const ansiEscape = String.fromCharCode(27);
-			const bel = "\u0007";
 			const raw = `${stdout}${stderr}`;
-			expect(raw).toContain(`${ansiEscape}]8;;file://`);
-			expect(raw).toMatch(
-				new RegExp(`${ansiEscape}\\]8;;file:///.*/agent-test-report-[^/]+/report\\.html${bel}`),
-			);
-			const output = raw
-				.replace(new RegExp(`${ansiEscape}\\[[0-9;]*m`, "g"), "")
-				.replace(new RegExp(`${ansiEscape}\\]8;;[^${bel}]*${bel}`, "g"), "");
-			expect(output).toMatch(/smoke:.*passed/);
-			expect(output).not.toMatch(/No suites found/);
-			expect(output).toMatch(/HTML report:.*agent-test-report-.*report\.html/);
+			expect(raw).toMatch(/Validated 1 suite\(s\), 2 scenario\(s\): OK/);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}

@@ -19,7 +19,6 @@ export interface DebugRerunOptions {
 	rubricsDir?: string;
 	suite: string;
 	scenario: string;
-	live: boolean;
 	host?: string;
 	judge?: boolean;
 	worktree?: boolean;
@@ -94,9 +93,6 @@ export function shellCommentText(value: string): string {
 
 export function buildRerunCommand(options: DebugRerunOptions): string {
 	const args = [options.cliPath];
-	if (options.live) {
-		args.push("--live");
-	}
 	args.push(
 		"--suites-dir",
 		options.suitesDir,
@@ -113,8 +109,6 @@ export function buildRerunCommand(options: DebugRerunOptions): string {
 	}
 	if (options.judge === false) {
 		args.push("--no-judge");
-	} else if (options.judge === true && !options.live) {
-		args.push("--judge");
 	}
 	if (options.worktree === false) {
 		args.push("--no-worktree");
@@ -459,7 +453,6 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 				rubric: scenario.rubric,
 				seedPatch: scenario.seedPatch,
 				seedStageOnly: scenario.seedStageOnly,
-				replayTrace: scenario.replayTrace,
 				host: scenario.host,
 				skip: scenario.skip,
 			},

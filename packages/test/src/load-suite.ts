@@ -112,6 +112,7 @@ export async function loadSuiteFile(
 	if (!isSuiteFileShape(parsed)) {
 		throw new Error(`Invalid suite file: ${path}`);
 	}
+	assertNoDeprecatedReplayConfig(parsed, path);
 	const normalized: AgentSuiteFile = {
 		name: parsed.name,
 		description: parsed.description,
@@ -139,6 +140,25 @@ export async function loadSuiteFile(
 
 	const rubrics = parseRubricsFile(JSON.parse(rubricsRaw), rubricsPath);
 	return applyExternalRubrics(normalized, rubrics, rubricsPath);
+}
+
+function assertNoDeprecatedReplayConfig(suite: SuiteFileShape, path: string): void {
+	if ((suite.defaults as { host?: unknown } | undefined)?.host === "replay") {
+		throw new Error(
+			`Invalid suite file ${path}: replay-based testing is deprecated and no longer supported; use Cursor or Claude.`,
+		);
+	}
+	for (const scenario of suite.scenarios) {
+		const legacy = scenario as Omit<typeof scenario, "host"> & {
+			host?: unknown;
+			replayTrace?: unknown;
+		};
+		if (legacy.host === "replay" || "replayTrace" in legacy) {
+			throw new Error(
+				`Invalid suite file ${path}: scenario "${scenario.name}" uses replay-based testing, which is deprecated and no longer supported; use Cursor or Claude.`,
+			);
+		}
+	}
 }
 
 async function pathExists(path: string): Promise<boolean> {

@@ -1,8 +1,8 @@
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
-/** Fail fast when live dogfood cannot find suite definitions. */
-export async function assertLiveDogfoodPreflight(
+/** Fail fast when a direct agent run cannot find suite definitions. */
+export async function assertDirectAgentPreflight(
 	repoRoot: string,
 	suitesDir = "agent-suites",
 ): Promise<void> {
@@ -12,9 +12,9 @@ export async function assertLiveDogfoodPreflight(
 	} catch {
 		throw new Error(
 			[
-				`Live dogfood requires a suites directory (missing ${suitesRoot}).`,
+				`Direct agent testing requires a suites directory (missing ${suitesRoot}).`,
 				"Pass --suites-dir <path> or create agent-suites/<suite>/scenarios.json in the repo.",
-				"See @post-print/agent-test README § Live dogfood.",
+				"See @post-print/agent-test README § Direct agent runs.",
 			].join("\n"),
 		);
 	}

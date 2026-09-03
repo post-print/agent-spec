@@ -43,9 +43,8 @@ export {
 	type SuiteRubricsFile,
 	suiteNameFromSuitePath,
 } from "./load-suite.js";
-export { assertLiveDogfoodPreflight } from "./preflight.js";
+export { assertDirectAgentPreflight } from "./preflight.js";
 export {
-	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
 	createLiveStagingSessionId,
 	getLiveStagingRoot,
@@ -54,8 +53,6 @@ export {
 	getStagingResultPath,
 	type LiveScenarioResultSidecar,
 	loadStagingResult,
-	type RecordingPathKind,
-	type ResolvedRecordingPath,
 	recordTrace,
 	resolveRecordingPath,
 	scenarioArtifactSlug,
@@ -65,7 +62,9 @@ export {
 } from "./record-trace.js";
 export {
 	discoverSuites,
+	type RunAgentTestOptions,
 	type RunSuiteOptions,
+	runAgentTest,
 	runAllSuites,
 	runSuite,
 } from "./run-suite.js";
@@ -92,6 +91,7 @@ export {
 } from "./suite-summary.js";
 export type {
 	AgentScenario,
+	AgentSuiteDefaults,
 	AgentSuiteFile,
 	AgentUsage,
 	AssertionFailure,

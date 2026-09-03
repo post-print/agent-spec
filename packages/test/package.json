@@ -32,7 +32,7 @@
 		"@types/node": "^26.1.1",
 		"typescript": "~7.0.2"
 	},
-	"description": "Scenario runner and CLI for agent-spec suites",
+	"description": "Direct-agent scenario runner and CLI for agent-spec suites",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/post-print/agent-spec.git",

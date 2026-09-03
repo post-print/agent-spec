@@ -37,7 +37,7 @@
 		"@types/node": "^26.1.1",
 		"typescript": "~7.0.2"
 	},
-	"description": "Host-agnostic agent runtime for capture, replay, and judging",
+	"description": "Host-agnostic agent runtime for direct execution, capture, and judging",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/post-print/agent-spec.git",

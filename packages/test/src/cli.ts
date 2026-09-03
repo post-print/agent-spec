@@ -22,10 +22,9 @@ import {
 import { discoverSuites } from "./discover-suites.js";
 import { runDoctor } from "./doctor.js";
 import { writeHtmlReport } from "./html-report.js";
-import { assertLiveDogfoodPreflight } from "./preflight.js";
+import { assertDirectAgentPreflight } from "./preflight.js";
 import { logProgress } from "./progress.js";
 import {
-	cleanupLegacyRepoRecordings,
 	cleanupStagingSession,
 	createLiveStagingSessionId,
 	getLiveStagingSessionRoot,
@@ -56,9 +55,6 @@ export interface ParsedCliArgs {
 	filter?: string;
 	scenarioFilter?: string;
 	stagingSessionId?: string;
-	record: boolean;
-	recordFixtures: boolean;
-	live: boolean;
 	judge?: boolean;
 	worktree?: boolean;
 	keepRecordings: boolean;
@@ -81,7 +77,7 @@ export interface ParsedCliArgs {
 	compareMode: boolean;
 	compareA?: string;
 	compareB?: string;
-	/** Live/replay A:B suite dirs or report JSON paths. */
+	/** Direct-run A:B suite dirs or report JSON paths. */
 	comparePairs?: string;
 	compareOutDir?: string;
 }
@@ -95,9 +91,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let filter: string | undefined;
 	let scenarioFilter: string | undefined;
 	let stagingSessionId: string | undefined;
-	let record = false;
-	let recordFixtures = false;
-	let live = false;
 	let judge: boolean | undefined;
 	let worktree: boolean | undefined;
 	let keepRecordings = false;
@@ -128,7 +121,16 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	for (let i = startIndex; i < argv.length; i++) {
 		const token = argv[i];
 		if (token === "--host" && argv[i + 1]) {
-			host = argv[++i] as AgentHost;
+			const value = argv[++i];
+			if (value === "replay") {
+				throw new Error(
+					"Replay-based testing is deprecated and no longer supported; use --host cursor or --host claude.",
+				);
+			}
+			if (value !== "cursor" && value !== "claude") {
+				throw new Error("--host must be cursor|claude");
+			}
+			host = value;
 		} else if (token === "--suites-dir" && argv[i + 1]) {
 			suitesDir = argv[++i] as string;
 		} else if (token === "--rubrics-dir" && argv[i + 1]) {
@@ -139,13 +141,16 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			scenarioFilter = argv[++i];
 		} else if (token === "--staging-session-id" && argv[i + 1]) {
 			stagingSessionId = argv[++i];
-		} else if (token === "--record") {
-			record = true;
-		} else if (token === "--record-fixtures") {
-			record = true;
-			recordFixtures = true;
 		} else if (token === "--live") {
-			live = true;
+			throw new Error("--live was removed because agent-test now always runs a real agent");
+		} else if (token === "--record") {
+			throw new Error(
+				"--record was removed; direct runs capture transient traces automatically (use --keep-recordings to retain them)",
+			);
+		} else if (token === "--record-fixtures") {
+			throw new Error(
+				"--record-fixtures was removed because replay-based testing is deprecated and no longer supported",
+			);
 		} else if (token === "--keep-recordings") {
 			keepRecordings = true;
 		} else if (token === "--judge") {
@@ -217,12 +222,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		}
 	}
 
-	if (live) {
-		host = host ?? "cursor";
-		record = true;
-		judge = judge ?? true;
-		worktree = worktree ?? true;
-	}
+	judge = judge ?? true;
+	worktree = worktree ?? true;
 
 	if (debug) {
 		keepRecordings = true;
@@ -239,9 +240,6 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		filter,
 		scenarioFilter,
 		stagingSessionId,
-		record,
-		recordFixtures,
-		live,
 		judge,
 		worktree,
 		keepRecordings,
@@ -264,6 +262,17 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		comparePairs,
 		compareOutDir: compareOutDir ? resolve(cwd, compareOutDir) : undefined,
 	};
+}
+
+/** Resolve an explicit report target into the HTML path and optional artifact directory. */
+export function resolveReportOutput(reportOut?: string): { htmlPath?: string; outDir?: string } {
+	if (!reportOut) {
+		return {};
+	}
+	if (reportOut.toLowerCase().endsWith(".html")) {
+		return { htmlPath: reportOut };
+	}
+	return { htmlPath: join(reportOut, "report.html"), outDir: reportOut };
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -316,8 +325,6 @@ async function loadOrRunCompareSide(
 		suitePath,
 		host: args.host,
 		scenarioFilter: args.scenarioFilter,
-		record: args.record,
-		recordFixtures: args.recordFixtures,
 		judge: args.judge,
 		worktree: args.worktree,
 		stagingSessionId,
@@ -332,20 +339,6 @@ async function loadOrRunCompareSide(
 	});
 }
 
-/**
- * Split `--report-out` into an HTML file path and, when a directory was given,
- * the directory every other report artifact is written to.
- */
-export function resolveReportOutput(reportOut?: string): { htmlPath?: string; outDir?: string } {
-	if (!reportOut) {
-		return {};
-	}
-	if (reportOut.toLowerCase().endsWith(".html")) {
-		return { htmlPath: reportOut };
-	}
-	return { htmlPath: join(reportOut, "report.html"), outDir: reportOut };
-}
-
 async function writeSuiteReportDump(
 	outDir: string,
 	label: string,
@@ -357,8 +350,7 @@ async function writeSuiteReportDump(
 	return path;
 }
 
-async function cleanupLiveRunArtifacts(
-	cwd: string,
+async function cleanupRunArtifacts(
 	stagingSessionRoot: string | undefined,
 	keepRecordings: boolean,
 ): Promise<void> {
@@ -372,11 +364,6 @@ async function cleanupLiveRunArtifacts(
 		} catch {
 			// best-effort
 		}
-	}
-
-	const legacyRemoved = await cleanupLegacyRepoRecordings(cwd);
-	if (legacyRemoved.length > 0) {
-		console.log(`Removed legacy in-repo recording dir(s):\n  ${legacyRemoved.join("\n  ")}`);
 	}
 }
 
@@ -402,10 +389,7 @@ async function main(): Promise<number> {
 		const bPath = resolve(args.cwd, args.compareB as string);
 		const aReport = await loadSuiteRunReport(aPath);
 		const bReport = await loadSuiteRunReport(bPath);
-		const outDir =
-			args.compareOutDir ??
-			resolveReportOutput(args.reportOut).outDir ??
-			resolve(args.cwd, "compare-out");
+		const outDir = args.compareOutDir ?? resolve(args.cwd, "compare-out");
 		const compare = compareSuiteReports({
 			aLabel: labelForCompareSide(aPath),
 			bLabel: labelForCompareSide(bPath),
@@ -461,7 +445,7 @@ async function main(): Promise<number> {
 	if (args.debugDir && isPathUnderRoot(args.debugDir, args.cwd) && !isChild) {
 		console.warn(
 			theme.warn(
-				`--debug-dir is inside the repo (${args.debugDir}). Default is $TMPDIR/agent-spec — prefer that for live runs so debug output stays out of git status.`,
+				`--debug-dir is inside the repo (${args.debugDir}). Default is $TMPDIR/agent-spec — prefer that for direct runs so debug output stays out of git status.`,
 			),
 		);
 	}
@@ -471,47 +455,37 @@ async function main(): Promise<number> {
 	const stagingSessionId =
 		args.stagingSessionId?.trim() ||
 		process.env.AGENT_TEST_STAGING_SESSION_ID?.trim() ||
-		(args.live || args.debug || (args.record && !args.recordFixtures)
-			? createLiveStagingSessionId()
-			: undefined);
+		createLiveStagingSessionId();
 	const stagingSessionRoot = stagingSessionId
 		? getLiveStagingSessionRoot(stagingSessionId)
 		: undefined;
-	const reportOutput = resolveReportOutput(args.reportOut);
 
 	try {
-		if (args.live) {
-			const host = args.host ?? "cursor";
-			if (host === "claude") {
-				try {
-					const authMode = parseClaudeAuthMode(process.env[CLAUDE_AUTH_MODE_ENV]);
-					if (authMode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
-						console.error(
-							`${CLAUDE_AUTH_MODE_ENV}=api-key requires ANTHROPIC_API_KEY for --live --host claude`,
-						);
-						return 1;
-					}
-				} catch (error) {
-					console.error(error instanceof Error ? error.message : error);
+		if (args.host === "claude") {
+			try {
+				const authMode = parseClaudeAuthMode(process.env[CLAUDE_AUTH_MODE_ENV]);
+				if (authMode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
+					console.error(`${CLAUDE_AUTH_MODE_ENV}=api-key requires ANTHROPIC_API_KEY`);
 					return 1;
 				}
-			}
-			if (host === "cursor" && !process.env.CURSOR_API_KEY?.trim()) {
-				console.error("CURSOR_API_KEY required for --live (Cursor SDK runs)");
-				return 1;
-			}
-			// Judge classifiers still use the Cursor SDK.
-			if (args.judge !== false && !process.env.CURSOR_API_KEY?.trim()) {
-				console.error(
-					"CURSOR_API_KEY required for live judge classifiers (use --no-judge to skip)",
-				);
+			} catch (error) {
+				console.error(error instanceof Error ? error.message : error);
 				return 1;
 			}
 		}
+		if (args.host === "cursor" && !process.env.CURSOR_API_KEY?.trim()) {
+			console.error("CURSOR_API_KEY required for Cursor agent runs");
+			return 1;
+		}
+		// Judge classifiers still use the Cursor SDK.
+		if (args.judge !== false && !process.env.CURSOR_API_KEY?.trim()) {
+			console.error("CURSOR_API_KEY required for judge classifiers (use --no-judge to skip)");
+			return 1;
+		}
 
-		if (args.live) {
+		{
 			try {
-				await assertLiveDogfoodPreflight(args.cwd, args.suitesDir);
+				await assertDirectAgentPreflight(args.cwd, args.suitesDir);
 			} catch (error) {
 				console.error(error instanceof Error ? error.message : error);
 				return 1;
@@ -524,7 +498,7 @@ async function main(): Promise<number> {
 				process.env.AGENT_TEST_NO_WORKTREE === "true";
 			if (worktreeDisabled && !inPlaceAllowed) {
 				console.error(
-					"Live dogfood requires git worktree isolation. Set AGENT_TEST_ALLOW_IN_PLACE=1 to run in repo cwd (--no-worktree leaks agent edits into your working tree).",
+					"Direct agent tests require git worktree isolation. Set AGENT_TEST_ALLOW_IN_PLACE=1 to run in repo cwd (--no-worktree leaks agent edits into your working tree).",
 				);
 				return 1;
 			}
@@ -537,7 +511,7 @@ async function main(): Promise<number> {
 						theme.warn(`Cleaned ${removed.length} stale agent-test worktree(s) from a prior crash`),
 					);
 				}
-				console.log(theme.banner(args.debug ? "live debug" : "live"));
+				console.log(theme.banner(args.debug ? "direct debug" : "direct"));
 				if (stagingSessionRoot) {
 					console.log(theme.bannerSession(stagingSessionRoot));
 				}
@@ -560,9 +534,6 @@ async function main(): Promise<number> {
 					console.log(`  ${theme.tip("traces removed on exit unless --keep-recordings")}`);
 				}
 			}
-		} else if (args.debug && !isChild && stagingSessionRoot) {
-			console.log(theme.banner("debug"));
-			console.log(theme.bannerSession(stagingSessionRoot));
 		}
 
 		let reports: SuiteRunReport[];
@@ -575,7 +546,6 @@ async function main(): Promise<number> {
 			if (!isChild) {
 				const outDir =
 					args.compareOutDir ??
-					reportOutput.outDir ??
 					(stagingSessionRoot
 						? join(stagingSessionRoot, "compare")
 						: resolve(args.cwd, "compare-out"));
@@ -653,29 +623,14 @@ async function main(): Promise<number> {
 			if (args.htmlReport && reports.length > 0) {
 				try {
 					const pair = args.comparePairs ? parseComparePairToken(args.comparePairs) : undefined;
-					const reportPath = await writeHtmlReport(
-						reports,
-						{
-							host: args.host,
-							suitesDir: args.suitesDir,
-							includeCompare: Boolean(args.comparePairs),
-							compareALabel: pair ? labelForCompareSide(pair.a) : undefined,
-							compareBLabel: pair ? labelForCompareSide(pair.b) : undefined,
-						},
-						reportOutput.htmlPath,
-					);
+					const reportPath = await writeHtmlReport(reports, {
+						host: args.host,
+						suitesDir: args.suitesDir,
+						includeCompare: Boolean(args.comparePairs),
+						compareALabel: pair ? labelForCompareSide(pair.a) : undefined,
+						compareBLabel: pair ? labelForCompareSide(pair.b) : undefined,
+					});
 					console.log(`\n${theme.fileTip("HTML report", reportPath)}`);
-					// A directory collects everything, not just the HTML.
-					if (reportOutput.outDir && !args.comparePairs) {
-						for (const report of reports) {
-							const dumpPath = await writeSuiteReportDump(
-								reportOutput.outDir,
-								report.suite,
-								report,
-							);
-							console.log(theme.tip(`suite JSON: ${dumpPath}`));
-						}
-					}
 				} catch (error) {
 					console.warn(
 						theme.warn(
@@ -705,7 +660,7 @@ async function main(): Promise<number> {
 		return exitCode;
 	} finally {
 		if (stagingSessionId && !isChild) {
-			await cleanupLiveRunArtifacts(args.cwd, stagingSessionRoot, args.keepRecordings);
+			await cleanupRunArtifacts(stagingSessionRoot, args.keepRecordings);
 		}
 	}
 }
