@@ -19,12 +19,6 @@
       "skillPath": "grill/SKILL.md",
       "computedHash": "48d3dbd95912826bf63b4fffe593051e13616d32a0fdf906d783e902bb0dd954"
     },
-    "handoff": {
-      "source": "csark0812/toolbox",
-      "sourceType": "github",
-      "skillPath": "handoff/SKILL.md",
-      "computedHash": "f2185cc63a9de055f5074e55ef181e723cca627995d4b681251d8e5cc5758e0c"
-    },
     "investigate": {
       "source": "csark0812/toolbox",
       "sourceType": "github",
