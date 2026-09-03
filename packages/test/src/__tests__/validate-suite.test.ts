@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import type { AgentSuiteFile } from "../types.js";
 import { validateSuiteFile } from "../validate-suite.js";
 

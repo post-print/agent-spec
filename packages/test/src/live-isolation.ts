@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { resolve } from "node:path";
+import type { AgentHost } from "@post-print/agent-harness";
 import { assertionFailure } from "./failures.js";
 import {
 	LIVE_SUBPROCESS_SETUP_MAX_MS,
@@ -94,6 +95,8 @@ export interface SpawnLiveScenarioOptions {
 	keepRecordings?: boolean;
 	worktree?: boolean;
 	judge?: boolean;
+	/** Agent host; forwarded so the child does not fall back to the cursor default. */
+	host?: AgentHost;
 	/** 1-based index in the full suite (for child CLI counters). */
 	scenarioIndex?: number;
 	/** Total scenarios in the full suite (for child CLI counters). */
@@ -138,6 +141,14 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	}
 	if (options.worktree === false) {
 		args.push("--no-worktree");
+	}
+	// Without these the child re-runs preflight with the cursor defaults and
+	// demands CURSOR_API_KEY, whatever the parent was asked to run.
+	if (options.host) {
+		args.push("--host", options.host);
+	}
+	if (options.judge === false) {
+		args.push("--no-judge");
 	}
 	if (options.noTimeout) {
 		args.push("--no-timeout");

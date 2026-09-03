@@ -10,7 +10,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 
 - Bun `1.2.x` (see `packageManager` in `package.json`)
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
-- Agent tests require an **exported** `CURSOR_API_KEY` for Cursor (default) or `ANTHROPIC_API_KEY` for `--host claude` (copy `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless `--no-judge`. Every test execution launches a real agent and can incur provider usage.
+- Agent tests require an **exported** `CURSOR_API_KEY` for Cursor (default). `--host claude` requires an explicit `CLAUDE_AUTH_MODE=api-key` plus `ANTHROPIC_API_KEY`, or `CLAUDE_AUTH_MODE=subscription` with the Claude Code CLI login; there is no default or fallback (copy `.env.example`; the CLI does not auto-load `.env`). Judge classifiers still need `CURSOR_API_KEY` unless `--no-judge`. Every test execution launches a real agent and can incur provider usage.
 
 ## First hour
 
@@ -35,7 +35,7 @@ Use `bun run lint` / `bunx biome` (pinned 2.5.4). A global `biome` on PATH is of
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | Docs / registry / `.skeleton/`                               | `bun run validate:changed -- <path>` or `bun run audit:self`                                                              |
 | Synced toolbox skills (`.agents/skills/`, `.claude/skills/`) | skipped — lint in [csark0812/toolbox](https://github.com/csark0812/toolbox); override via `.skeleton/customize/<slug>.md` |
-| TypeScript under `packages/` (scoped)                        | `bunx vitest run <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed                          |
+| TypeScript under `packages/` (scoped)                        | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed                                |
 | TypeScript under `packages/` (full)                          | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions)                                                   |
 
 ## Layout

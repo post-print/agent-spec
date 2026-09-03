@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 
 import {
 	type AgentHost,
+	CLAUDE_AUTH_MODE_ENV,
 	cleanupStaleScenarioWorktrees,
 	isPathUnderRoot,
+	parseClaudeAuthMode,
 } from "@post-print/agent-harness";
 
 import { isCliMain } from "./cli-entry.js";
@@ -61,6 +63,8 @@ export interface ParsedCliArgs {
 	allowUserInput: boolean;
 	doctor: boolean;
 	htmlReport: boolean;
+	/** Explicit HTML report path (ends in .html) or output directory for all report content. */
+	reportOut?: string;
 	debug: boolean;
 	debugDir?: string;
 	validateOnly: boolean;
@@ -95,6 +99,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let allowUserInput = false;
 	let doctor = false;
 	let htmlReport = true;
+	let reportOut: string | undefined;
 	let debug = process.env.AGENT_TEST_DEBUG === "1" || process.env.AGENT_TEST_DEBUG === "true";
 	let debugDir: string | undefined;
 	let validateOnly = false;
@@ -193,6 +198,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			compareMode = true;
 		} else if ((token === "--out-dir" || token === "--compare-out") && argv[i + 1]) {
 			compareOutDir = argv[++i];
+		} else if (token === "--report-out" && argv[i + 1]) {
+			reportOut = argv[++i];
 		} else if (token === "--no-html-report") {
 			htmlReport = false;
 		} else if (token === "--debug") {
@@ -241,6 +248,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		allowUserInput,
 		doctor,
 		htmlReport,
+		reportOut: reportOut ? resolve(cwd, reportOut) : undefined,
 		debug,
 		debugDir: debugDir ? resolve(cwd, debugDir) : undefined,
 		validateOnly,
@@ -254,6 +262,17 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		comparePairs,
 		compareOutDir: compareOutDir ? resolve(cwd, compareOutDir) : undefined,
 	};
+}
+
+/** Resolve an explicit report target into the HTML path and optional artifact directory. */
+export function resolveReportOutput(reportOut?: string): { htmlPath?: string; outDir?: string } {
+	if (!reportOut) {
+		return {};
+	}
+	if (reportOut.toLowerCase().endsWith(".html")) {
+		return { htmlPath: reportOut };
+	}
+	return { htmlPath: join(reportOut, "report.html"), outDir: reportOut };
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -442,9 +461,17 @@ async function main(): Promise<number> {
 		: undefined;
 
 	try {
-		if (args.host === "claude" && !process.env.ANTHROPIC_API_KEY?.trim()) {
-			console.error("ANTHROPIC_API_KEY required for --host claude (Claude Code CLI)");
-			return 1;
+		if (args.host === "claude") {
+			try {
+				const authMode = parseClaudeAuthMode(process.env[CLAUDE_AUTH_MODE_ENV]);
+				if (authMode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
+					console.error(`${CLAUDE_AUTH_MODE_ENV}=api-key requires ANTHROPIC_API_KEY`);
+					return 1;
+				}
+			} catch (error) {
+				console.error(error instanceof Error ? error.message : error);
+				return 1;
+			}
 		}
 		if (args.host === "cursor" && !process.env.CURSOR_API_KEY?.trim()) {
 			console.error("CURSOR_API_KEY required for Cursor agent runs");

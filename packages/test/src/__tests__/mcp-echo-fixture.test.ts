@@ -1,8 +1,7 @@
+import { describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-
-import { describe, expect, it } from "vitest";
 
 const serverPath = fileURLToPath(new URL("../../fixtures/mcp-echo/server.mjs", import.meta.url));
 

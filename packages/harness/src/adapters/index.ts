@@ -116,15 +116,14 @@ export class CursorAdapter implements HostAdapter {
 	}
 }
 
-/** Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN) + ANTHROPIC_API_KEY. */
+/**
+ * Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN)
+ * and an explicit auth mode.
+ */
 export class ClaudeAdapter implements HostAdapter {
 	readonly host = "claude" as const;
 
 	async run(options: RunAgentOptions): Promise<AgentSession> {
-		if (!process.env.ANTHROPIC_API_KEY?.trim()) {
-			return emptyFailed(this.host, "ANTHROPIC_API_KEY not set — required for Claude agent runs");
-		}
-
 		const started = performance.now();
 		try {
 			const contract = options.outputContract
@@ -187,12 +186,16 @@ export class ClaudeAdapter implements HostAdapter {
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "Failed to run Claude Code CLI";
+			const enrichedMessage =
+				message.includes("CLAUDE_AUTH_MODE not set") && !process.env.ANTHROPIC_API_KEY?.trim()
+					? `${message}; ANTHROPIC_API_KEY is required for api-key mode`
+					: message;
 			const durationMs = Math.round(performance.now() - started);
 			const partial = getPartialTrace(error) ?? takeLastClaudeRunTrace();
 			if (partial && (partial.messages.length > 0 || partial.toolCalls.length > 0)) {
-				return sessionFromTrace(this.host, partial, message, durationMs);
+				return sessionFromTrace(this.host, partial, enrichedMessage, durationMs);
 			}
-			return emptyFailed(this.host, message);
+			return emptyFailed(this.host, enrichedMessage);
 		}
 	}
 }

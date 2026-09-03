@@ -550,7 +550,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		`# Re-run failed scenario ${shellCommentText(scenario.name)}`,
-		`# Requires CURSOR_API_KEY for Cursor live/judge; ANTHROPIC_API_KEY for --host claude.`,
+		`# Requires CURSOR_API_KEY for Cursor live/judge; CLAUDE_AUTH_MODE (api-key + ANTHROPIC_API_KEY, or subscription) for --host claude.`,
 		`cd ${shellQuote(rerun.cwd)}`,
 		buildRerunCommand(rerun),
 		"",

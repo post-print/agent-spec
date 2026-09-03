@@ -519,6 +519,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					keepRecordings: options.keepRecordings,
 					worktree: options.worktree,
 					judge: options.judge,
+					host: defaultHost,
 					scenarioIndex: index + 1,
 					scenarioTotal: filteredTotal,
 					timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),

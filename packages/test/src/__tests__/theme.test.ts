@@ -1,5 +1,5 @@
+import { afterEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
-import { afterEach, describe, expect, it } from "vitest";
 
 import { configureCliColor, formatFileHyperlink, theme, truncatePath, wrapText } from "../theme.js";
 

@@ -1,9 +1,8 @@
+import { afterEach, describe, expect, it, jest } from "bun:test";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { discoverSuites } from "../discover-suites.js";
 import * as liveIsolation from "../live-isolation.js";
@@ -139,7 +138,7 @@ describe("runSuite isolateLive", () => {
 	const priorNoIsolate = process.env.AGENT_TEST_NO_ISOLATE;
 
 	afterEach(() => {
-		vi.restoreAllMocks();
+		jest.restoreAllMocks();
 		if (priorChild === undefined) {
 			delete process.env.AGENT_TEST_CHILD;
 		} else {
@@ -175,7 +174,7 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		const spawnSpy = vi.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+		const spawnSpy = jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
 
 		const report = await runSuite({
 			cwd: dir,
@@ -212,10 +211,10 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async (options) =>
-			options.scenarioName === "failing" ? 1 : 0,
-		);
-		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (_path) => {
+		jest
+			.spyOn(liveIsolation, "spawnLiveScenario")
+			.mockImplementation(async (options) => (options.scenarioName === "failing" ? 1 : 0));
+		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (_path) => {
 			if (_path.includes("failing")) {
 				return {
 					passed: false,
@@ -269,7 +268,7 @@ describe("runSuite isolateLive", () => {
 		);
 
 		let flakySpawns = 0;
-		const spawnSpy = vi
+		const spawnSpy = jest
 			.spyOn(liveIsolation, "spawnLiveScenario")
 			.mockImplementation(async (options) => {
 				if (options.scenarioName !== "flaky") {
@@ -278,7 +277,7 @@ describe("runSuite isolateLive", () => {
 				flakySpawns++;
 				return flakySpawns === 1 ? 1 : 0;
 			});
-		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
+		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
 			if (!path.includes("flaky")) {
 				return undefined;
 			}
@@ -302,7 +301,7 @@ describe("runSuite isolateLive", () => {
 			}
 			return { passed: true, durationMs: 20, failures: [] };
 		});
-		vi.spyOn(recordTrace, "loadStagingTrace").mockResolvedValue({
+		jest.spyOn(recordTrace, "loadStagingTrace").mockResolvedValue({
 			messages: [{ role: "assistant", content: "Routing only" }],
 			toolCalls: [],
 		});
@@ -341,10 +340,10 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		const spawnSpy = vi
+		const spawnSpy = jest
 			.spyOn(liveIsolation, "spawnLiveScenario")
 			.mockImplementation(async (options) => (options.scenarioName === "real-miss" ? 1 : 0));
-		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
+		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
 			path.includes("real-miss")
 				? {
 						passed: false,
@@ -359,7 +358,7 @@ describe("runSuite isolateLive", () => {
 					}
 				: undefined,
 		);
-		vi.spyOn(recordTrace, "loadStagingTrace").mockResolvedValue({
+		jest.spyOn(recordTrace, "loadStagingTrace").mockResolvedValue({
 			messages: [{ role: "assistant", content: "reviewed" }],
 			toolCalls: [{ name: "Shell", input: { command: "git status" } }],
 		});
@@ -396,10 +395,10 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async (options) =>
-			options.scenarioName === "late-kill" ? 124 : 0,
-		);
-		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
+		jest
+			.spyOn(liveIsolation, "spawnLiveScenario")
+			.mockImplementation(async (options) => (options.scenarioName === "late-kill" ? 124 : 0));
+		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
 			if (path.includes("late-kill")) {
 				return {
 					passed: true,
@@ -441,8 +440,8 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		const setSpy = vi.spyOn(recordTrace, "setLiveStagingRootOverride");
-		vi.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+		const setSpy = jest.spyOn(recordTrace, "setLiveStagingRootOverride");
+		jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
 
 		await runSuite({
 			cwd: dir,
@@ -476,10 +475,10 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		vi.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async (options) =>
-			options.scenarioName === "failing" ? 1 : 0,
-		);
-		vi.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
+		jest
+			.spyOn(liveIsolation, "spawnLiveScenario")
+			.mockImplementation(async (options) => (options.scenarioName === "failing" ? 1 : 0));
+		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
 			path.includes("failing")
 				? {
 						passed: false,
@@ -533,7 +532,7 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		vi.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+		jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
 
 		const report = await runSuite({
 			cwd: dir,

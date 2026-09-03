@@ -1,7 +1,7 @@
-import { access, readFile, rm } from "node:fs/promises";
-import { dirname } from "node:path";
-
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { renderHtmlReport, writeHtmlReport } from "../html-report.js";
 import type { ScenarioResult, SuiteRunReport } from "../types.js";
@@ -240,6 +240,18 @@ describe("html-report", () => {
 		expect(html).toContain("skipped-one");
 		expect(html).toContain("skipped");
 		expect(html).toContain("No transcript recorded");
+	});
+
+	it("writes to an explicit path and creates missing parents", async () => {
+		const root = await mkdtemp(join(tmpdir(), "agent-test-report-out-"));
+		const outPath = join(root, "nested", "run.html");
+		try {
+			const path = await writeHtmlReport([makeReport([makeResult()])], {}, outPath);
+			expect(path).toBe(outPath);
+			expect(await readFile(outPath, "utf8")).toContain("agent-test report");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
 	});
 
 	it("writes a report file under a temp directory", async () => {

@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { execFile } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
@@ -5,8 +6,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-
-import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 

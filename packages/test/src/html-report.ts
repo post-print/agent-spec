@@ -1,6 +1,6 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type {
 	AgentMessage,
@@ -919,13 +919,19 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
 `;
 }
 
-/** Write an HTML report under a fresh temp directory; returns the report file path. */
+/**
+ * Write an HTML report. Writes to `outPath` when given (parent dirs created),
+ * otherwise a fresh temp directory. Returns the report file path.
+ */
 export async function writeHtmlReport(
 	reports: SuiteRunReport[],
 	meta: HtmlReportMeta = {},
+	outPath?: string,
 ): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), "agent-test-report-"));
-	const path = join(dir, "report.html");
+	const path = outPath ?? join(await mkdtemp(join(tmpdir(), "agent-test-report-")), "report.html");
+	if (outPath) {
+		await mkdir(dirname(outPath), { recursive: true });
+	}
 	const html = renderHtmlReport(reports, meta);
 	await writeFile(path, html, "utf8");
 	return path;

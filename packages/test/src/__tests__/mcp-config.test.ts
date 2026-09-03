@@ -1,6 +1,5 @@
+import { describe, expect, it } from "bun:test";
 import { fileURLToPath } from "node:url";
-
-import { describe, expect, it } from "vitest";
 
 import { loadSuiteFile } from "../load-suite.js";
 import { isMcpServerConfig, isMcpServersMap } from "../mcp-config.js";
