@@ -24,22 +24,6 @@ const REVIEW_DEPTH_PATTERNS: Record<NonNullable<ScenarioRubric["reviewDepth"]>, 
 	full: /\*\*Depth:\*\*\s*full\b|\bReview\s·\s*[^·]+\s·\s*Full\b/i,
 };
 
-const FULL_MODE_CODE_REVIEW_PATTERNS = [
-	/\bReview\s·\s*[^·]+\s·\s*(?:Quick|Standard|Thorough|Full)\b/i,
-	/## Review synthesis/i,
-] as const;
-const FULL_MODE_GRILL_PATTERNS = [
-	/\bBranch\s+\d+\s*[—–-]/i,
-	/\bgrill\b/i,
-	/\bpressure-test(?:ing)?\b/i,
-] as const;
-const FULL_MODE_CRYSTALLIZE_PATTERNS = [
-	/\bcrystalliz(?:e|ing|ation)\b/i,
-	/\bhalf-formed\b/i,
-	/\bfuzzy\s+intent\b/i,
-	/\bmirror(?:ed|ing)?\s+(?:the\s+)?(?:fuzzy\s+)?intent\b/i,
-	/\bmight be assuming\b/i,
-] as const;
 const ROUTING_HEADING_PATTERN = /(?:^|\n)#+\s*Routing\b/m;
 const ROUTING_BOLD_PATTERN = /\*\*Routing\*\*/;
 
@@ -89,7 +73,7 @@ export class TraceAssertion {
 
 	constructor(
 		private readonly trace: AgentTrace,
-		private readonly options: RubricAssertOptions = {},
+		_options: RubricAssertOptions = {},
 	) {}
 
 	get ok(): boolean {
@@ -111,6 +95,11 @@ export class TraceAssertion {
 			this.trace.gitDiff ?? "",
 			...this.trace.shellCommands,
 			...Object.values(this.trace.artifacts),
+			...this.trace.toolCalls.flatMap((call) => [
+				call.name,
+				JSON.stringify(call.args ?? {}),
+				call.result ?? "",
+			]),
 		].join("\n");
 	}
 
@@ -195,8 +184,8 @@ export class TraceAssertion {
 	}
 
 	/**
-	 * Assert a tool was called. Spec is a name substring, or `name:argFragment`
-	 * where argFragment must appear in JSON-serialized args.
+	 * Assert a tool was called. Spec is a name substring, or `name:fragment`
+	 * where fragment must appear in JSON args or the tool result.
 	 */
 	toHaveCalledTool(spec: string): this {
 		if (!toolSpecMatches(this.trace.toolCalls, spec)) {
@@ -291,9 +280,7 @@ export class TraceAssertion {
 		const invoked = this.trace.skillsInvoked ?? [];
 		this.push(
 			"toHaveInvokedSkill",
-			this.options.skillsMode === "full"
-				? `expected agent to apply ${skillName} skill (read SKILL.md or follow skill session in transcript)`
-				: `expected agent to read ${skillName} skill (SKILL.md)`,
+			`expected agent to read ${skillName} skill (SKILL.md); live judge scores whether it followed the skill`,
 			`skillsInvoked=[${invoked.join(", ")}]`,
 		);
 		return this;
@@ -305,35 +292,7 @@ export class TraceAssertion {
 		if (invoked.some((name) => name.toLowerCase() === normalized)) {
 			return true;
 		}
-		const haystack = this.patternHaystack();
-		if (
-			haystack.toLowerCase().includes(`.claude/skills/${normalized}/skill.md`) ||
-			haystack.toLowerCase().includes(`.claude/skills/${normalized}/references/`)
-		) {
-			return true;
-		}
-		if (this.options.skillsMode !== "full") {
-			return false;
-		}
-		const fullModePatterns: RegExp[] = [
-			new RegExp(
-				`\\b(?:invok(?:e|ing)|following|using|per|applied)\\s+(?:the\\s+)?${normalized}\\b`,
-				"i",
-			),
-			new RegExp(`\\*\\*${normalized}\\*\\*`, "i"),
-			new RegExp(`\\b${normalized}\\s+(?:skill|protocol|design tree)\\b`, "i"),
-			new RegExp(`\\b${normalized}\\s+before implement\\b`, "i"),
-		];
-		if (normalized === "code-review") {
-			fullModePatterns.push(...FULL_MODE_CODE_REVIEW_PATTERNS);
-		}
-		if (normalized === "grill") {
-			fullModePatterns.push(...FULL_MODE_GRILL_PATTERNS);
-		}
-		if (normalized === "crystallize") {
-			fullModePatterns.push(...FULL_MODE_CRYSTALLIZE_PATTERNS);
-		}
-		return fullModePatterns.some((pattern) => pattern.test(haystack));
+		return skillPathMentioned(this.patternHaystack(), normalized);
 	}
 
 	/** Which full-mode fallback pattern matched (for mustNotInvokeSkill evidence). */
@@ -344,7 +303,7 @@ export class TraceAssertion {
 			return `skillsInvoked includes ${skillName}`;
 		}
 		const haystack = this.patternHaystack();
-		if (haystack.toLowerCase().includes(`.claude/skills/${normalized}/skill.md`)) {
+		if (skillPathMentioned(haystack, normalized)) {
 			return "matched SKILL.md path in transcript";
 		}
 		return `skillsInvoked=[${invoked.join(", ")}]`;
@@ -388,6 +347,16 @@ export class TraceAssertion {
 	}
 }
 
+function skillPathMentioned(haystack: string, skillName: string): boolean {
+	const roots = [".agents", ".cursor", ".codex", ".claude"];
+	const lower = haystack.toLowerCase();
+	return roots.some(
+		(root) =>
+			lower.includes(`${root}/skills/${skillName}/skill.md`) ||
+			lower.includes(`${root}/skills/${skillName}/references/`),
+	);
+}
+
 function containsForbiddenPhrase(haystack: string, phrase: string): boolean {
 	const lowerPhrase = phrase.toLowerCase();
 	if (lowerPhrase.includes(" ")) {
@@ -419,8 +388,10 @@ function toolSpecMatches(toolCalls: AgentTrace["toolCalls"], spec: string): bool
 		if (argFragment === undefined || argFragment.length === 0) {
 			return true;
 		}
+		const needle = argFragment.toLowerCase();
 		const argsText = JSON.stringify(call.args ?? {}).toLowerCase();
-		return argsText.includes(argFragment.toLowerCase());
+		const resultText = String(call.result ?? "").toLowerCase();
+		return argsText.includes(needle) || resultText.includes(needle);
 	});
 }
 

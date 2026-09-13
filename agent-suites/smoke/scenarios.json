@@ -1,0 +1,26 @@
+{
+	"name": "smoke",
+	"description": "Host-agent smoke suite. Each scenario launches a real host agent.",
+	"defaults": {
+		"host": "cursor",
+		"profile": "cursor",
+		"skills": "none"
+	},
+	"scenarios": [
+		{
+			"name": "hello",
+			"prompt": "Reply with the exact sentence: smoke ok. Do not use tools.",
+			"rubric": {
+				"must": ["smoke ok"],
+				"mustNotCallTool": ["Shell", "Bash"]
+			}
+		},
+		{
+			"name": "reads a project skill file",
+			"prompt": "Read .agents/skills/skeleton/SKILL.md. Quote the first heading. Then stop.",
+			"rubric": {
+				"mustReadPath": [".agents/skills/skeleton/SKILL.md"]
+			}
+		}
+	]
+}

@@ -33,4 +33,51 @@ describe("validate-suite", () => {
 		const issues = validateSuiteFile("/tmp/scenarios.json", suite);
 		expect(issues.some((issue) => issue.field === "seedStageOnly")).toBe(true);
 	});
+
+	it("accepts a skill path list", () => {
+		const suite: AgentSuiteFile = {
+			name: "ok",
+			scenarios: [
+				{
+					name: "case",
+					prompt: "test",
+					skills: [".agents/skills/skeleton/SKILL.md"],
+					rubric: {},
+				},
+			],
+		};
+		expect(validateSuiteFile("/tmp/scenarios.json", suite)).toEqual([]);
+	});
+
+	it("rejects a bare skill name", () => {
+		const suite: AgentSuiteFile = {
+			name: "bad",
+			scenarios: [
+				{
+					name: "case",
+					prompt: "test",
+					skills: ["skeleton"],
+					rubric: {},
+				},
+			],
+		};
+		const issues = validateSuiteFile("/tmp/scenarios.json", suite);
+		expect(issues.some((issue) => issue.field === "skills")).toBe(true);
+	});
+
+	it("rejects a bare catalog walk", () => {
+		const suite: AgentSuiteFile = {
+			name: "bad",
+			scenarios: [
+				{
+					name: "case",
+					prompt: "test",
+					skills: "catalog" as never,
+					rubric: {},
+				},
+			],
+		};
+		const issues = validateSuiteFile("/tmp/scenarios.json", suite);
+		expect(issues.some((issue) => issue.field === "skills")).toBe(true);
+	});
 });

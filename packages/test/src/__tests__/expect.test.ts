@@ -203,6 +203,17 @@ describe("expectTrace", () => {
 		expect(failures).toHaveLength(0);
 	});
 
+	it("checks mustInvokeSkill from a Cursor .agents skill path", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [{ name: "Read", args: { path: ".agents/skills/probe/SKILL.md" } }],
+			shellCommands: [],
+			skillsInvoked: ["probe"],
+			artifacts: {},
+		};
+		expect(assertRubric(trace, { mustInvokeSkill: ["probe"] })).toHaveLength(0);
+	});
+
 	it("fails mustNotInvokeSkill when skill read present", () => {
 		const trace: AgentTrace = {
 			messages: [],
@@ -215,7 +226,7 @@ describe("expectTrace", () => {
 		expect(failures.some((f) => f.matcher === "toHaveNotInvokedSkill")).toBe(true);
 	});
 
-	it("accepts applied skill prose in full catalog mode", () => {
+	it("rejects skill-name prose without a skill file read", () => {
 		const trace: AgentTrace = {
 			messages: [
 				{
@@ -228,7 +239,7 @@ describe("expectTrace", () => {
 			artifacts: {},
 		};
 		const failures = assertRubric(trace, { mustInvokeSkill: ["grill"] }, { skillsMode: "full" });
-		expect(failures).toHaveLength(0);
+		expect(failures.some((f) => f.matcher === "toHaveInvokedSkill")).toBe(true);
 	});
 
 	it("matches review depth across token-chunked assistant messages", () => {
@@ -266,6 +277,38 @@ describe("expectTrace", () => {
 				mustNotCallTool: ["shell"],
 			}),
 		).toHaveLength(0);
+	});
+
+	it("checks must against MCP tool results", () => {
+		const trace: AgentTrace = {
+			messages: [{ role: "assistant", content: "done" }],
+			toolCalls: [
+				{
+					name: "echo",
+					args: { text: "ping" },
+					result: "mcp echo ok",
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(assertRubric(trace, { must: ["mcp echo ok"] })).toHaveLength(0);
+	});
+
+	it("checks mustCallTool when the fragment is only in the tool result", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [
+				{
+					name: "echo",
+					args: { text: "ping" },
+					result: "mcp echo ok",
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(assertRubric(trace, { mustCallTool: ["echo:mcp echo ok"] })).toHaveLength(0);
 	});
 
 	it("fails mustCallTool when args do not match", () => {

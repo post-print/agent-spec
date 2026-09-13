@@ -2,43 +2,52 @@
 
 **Source of truth for** agent-harness package.
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-02 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
 
-Host-agnostic runtime for direct Cursor and Claude execution, capture, and judging.
+Host-agnostic runtime for direct Cursor, Claude, and OpenAI Codex execution, capture, and judging.
 
 ```ts
 import {
   runAgent,
   loadContext,
   judgeTrace,
-  createScenarioWorktree,
+  createSealedWorkspace,
 } from "@post-print/agent-harness";
 
-const context = await loadContext({ cwd: process.cwd(), profile: "cursor" });
+const sealed = await createSealedWorkspace({ callerCwd: process.cwd() });
+const context = await loadContext({ cwd: sealed.path, profile: "cursor" });
 const session = await runAgent({
   host: "cursor",
-  cwd: context.cwd,
+  cwd: sealed.path,
   context,
   prompt: "…",
 });
 ```
 
-Replay-based testing is deprecated and removed. `runAgent` always launches the selected agent host; untyped calls with `host: "replay"` fail with migration guidance.
+Replay-based testing is deprecated and removed. `runAgent` always launches the selected agent host. Untyped calls with `host: "replay"` fail with migration guidance.
 
-`runAgent` / `runCursorAgent` / `runClaudeAgent` accept optional `timeoutMs` (hard cap; cancels the Cursor SDK run or kills the Claude CLI process group on expiry) and `failOnUserInput` (default `true` — rejects AskQuestion / AskUserQuestion-style tools in headless runs).
+`runAgent` / `runCursorAgent` / `runClaudeAgent` / `runOpenaiAgent` accept optional `timeoutMs` and `failOnUserInput` (default `true`). Set `failOnUserInput: false` to start a user simulator that answers AskQuestion-style tools. The next host turn receives the original task plus the transcript.
 
-Cursor runs use `@cursor/sdk` + `CURSOR_API_KEY`. Claude runs use the Claude Code CLI (`claude -p --bare --output-format stream-json`) + `ANTHROPIC_API_KEY` (binary via `CLAUDE_CODE_BIN` or `claude` on `PATH`). `--bare` skips ambient CLAUDE.md / skills discovery; the harness injects context via `loadContext` preamble instead. Claude tool names are Claude-native (`Bash`, `Read`, `Edit`, …).
+## Hosts
 
-Cursor/Claude runs capture optional `trace.usage` (`inputTokens` / `outputTokens` / `totalTokens`, plus provider cache/reasoning fields when present).
+| Host | Binary / SDK | Auth |
+| --- | --- | --- |
+| `cursor` | `@cursor/sdk` | `CURSOR_API_KEY` |
+| `claude` | `claude` or `CLAUDE_CODE_BIN` | `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login |
+| `openai` | `codex` or `CODEX_BIN` | `OPENAI_API_KEY` or `CODEX_API_KEY` |
 
-Context profiles: `shared` | `cursor` | `claude` | `skeleton`. `skeleton` loads `.skeleton/registry.md`, a short `.skeleton/config.yaml` summary, and optional `customize.alwaysInclude` basenames under `.skeleton/customize/`. Additive paths via `loadContext({ contextSources })` work on any profile; default `shared`/`cursor`/`claude` profiles stay unchanged for toolbox compatibility.
+Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed>`.
 
-Direct runs accept inline `mcpServers` (stdio or HTTP/SSE). Cursor passes them to `Agent.create`; Claude writes a temp `--mcp-config` JSON. Ambient MCP via `local.settingSources` is not enabled.
+## Skills
 
-When `outputContract` is set, `buildRoutingContract` injects hands-on / hands-off routing announce rules and requires continuing the task after the announce (do not end the turn at Routing alone).
+The sealed workspace is a git repo. Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skills`, and `.claude/skills`. Optional `skills` paths only overlay extra folders that are not already in that repo. The judge scores any criterion against the full transcript, including tool names, args, and results. A tool result is an outcome.
 
-Judge classifiers remain Cursor SDK–backed (`CURSOR_API_KEY`) for all hosts.
+## Isolation
 
-`createScenarioWorktree` isolates **file edits** in a detached checkout. It does not prevent hosts from loading caller context or (for Cursor local) Shell/Read against the IDE-open root — see `@post-print/agent-test` README § Isolation model.
+`createSealedWorkspace` copies `git archive HEAD` plus caller context (rules, skill trees, `AGENTS.md`) into a temp folder. It then runs `git init` in that folder so git does not walk to the caller repo. The test runner fails the scenario when tool paths leave that folder.
+
+## Judge
+
+`judgeTrace` uses the same host family as the test agent. Cursor judge calls still need `CURSOR_API_KEY`. Claude and OpenAI judges use their own host credentials.
 
 Consumer: `@post-print/agent-test`.

@@ -12,6 +12,7 @@ import {
 	finalizeClaudeTraceAccumulator,
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
+import type { JudgeClassifierResult } from "./cursor-run.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
 	AgentRunTimeoutError,
@@ -181,7 +182,10 @@ export function buildClaudeEnv(authMode: ClaudeAuthMode, apiKey?: string): NodeJ
 }
 
 function resolveAllowedTools(override?: string): string {
-	return override?.trim() || process.env.CLAUDE_CODE_ALLOWED_TOOLS?.trim() || DEFAULT_ALLOWED_TOOLS;
+	if (override !== undefined) {
+		return override.trim();
+	}
+	return process.env.CLAUDE_CODE_ALLOWED_TOOLS?.trim() || DEFAULT_ALLOWED_TOOLS;
 }
 
 /** Convert harness MCP configs into Claude CLI `--mcp-config` JSON. */
@@ -334,14 +338,16 @@ async function drainNdjson(
 				}
 				accumulateClaudeEvent(acc, event);
 				stashTrace(acc);
-				if (failOnUserInput) {
-					const lastTool = acc.toolCalls.at(-1);
-					if (lastTool && isUserInputTool(lastTool.name)) {
+				const lastTool = acc.toolCalls.at(-1);
+				if (lastTool && isUserInputTool(lastTool.name)) {
+					if (failOnUserInput) {
 						const userInputError = new UserInputRequiredError(lastTool.name);
 						userInputError.trace = stashTrace(acc);
 						killClaudeChild(child);
 						throw userInputError;
 					}
+					killClaudeChild(child);
+					break;
 				}
 			}
 		} finally {
@@ -490,4 +496,35 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			await rm(mcpConfigDir, { recursive: true, force: true }).catch(() => undefined);
 		}
 	}
+}
+
+/** Classifier-only Claude path — no tools, last assistant or result text. */
+export async function runClaudeClassifier(options: {
+	cwd: string;
+	prompt: string;
+	apiKey?: string;
+	bin?: string;
+}): Promise<JudgeClassifierResult> {
+	const result = await runClaudeAgent({
+		cwd: options.cwd,
+		prompt: options.prompt,
+		apiKey: options.apiKey,
+		bin: options.bin,
+		allowedTools: "",
+		failOnUserInput: true,
+	});
+	const text = result.trace.messages
+		.filter((message) => message.role === "assistant")
+		.map((message) => message.content)
+		.join("\n")
+		.trim();
+	return {
+		status: result.status,
+		text,
+		rawStatus: result.rawStatus,
+		sdkError: result.trace.artifacts.claudeResultError
+			? { message: result.trace.artifacts.claudeResultError }
+			: undefined,
+		usage: result.trace.usage,
+	};
 }

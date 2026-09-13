@@ -20,12 +20,13 @@ export interface ScenarioRubric {
 	tier?: "low" | "medium" | "high";
 	/** Chat-style tier announce — infer one-line routing from transcript when routing.tier absent. */
 	handsOnRouting?: boolean;
+	/** Substring in assistant text, commands, artifacts, or tool args and results. */
 	must?: string[];
 	mustNot?: string[];
 	mustRun?: string[];
 	/**
-	 * Tool name substring, or `name:argFragment` where argFragment must appear in JSON args.
-	 * Matches built-in and MCP tool calls recorded on the trace.
+	 * Tool name substring, or `name:fragment` where fragment must appear in
+	 * JSON args or the tool result. Matches built-in and MCP tool calls.
 	 */
 	mustCallTool?: string[];
 	mustNotCallTool?: string[];
@@ -36,12 +37,15 @@ export interface ScenarioRubric {
 	mustReadPath?: string[];
 	/** Substring that must not appear in any Read tool's JSON args. */
 	mustNotReadPath?: string[];
-	/** Skill folder names the agent must read via SKILL.md (e.g. grill, crystallize). */
+	/**
+	 * Skill folder names. Deterministic match is a SKILL.md / references read
+	 * on a host skill path. Live judge then scores whether the agent followed it.
+	 */
 	mustInvokeSkill?: string[];
 	mustNotInvokeSkill?: string[];
 	routingBlock?: boolean;
 	reviewDepth?: "quick" | "standard" | "thorough" | "full";
-	/** Fuzzy criteria — harness LLM judge on live runs only. */
+	/** Any transcript outcome. The judge sees assistant text, tool args, and tool results. */
 	judge?: JudgeRubricItem[];
 }
 
@@ -52,7 +56,7 @@ export interface AgentScenario {
 	prompt: string;
 	host?: AgentHost;
 	profile?: ContextProfile;
-	/** Override suite defaults for skill catalog loading. */
+	/** Extra skill folders to overlay. Project skills in the git repo load without this. */
 	skills?: SkillContextSetting;
 	/** Additive context paths (merged after suite defaults.contextSources). */
 	contextSources?: string[];
@@ -74,7 +78,7 @@ export interface AgentScenario {
 export interface AgentSuiteDefaults {
 	host?: AgentHost;
 	profile?: ContextProfile;
-	/** none | catalog | full — ambient-routing uses full for IDE parity. */
+	/** Extra skill folders to overlay, or `"none"`. */
 	skills?: SkillContextSetting;
 	/** Additive repo-relative context paths or `.skeleton/customize/` basenames. */
 	contextSources?: string[];

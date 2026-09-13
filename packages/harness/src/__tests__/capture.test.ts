@@ -8,7 +8,6 @@ import {
 	enrichTrace,
 	extractShellCommands,
 	extractShellCommandsFromToolCalls,
-	extractSkillsAppliedFromText,
 	extractSkillsInvokedFromToolCalls,
 	finalizeTraceAccumulator,
 	handsOnTierBeforeTools,
@@ -47,8 +46,20 @@ describe("capture", () => {
 				name: "read",
 				args: { path: ".claude/skills/code-review/references/modes.md" },
 			},
+			{
+				name: "Read",
+				args: { path: ".agents/skills/probe/SKILL.md" },
+			},
+			{
+				name: "Read",
+				args: { path: "/tmp/sandbox/.cursor/skills/canvas/references/sdk.md" },
+			},
+			{
+				name: "Read",
+				args: { path: ".codex/skills/origin/SKILL.md" },
+			},
 		]);
-		expect(skills).toEqual(["grill", "code-review"]);
+		expect(skills).toEqual(["grill", "code-review", "probe", "canvas", "origin"]);
 	});
 
 	it("builds skillsInvoked on SDK traces", () => {
@@ -152,11 +163,22 @@ describe("capture", () => {
 		expect(trace.shellCommands.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
 	});
 
-	it("infers applied skills from transcript prose", () => {
-		expect(extractSkillsAppliedFromText("Following the grill skill protocol")).toEqual(["grill"]);
-		expect(extractSkillsAppliedFromText("Review · staged · Standard · foo")).toEqual([
-			"code-review",
+	it("does not treat skill-name prose as an invoke", () => {
+		const trace = buildTraceFromSdkMessages([
+			{
+				type: "assistant",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "text",
+							text: "Following the grill skill protocol. I will pressure-test this.",
+						},
+					],
+				},
+			},
 		]);
+		expect(trace.skillsInvoked ?? []).toEqual([]);
 	});
 
 	it("infers review depth from synthesis header", () => {

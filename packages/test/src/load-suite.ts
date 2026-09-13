@@ -145,7 +145,7 @@ export async function loadSuiteFile(
 function assertNoDeprecatedReplayConfig(suite: SuiteFileShape, path: string): void {
 	if ((suite.defaults as { host?: unknown } | undefined)?.host === "replay") {
 		throw new Error(
-			`Invalid suite file ${path}: replay-based testing is deprecated and no longer supported; use Cursor or Claude.`,
+			`Invalid suite file ${path}: replay-based testing is deprecated and no longer supported; use Cursor, Claude, or OpenAI.`,
 		);
 	}
 	for (const scenario of suite.scenarios) {
@@ -155,7 +155,7 @@ function assertNoDeprecatedReplayConfig(suite: SuiteFileShape, path: string): vo
 		};
 		if (legacy.host === "replay" || "replayTrace" in legacy) {
 			throw new Error(
-				`Invalid suite file ${path}: scenario "${scenario.name}" uses replay-based testing, which is deprecated and no longer supported; use Cursor or Claude.`,
+				`Invalid suite file ${path}: scenario "${scenario.name}" uses replay-based testing, which is deprecated and no longer supported; use Cursor, Claude, or OpenAI.`,
 			);
 		}
 	}

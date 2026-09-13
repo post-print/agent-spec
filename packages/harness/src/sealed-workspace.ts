@@ -1,0 +1,133 @@
+import { execFile } from "node:child_process";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { promisify } from "node:util";
+
+import { SKILL_ROOTS, skillOverlayRelPath } from "./skills-context.js";
+import type { AgentTrace } from "./types.js";
+import { isPathUnderRoot } from "./working-tree-guard.js";
+
+const execFileAsync = promisify(execFile);
+
+export const SEALED_WORKSPACE_DIR_PREFIX = "agent-harness-seal-";
+
+export interface SealedWorkspace {
+	path: string;
+	cleanup: () => Promise<void>;
+}
+
+export interface CreateSealedWorkspaceOptions {
+	callerCwd: string;
+	/** Caller-relative files or directories to overlay after the HEAD snapshot. */
+	overlayPaths?: string[];
+}
+
+async function materializeGitHead(callerCwd: string, dest: string): Promise<void> {
+	try {
+		await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: callerCwd });
+	} catch {
+		return;
+	}
+	const archivePath = join(dest, ".git-archive.tar");
+	await execFileAsync("git", ["archive", "--format=tar", "-o", archivePath, "HEAD"], {
+		cwd: callerCwd,
+	});
+	await execFileAsync("tar", ["-xf", archivePath, "-C", dest]);
+	await rm(archivePath, { force: true });
+}
+
+async function overlayPath(callerCwd: string, dest: string, rel: string): Promise<void> {
+	const normalized = rel.replace(/^\.\//, "").trim();
+	if (!normalized || normalized.includes("\0")) {
+		return;
+	}
+	const from = resolve(callerCwd, normalized);
+	if (!isPathUnderRoot(from, resolve(callerCwd))) {
+		return;
+	}
+	const to = join(dest, normalized);
+	try {
+		await mkdir(dirname(to), { recursive: true });
+		await cp(from, to, { recursive: true, force: true });
+	} catch {
+		// Missing overlay sources are skipped.
+	}
+}
+
+/** Caller-relative trees copied into every sealed run so hosts see local context. */
+export function defaultSealedOverlayPaths(extra?: string[], skillPaths?: string[]): string[] {
+	const extraSkillOverlays = (skillPaths ?? []).map((path) => skillOverlayRelPath(path));
+	return [
+		"AGENTS.md",
+		"CLAUDE.md",
+		".cursor/rules",
+		".skeleton/registry.md",
+		".skeleton/config.yaml",
+		".skeleton/customize",
+		...SKILL_ROOTS,
+		...extraSkillOverlays,
+		...(extra ?? []),
+	];
+}
+
+async function initNestedGit(dest: string): Promise<void> {
+	await execFileAsync("git", ["init", "-b", "main"], { cwd: dest });
+	await execFileAsync("git", ["config", "user.email", "harness@local"], { cwd: dest });
+	await execFileAsync("git", ["config", "user.name", "agent-harness"], { cwd: dest });
+	await execFileAsync("git", ["add", "-A"], { cwd: dest });
+	try {
+		await execFileAsync("git", ["commit", "-m", "sealed workspace"], { cwd: dest });
+	} catch {
+		// Empty tree still keeps .git so git does not walk to the caller repo.
+	}
+}
+
+/** Copy HEAD plus caller context into a temp folder the agent should not leave. */
+export async function createSealedWorkspace(
+	options: CreateSealedWorkspaceOptions,
+): Promise<SealedWorkspace> {
+	const dest = await mkdtemp(join(tmpdir(), SEALED_WORKSPACE_DIR_PREFIX));
+
+	await materializeGitHead(options.callerCwd, dest);
+	for (const rel of options.overlayPaths ?? []) {
+		await overlayPath(options.callerCwd, dest, rel);
+	}
+	await initNestedGit(dest);
+
+	return {
+		path: dest,
+		cleanup: async () => {
+			await rm(dest, { recursive: true, force: true });
+		},
+	};
+}
+
+function candidatePathsFromArgs(args: Record<string, unknown> | undefined): string[] {
+	if (!args) {
+		return [];
+	}
+	const paths: string[] = [];
+	for (const key of ["path", "file_path", "filePath", "target_file", "uri", "cwd"]) {
+		const value = args[key];
+		if (typeof value === "string") {
+			paths.push(value.replace(/^file:\/\//, ""));
+		}
+	}
+	return paths;
+}
+
+/** Tool paths that resolve outside the sealed workspace. */
+export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: string): string[] {
+	const root = resolve(workspaceRoot);
+	const escaped: string[] = [];
+	for (const call of trace.toolCalls) {
+		for (const raw of candidatePathsFromArgs(call.args)) {
+			const abs = isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
+			if (!isPathUnderRoot(abs, root)) {
+				escaped.push(raw);
+			}
+		}
+	}
+	return [...new Set(escaped)];
+}

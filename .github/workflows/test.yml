@@ -21,7 +21,7 @@ jobs:
       - run: bun run validate:ci
       - run: bun run lint
       - run: bun run typecheck
-      - run: bun run test
+      - run: bun run test:unit
       - run: bun run build
 
   node-esm-smoke:
@@ -56,6 +56,34 @@ jobs:
 
       - name: Node can run agent-test doctor
         run: node packages/test/dist/cli.js --doctor
+
+      - name: Node can validate the in-repo smoke suite
+        run: node packages/test/dist/cli.js --validate-only --validate-paths --suites-dir agent-suites --suite smoke
+
+  host:
+    if: ${{ secrets.CURSOR_API_KEY != '' }}
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
+      - name: Host Cursor smoke
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: bun run test
 
   security:
     runs-on: ubuntu-latest

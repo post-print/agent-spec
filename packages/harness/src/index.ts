@@ -1,11 +1,14 @@
 import { createAdapter } from "./adapters/index.js";
 import { loadContext } from "./context.js";
+import { runConversation, type UserSimulator } from "./conversation.js";
 import type { AgentSession, ContextProfile, RunAgentOptions } from "./types.js";
+import { createJudgeUserSimulator } from "./user-simulator.js";
 
 export {
 	ClaudeAdapter,
 	CursorAdapter,
 	createAdapter,
+	OpenaiAdapter,
 } from "./adapters/index.js";
 export type { SdkMessage } from "./capture.js";
 export {
@@ -16,7 +19,6 @@ export {
 	enrichTrace,
 	extractShellCommands,
 	extractShellCommandsFromToolCalls,
-	extractSkillsAppliedFromText,
 	extractSkillsInvokedFromText,
 	extractSkillsInvokedFromToolCalls,
 	handsOnTierBeforeTools,
@@ -27,6 +29,11 @@ export {
 	normalizeAgentUsage,
 	routingBlockBeforeTools,
 } from "./capture.js";
+export {
+	type ClassifierOptions,
+	missingClassifierAuth,
+	runClassifier,
+} from "./classifier.js";
 export {
 	accumulateClaudeEvent,
 	buildTraceFromClaudeEvents,
@@ -51,6 +58,7 @@ export {
 	parseClaudeAuthMode,
 	resolveClaudeBin,
 	runClaudeAgent,
+	runClaudeClassifier,
 	takeLastClaudeRunTrace,
 } from "./claude-run.js";
 export {
@@ -59,6 +67,15 @@ export {
 	parseSkeletonAlwaysInclude,
 	summarizeSkeletonConfig,
 } from "./context.js";
+export {
+	composeFollowUpPrompt,
+	extractUserQuestions,
+	mergeConversationTraces,
+	type RunConversationOptions,
+	runConversation,
+	type UserQuestion,
+	type UserSimulator,
+} from "./conversation.js";
 export {
 	assistantTextFromSdkMessages,
 	type CursorRunOptions,
@@ -74,6 +91,7 @@ export {
 	textBlocksFromSdkMessage,
 } from "./cursor-run.js";
 export {
+	formatTraceForJudge,
 	type JudgeCriterion,
 	type JudgeTraceOptions,
 	type JudgeTraceResult,
@@ -83,6 +101,7 @@ export {
 	parseJudgeJsonResponse,
 	parseJudgeLegacyResponse,
 	parseJudgeResponse,
+	skillInvokeJudgeCriteria,
 } from "./judge.js";
 export { type Logger, type LogLevel, logger } from "./logger.js";
 export {
@@ -95,6 +114,18 @@ export {
 	mergeMcpServers,
 	resolveMcpServers,
 } from "./mcp.js";
+export {
+	buildOpenaiEnv,
+	buildOpenaiExecArgs,
+	cancelActiveOpenaiRun,
+	formatOpenaiRunFailure,
+	type OpenaiRunOptions,
+	type OpenaiRunResult,
+	resolveOpenaiBin,
+	runOpenaiAgent,
+	runOpenaiClassifier,
+	takeLastOpenaiRunTrace,
+} from "./openai-run.js";
 export {
 	isTransientInfraError,
 	resolveRetryMaxAttempts,
@@ -112,33 +143,53 @@ export {
 	withRunTimeout,
 } from "./run-guards.js";
 export {
+	createSealedWorkspace,
+	defaultSealedOverlayPaths,
+	SEALED_WORKSPACE_DIR_PREFIX,
+	type SealedWorkspace,
+	toolPathsOutsideWorkspace,
+} from "./sealed-workspace.js";
+export {
+	isRepoRelativeSkillPath,
 	loadSkillContext,
+	normalizeRelSkillPath,
 	normalizeSkillContext,
+	SKILL_ROOTS,
 	type SkillCatalogEntry,
+	skillManifestRelPath,
+	skillNameFromWorkflowPath,
+	skillOverlayRelPath,
+	skillPathsFromSetting,
 } from "./skills-context.js";
-export type {
-	AgentHost,
-	AgentMessage,
-	AgentSession,
-	AgentToolCall,
-	AgentTrace,
-	AgentUsage,
-	ContextProfile,
-	HostAdapter,
-	LoadedContext,
-	McpServerConfig,
-	RoutingContract,
-	RunAgentOptions,
-	RunStatus,
-	SkillContextMode,
-	SkillContextOptions,
-	SkillContextSetting,
+export {
+	AGENT_HOSTS,
+	type AgentHost,
+	type AgentMessage,
+	type AgentSession,
+	type AgentToolCall,
+	type AgentTrace,
+	type AgentUsage,
+	type ContextProfile,
+	type HostAdapter,
+	isAgentHost,
+	type LoadedContext,
+	type McpServerConfig,
+	type RoutingContract,
+	type RunAgentOptions,
+	type RunStatus,
+	type SkillContextMode,
+	type SkillContextOptions,
+	type SkillContextSetting,
 } from "./types.js";
 export {
 	buildScenarioUsageBreakdown,
 	type ScenarioUsageBreakdown,
 	sumUsageParts,
 } from "./usage-breakdown.js";
+export {
+	createJudgeUserSimulator,
+	type JudgeUserSimulatorOptions,
+} from "./user-simulator.js";
 export {
 	captureWorkingTreeStatus,
 	filterWorkingTreeLeaks,
@@ -167,6 +218,8 @@ export {
 export interface RunAgentInput extends Omit<RunAgentOptions, "context"> {
 	context?: RunAgentOptions["context"];
 	profile?: ContextProfile;
+	/** Injected user agent for conversation turns. Default is a judge-backed user. */
+	userSimulator?: UserSimulator;
 }
 
 /** Run an agent session via the selected host adapter. */
@@ -174,5 +227,15 @@ export async function runAgent(input: RunAgentInput): Promise<AgentSession> {
 	const context =
 		input.context ?? (await loadContext({ cwd: input.cwd, profile: input.profile ?? "shared" }));
 	const adapter = createAdapter(input.host);
-	return adapter.run({ ...input, context });
+	const runOptions = { ...input, context };
+	if (input.failOnUserInput !== false) {
+		return adapter.run(runOptions);
+	}
+	return runConversation({
+		initialPrompt: input.prompt,
+		maxTurns: input.maxConversationTurns,
+		userSimulator:
+			input.userSimulator ?? createJudgeUserSimulator({ cwd: input.cwd, host: input.host }),
+		runTurn: (prompt) => adapter.run({ ...runOptions, prompt, failOnUserInput: false }),
+	});
 }

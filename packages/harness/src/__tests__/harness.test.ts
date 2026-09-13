@@ -37,7 +37,11 @@ describe("loadContext", () => {
 
 	it("loads full skill catalog for cursor profile with skills full", async () => {
 		const repoRoot = await fixtureRepo();
-		const context = await loadContext({ cwd: repoRoot, profile: "cursor", skills: "full" });
+		const context = await loadContext({
+			cwd: repoRoot,
+			profile: "cursor",
+			skills: { mode: "full", include: [".claude/skills/grill/SKILL.md"] },
+		});
 		expect(context.skillsMode).toBe("full");
 		expect(context.sources.some((s) => s.includes("grill/SKILL.md"))).toBe(true);
 		expect(context.preamble).toContain("## Skill catalog");

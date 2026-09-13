@@ -181,7 +181,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 	await using agent = await sdkModule.Agent.create({
 		apiKey,
 		model: { id: modelId },
-		local: { cwd: options.cwd },
+		local: { cwd: options.cwd, settingSources: ["project"] },
 		...(mcpServers ? { mcpServers } : {}),
 	});
 
@@ -211,13 +211,19 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 		try {
 			for await (const event of run.stream()) {
 				accumulateSdkEvent(acc, event as SdkMessage);
-				if (failOnUserInput) {
-					const lastTool = acc.toolCalls.at(-1);
-					if (lastTool && isUserInputTool(lastTool.name)) {
+				const lastTool = acc.toolCalls.at(-1);
+				if (lastTool && isUserInputTool(lastTool.name)) {
+					if (failOnUserInput) {
 						const userInputError = new UserInputRequiredError(lastTool.name);
 						userInputError.trace = stashTrace();
 						throw userInputError;
 					}
+					cancelSdkRun(run);
+					return {
+						status: "completed",
+						trace: stashTrace(),
+						rawStatus: "user_input",
+					};
 				}
 			}
 			const result = await run.wait();
@@ -281,7 +287,7 @@ export async function runJudgeClassifier(
 		apiKey,
 		model: judgeModelSelection(options.model),
 		name: "agent-spec-judge",
-		local: { cwd: options.cwd },
+		local: { cwd: options.cwd, settingSources: ["project"] },
 	});
 
 	const text = result.result?.trim() ?? "";

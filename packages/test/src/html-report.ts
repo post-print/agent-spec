@@ -66,7 +66,7 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	runAgent: { label: "Agent run", hint: "The agent session itself failed or was cut short." },
 	must: {
 		label: "Missing requirement",
-		hint: "A required behavior did not show up in the transcript.",
+		hint: "A required string did not appear in assistant text, commands, or tool results.",
 	},
 	mustNot: { label: "Forbidden behavior", hint: "The agent did something it was told not to do." },
 	mustRun: { label: "Missing command", hint: "An expected command never ran." },

@@ -1,14 +1,21 @@
 import { captureGitDiff, enrichTrace } from "../capture.js";
 import { formatClaudeRunFailure, runClaudeAgent, takeLastClaudeRunTrace } from "../claude-run.js";
 import { formatCursorRunFailure, runCursorAgent, takeLastCursorRunTrace } from "../cursor-run.js";
+import { formatOpenaiRunFailure, runOpenaiAgent, takeLastOpenaiRunTrace } from "../openai-run.js";
 import { buildRoutingContract } from "../routing-contract.js";
 import { getPartialTrace } from "../run-guards.js";
-import type { AgentSession, AgentTrace, HostAdapter, RunAgentOptions } from "../types.js";
+import type {
+	AgentHost,
+	AgentSession,
+	AgentTrace,
+	HostAdapter,
+	RunAgentOptions,
+} from "../types.js";
 
 const REPLAY_DEPRECATION =
 	"Replay-based testing is deprecated and no longer supported; use the cursor or claude host.";
 
-function emptyFailed(host: "cursor" | "claude", error: string): AgentSession {
+function emptyFailed(host: AgentHost, error: string): AgentSession {
 	return {
 		host,
 		status: "failed",
@@ -19,7 +26,7 @@ function emptyFailed(host: "cursor" | "claude", error: string): AgentSession {
 }
 
 function sessionFromTrace(
-	host: "cursor" | "claude",
+	host: AgentHost,
 	trace: AgentTrace,
 	error: string,
 	durationMs: number,
@@ -200,6 +207,92 @@ export class ClaudeAdapter implements HostAdapter {
 	}
 }
 
+/**
+ * OpenAI Codex CLI adapter — requires `codex` on PATH (or CODEX_BIN)
+ * and OPENAI_API_KEY or CODEX_API_KEY.
+ */
+export class OpenaiAdapter implements HostAdapter {
+	readonly host = "openai" as const;
+
+	async run(options: RunAgentOptions): Promise<AgentSession> {
+		if (!process.env.OPENAI_API_KEY?.trim() && !process.env.CODEX_API_KEY?.trim()) {
+			return emptyFailed(
+				this.host,
+				"OPENAI_API_KEY or CODEX_API_KEY not set — required for OpenAI agent runs",
+			);
+		}
+
+		const started = performance.now();
+		try {
+			const contract = options.outputContract
+				? `\n\n${buildRoutingContract(options.outputContract)}\n`
+				: "";
+			const prompt = `${options.context.preamble}\n\n---\n${contract}Task:\n${options.prompt}`;
+
+			const {
+				trace: streamedTrace,
+				status,
+				rawStatus,
+				exitCode,
+				stderr,
+			} = await runOpenaiAgent({
+				cwd: options.cwd,
+				prompt,
+				timeoutMs: options.timeoutMs,
+				failOnUserInput: options.failOnUserInput,
+				onDeadlineStart: options.onDeadlineStart,
+			});
+			const gitDiffResult = await captureGitDiff(options.cwd);
+			const resultError = streamedTrace.artifacts.openaiResultError;
+			const trace = enrichTrace({
+				...streamedTrace,
+				gitDiff: gitDiffResult.diff,
+				artifacts: {
+					...streamedTrace.artifacts,
+					...(gitDiffResult.truncated ? { gitDiffTruncated: "true" } : {}),
+					...(exitCode !== undefined && exitCode !== null
+						? { openaiExitCode: String(exitCode) }
+						: {}),
+				},
+			});
+
+			const durationMs = Math.round(performance.now() - started);
+			if (status === "completed") {
+				return {
+					host: this.host,
+					status: "completed",
+					trace,
+					durationMs,
+					usage: trace.usage,
+				};
+			}
+
+			return {
+				host: this.host,
+				status: "failed",
+				trace,
+				durationMs,
+				usage: trace.usage,
+				error: formatOpenaiRunFailure({
+					status,
+					rawStatus,
+					exitCode,
+					stderr,
+					resultError,
+				}),
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Failed to run OpenAI Codex CLI";
+			const durationMs = Math.round(performance.now() - started);
+			const partial = getPartialTrace(error) ?? takeLastOpenaiRunTrace();
+			if (partial && (partial.messages.length > 0 || partial.toolCalls.length > 0)) {
+				return sessionFromTrace(this.host, partial, message, durationMs);
+			}
+			return emptyFailed(this.host, message);
+		}
+	}
+}
+
 export function createAdapter(host: RunAgentOptions["host"]): HostAdapter {
 	if ((host as string) === "replay") {
 		throw new Error(REPLAY_DEPRECATION);
@@ -209,6 +302,8 @@ export function createAdapter(host: RunAgentOptions["host"]): HostAdapter {
 			return new CursorAdapter();
 		case "claude":
 			return new ClaudeAdapter();
+		case "openai":
+			return new OpenaiAdapter();
 		default:
 			throw new Error(`Unsupported agent host: ${String(host)}`);
 	}

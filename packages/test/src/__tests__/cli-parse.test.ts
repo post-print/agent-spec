@@ -55,6 +55,11 @@ describe("parseCliArgs debug flags", () => {
 		);
 	});
 
+	it("defaults judge on and lets --no-judge turn it off", () => {
+		expect(parseCliArgs(["node", "cli.js", "--suite", "smoke"]).judge).toBe(true);
+		expect(parseCliArgs(["node", "cli.js", "--no-judge", "--suite", "smoke"]).judge).toBe(false);
+	});
+
 	it("parses validate and fail-on flags", () => {
 		const args = parseCliArgs([
 			"node",

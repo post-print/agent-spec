@@ -150,6 +150,11 @@ describe("runCursorAgent usage", () => {
 			cacheWriteTokens: 0,
 		});
 		expect(result.usage).toEqual(result.trace.usage);
+		expect(agentCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				local: { cwd: process.cwd(), settingSources: ["project"] },
+			}),
+		);
 		jest.clearAllMocks();
 	});
 });

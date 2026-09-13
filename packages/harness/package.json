@@ -19,7 +19,7 @@
 		"lint": "bunx biome check .",
 		"lint:fix": "bunx biome check . --write",
 		"test": "bun test",
-		"test:sandbox-safe": "bun test --path-ignore-patterns '**/{worktree-judge,harness}.test.ts'",
+		"test:sandbox-safe": "bun test --path-ignore-patterns '**/{worktree-judge,harness,sealed-workspace}.test.ts'",
 		"test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},

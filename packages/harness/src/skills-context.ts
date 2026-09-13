@@ -1,19 +1,34 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 
-const SKILLS_ROOT = ".claude/skills";
+/** Project skill trees used by Cursor, Claude, Codex, and similar hosts. */
+export const SKILL_ROOTS = [
+	".agents/skills",
+	".cursor/skills",
+	".codex/skills",
+	".claude/skills",
+] as const;
+
+const SKILL_WORKFLOW_PATH_PATTERN =
+	/(?:^|[/\\])(?:\.agents|\.cursor|\.codex|\.claude)[/\\]skills[/\\]([^/\\]+)[/\\](?:SKILL\.md|references[/\\])/i;
+
 const INTERNAL_SKILL_NAMES = new Set(["align-commands"]);
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---/;
 
-export type SkillContextMode = "none" | "catalog" | "full";
-
-export interface SkillContextOptions {
-	mode: SkillContextMode;
-	/** Full mode: load only these skill folder names. Omit = all public skills. */
-	include?: string[];
+/** Skill folder name from a host-agnostic SKILL.md or references path. */
+export function skillNameFromWorkflowPath(path: string): string | undefined {
+	const match = path.match(SKILL_WORKFLOW_PATH_PATTERN);
+	return match?.[1]?.toLowerCase();
 }
 
-export type SkillContextSetting = SkillContextMode | SkillContextOptions;
+export type SkillContextMode = "none" | "catalog" | "full";
+
+export type SkillContextOptions =
+	| { mode: "none"; include?: readonly string[] }
+	| { mode?: "catalog" | "full"; include: readonly string[] };
+
+/** Skill files for one run. Use repo-relative SKILL.md or skill-folder paths. */
+export type SkillContextSetting = "none" | readonly string[] | SkillContextOptions;
 
 export interface SkillCatalogEntry {
 	name: string;
@@ -43,62 +58,124 @@ function parseFrontmatter(raw: string): Record<string, string> {
 	return fields;
 }
 
-function normalizeSkillContext(setting: SkillContextSetting | undefined): SkillContextOptions {
-	if (!setting) {
-		return { mode: "none" };
+export function normalizeRelSkillPath(raw: string): string {
+	return raw.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "").trim();
+}
+
+/** True for a repo-relative skill file or folder. Bare names are invalid. */
+export function isRepoRelativeSkillPath(raw: string): boolean {
+	const rel = normalizeRelSkillPath(raw);
+	if (!rel || isAbsolute(raw) || rel.startsWith("/")) {
+		return false;
+	}
+	if (rel.split("/").includes("..") || rel.split("/").includes(".")) {
+		return false;
+	}
+	return rel.includes("/");
+}
+
+/** SKILL.md path for a listed skill file or folder. */
+export function skillManifestRelPath(raw: string): string {
+	const rel = normalizeRelSkillPath(raw);
+	if (/\/skill\.md$/i.test(rel)) {
+		return rel.replace(/skill\.md$/i, "SKILL.md");
+	}
+	return `${rel}/SKILL.md`;
+}
+
+/** Folder copied into the sealed workspace for a listed skill path. */
+export function skillOverlayRelPath(raw: string): string {
+	const manifest = skillManifestRelPath(raw);
+	const slash = manifest.lastIndexOf("/");
+	return slash === -1 ? manifest : manifest.slice(0, slash);
+}
+
+function normalizePaths(paths: readonly string[] | undefined): string[] {
+	const include = (paths ?? []).map((item) => normalizeRelSkillPath(item)).filter(Boolean);
+	const invalid = include.filter((item) => !isRepoRelativeSkillPath(item));
+	if (invalid.length > 0) {
+		throw new Error(
+			`skills must be repo-relative paths (for example [".agents/skills/skeleton/SKILL.md"]), got ${JSON.stringify(invalid)}`,
+		);
+	}
+	return include;
+}
+
+/** Skill paths this run may load. Empty when skills are off. */
+export function skillPathsFromSetting(setting: SkillContextSetting | undefined): string[] {
+	return normalizeSkillContext(setting).include ?? [];
+}
+
+function normalizeSkillContext(setting: SkillContextSetting | undefined): {
+	mode: SkillContextMode;
+	include: string[];
+} {
+	if (!setting || setting === "none") {
+		return { mode: "none", include: [] };
+	}
+	if (Array.isArray(setting)) {
+		const include = normalizePaths(setting);
+		return { mode: include.length > 0 ? "catalog" : "none", include };
 	}
 	if (typeof setting === "string") {
-		return { mode: setting };
+		throw new Error(
+			`skills "${setting}" is invalid — pass a list of skill paths (for example [".agents/skills/skeleton/SKILL.md"])`,
+		);
 	}
-	return setting;
+	const options = setting as SkillContextOptions;
+	const include = normalizePaths(options.include);
+	const mode = options.mode ?? (include.length > 0 ? "catalog" : "none");
+	if (mode !== "none" && include.length === 0) {
+		throw new Error("skills.include must list the skill paths for this run");
+	}
+	return { mode: mode === "none" ? "none" : mode, include };
 }
 
-async function discoverSkills(cwd: string): Promise<SkillCatalogEntry[]> {
-	const skillsDir = join(cwd, SKILLS_ROOT);
-	let entries: string[];
+async function resolveSkillPath(cwd: string, raw: string): Promise<SkillCatalogEntry | undefined> {
+	const relPath = skillManifestRelPath(raw);
+	const dir = skillOverlayRelPath(raw).split("/").pop() ?? relPath;
+	const absPath = join(cwd, relPath);
+	let rawText: string;
 	try {
-		entries = await readdir(skillsDir, { withFileTypes: true }).then((items) =>
-			items.filter((item) => item.isDirectory()).map((item) => item.name),
-		);
+		rawText = await readFile(absPath, "utf8");
 	} catch {
-		return [];
+		return undefined;
 	}
+	const frontmatter = parseFrontmatter(rawText);
+	const name = frontmatter.name ?? dir;
+	if (INTERNAL_SKILL_NAMES.has(name) || INTERNAL_SKILL_NAMES.has(dir)) {
+		return undefined;
+	}
+	return {
+		name,
+		dir,
+		relPath,
+		description: frontmatter.description ?? "",
+		disableModelInvocation: frontmatter["disable-model-invocation"] === "true",
+	};
+}
 
+async function resolveSkillPaths(cwd: string, include: string[]): Promise<SkillCatalogEntry[]> {
 	const skills: SkillCatalogEntry[] = [];
-	for (const dir of entries.sort()) {
-		const relPath = `${SKILLS_ROOT}/${dir}/SKILL.md`;
-		const absPath = join(cwd, relPath);
-		let raw: string;
-		try {
-			raw = await readFile(absPath, "utf8");
-		} catch {
+	const seen = new Set<string>();
+	const missing: string[] = [];
+	for (const raw of include) {
+		const key = skillManifestRelPath(raw).toLowerCase();
+		if (seen.has(key)) {
 			continue;
 		}
-		const frontmatter = parseFrontmatter(raw);
-		const name = frontmatter.name ?? dir;
-		if (INTERNAL_SKILL_NAMES.has(name) || INTERNAL_SKILL_NAMES.has(dir)) {
+		const skill = await resolveSkillPath(cwd, raw);
+		if (!skill) {
+			missing.push(raw);
 			continue;
 		}
-		skills.push({
-			name,
-			dir,
-			relPath,
-			description: frontmatter.description ?? "",
-			disableModelInvocation: frontmatter["disable-model-invocation"] === "true",
-		});
+		seen.add(key);
+		skills.push(skill);
+	}
+	if (missing.length > 0) {
+		throw new Error(`skill not found: ${missing.join(", ")}`);
 	}
 	return skills;
-}
-
-function filterSkills(
-	skills: SkillCatalogEntry[],
-	include: string[] | undefined,
-): SkillCatalogEntry[] {
-	if (!include?.length) {
-		return skills;
-	}
-	const wanted = new Set(include.map((name) => name.toLowerCase()));
-	return skills.filter((skill) => wanted.has(skill.name.toLowerCase()) || wanted.has(skill.dir));
 }
 
 function buildCatalogSection(skills: SkillCatalogEntry[]): string {
@@ -133,14 +210,13 @@ export async function loadSkillContext(
 		return { mode: "none", sources: [], preamble: "", catalog: [] };
 	}
 
-	const allSkills = await discoverSkills(cwd);
-	const skills = filterSkills(allSkills, options.include);
+	const skills = await resolveSkillPaths(cwd, options.include ?? []);
 	const sources: string[] = [];
 	const parts: string[] = [];
 
 	if (options.mode === "catalog" || options.mode === "full") {
 		parts.push(buildCatalogSection(skills));
-		sources.push(`${SKILLS_ROOT}/catalog`);
+		sources.push("skills/catalog");
 	}
 
 	if (options.mode === "full") {

@@ -61,7 +61,9 @@ export {
 	writeStagingResult,
 } from "./record-trace.js";
 export {
+	collectJudgeCriteria,
 	discoverSuites,
+	judgeAuthRequired,
 	type RunAgentTestOptions,
 	type RunSuiteOptions,
 	runAgentTest,

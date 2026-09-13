@@ -1,16 +1,52 @@
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { AgentHost, ContextProfile, SkillContextSetting } from "@post-print/agent-harness";
+import {
+	type AgentHost,
+	type ContextProfile,
+	isAgentHost,
+	isRepoRelativeSkillPath,
+	skillManifestRelPath,
+	skillPathsFromSetting,
+} from "@post-print/agent-harness";
 
 import { loadSuiteFile } from "./load-suite.js";
 import type { AgentScenario, AgentSuiteFile, ScenarioRubric } from "./types.js";
 
-const VALID_HOSTS = new Set<AgentHost>(["cursor", "claude"]);
 const REPLAY_DEPRECATION =
-	"Replay-based testing is deprecated and no longer supported; use Cursor or Claude.";
+	"Replay-based testing is deprecated and no longer supported; use Cursor, Claude, or OpenAI.";
 const VALID_PROFILES = new Set<ContextProfile>(["shared", "cursor", "claude", "skeleton"]);
-const VALID_SKILLS = new Set<SkillContextSetting>(["none", "catalog", "full"]);
+function isValidSkillSetting(value: unknown): boolean {
+	if (value === "none") {
+		return true;
+	}
+	if (Array.isArray(value)) {
+		return (
+			value.length > 0 &&
+			value.every((item) => typeof item === "string" && isRepoRelativeSkillPath(item))
+		);
+	}
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const record = value as { mode?: unknown; include?: unknown };
+	if (
+		record.mode !== undefined &&
+		record.mode !== "none" &&
+		record.mode !== "catalog" &&
+		record.mode !== "full"
+	) {
+		return false;
+	}
+	if (record.mode === "none") {
+		return true;
+	}
+	return (
+		Array.isArray(record.include) &&
+		record.include.length > 0 &&
+		record.include.every((item) => typeof item === "string" && isRepoRelativeSkillPath(item))
+	);
+}
 const VALID_TIERS = new Set<NonNullable<ScenarioRubric["tier"]>>(["low", "medium", "high"]);
 const VALID_REVIEW_DEPTHS = new Set<NonNullable<ScenarioRubric["reviewDepth"]>>([
 	"quick",
@@ -132,14 +168,14 @@ function validateScenario(
 	suitePath: string,
 	scenario: AgentScenario,
 ): void {
-	if (scenario.host !== undefined && !VALID_HOSTS.has(scenario.host)) {
+	if (scenario.host !== undefined && !isAgentHost(scenario.host)) {
 		pushIssue(
 			issues,
 			suitePath,
 			"host",
 			scenario.host === ("replay" as AgentHost)
 				? REPLAY_DEPRECATION
-				: `host must be cursor|claude, got ${JSON.stringify(scenario.host)}`,
+				: `host must be cursor|claude|openai, got ${JSON.stringify(scenario.host)}`,
 			scenario.name,
 		);
 	}
@@ -164,12 +200,12 @@ function validateScenario(
 			scenario.name,
 		);
 	}
-	if (scenario.skills !== undefined && !VALID_SKILLS.has(scenario.skills)) {
+	if (scenario.skills !== undefined && !isValidSkillSetting(scenario.skills)) {
 		pushIssue(
 			issues,
 			suitePath,
 			"skills",
-			`skills must be none|catalog|full, got ${JSON.stringify(scenario.skills)}`,
+			`skills must be "none" or repo-relative SKILL.md / skill-folder paths, got ${JSON.stringify(scenario.skills)}`,
 			scenario.name,
 		);
 	}
@@ -194,14 +230,14 @@ function validateDefaults(
 	if (!defaults) {
 		return;
 	}
-	if (defaults.host !== undefined && !VALID_HOSTS.has(defaults.host)) {
+	if (defaults.host !== undefined && !isAgentHost(defaults.host)) {
 		pushIssue(
 			issues,
 			suitePath,
 			"defaults.host",
 			defaults.host === ("replay" as AgentHost)
 				? REPLAY_DEPRECATION
-				: `host must be cursor|claude, got ${JSON.stringify(defaults.host)}`,
+				: `host must be cursor|claude|openai, got ${JSON.stringify(defaults.host)}`,
 		);
 	}
 	if (defaults.profile !== undefined && !VALID_PROFILES.has(defaults.profile)) {
@@ -220,12 +256,12 @@ function validateDefaults(
 			"contextSources must be an array of strings",
 		);
 	}
-	if (defaults.skills !== undefined && !VALID_SKILLS.has(defaults.skills)) {
+	if (defaults.skills !== undefined && !isValidSkillSetting(defaults.skills)) {
 		pushIssue(
 			issues,
 			suitePath,
 			"defaults.skills",
-			`skills must be none|catalog|full, got ${JSON.stringify(defaults.skills)}`,
+			`skills must be "none" or repo-relative SKILL.md / skill-folder paths, got ${JSON.stringify(defaults.skills)}`,
 		);
 	}
 }
@@ -281,6 +317,23 @@ export async function validateSuitePaths(
 							`seed patch not found: ${scenario.seedPatch}`,
 							scenario.name,
 						);
+					}
+				}
+				const skills = scenario.skills ?? suite.defaults?.skills;
+				if (skills !== undefined && isValidSkillSetting(skills)) {
+					for (const rel of skillPathsFromSetting(skills)) {
+						const manifest = skillManifestRelPath(rel);
+						try {
+							await access(resolve(repoRoot, manifest));
+						} catch {
+							pushIssue(
+								issues,
+								suitePath,
+								"skills",
+								`skill path not found: ${manifest}`,
+								scenario.name,
+							);
+						}
 					}
 				}
 			}

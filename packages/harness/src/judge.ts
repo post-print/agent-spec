@@ -1,6 +1,7 @@
-import { runJudgeClassifier } from "./cursor-run.js";
+import { missingClassifierAuth, runClassifier } from "./classifier.js";
+import type { JudgeClassifierResult } from "./cursor-run.js";
 import { isTransientInfraError, resolveRetryMaxAttempts, withRetry } from "./retry.js";
-import type { AgentTrace, AgentUsage } from "./types.js";
+import type { AgentHost, AgentTrace, AgentUsage } from "./types.js";
 import { sumUsageParts } from "./usage-breakdown.js";
 
 // Optional info-string (`json`, `js`, `typescript`, …) on the opening fence line.
@@ -38,6 +39,15 @@ export interface JudgeVerdict {
 export interface JudgeTraceOptions {
 	cwd: string;
 	apiKey?: string;
+	/** Host that scores the transcript. Defaults to cursor. */
+	host?: AgentHost;
+	/** Injected classifier for tests. */
+	classify?: (options: {
+		host: AgentHost;
+		cwd: string;
+		prompt: string;
+		apiKey?: string;
+	}) => Promise<JudgeClassifierResult>;
 }
 
 export interface JudgeTraceResult {
@@ -55,15 +65,53 @@ export interface ParsedJudgeJson {
 	valid: boolean;
 }
 
-function transcriptForJudge(trace: AgentTrace): string {
+const JUDGE_TOOL_RESULT_MAX_CHARS = 4_000;
+
+function truncateJudgeText(text: string, max = JUDGE_TOOL_RESULT_MAX_CHARS): string {
+	if (text.length <= max) {
+		return text;
+	}
+	return `${text.slice(0, max)}…`;
+}
+
+function formatToolCallsForJudge(trace: AgentTrace): string {
+	if (trace.toolCalls.length === 0) {
+		return "";
+	}
+	const lines = ["Tool calls:"];
+	for (const [index, call] of trace.toolCalls.entries()) {
+		const args = JSON.stringify(call.args ?? {});
+		lines.push(`${index + 1}. ${call.name} ${truncateJudgeText(args, 2_000)}`);
+		if (call.result) {
+			lines.push(`   result: ${truncateJudgeText(call.result)}`);
+		}
+	}
+	return lines.join("\n");
+}
+
+/** Full live transcript for a judge, including tool names, args, and results. */
+export function formatTraceForJudge(trace: AgentTrace): string {
 	return [
-		...trace.messages.map((m) => m.content),
+		...trace.messages.map((m) => `${m.role}:\n${m.content}`),
+		formatToolCallsForJudge(trace),
 		trace.prBody ?? "",
 		trace.gitDiff ? `Git diff:\n${trace.gitDiff}` : "",
 		trace.shellCommands.length > 0 ? `Shell commands:\n${trace.shellCommands.join("\n")}` : "",
 	]
 		.filter(Boolean)
 		.join("\n\n---\n\n");
+}
+
+/** Judge questions for mustInvokeSkill — replaces prose regex heuristics. */
+export function skillInvokeJudgeCriteria(skillNames: string[]): JudgeCriterion[] {
+	return skillNames.map((name) => ({
+		id: `invoke-skill:${name}`,
+		question: [
+			`Did the agent actually follow the "${name}" skill?`,
+			"Use tool calls, file reads, and later actions as evidence.",
+			"Naming the skill or using similar words is not enough.",
+		].join(" "),
+	}));
 }
 
 function normalizeVerdict(value: unknown): "yes" | "no" | undefined {
@@ -509,6 +557,8 @@ function buildJudgePrompt(transcript: string, question: string): string {
 	return [
 		"You are a test harness classifier. Do not use tools. Do not edit files.",
 		"Decide whether the transcript satisfies the criterion using only transcript evidence.",
+		"The transcript includes assistant text, tool names, tool args, and tool results.",
+		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
 		"Reply with one JSON object only — no markdown fences, no text before or after:",
 		'{"verdict":"yes"|"no","evidence":["verbatim quote from transcript"],"rationale":"one sentence"}',
 		'Use verdict "yes" only when evidence clearly supports the criterion.',
@@ -558,10 +608,13 @@ async function runJudgePromptOnce(
 	retryable: boolean;
 }> {
 	const started = performance.now();
-	const result = await runJudgeClassifier({
+	const host = options.host ?? "cursor";
+	const classify = options.classify ?? runClassifier;
+	const result = await classify({
+		host,
 		cwd: options.cwd,
 		prompt,
-		apiKey: options.apiKey ?? process.env.CURSOR_API_KEY ?? "",
+		apiKey: options.apiKey,
 	});
 	const durationMs = Math.round(performance.now() - started);
 	const usage = result.usage;
@@ -620,11 +673,12 @@ async function runJudgePrompt(
 	usage?: AgentUsage;
 	attempt: number;
 }> {
-	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
-	if (!apiKey) {
+	const host = options.host ?? "cursor";
+	const missing = missingClassifierAuth(host, options.apiKey);
+	if (missing) {
 		return {
 			pass: false,
-			rationale: "CURSOR_API_KEY not set",
+			rationale: missing,
 			evidence: [],
 			error: "missing api key",
 			infraError: "missing api key",
@@ -641,7 +695,7 @@ async function runJudgePrompt(
 		const { result, attempt } = await withRetry(
 			async (attemptNumber) => {
 				lastAttempt = attemptNumber;
-				const outcome = await runJudgePromptOnce(prompt, { ...options, apiKey });
+				const outcome = await runJudgePromptOnce(prompt, options);
 				if (outcome.retryable && attemptNumber < maxAttempts) {
 					throw new Error(outcome.infraError ?? outcome.error ?? "judge infra error");
 				}
@@ -682,22 +736,23 @@ export async function judgeTrace(
 		return { verdicts: [], skipped: true };
 	}
 
-	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
-	if (!apiKey) {
+	const host = options.host ?? "cursor";
+	const missing = missingClassifierAuth(host, options.apiKey);
+	if (missing) {
 		return {
 			verdicts: [],
 			skipped: true,
-			error: "CURSOR_API_KEY not set — judge criteria skipped",
+			error: `${missing} — judge criteria skipped`,
 		};
 	}
 
-	const transcript = transcriptForJudge(trace);
+	const transcript = formatTraceForJudge(trace);
 	const transcriptChars = transcript.length;
 	const verdicts: JudgeVerdict[] = [];
 
 	for (const criterion of criteria) {
 		const prompt = buildJudgePrompt(transcript, criterion.question);
-		const parsed = await runJudgePrompt(prompt, { ...options, apiKey });
+		const parsed = await runJudgePrompt(prompt, options);
 		verdicts.push({
 			id: criterion.id,
 			pass: parsed.pass,

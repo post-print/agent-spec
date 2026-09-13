@@ -8,6 +8,8 @@ import { discoverSuites } from "../discover-suites.js";
 import * as liveIsolation from "../live-isolation.js";
 import * as recordTrace from "../record-trace.js";
 import {
+	collectJudgeCriteria,
+	judgeAuthRequired,
 	outputContractForRubric,
 	runAgentTest,
 	runSuite,
@@ -47,6 +49,38 @@ describe("outputContractForRubric", () => {
 
 	it("returns undefined when no routing rubric flags are set", () => {
 		expect(outputContractForRubric({ tier: "medium" })).toBeUndefined();
+	});
+});
+
+describe("collectJudgeCriteria", () => {
+	it("adds skill-invoke questions for mustInvokeSkill", () => {
+		const criteria = collectJudgeCriteria({
+			mustInvokeSkill: ["probe"],
+			judge: ["did the task succeed?"],
+		});
+		expect(criteria.map((item) => item.id)).toEqual(["judge-0", "invoke-skill:probe"]);
+		expect(criteria[1]?.question).toContain("probe");
+		expect(criteria[1]?.question).toContain("Naming the skill");
+	});
+});
+
+describe("judgeAuthRequired", () => {
+	it("is off when judge is disabled", () => {
+		expect(judgeAuthRequired(false, [{ judge: ["did it work?"] }])).toBe(false);
+	});
+
+	it("is off when judge is on and no rubric needs a judge", () => {
+		expect(judgeAuthRequired(true, [{ must: ["smoke ok"] }, { mustReadPath: ["AGENTS.md"] }])).toBe(
+			false,
+		);
+	});
+
+	it("is on when judge is on and a rubric has judge questions", () => {
+		expect(judgeAuthRequired(true, [{ must: ["ok"] }, { judge: ["did it work?"] }])).toBe(true);
+	});
+
+	it("is on when judge is on and mustInvokeSkill adds criteria", () => {
+		expect(judgeAuthRequired(true, [{ mustInvokeSkill: ["probe"] }])).toBe(true);
 	});
 });
 
@@ -93,6 +127,26 @@ describe("runAgentTest direct host selection", () => {
 			expect(claude.failures[0]?.message).toContain("ANTHROPIC_API_KEY");
 			expect(claudeDefault.failures[0]?.message).toContain("ANTHROPIC_API_KEY");
 			expect(scenarioWins.failures[0]?.message).toContain("CURSOR_API_KEY");
+
+			const openaiKey = process.env.OPENAI_API_KEY;
+			const codexKey = process.env.CODEX_API_KEY;
+			delete process.env.OPENAI_API_KEY;
+			delete process.env.CODEX_API_KEY;
+			try {
+				const openai = await runAgentTest({
+					cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
+					scenario: { name: "openai override", prompt: "p", host: "openai", rubric: {} },
+					worktree: false,
+					judge: false,
+					scenarioRetries: 0,
+				});
+				expect(openai.failures[0]?.message).toMatch(/OPENAI_API_KEY or CODEX_API_KEY/);
+			} finally {
+				if (openaiKey === undefined) delete process.env.OPENAI_API_KEY;
+				else process.env.OPENAI_API_KEY = openaiKey;
+				if (codexKey === undefined) delete process.env.CODEX_API_KEY;
+				else process.env.CODEX_API_KEY = codexKey;
+			}
 		} finally {
 			if (cursorKey === undefined) delete process.env.CURSOR_API_KEY;
 			else process.env.CURSOR_API_KEY = cursorKey;

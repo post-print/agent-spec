@@ -7,7 +7,9 @@ import {
 	type AgentHost,
 	CLAUDE_AUTH_MODE_ENV,
 	cleanupStaleScenarioWorktrees,
+	isAgentHost,
 	isPathUnderRoot,
+	missingClassifierAuth,
 	parseClaudeAuthMode,
 } from "@post-print/agent-harness";
 
@@ -30,7 +32,13 @@ import {
 	getLiveStagingSessionRoot,
 	setLiveStagingRootOverride,
 } from "./record-trace.js";
-import { registerLiveRunHandlers, runAllSuites, runSuite } from "./run-suite.js";
+import {
+	judgeAuthRequired,
+	loadSelectedRubrics,
+	registerLiveRunHandlers,
+	runAllSuites,
+	runSuite,
+} from "./run-suite.js";
 import {
 	type FailOnMode,
 	formatRunSummary,
@@ -124,11 +132,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			const value = argv[++i];
 			if (value === "replay") {
 				throw new Error(
-					"Replay-based testing is deprecated and no longer supported; use --host cursor or --host claude.",
+					"Replay-based testing is deprecated and no longer supported; use --host cursor, --host claude, or --host openai.",
 				);
 			}
-			if (value !== "cursor" && value !== "claude") {
-				throw new Error("--host must be cursor|claude");
+			if (!isAgentHost(value)) {
+				throw new Error("--host must be cursor|claude|openai");
 			}
 			host = value;
 		} else if (token === "--suites-dir" && argv[i + 1]) {
@@ -477,10 +485,34 @@ async function main(): Promise<number> {
 			console.error("CURSOR_API_KEY required for Cursor agent runs");
 			return 1;
 		}
-		// Judge classifiers still use the Cursor SDK.
-		if (args.judge !== false && !process.env.CURSOR_API_KEY?.trim()) {
-			console.error("CURSOR_API_KEY required for judge classifiers (use --no-judge to skip)");
+		if (
+			args.host === "openai" &&
+			!process.env.OPENAI_API_KEY?.trim() &&
+			!process.env.CODEX_API_KEY?.trim()
+		) {
+			console.error("OPENAI_API_KEY or CODEX_API_KEY required for OpenAI agent runs");
 			return 1;
+		}
+		if (args.judge !== false) {
+			let rubrics: Awaited<ReturnType<typeof loadSelectedRubrics>> = [];
+			try {
+				rubrics = await loadSelectedRubrics({
+					cwd: args.cwd,
+					suitesDir: args.suitesDir,
+					filter: args.filter,
+					scenarioFilter: args.scenarioFilter,
+					rubricsDir: args.rubricsDir,
+				});
+			} catch {
+				rubrics = [];
+			}
+			if (judgeAuthRequired(true, rubrics)) {
+				const missingJudge = missingClassifierAuth(args.host ?? "cursor");
+				if (missingJudge) {
+					console.error(`${missingJudge} (use --no-judge to skip)`);
+					return 1;
+				}
+			}
 		}
 
 		{
@@ -498,7 +530,7 @@ async function main(): Promise<number> {
 				process.env.AGENT_TEST_NO_WORKTREE === "true";
 			if (worktreeDisabled && !inPlaceAllowed) {
 				console.error(
-					"Direct agent tests require git worktree isolation. Set AGENT_TEST_ALLOW_IN_PLACE=1 to run in repo cwd (--no-worktree leaks agent edits into your working tree).",
+					"Direct agent tests require a sealed temp workspace. Set AGENT_TEST_ALLOW_IN_PLACE=1 to run in repo cwd (--no-worktree leaks agent edits into your working tree).",
 				);
 				return 1;
 			}

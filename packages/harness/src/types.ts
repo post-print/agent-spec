@@ -1,4 +1,9 @@
-export type AgentHost = "cursor" | "claude";
+export const AGENT_HOSTS = ["cursor", "claude", "openai"] as const;
+export type AgentHost = (typeof AGENT_HOSTS)[number];
+
+export function isAgentHost(value: string): value is AgentHost {
+	return (AGENT_HOSTS as readonly string[]).includes(value);
+}
 
 import type { McpServerConfig } from "./mcp.js";
 import type { RoutingContract } from "./routing-contract.js";
@@ -92,6 +97,8 @@ export interface RunAgentOptions {
 	timeoutMs?: number;
 	/** Fail fast when the agent invokes AskQuestion-style tools (default true for live). */
 	failOnUserInput?: boolean;
+	/** Max agent turns when failOnUserInput is false (default 6). */
+	maxConversationTurns?: number;
 	/** Fires when the live harness deadline clock starts (after pre-stream SDK setup). */
 	onDeadlineStart?: () => void | Promise<void>;
 	env?: Record<string, string>;

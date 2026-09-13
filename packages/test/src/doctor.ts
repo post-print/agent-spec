@@ -18,12 +18,14 @@ export interface DoctorReport {
 	cursorSdkPresent: boolean;
 	anthropicApiKeySet: boolean;
 	claudeBinPresent: boolean;
+	openaiApiKeySet: boolean;
+	openaiBinPresent: boolean;
+	liveReady: boolean;
 	health: typeof HEALTH_CHECK_PATH;
 	messages: string[];
 }
 
-function claudeBinOnPath(): boolean {
-	const override = process.env.CLAUDE_CODE_BIN?.trim();
+function binOnPath(override: string | undefined, names: string[]): boolean {
 	if (override) {
 		try {
 			accessSync(override, constants.X_OK);
@@ -40,7 +42,6 @@ function claudeBinOnPath(): boolean {
 
 	const pathEnv = process.env.PATH ?? "";
 	const sep = process.platform === "win32" ? ";" : ":";
-	const names = process.platform === "win32" ? ["claude.exe", "claude.cmd", "claude"] : ["claude"];
 	for (const dir of pathEnv.split(sep)) {
 		if (!dir) {
 			continue;
@@ -60,6 +61,13 @@ function claudeBinOnPath(): boolean {
 		}
 	}
 	return false;
+}
+
+function claudeBinOnPath(): boolean {
+	return binOnPath(
+		process.env.CLAUDE_CODE_BIN?.trim(),
+		process.platform === "win32" ? ["claude.exe", "claude.cmd", "claude"] : ["claude"],
+	);
 }
 
 /** Local diagnostics for agent-test install and live-run readiness. */
@@ -104,7 +112,7 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	if (cursorApiKeySet) {
 		messages.push("CURSOR_API_KEY: set");
 	} else {
-		messages.push("CURSOR_API_KEY unset (required for Cursor runs / judge)");
+		messages.push("CURSOR_API_KEY unset (required for Cursor runs and Cursor judge)");
 	}
 
 	const anthropicApiKeySet = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
@@ -138,10 +146,47 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		);
 	}
 
+	const openaiApiKeySet = Boolean(
+		process.env.OPENAI_API_KEY?.trim() || process.env.CODEX_API_KEY?.trim(),
+	);
+	if (openaiApiKeySet) {
+		messages.push("OPENAI_API_KEY or CODEX_API_KEY: set");
+	} else {
+		messages.push("OPENAI_API_KEY and CODEX_API_KEY unset (required for --host openai)");
+	}
+
+	const openaiBinPresent = binOnPath(
+		process.env.CODEX_BIN?.trim(),
+		process.platform === "win32" ? ["codex.exe", "codex.cmd", "codex"] : ["codex"],
+	);
+	if (openaiBinPresent) {
+		messages.push(
+			process.env.CODEX_BIN?.trim()
+				? `OpenAI Codex binary: ${process.env.CODEX_BIN.trim()}`
+				: "OpenAI Codex binary: codex (on PATH)",
+		);
+	} else {
+		messages.push(
+			"OpenAI Codex binary not found (install Codex CLI or set CODEX_BIN for --host openai)",
+		);
+	}
+
+	const cursorLiveReady = cursorApiKeySet && cursorSdkPresent;
+	const claudeLiveReady =
+		claudeBinPresent &&
+		(claudeAuthMode === "subscription" || (claudeAuthMode === "api-key" && anthropicApiKeySet));
+	const openaiLiveReady = openaiApiKeySet && openaiBinPresent;
+	const liveReady = cursorLiveReady || claudeLiveReady || openaiLiveReady;
+
 	const health = getHealthStatus();
 	const ok = nodeOk && cliPresent && health.ok;
 	if (ok) {
-		messages.push(`doctor ${HEALTH_CHECK_PATH}: ready`);
+		messages.push(`doctor ${HEALTH_CHECK_PATH}: package-ready`);
+	}
+	if (liveReady) {
+		messages.push("doctor host: ready for at least one host");
+	} else {
+		messages.push("doctor host: not ready (no host credentials)");
 	}
 
 	return {
@@ -153,6 +198,9 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		cursorSdkPresent,
 		anthropicApiKeySet,
 		claudeBinPresent,
+		openaiApiKeySet,
+		openaiBinPresent,
+		liveReady,
 		health: HEALTH_CHECK_PATH,
 		messages,
 	};

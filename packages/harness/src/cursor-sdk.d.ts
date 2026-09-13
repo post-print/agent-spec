@@ -33,7 +33,7 @@ declare module "@cursor/sdk" {
 	export interface CursorAgentOptions {
 		apiKey: string;
 		name?: string;
-		local?: { cwd: string };
+		local?: { cwd: string; settingSources?: Array<"project" | "user" | "plugins"> };
 		model?: ModelSelection;
 		/** Inline MCP servers — fully replace creation-time servers when set on send. */
 		mcpServers?: Record<string, McpServerConfig>;

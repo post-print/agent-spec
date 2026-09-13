@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { loadSkillContext, type SkillContextSetting } from "./skills-context.js";
 import type { ContextProfile, LoadedContext } from "./types.js";
 
-const SHARED_SOURCES = ["AGENTS.md", ".claude/skills/README.md"] as const;
+const SHARED_SOURCES = [
+	"AGENTS.md",
+	".agents/skills/README.md",
+	".cursor/skills/README.md",
+	".codex/skills/README.md",
+	".claude/skills/README.md",
+] as const;
 
 const CLAUDE_SOURCES = ["CLAUDE.md", "AGENTS.md"] as const;
 

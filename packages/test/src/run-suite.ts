@@ -12,8 +12,10 @@ import type {
 import {
 	cancelActiveClaudeRun,
 	cancelActiveCursorRun,
+	cancelActiveOpenaiRun,
 	captureWorkingTreeStatus,
-	createScenarioWorktree,
+	createSealedWorkspace,
+	defaultSealedOverlayPaths,
 	enrichTrace,
 	filterWorkingTreeLeaks,
 	findWorkingTreeLeak,
@@ -27,6 +29,9 @@ import {
 	resolveHarnessArtifactIgnoreRoots,
 	restoreWorkingTreePaths,
 	runAgent,
+	skillInvokeJudgeCriteria,
+	skillPathsFromSetting,
+	toolPathsOutsideWorkspace,
 	traceEditsOutsideWorktree,
 	traceHasUserInputTool,
 } from "@post-print/agent-harness";
@@ -111,6 +116,15 @@ function isChildProcess(): boolean {
 	return process.env.AGENT_TEST_CHILD === "1";
 }
 
+function resolveMaxConversationTurns(): number | undefined {
+	const raw = process.env.AGENT_TEST_MAX_TURNS?.trim();
+	if (!raw) {
+		return undefined;
+	}
+	const parsed = Number(raw);
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 /** Parent process prints suite headers and final verdicts; children only print phases. */
 export function shouldPrintSuiteChrome(): boolean {
 	return !isChildProcess();
@@ -127,6 +141,7 @@ export function registerLiveRunHandlers(): void {
 		killActiveLiveChildren();
 		cancelActiveCursorRun();
 		cancelActiveClaudeRun();
+		cancelActiveOpenaiRun();
 		const cleanup = activeWorktreeCleanup;
 		const headRestore = activeCallerHeadRestore;
 		if (!cleanup && !headRestore) {
@@ -231,6 +246,49 @@ function normalizeJudgeCriteria(judge: JudgeRubricItem[] | undefined): JudgeCrit
 		}
 		return { id: item.id ?? `judge-${index}`, question: item.question };
 	});
+}
+
+/** Explicit judge questions plus skill-invoke questions for mustInvokeSkill. */
+export function collectJudgeCriteria(rubric: ScenarioRubric): JudgeCriterion[] {
+	return [
+		...normalizeJudgeCriteria(rubric.judge),
+		...skillInvokeJudgeCriteria(rubric.mustInvokeSkill ?? []),
+	];
+}
+
+/** Judge auth and the judge call apply only when a rubric has judge work. */
+export function judgeAuthRequired(judge: boolean, rubrics: readonly ScenarioRubric[]): boolean {
+	return judge !== false && rubrics.some((rubric) => collectJudgeCriteria(rubric).length > 0);
+}
+
+export async function loadSelectedRubrics(options: {
+	cwd: string;
+	suitesDir: string;
+	filter?: string;
+	scenarioFilter?: string;
+	rubricsDir?: string;
+}): Promise<ScenarioRubric[]> {
+	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
+	const filtered = options.filter
+		? suitePaths.filter((suitePath) => {
+				const suiteName = suiteNameFromPath(suitePath);
+				return suiteName === options.filter || suitePath.includes(`/${options.filter}/`);
+			})
+		: suitePaths;
+	const rubrics: ScenarioRubric[] = [];
+	for (const suitePath of filtered) {
+		const suite = await loadSuiteFile(suitePath, { rubricsDir: options.rubricsDir });
+		for (const scenario of suite.scenarios) {
+			if (scenario.skip) {
+				continue;
+			}
+			if (options.scenarioFilter && scenario.name !== options.scenarioFilter) {
+				continue;
+			}
+			rubrics.push(scenario.rubric);
+		}
+	}
+	return rubrics;
 }
 
 function questionForCriterion(criteria: JudgeCriterion[], id: string): string {
@@ -569,12 +627,17 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
 			if (failures.length === 0 && options.judge !== false && scenarioTrace) {
-				const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
+				const criteria = collectJudgeCriteria(scenario.rubric);
 				if (criteria.length > 0) {
 					releaseLiveMemory();
 					logPhase(theme.judgePhase(criteria.length), { last: true });
 					try {
-						const judged = await runJudgeRubric(scenarioTrace, scenario.rubric, options.cwd);
+						const judged = await runJudgeRubric(
+							scenarioTrace,
+							scenario.rubric,
+							options.cwd,
+							options.host ?? scenario.host ?? suite.defaults?.host ?? "cursor",
+						);
 						failures.push(...judged.failures);
 						scenarioTrace = judged.trace;
 						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
@@ -690,6 +753,16 @@ function mergeContextSources(
 	return merged.length > 0 ? merged : undefined;
 }
 
+function defaultProfileForHost(host: AgentHost): "cursor" | "claude" | "shared" {
+	if (host === "cursor") {
+		return "cursor";
+	}
+	if (host === "claude") {
+		return "claude";
+	}
+	return "shared";
+}
+
 /** Run one real agent scenario. JSON suites delegate to this same execution boundary. */
 export async function runAgentTest(options: RunAgentTestOptions): Promise<ScenarioResult> {
 	const previousStagingRoot = getLiveStagingRootOverride();
@@ -720,7 +793,7 @@ async function runAgentTestBody(options: RunAgentTestOptions): Promise<ScenarioR
 		"replayTrace" in legacyScenario
 	) {
 		throw new Error(
-			"Replay-based testing is deprecated and no longer supported; use Cursor or Claude.",
+			"Replay-based testing is deprecated and no longer supported; use Cursor, Claude, or OpenAI.",
 		);
 	}
 	const suiteName = options.suiteName ?? "direct";
@@ -847,7 +920,7 @@ async function runAgentTestOnce(
 	}
 
 	const host = scenario.host ?? defaultHost;
-	const profile = scenario.profile ?? defaultProfile ?? (host === "cursor" ? "cursor" : "shared");
+	const profile = scenario.profile ?? defaultProfile ?? defaultProfileForHost(host);
 	const skills = scenario.skills ?? defaultSkills;
 	const contextSources = mergeContextSources(defaultContextSources, scenario.contextSources);
 	const mcpServers = mergeMcpServers(defaultMcpServers, scenario.mcpServers);
@@ -861,7 +934,7 @@ async function runAgentTestOnce(
 	}
 
 	const useWorktree = worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
-	let worktreeHandle: Awaited<ReturnType<typeof createScenarioWorktree>> | undefined;
+	let worktreeHandle: Awaited<ReturnType<typeof createSealedWorkspace>> | undefined;
 	let callerHeadBefore: Awaited<ReturnType<typeof captureCallerHead>> | undefined;
 	const callerTreeBefore = useWorktree ? await captureWorkingTreeStatus(cwd) : undefined;
 	if (useWorktree) {
@@ -869,7 +942,10 @@ async function runAgentTestOnce(
 			callerHeadBefore = await captureCallerHead(cwd);
 			setCallerHeadRestore(cwd, callerHeadBefore);
 		}
-		worktreeHandle = await createScenarioWorktree(cwd, `${suiteName}-${scenario.name}`);
+		worktreeHandle = await createSealedWorkspace({
+			callerCwd: cwd,
+			overlayPaths: defaultSealedOverlayPaths(contextSources, skillPathsFromSetting(skills)),
+		});
 		activeWorktreeCleanup = worktreeHandle.cleanup;
 		logPhase(theme.phase("worktree", theme.path(worktreeHandle.path)));
 		if (scenario.seedPatch) {
@@ -885,11 +961,8 @@ async function runAgentTestOnce(
 
 	try {
 		logPhase(theme.phase("context"));
-		// Worktree runs code in an isolated checkout; load rules/AGENTS from caller cwd
-		// so uncommitted .cursor/rules and AGENTS.md edits apply during dogfood.
-		const contextRoot = useWorktree ? cwd : runCwd;
 		const context = await loadContext({
-			cwd: contextRoot,
+			cwd: runCwd,
 			profile,
 			skills,
 			contextSources,
@@ -913,6 +986,7 @@ async function runAgentTestOnce(
 				mcpServers,
 				timeoutMs: liveTimeoutMs,
 				failOnUserInput,
+				maxConversationTurns: resolveMaxConversationTurns(),
 				onDeadlineStart: agentStartMarkerPath
 					? () => writeAgentStartMarker(agentStartMarkerPath)
 					: undefined,
@@ -973,6 +1047,20 @@ async function runAgentTestOnce(
 				skillsMode: context.skillsMode,
 			}),
 		);
+
+		if (worktreeHandle) {
+			const escaped = toolPathsOutsideWorkspace(trace, worktreeHandle.path);
+			if (escaped.length > 0) {
+				failures.push(
+					assertionFailure(
+						"workingTreeLeak",
+						`agent used paths outside the sealed workspace: ${escaped.join(", ")}`,
+						"worktree_leak",
+						`escaped=${escaped.join(", ")}`,
+					),
+				);
+			}
+		}
 
 		if (useWorktree && callerTreeBefore !== undefined) {
 			const callerTreeAfter = await captureWorkingTreeStatus(cwd);
@@ -1049,11 +1137,11 @@ async function runAgentTestOnce(
 		const deferJudgeToParent = isChildProcess();
 		let judgeVerdicts: JudgeVerdictResult[] | undefined;
 		if (judge && !deferJudgeToParent) {
-			const criteria = normalizeJudgeCriteria(scenario.rubric.judge);
+			const criteria = collectJudgeCriteria(scenario.rubric);
 			if (criteria.length > 0) {
 				logPhase(theme.judgePhase(criteria.length), { last: true });
 			}
-			const judged = await runJudgeRubric(trace, scenario.rubric, runCwd);
+			const judged = await runJudgeRubric(trace, scenario.rubric, runCwd, host);
 			failures.push(...judged.failures);
 			trace = judged.trace;
 			judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
@@ -1071,9 +1159,7 @@ async function runAgentTestOnce(
 
 		if (worktreeHandle) {
 			const willJudge =
-				Boolean(judge) &&
-				!isChildProcess() &&
-				normalizeJudgeCriteria(scenario.rubric.judge).length > 0;
+				Boolean(judge) && !isChildProcess() && collectJudgeCriteria(scenario.rubric).length > 0;
 			logPhase(theme.phase("cleanup"), { last: !willJudge });
 			await worktreeHandle.cleanup();
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
@@ -1165,17 +1251,18 @@ async function runJudgeRubric(
 	trace: AgentTrace,
 	rubric: ScenarioRubric,
 	runCwd: string,
+	host: AgentHost,
 ): Promise<{
 	trace: AgentTrace;
 	failures: AssertionFailure[];
 	verdicts: NonNullable<Awaited<ReturnType<typeof judgeTrace>>["verdicts"]>;
 }> {
-	const criteria = normalizeJudgeCriteria(rubric.judge);
+	const criteria = collectJudgeCriteria(rubric);
 	if (criteria.length === 0) {
 		return { trace, failures: [], verdicts: [] };
 	}
 
-	const result = await judgeTrace(trace, criteria, { cwd: runCwd });
+	const result = await judgeTrace(trace, criteria, { cwd: runCwd, host });
 	if (result.skipped) {
 		return {
 			trace,

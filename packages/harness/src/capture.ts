@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { textBlocksFromSdkMessage } from "./cursor-run.js";
+import { skillNameFromWorkflowPath } from "./skills-context.js";
 import type { AgentMessage, AgentToolCall, AgentTrace, AgentUsage } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -73,41 +74,6 @@ export function extractShellCommandsFromToolCalls(toolCalls: AgentToolCall[]): s
 	return [...commands];
 }
 
-const SKILL_WORKFLOW_PATH_PATTERN = /\.claude\/skills\/([^/]+)\/(?:SKILL\.md|references\/)/i;
-
-const APPLIED_SKILL_GENERIC_PATTERNS = [
-	/\b(?:invok(?:e|ing)|following|using|per|walk(?:ing)?)\s+(?:the\s+)?([a-z][a-z0-9-]*)\s+(?:skill|protocol|design tree)\b/gi,
-	/\*\*([a-z][a-z0-9-]*)\*\*\s*(?:skill|protocol)?/gi,
-] as const;
-
-const APPLIED_SKILL_MARKERS = [
-	{ skill: "grill", pattern: /\bgrill\s+before\s+implement/i },
-	{ skill: "grill", pattern: /\b(?:invok(?:e|ing)|applied)\s+grill\b/i },
-	{ skill: "grill", pattern: /\bgrill\b/i },
-	{ skill: "grill", pattern: /\bpressure-test(?:ing)?\b/i },
-	{
-		skill: "crystallize",
-		pattern: /\b(?:invok(?:e|ing)|applied)\s+crystallize\b/i,
-	},
-	{ skill: "crystallize", pattern: /\bcrystalliz(?:e|ing|ation)\b/i },
-	{ skill: "crystallize", pattern: /\bhalf-formed\b/i },
-	{ skill: "crystallize", pattern: /\bfuzzy\s+intent\b/i },
-	{
-		skill: "crystallize",
-		pattern: /\bmirror(?:ed|ing)?\s+(?:the\s+)?(?:fuzzy\s+)?intent\b/i,
-	},
-	{ skill: "crystallize", pattern: /\bmight be assuming\b/i },
-	{
-		skill: "code-review",
-		pattern: /\b(?:invok(?:e|ing)|applied)\s+code-review\b/i,
-	},
-	{
-		skill: "code-review",
-		pattern: /\bReview\s·\s*[^·]+\s·\s*(?:Quick|Standard|Thorough|Full)\b/i,
-	},
-	{ skill: "code-review", pattern: /## Review synthesis/i },
-] as const;
-
 const REVIEW_HEADER_DEPTH_PATTERN = /\bReview\s·\s*[^·]+\s·\s*(Quick|Standard|Thorough|Full)\b/i;
 const REVIEW_DEPTH_LABEL_PATTERN = /\*\*Depth:\*\*\s*(quick|standard|thorough|full)\b/i;
 const REVIEW_PASS_CLASS_DEPTH_PATTERNS: Array<{
@@ -137,11 +103,6 @@ function pathsFromToolArgs(args: Record<string, unknown>): string[] {
 	return paths;
 }
 
-function skillNameFromPath(path: string): string | undefined {
-	const match = path.match(SKILL_WORKFLOW_PATH_PATTERN);
-	return match?.[1]?.toLowerCase();
-}
-
 /** Infer skill folder names from Read tool paths in tool calls. */
 export function extractSkillsInvokedFromToolCalls(toolCalls: AgentToolCall[]): string[] {
 	const skills = new Set<string>();
@@ -150,14 +111,16 @@ export function extractSkillsInvokedFromToolCalls(toolCalls: AgentToolCall[]): s
 			continue;
 		}
 		for (const path of pathsFromToolArgs(call.args)) {
-			const name = skillNameFromPath(path);
+			const name = skillNameFromWorkflowPath(path);
 			if (name) {
 				skills.add(name);
 			}
 		}
 		const serialized = JSON.stringify(call.args);
-		for (const match of serialized.matchAll(/\.claude\/skills\/([^/]+)\/SKILL\.md/gi)) {
-			const name = match[1]?.toLowerCase();
+		for (const path of serialized.matchAll(
+			/(?:\.agents|\.cursor|\.codex|\.claude)[/\\]skills[/\\][^"\\]+/gi,
+		)) {
+			const name = skillNameFromWorkflowPath(path[0] ?? "");
 			if (name) {
 				skills.add(name);
 			}
@@ -170,37 +133,15 @@ export function extractSkillsInvokedFromToolCalls(toolCalls: AgentToolCall[]): s
 export function extractSkillsInvokedFromText(...chunks: string[]): string[] {
 	const skills = new Set<string>();
 	for (const chunk of chunks) {
-		for (const match of chunk.matchAll(/\.claude\/skills\/([^/]+)\/SKILL\.md/gi)) {
-			const name = match[1]?.toLowerCase();
+		for (const match of chunk.matchAll(
+			/(?:\.agents|\.cursor|\.codex|\.claude)[/\\]skills[/\\][^"'?\s]+/gi,
+		)) {
+			const name = skillNameFromWorkflowPath(match[0] ?? "");
 			if (name) {
 				skills.add(name);
 			}
 		}
 	}
-	return [...skills];
-}
-
-/** Infer explicit skill sessions when SKILL.md is already in preamble (full catalog mode). */
-export function extractSkillsAppliedFromText(...chunks: string[]): string[] {
-	const skills = new Set<string>();
-	const combined = collapseTraceWhitespace(chunks.join("\n"));
-
-	const genericPatterns = APPLIED_SKILL_GENERIC_PATTERNS;
-	for (const pattern of genericPatterns) {
-		for (const match of combined.matchAll(pattern)) {
-			const name = match[1]?.toLowerCase();
-			if (name) {
-				skills.add(name);
-			}
-		}
-	}
-
-	for (const { skill, pattern } of APPLIED_SKILL_MARKERS) {
-		if (pattern.test(combined)) {
-			skills.add(skill);
-		}
-	}
-
 	return [...skills];
 }
 
@@ -565,7 +506,6 @@ export function finalizeTraceAccumulator(
 	const skillsInvoked = mergeSkillsInvoked(
 		extractSkillsInvokedFromToolCalls(acc.toolCalls),
 		extractSkillsInvokedFromText(combined),
-		extractSkillsAppliedFromText(combined),
 	);
 
 	const artifacts: Record<string, string> = {};
@@ -612,7 +552,6 @@ export function enrichTrace(trace: AgentTrace): AgentTrace {
 			trace.skillsInvoked,
 			extractSkillsInvokedFromToolCalls(trace.toolCalls),
 			extractSkillsInvokedFromText(combined),
-			extractSkillsAppliedFromText(combined),
 		),
 		shellCommands:
 			trace.shellCommands.length > 0
