@@ -96,12 +96,17 @@ describe("html-report", () => {
 						usage: { totalTokens: 1234 },
 					},
 				}),
+				makeResult({
+					scenario: "other",
+					usage: { total: { totalTokens: 4000, inputTokens: 3000, outputTokens: 1000 } },
+				}),
 			]),
 		]);
-		expect(html).toContain("1234 tok");
-		expect(html).toContain("1.2k tok");
-		expect(html).toContain("p50 tokens");
-		expect(html).toContain("Token usage");
+		expect(html).toContain("1.2k tokens");
+		expect(html).toContain("Typical");
+		expect(html).toContain("Largest");
+		expect(html).toContain("Token cost");
+		expect(html).toContain("How to read this report");
 		expect(html).toContain("Cache read");
 		expect(html).toContain("Skills invoked");
 		expect(html).toContain("skeleton");
@@ -240,6 +245,13 @@ describe("html-report", () => {
 		expect(html).toContain("Emission order wasn't recorded");
 		expect(html).toContain("Legacy trace message");
 		expect(html).toContain("Tool calls");
+	});
+
+	it("lists every host in the report lede", () => {
+		const cursor = makeReport([makeResult()]);
+		const claude: SuiteRunReport = { ...makeReport([makeResult()]), host: "claude" };
+		const html = renderHtmlReport([cursor, claude]);
+		expect(html).toContain("cursor, claude");
 	});
 
 	it("handles missing trace and skipped scenarios", () => {

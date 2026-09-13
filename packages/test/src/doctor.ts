@@ -6,9 +6,15 @@ import { fileURLToPath } from "node:url";
 import {
 	type AgentHost,
 	CLAUDE_AUTH_MODE_ENV,
+	CURSOR_AUTH_MODE_ENV,
 	getHealthStatus,
+	getRegisteredAdapter,
 	HEALTH_CHECK_PATH,
+	isBuiltinAgentHost,
+	OPENAI_AUTH_MODE_ENV,
 	parseClaudeAuthMode,
+	resolveCursorAuthMode,
+	resolveOpenaiAuthMode,
 } from "@post-print/agent-harness";
 
 export interface DoctorReport {
@@ -127,7 +133,20 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	if (cursorApiKeySet) {
 		messages.push("CURSOR_API_KEY: set");
 	} else {
-		messages.push("CURSOR_API_KEY unset (required for Cursor runs and Cursor judge)");
+		messages.push("CURSOR_API_KEY unset (required for CURSOR_AUTH_MODE=api-key)");
+	}
+
+	const cursorAuthMode = process.env[CURSOR_AUTH_MODE_ENV]?.trim();
+	if (cursorAuthMode === "api-key" || cursorAuthMode === "subscription") {
+		messages.push(`${CURSOR_AUTH_MODE_ENV}: ${cursorAuthMode}`);
+	} else if (cursorAuthMode) {
+		messages.push(`${CURSOR_AUTH_MODE_ENV}="${cursorAuthMode}" invalid (api-key or subscription)`);
+	} else if (cursorApiKeySet) {
+		messages.push(`${CURSOR_AUTH_MODE_ENV} unset (using CURSOR_API_KEY)`);
+	} else {
+		messages.push(
+			`${CURSOR_AUTH_MODE_ENV} unset (set CURSOR_API_KEY or ${CURSOR_AUTH_MODE_ENV}=subscription after Cursor.auth.login())`,
+		);
 	}
 
 	const anthropicApiKeySet = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
@@ -167,7 +186,20 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	if (openaiApiKeySet) {
 		messages.push("OPENAI_API_KEY or CODEX_API_KEY: set");
 	} else {
-		messages.push("OPENAI_API_KEY and CODEX_API_KEY unset (required for --host openai)");
+		messages.push("OPENAI_API_KEY and CODEX_API_KEY unset (required for OPENAI_AUTH_MODE=api-key)");
+	}
+
+	const openaiAuthMode = process.env[OPENAI_AUTH_MODE_ENV]?.trim();
+	if (openaiAuthMode === "api-key" || openaiAuthMode === "subscription") {
+		messages.push(`${OPENAI_AUTH_MODE_ENV}: ${openaiAuthMode}`);
+	} else if (openaiAuthMode) {
+		messages.push(`${OPENAI_AUTH_MODE_ENV}="${openaiAuthMode}" invalid (api-key or subscription)`);
+	} else if (openaiApiKeySet) {
+		messages.push(`${OPENAI_AUTH_MODE_ENV} unset (using OPENAI_API_KEY or CODEX_API_KEY)`);
+	} else {
+		messages.push(
+			`${OPENAI_AUTH_MODE_ENV} unset (set a key or ${OPENAI_AUTH_MODE_ENV}=subscription after \`codex login\`)`,
+		);
 	}
 
 	const openaiBinPresent = binOnPath(
@@ -221,6 +253,13 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 
 /** Missing credential or binary for a live host adapter. Undefined when that host can run. */
 export function missingAgentAuth(host: AgentHost): string | undefined {
+	if (!isBuiltinAgentHost(host)) {
+		const adapter = getRegisteredAdapter(host);
+		if (!adapter) {
+			return `Unknown host "${host}". Register it with registerHostAdapter() or --adapter.`;
+		}
+		return adapter.missingAuth?.();
+	}
 	if (host === "claude") {
 		const raw = process.env[CLAUDE_AUTH_MODE_ENV]?.trim();
 		try {
@@ -237,8 +276,10 @@ export function missingAgentAuth(host: AgentHost): string | undefined {
 		return undefined;
 	}
 	if (host === "openai") {
-		if (!process.env.OPENAI_API_KEY?.trim() && !process.env.CODEX_API_KEY?.trim()) {
-			return "OPENAI_API_KEY or CODEX_API_KEY required for OpenAI agent runs";
+		try {
+			resolveOpenaiAuthMode();
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
 		}
 		if (
 			!binOnPath(
@@ -250,8 +291,10 @@ export function missingAgentAuth(host: AgentHost): string | undefined {
 		}
 		return undefined;
 	}
-	if (!process.env.CURSOR_API_KEY?.trim()) {
-		return "CURSOR_API_KEY required for Cursor agent runs";
+	try {
+		resolveCursorAuthMode();
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
 	}
 	const require = createRequire(import.meta.url);
 	try {

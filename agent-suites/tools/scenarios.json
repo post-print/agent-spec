@@ -1,0 +1,28 @@
+{
+	"name": "tools",
+	"description": "Native tool efficacy. Each scenario launches a real host agent.",
+	"hosts": ["cursor", "claude", "openai"],
+	"defaults": {
+		"host": "cursor",
+		"profile": "cursor",
+		"skills": "none"
+	},
+	"scenarios": [
+		{
+			"name": "reads a fixture file",
+			"prompt": "Read agent-suites/tools/fixtures/needle.txt. Reply with the exact file contents. Do not use extra tools after the read.",
+			"rubric": {
+				"mustReadPath": ["agent-suites/tools/fixtures/needle.txt"],
+				"must": ["agent-test-tool-needle-7f3a"]
+			}
+		},
+		{
+			"name": "writes a marker file",
+			"prompt": "Create agent-test-write-out.txt at the workspace root. The file must contain exactly one line: agent-test-write-ok-9c2e. Then stop.",
+			"rubric": {
+				"mustCallTool": ["Write"],
+				"must": ["agent-test-write-ok-9c2e"]
+			}
+		}
+	]
+}

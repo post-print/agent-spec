@@ -191,6 +191,21 @@ function resolveAllowedTools(override?: string): string {
 	return process.env.CLAUDE_CODE_ALLOWED_TOOLS?.trim() || DEFAULT_ALLOWED_TOOLS;
 }
 
+/** Append Claude MCP tool prefixes so `--allowedTools` does not hide suite servers. */
+export function withMcpAllowedTools(
+	allowedTools: string,
+	servers: Record<string, McpServerConfig> | undefined,
+): string {
+	if (!servers || Object.keys(servers).length === 0) {
+		return allowedTools;
+	}
+	const extras: string[] = [];
+	for (const name of Object.keys(servers)) {
+		extras.push(`mcp__${name}`, `mcp__${name}__*`);
+	}
+	return [allowedTools, ...extras].filter(Boolean).join(",");
+}
+
 /** Convert harness MCP configs into Claude CLI `--mcp-config` JSON. */
 export function buildClaudeMcpConfigJson(
 	servers: Record<string, McpServerConfig>,
@@ -387,7 +402,10 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 	}
 
 	const bin = await resolveClaudeBin(options.bin);
-	const allowedTools = resolveAllowedTools(options.allowedTools);
+	const allowedTools = withMcpAllowedTools(
+		resolveAllowedTools(options.allowedTools),
+		options.mcpServers,
+	);
 	let mcpConfigDir: string | undefined;
 	let timedOut = false;
 

@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
 	type AgentHost,
 	cleanupStaleScenarioWorktrees,
-	isAgentHost,
 	isPathUnderRoot,
+	knownAgentHosts,
 	missingClassifierAuth,
 } from "@post-print/agent-harness";
 
@@ -22,7 +22,9 @@ import {
 } from "./compare.js";
 import { missingAgentAuth } from "./doctor.js";
 import { installHostLogFilter } from "./host-log.js";
+import { parseHostList, uniqueHosts } from "./hosts.js";
 import { writeHtmlReport } from "./html-report.js";
+import { loadHostAdapters } from "./load-adapters.js";
 import { assertDirectAgentPreflight } from "./preflight.js";
 import { logProgress } from "./progress.js";
 import {
@@ -31,6 +33,7 @@ import {
 	getLiveStagingSessionRoot,
 	setLiveStagingRootOverride,
 } from "./record-trace.js";
+import { shouldStartReportPreview, startDetachedReportPreview } from "./report-preview.js";
 import {
 	judgeAuthRequired,
 	loadSelectedRubrics,
@@ -57,6 +60,12 @@ export interface ParsedCliArgs {
 	/** Prefer `<rubricsDir>/<suite>/rubrics.json` (harness-only answer keys). */
 	rubricsDir?: string;
 	host?: AgentHost;
+	/** Host matrix when `--host` lists more than one adapter. */
+	hosts?: AgentHost[];
+	/** True when `--host` included `all`. Re-expand after adapters load. */
+	hostAll?: boolean;
+	/** Consumer adapter modules (`--adapter`). */
+	adapterModules?: string[];
 	filter?: string;
 	scenarioFilter?: string;
 	stagingSessionId?: string;
@@ -146,7 +155,9 @@ export function formatHelp(): string {
 		"  --check                         Check the suite and host. Do not launch an agent.",
 		"  --help, -h                      Print this help.",
 		"",
-		"  --host cursor|claude|openai     Host adapter (default: suite or cursor)",
+		"  --host cursor|claude|openai|all Host adapter (default: suite or cursor).",
+		"                                  Repeat or comma-separate for a matrix.",
+		"  --adapter <module>              Load a consumer host adapter module.",
 		"  --suites-dir <path>             Suite root (default: agent-suites)",
 		"  --suite <name>                  Run one suite",
 		"  --scenario <name>               Run one scenario",
@@ -174,7 +185,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	const cwd = process.cwd();
 	let suitesDir = "agent-suites";
 	let rubricsDir: string | undefined;
-	let host: AgentHost | undefined;
+	const parsedHosts: AgentHost[] = [];
+	let hostAll = false;
+	const adapterModules: string[] = [];
 	let filter: string | undefined;
 	let scenarioFilter: string | undefined;
 	let stagingSessionId: string | undefined;
@@ -254,17 +267,20 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 				break;
 			case "--host": {
 				const value = read();
-				if (value === "replay") {
-					throw new Error(
-						"Replay-based testing is deprecated and no longer supported; use --host cursor, --host claude, or --host openai.",
-					);
+				if (
+					value
+						.split(",")
+						.map((token) => token.trim().toLowerCase())
+						.includes("all")
+				) {
+					hostAll = true;
 				}
-				if (!isAgentHost(value)) {
-					throw new Error("--host must be cursor|claude|openai");
-				}
-				host = value;
+				parsedHosts.push(...parseHostList(value));
 				break;
 			}
+			case "--adapter":
+				adapterModules.push(resolve(cwd, read()));
+				break;
 			case "--suites-dir":
 				suitesDir = read();
 				break;
@@ -379,6 +395,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		}
 	}
 
+	const hosts = uniqueHosts(parsedHosts);
+	const host = hosts?.[0];
+
 	judge = judge ?? true;
 	worktree = worktree ?? true;
 
@@ -394,6 +413,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		suitesDir,
 		rubricsDir,
 		host,
+		hosts,
+		hostAll,
+		adapterModules: adapterModules.length > 0 ? adapterModules : undefined,
 		filter,
 		scenarioFilter,
 		stagingSessionId,
@@ -432,6 +454,16 @@ export function resolveReportOutput(reportOut?: string): { htmlPath?: string; ou
 		return { htmlPath: reportOut };
 	}
 	return { htmlPath: join(reportOut, "report.html"), outDir: reportOut };
+}
+
+async function htmlReportTip(label: string, reportPath: string): Promise<string> {
+	if (shouldStartReportPreview()) {
+		const url = await startDetachedReportPreview(reportPath);
+		if (url) {
+			return theme.fileTip(label, url);
+		}
+	}
+	return theme.fileTip(label, reportPath);
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -541,6 +573,17 @@ async function main(): Promise<number> {
 		return 0;
 	}
 
+	try {
+		await loadHostAdapters({ cwd: args.cwd, adapterModules: args.adapterModules });
+		if (args.hostAll) {
+			args.hosts = uniqueHosts(knownAgentHosts());
+			args.host = args.hosts?.[0];
+		}
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : error);
+		return 1;
+	}
+
 	if (args.check || args.doctor || args.validateOnly || args.validateSeeds) {
 		const report = await runCheck({
 			cwd: args.cwd,
@@ -548,6 +591,7 @@ async function main(): Promise<number> {
 			filter: args.filter,
 			rubricsDir: args.rubricsDir,
 			host: args.host,
+			hosts: args.hosts,
 		});
 		console.log(formatCheckReport(report));
 		return report.ok ? 0 : 1;
@@ -568,7 +612,7 @@ async function main(): Promise<number> {
 		const written = await writeCompareReport({ outDir, report: compare });
 		console.log(theme.tip(`compare JSON: ${written.jsonPath}`));
 		console.log(theme.tip(`compare markdown: ${written.markdownPath}`));
-		console.log(theme.fileTip("compare HTML", written.htmlPath));
+		console.log(await htmlReportTip("compare HTML", written.htmlPath));
 		return compare.summary.passRegressions > 0 ? 1 : 0;
 	}
 
@@ -596,6 +640,7 @@ async function main(): Promise<number> {
 		: undefined;
 
 	try {
+		let checkHosts: AgentHost[] = args.hosts ?? (args.host ? [args.host] : ["cursor"]);
 		if (!isChild) {
 			const report = await runCheck({
 				cwd: args.cwd,
@@ -603,12 +648,14 @@ async function main(): Promise<number> {
 				filter: args.filter,
 				rubricsDir: args.rubricsDir,
 				host: args.host,
+				hosts: args.hosts,
 			});
 			console.log(theme.tip(formatCheckSummary(report)));
 			if (!report.ok) {
 				console.error(formatCheckReport(report));
 				return 1;
 			}
+			checkHosts = report.hosts;
 			const missingHost = missingHostsAuth(report.hosts);
 			if (missingHost) {
 				console.error(missingHost);
@@ -635,10 +682,12 @@ async function main(): Promise<number> {
 				rubrics = [];
 			}
 			if (judgeAuthRequired(true, rubrics)) {
-				const missingJudge = missingClassifierAuth(args.host ?? "cursor");
-				if (missingJudge) {
-					console.error(`${missingJudge} (use --no-judge to skip)`);
-					return 1;
+				for (const host of checkHosts) {
+					const missingJudge = missingClassifierAuth(host);
+					if (missingJudge) {
+						console.error(`${missingJudge} (use --no-judge to skip)`);
+						return 1;
+					}
 				}
 			}
 		}
@@ -716,7 +765,7 @@ async function main(): Promise<number> {
 				const written = await writeCompareReport({ outDir, report: compare });
 				console.log(`\n${theme.tip(`compare JSON: ${written.jsonPath}`)}`);
 				console.log(theme.tip(`compare markdown: ${written.markdownPath}`));
-				console.log(theme.fileTip("compare HTML", written.htmlPath));
+				console.log(await htmlReportTip("compare HTML", written.htmlPath));
 			}
 		} else {
 			reports = await runAllSuites({
@@ -788,7 +837,7 @@ async function main(): Promise<number> {
 						compareALabel: pair ? labelForCompareSide(pair.a) : undefined,
 						compareBLabel: pair ? labelForCompareSide(pair.b) : undefined,
 					});
-					console.log(`\n${theme.fileTip("HTML report", reportPath)}`);
+					console.log(`\n${await htmlReportTip("HTML report", reportPath)}`);
 				} catch (error) {
 					console.warn(
 						theme.warn(

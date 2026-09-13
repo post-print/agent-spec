@@ -286,6 +286,22 @@ describe("formatClaudeRunFailure", () => {
 	});
 });
 
+describe("withMcpAllowedTools", () => {
+	it("appends Claude MCP prefixes for each server", async () => {
+		const { withMcpAllowedTools } = await import("../claude-run.js");
+		expect(
+			withMcpAllowedTools("Bash,Read", {
+				echo: { command: "node", args: ["echo.mjs"] },
+			}),
+		).toBe("Bash,Read,mcp__echo,mcp__echo__*");
+	});
+
+	it("leaves the list unchanged when no servers are set", async () => {
+		const { withMcpAllowedTools } = await import("../claude-run.js");
+		expect(withMcpAllowedTools("Bash,Read", undefined)).toBe("Bash,Read");
+	});
+});
+
 describe("buildClaudeMcpConfigJson", () => {
 	it("maps stdio and http servers", async () => {
 		const { buildClaudeMcpConfigJson } = await import("../claude-run.js");

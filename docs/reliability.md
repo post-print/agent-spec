@@ -22,14 +22,15 @@
 # Host not ready does not fail this command.
 node packages/test/dist/cli.js --check --suites-dir agent-suites
 
-# Direct Cursor execution (default host). Incurs provider usage.
+# Consumer confidence gate. Smoke, tools, mcp, and judge on Cursor, Claude, and Codex.
 bun run test
 
-# Direct Claude execution
-node packages/test/dist/cli.js --host claude --suites-dir agent-suites --suite smoke
-
-# Direct OpenAI execution
-node packages/test/dist/cli.js --host openai --suites-dir agent-suites --suite smoke
+# One host
+bun run test -- --host cursor
+bun run test:smoke
+bun run test:tools
+bun run test:mcp
+bun run test:judge
 
 # Offline comparison of existing reports
 node packages/test/dist/cli.js compare --a a.suite-report.json --b b.suite-report.json --out-dir "$TMPDIR/compare"
@@ -58,3 +59,5 @@ Provider usage is captured on `AgentTrace` and `ScenarioResult`. Read/tool match
 | `AGENT_TEST_TIMEOUT_MS` | `600000` | Direct agent deadline |
 | `AGENT_TEST_DEBUG` | Unset | Retain evidence-rich debug bundles |
 | `AGENT_TEST_MAX_TURNS` | `6` | User-agent plus test-agent conversation turns |
+| `CURSOR_AUTH_MODE` | Unset | `api-key` or `subscription`. Unset plus `CURSOR_API_KEY` uses api-key. |
+| `OPENAI_AUTH_MODE` | Unset | `api-key` or `subscription`. Unset plus a Codex key uses api-key. |

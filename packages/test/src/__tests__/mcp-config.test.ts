@@ -35,4 +35,19 @@ describe("mcp-config validation", () => {
 		});
 		expect(mcpScenario?.rubric.mustCallTool).toContain("echo:mcp echo ok");
 	});
+
+	it("loads the live mcp suite defaults", async () => {
+		const suitePath = fileURLToPath(
+			new URL("../../../../agent-suites/mcp/scenarios.json", import.meta.url),
+		);
+		const suite = await loadSuiteFile(suitePath);
+		expect(suite.defaults?.mcpServers?.echo).toMatchObject({
+			type: "stdio",
+			command: "node",
+		});
+		expect(suite.scenarios.map((scenario) => scenario.name)).toEqual([
+			"echoes through MCP",
+			"reads a note through MCP",
+		]);
+	});
 });

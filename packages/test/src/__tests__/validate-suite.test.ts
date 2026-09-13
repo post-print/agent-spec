@@ -65,6 +65,44 @@ describe("validate-suite", () => {
 		expect(issues.some((issue) => issue.field === "skills")).toBe(true);
 	});
 
+	it("rejects an empty hosts list and a defaults.host outside hosts", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "bad",
+				hosts: [],
+				scenarios: [{ name: "case", prompt: "test", rubric: {} }],
+			}).some((issue) => issue.field === "hosts"),
+		).toBe(true);
+
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			hosts: ["cursor", "claude"],
+			defaults: { host: "openai" },
+			scenarios: [{ name: "case", prompt: "test", rubric: {} }],
+		});
+		expect(issues.some((issue) => issue.field === "defaults.host")).toBe(true);
+	});
+
+	it("rejects an unregistered custom host", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			hosts: ["gemini"],
+			scenarios: [{ name: "case", prompt: "test", rubric: {} }],
+		});
+		expect(issues.some((issue) => /unknown host "gemini"/.test(issue.message))).toBe(true);
+	});
+
+	it("accepts a hosts matrix that includes defaults.host", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				hosts: ["cursor", "claude"],
+				defaults: { host: "cursor" },
+				scenarios: [{ name: "case", prompt: "test", rubric: {} }],
+			}),
+		).toEqual([]);
+	});
+
 	it("rejects a bare catalog walk", () => {
 		const suite: AgentSuiteFile = {
 			name: "bad",

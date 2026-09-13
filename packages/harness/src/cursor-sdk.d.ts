@@ -31,7 +31,7 @@ declare module "@cursor/sdk" {
 		  };
 
 	export interface CursorAgentOptions {
-		apiKey: string;
+		apiKey?: string;
 		name?: string;
 		local?: { cwd: string; settingSources?: Array<"project" | "user" | "plugins"> };
 		model?: ModelSelection;

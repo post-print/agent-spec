@@ -41,6 +41,7 @@ import { collectDebugEnvironment, getDebugBundleDir, writeDebugBundle } from "./
 import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
 import { assertionFailure } from "./failures.js";
+import { resolveSuiteHosts, scenarioRunsOnHost, uniqueHosts } from "./hosts.js";
 import {
 	failuresForLiveSubprocessExit,
 	killActiveLiveChildren,
@@ -50,6 +51,7 @@ import {
 } from "./live-isolation.js";
 import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
+import { mcpStdioScriptPaths } from "./mcp-config.js";
 import {
 	formatDuration,
 	logLive,
@@ -188,6 +190,11 @@ export interface RunSuiteOptions {
 	cwd: string;
 	suitePath: string;
 	host?: AgentHost;
+	/**
+	 * When true, skip scenarios pinned to a different host.
+	 * Set by a multi-host matrix so `scenario.host` does not rerun on every cell.
+	 */
+	hostLocked?: boolean;
 	/** Run only this scenario name (used by live subprocess isolation). */
 	scenarioFilter?: string;
 	/** Run the harness LLM judge for rubric.judge criteria. */
@@ -211,6 +218,8 @@ export interface RunSuiteOptions {
 	scenarioRetries?: number;
 	/** Prefer `<rubricsDir>/<suite>/rubrics.json` over sibling rubrics (harness-only). */
 	rubricsDir?: string;
+	/** Consumer adapter modules to forward to isolated children. */
+	adapterModules?: string[];
 }
 
 export interface RunAgentTestOptions {
@@ -433,6 +442,7 @@ async function maybeWriteDebugBundle(options: {
 		options.suiteName,
 		options.scenario.name,
 		getLiveStagingSessionRoot,
+		options.host,
 	);
 	const cliPath =
 		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
@@ -521,12 +531,23 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	}
 	const defaultHost = options.host ?? suite.defaults?.host ?? "cursor";
 	const results: ScenarioResult[] = [];
-	const scenarios = options.scenarioFilter
+	const selected = options.scenarioFilter
 		? suite.scenarios.filter((scenario) => scenario.name === options.scenarioFilter)
 		: suite.scenarios;
 
-	if (options.scenarioFilter && scenarios.length === 0) {
+	if (options.scenarioFilter && selected.length === 0) {
 		throw new Error(`Scenario not found: ${options.scenarioFilter}`);
+	}
+
+	const hostLocked = options.hostLocked === true;
+	const scenarios = hostLocked
+		? selected.filter((scenario) => scenarioRunsOnHost(scenario, defaultHost, true))
+		: selected;
+	if (hostLocked && options.scenarioFilter && selected.length > 0 && scenarios.length === 0) {
+		const pinned = selected[0]?.host;
+		throw new Error(
+			`Scenario ${options.scenarioFilter} is pinned to ${pinned} (this run is ${defaultHost})`,
+		);
 	}
 
 	const filteredTotal = scenarios.length;
@@ -597,6 +618,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					worktree: options.worktree,
 					judge: options.judge,
 					host: defaultHost,
+					adapterModules: options.adapterModules,
 					scenarioIndex: index + 1,
 					scenarioTotal: filteredTotal,
 					timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
@@ -771,6 +793,44 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 		results,
 		summary: summarizeReportResults(results),
 	};
+}
+
+/** Suite trees and MCP scripts from the caller, so uncommitted fixtures reach the host. */
+function liveOverlayExtras(
+	cwd: string,
+	suitesDir: string,
+	contextSources?: string[],
+	mcpServers?: Record<string, McpServerConfig>,
+): string[] {
+	const extras = [...(contextSources ?? [])];
+	const suitesRel = overlayRelPath(cwd, suitesDir);
+	if (suitesRel && !extras.includes(suitesRel)) {
+		extras.push(suitesRel);
+	}
+	for (const script of mcpStdioScriptPaths(mcpServers)) {
+		if (!extras.includes(script)) {
+			extras.push(script);
+		}
+	}
+	return extras;
+}
+
+function overlayRelPath(cwd: string, path: string): string | undefined {
+	const trimmed = path.replace(/^\.\//, "").trim();
+	if (trimmed.length === 0) {
+		return undefined;
+	}
+	if (!trimmed.startsWith("/")) {
+		return trimmed;
+	}
+	const root = resolve(cwd);
+	if (trimmed === root) {
+		return undefined;
+	}
+	if (trimmed.startsWith(`${root}/`)) {
+		return trimmed.slice(root.length + 1);
+	}
+	return undefined;
 }
 
 function mergeContextSources(
@@ -981,7 +1041,10 @@ async function runAgentTestOnce(
 		}
 		worktreeHandle = await createSealedWorkspace({
 			callerCwd: cwd,
-			overlayPaths: defaultSealedOverlayPaths(contextSources, skillPathsFromSetting(skills)),
+			overlayPaths: defaultSealedOverlayPaths(
+				liveOverlayExtras(cwd, suitesDir, contextSources, mcpServers),
+				skillPathsFromSetting(skills),
+			),
 		});
 		activeWorktreeCleanup = worktreeHandle.cleanup;
 		if (scenario.seedPatch) {
@@ -1352,6 +1415,7 @@ export async function runAllSuites(options: {
 	cwd: string;
 	suitesDir: string;
 	host?: AgentHost;
+	hosts?: readonly AgentHost[];
 	filter?: string;
 	scenarioFilter?: string;
 	judge?: boolean;
@@ -1364,6 +1428,7 @@ export async function runAllSuites(options: {
 	debugDir?: string;
 	scenarioRetries?: number;
 	rubricsDir?: string;
+	adapterModules?: string[];
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
@@ -1373,28 +1438,40 @@ export async function runAllSuites(options: {
 			})
 		: suitePaths;
 
+	const cliHosts = uniqueHosts(options.hosts ?? (options.host ? [options.host] : undefined));
 	const reports: SuiteRunReport[] = [];
 	for (const suitePath of filtered) {
-		reports.push(
-			await runSuite({
-				cwd: options.cwd,
-				suitePath,
-				host: options.host,
-				scenarioFilter: options.scenarioFilter,
-				judge: options.judge,
-				worktree: options.worktree,
-				stagingSessionId: options.stagingSessionId,
-				keepRecordings: options.keepRecordings,
-				suitesDir: options.suitesDir,
-				suiteFilter: options.filter,
-				timeoutMs: options.timeoutMs,
-				allowUserInput: options.allowUserInput,
-				debug: options.debug,
-				debugDir: options.debugDir,
-				scenarioRetries: options.scenarioRetries,
-				rubricsDir: options.rubricsDir,
-			}),
-		);
+		const suite = await loadSuiteFile(suitePath, { rubricsDir: options.rubricsDir });
+		const hosts = resolveSuiteHosts({
+			cliHosts,
+			suiteHosts: suite.hosts,
+			defaultHost: suite.defaults?.host,
+		});
+		const hostLocked = hosts.length > 1;
+		for (const host of hosts) {
+			reports.push(
+				await runSuite({
+					cwd: options.cwd,
+					suitePath,
+					host,
+					hostLocked,
+					scenarioFilter: options.scenarioFilter,
+					judge: options.judge,
+					worktree: options.worktree,
+					stagingSessionId: options.stagingSessionId,
+					keepRecordings: options.keepRecordings,
+					suitesDir: options.suitesDir,
+					suiteFilter: options.filter,
+					timeoutMs: options.timeoutMs,
+					allowUserInput: options.allowUserInput,
+					debug: options.debug,
+					debugDir: options.debugDir,
+					scenarioRetries: options.scenarioRetries,
+					rubricsDir: options.rubricsDir,
+					adapterModules: options.adapterModules,
+				}),
+			);
+		}
 	}
 	return reports;
 }

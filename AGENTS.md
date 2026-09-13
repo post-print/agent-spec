@@ -10,7 +10,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 
 - Bun `1.4.0` (see `packageManager` in `package.json`)
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
-- Host-agent runs need an exported host key. Cursor uses `CURSOR_API_KEY`. Claude uses `CLAUDE_AUTH_MODE=api-key` plus `ANTHROPIC_API_KEY`, or `CLAUDE_AUTH_MODE=subscription` with the Claude Code CLI login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY` plus the Codex CLI. Copy `.env.example`. The CLI does not auto-load `.env`.
+- Host-agent runs need host auth. Cursor uses `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()`. The Cursor app login does not count. Claude uses `CLAUDE_AUTH_MODE=api-key` plus `ANTHROPIC_API_KEY`, or `CLAUDE_AUTH_MODE=subscription` with the Claude Code CLI login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login`. Copy `.env.example`. The CLI does not auto-load `.env`.
 - The judge and the default user simulator use the same host family as the test agent. The judge runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns the judge off.
 - `bun run test:unit` and `bun run test:sandbox-safe` do not launch a paid agent. `bun run test` launches a real host agent and can incur provider usage.
 
@@ -22,7 +22,7 @@ bun run build
 bun run test:sandbox-safe
 bun run audit:self
 node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
-node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
+node packages/test/dist/cli.js --check --suites-dir agent-suites
 ```
 
 Full unpaid gate (`bun run check` = lint + typecheck + unit tests + build) needs unrestricted Cursor sandbox permissions (`all`) because some fixtures run `git init` or write `.cursor/` trees under tmp. Prefer `bun run test:sandbox-safe` under the default sandbox (skips those fixtures). Do not treat sandbox `git`/`hooks`/`.cursor` failures as a broken repo.
@@ -31,11 +31,13 @@ Full unpaid gate (`bun run check` = lint + typecheck + unit tests + build) needs
 
 Use `bun run lint` / `bunx biome` (pinned 2.5.8). A global `biome` on PATH is often older and will fail this repo's config.
 
-Host-agent proof after export of a host key:
+Host-agent proof after export of the host keys:
 
 ```bash
 bun run test
 ```
+
+`bun run test` runs smoke, tools, mcp, and judge on Cursor, Claude, and Codex. That is the consumer confidence gate. `bun run test:smoke` is the short Cursor proof. `bun run test:tools`, `bun run test:mcp`, and `bun run test:judge` stay on Cursor. Pass `--host cursor` to pin the full suite set to one host.
 
 ## Validation split
 
@@ -45,7 +47,7 @@ bun run test
 | Synced toolbox skills (`.agents/skills/`, `.claude/skills/`) | skipped — lint in [csark0812/toolbox](https://github.com/csark0812/toolbox); override via `.skeleton/customize/<slug>.md` |
 | TypeScript under `packages/` (scoped) | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed |
 | TypeScript under `packages/` (full) | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions) |
-| Host-agent suite | `bun run test` with an exported host key |
+| Host-agent suite | `bun run test` (smoke, tools, mcp, judge × Cursor, Claude, Codex). Slice: `bun run test:smoke` or `--host cursor`. |
 
 ## Layout
 

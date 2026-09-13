@@ -1,6 +1,7 @@
 import { captureGitDiff, enrichTrace } from "../capture.js";
 import { formatClaudeRunFailure, runClaudeAgent, takeLastClaudeRunTrace } from "../claude-run.js";
 import { formatCursorRunFailure, runCursorAgent, takeLastCursorRunTrace } from "../cursor-run.js";
+import { getRegisteredAdapter } from "../host-registry.js";
 import { formatOpenaiRunFailure, runOpenaiAgent, takeLastOpenaiRunTrace } from "../openai-run.js";
 import { buildRoutingContract } from "../routing-contract.js";
 import { getPartialTrace } from "../run-guards.js";
@@ -40,15 +41,11 @@ function sessionFromTrace(
 	};
 }
 
-/** Cursor SDK adapter — requires optional @cursor/sdk peer + CURSOR_API_KEY. */
+/** Cursor SDK adapter — requires optional @cursor/sdk peer + key or SDK login. */
 export class CursorAdapter implements HostAdapter {
 	readonly host = "cursor" as const;
 
 	async run(options: RunAgentOptions): Promise<AgentSession> {
-		if (!process.env.CURSOR_API_KEY) {
-			return emptyFailed(this.host, "CURSOR_API_KEY not set — required for Cursor agent runs");
-		}
-
 		const started = performance.now();
 		try {
 			const contract = options.outputContract
@@ -211,19 +208,12 @@ export class ClaudeAdapter implements HostAdapter {
 
 /**
  * OpenAI Codex CLI adapter — requires `codex` on PATH (or CODEX_BIN)
- * and OPENAI_API_KEY or CODEX_API_KEY.
+ * and an API key or OPENAI_AUTH_MODE=subscription after `codex login`.
  */
 export class OpenaiAdapter implements HostAdapter {
 	readonly host = "openai" as const;
 
 	async run(options: RunAgentOptions): Promise<AgentSession> {
-		if (!process.env.OPENAI_API_KEY?.trim() && !process.env.CODEX_API_KEY?.trim()) {
-			return emptyFailed(
-				this.host,
-				"OPENAI_API_KEY or CODEX_API_KEY not set — required for OpenAI agent runs",
-			);
-		}
-
 		const started = performance.now();
 		try {
 			const contract = options.outputContract
@@ -240,6 +230,7 @@ export class OpenaiAdapter implements HostAdapter {
 			} = await runOpenaiAgent({
 				cwd: options.cwd,
 				prompt,
+				mcpServers: options.mcpServers,
 				timeoutMs: options.timeoutMs,
 				failOnUserInput: options.failOnUserInput,
 				onDeadlineStart: options.onDeadlineStart,
@@ -307,7 +298,14 @@ export function createAdapter(host: RunAgentOptions["host"]): HostAdapter {
 			return new ClaudeAdapter();
 		case "openai":
 			return new OpenaiAdapter();
-		default:
-			throw new Error(`Unsupported agent host: ${String(host)}`);
+		default: {
+			const custom = getRegisteredAdapter(host);
+			if (custom) {
+				return custom;
+			}
+			throw new Error(
+				`Unknown agent host: ${String(host)}. Register it with registerHostAdapter() or --adapter.`,
+			);
+		}
 	}
 }

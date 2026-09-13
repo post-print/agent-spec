@@ -31,7 +31,7 @@ export interface ScenarioRubric {
 	mustCallTool?: string[];
 	mustNotCallTool?: string[];
 	/**
-	 * Substring that must appear in a Read tool's JSON args (registry-first / path grounding).
+	 * Substring that must appear in Read-family args or a Shell/Bash path access.
 	 * Hallucination scoring stays in live `judge` questions — these are lightweight proxies.
 	 */
 	mustReadPath?: string[];
@@ -89,6 +89,11 @@ export interface AgentSuiteDefaults {
 export interface AgentSuiteFile {
 	name: string;
 	description?: string;
+	/**
+	 * Host matrix for this suite (Playwright-style projects).
+	 * When set, a run expands once per host. `--host` then filters the list.
+	 */
+	hosts?: AgentHost[];
 	defaults?: AgentSuiteDefaults;
 	scenarios: AgentScenario[];
 }
@@ -165,6 +170,7 @@ export interface UsageStats {
 	sumTotalTokens?: number;
 	p50TotalTokens?: number;
 	p95TotalTokens?: number;
+	maxTotalTokens?: number;
 	sumInputTokens?: number;
 	sumOutputTokens?: number;
 }

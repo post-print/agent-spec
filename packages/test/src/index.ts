@@ -1,3 +1,5 @@
+export type { HostAdapter } from "@post-print/agent-harness";
+export { registerHostAdapter } from "@post-print/agent-harness";
 export {
 	type CheckOptions,
 	type CheckReport,
@@ -38,12 +40,19 @@ export { missingAgentAuth, runDoctor } from "./doctor.js";
 export { assertRubric, expectTrace, TraceAssertion } from "./expect.js";
 export { assertionFailure } from "./failures.js";
 export {
+	parseHostList,
+	resolveSuiteHosts,
+	scenarioRunsOnHost,
+	uniqueHosts,
+} from "./hosts.js";
+export {
 	type HtmlReportMeta,
 	renderCompareHtmlReport,
 	renderCompareHtmlSection,
 	renderHtmlReport,
 	writeHtmlReport,
 } from "./html-report.js";
+export { defineConfig, loadHostAdapters } from "./load-adapters.js";
 export {
 	applyExternalRubrics,
 	type LoadSuiteOptions,
@@ -99,6 +108,7 @@ export {
 export {
 	type FailOnMode,
 	formatRunSummary,
+	formatTokenCount,
 	formatUsageStats,
 	percentileNearestRank,
 	shouldFailScenario,

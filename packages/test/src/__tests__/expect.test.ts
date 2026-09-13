@@ -258,6 +258,34 @@ describe("expectTrace", () => {
 		expect(assertRubric(trace, { reviewDepth: "thorough" })).toHaveLength(0);
 	});
 
+	it("matches Write against a Cursor edit call", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [{ name: "edit", args: { path: "agent-test-write-out.txt" } }],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(assertRubric(trace, { mustCallTool: ["Write"] })).toHaveLength(0);
+	});
+
+	it("matches an MCP tool name that lives in args", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [
+				{
+					name: "CallMcpTool",
+					args: { server: "echo", toolName: "echo", text: "agent-test-mcp-echo-ok-1a7c" },
+					result: "agent-test-mcp-echo-ok-1a7c",
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(
+			assertRubric(trace, { mustCallTool: ["echo:agent-test-mcp-echo-ok-1a7c"] }),
+		).toHaveLength(0);
+	});
+
 	it("checks mustCallTool by name and arg fragment", () => {
 		const trace: AgentTrace = {
 			messages: [],
@@ -343,6 +371,23 @@ describe("expectTrace", () => {
 			artifacts: {},
 		};
 		expect(assertRubric(trace, { mustReadPath: [".skeleton/registry"] })).toHaveLength(0);
+	});
+
+	it("passes mustReadPath when Codex reads the path through Shell", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [
+				{
+					name: "Shell",
+					args: { command: "cat agent-suites/tools/fixtures/needle.txt" },
+				},
+			],
+			shellCommands: ["cat agent-suites/tools/fixtures/needle.txt"],
+			artifacts: {},
+		};
+		expect(
+			assertRubric(trace, { mustReadPath: ["agent-suites/tools/fixtures/needle.txt"] }),
+		).toHaveLength(0);
 	});
 
 	it("fails mustNotReadPath only when a successful Read returned content for the path", () => {

@@ -1,10 +1,11 @@
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { type AgentHost, isAgentHost } from "@post-print/agent-harness";
+import { type AgentHost, isKnownAgentHost } from "@post-print/agent-harness";
 
 import { discoverSuites } from "./discover-suites.js";
 import { missingAgentAuth, runDoctor } from "./doctor.js";
+import { resolveSuiteHosts, uniqueHosts } from "./hosts.js";
 import { loadSuiteFile } from "./load-suite.js";
 import { formatSeedValidationReport, validateSeedPatches } from "./validate-seeds.js";
 import { formatValidationReport, validateSuitePaths } from "./validate-suite.js";
@@ -16,6 +17,8 @@ export interface CheckOptions {
 	rubricsDir?: string;
 	/** CLI host override. Wins over suite defaults when set. */
 	host?: AgentHost;
+	/** CLI host matrix. Wins over `host` when more than one name is listed. */
+	hosts?: readonly AgentHost[];
 	cliPath?: string;
 }
 
@@ -55,32 +58,48 @@ export async function collectSuiteHosts(options: {
 	filter?: string;
 	rubricsDir?: string;
 	host?: AgentHost;
+	hosts?: readonly AgentHost[];
 }): Promise<AgentHost[]> {
-	if (options.host) {
-		return [options.host];
+	const cliHosts = uniqueHosts(options.hosts ?? (options.host ? [options.host] : undefined));
+	if (cliHosts?.length === 1) {
+		return cliHosts;
 	}
 	const root = resolve(options.cwd, options.suitesDir);
 	let suitePaths: string[] = [];
 	try {
 		suitePaths = filterSuitePaths(await discoverSuites(root), options.filter);
 	} catch {
-		return ["cursor"];
+		return cliHosts ?? ["cursor"];
+	}
+	if (suitePaths.length === 0) {
+		return cliHosts ?? ["cursor"];
 	}
 	const hosts = new Set<AgentHost>();
 	for (const suitePath of suitePaths) {
 		try {
 			const suite = await loadSuiteFile(suitePath, { rubricsDir: options.rubricsDir });
+			const resolved = resolveSuiteHosts({
+				cliHosts,
+				suiteHosts: suite.hosts,
+				defaultHost: suite.defaults?.host,
+			});
+			if (resolved.length > 1 || (suite.hosts !== undefined && suite.hosts.length > 0)) {
+				for (const host of resolved) {
+					hosts.add(host);
+				}
+				continue;
+			}
 			const fallback = suite.defaults?.host ?? "cursor";
 			for (const scenario of suite.scenarios) {
 				if (scenario.skip) {
 					continue;
 				}
 				const host = scenario.host ?? fallback;
-				if (isAgentHost(host)) {
+				if (isKnownAgentHost(host)) {
 					hosts.add(host);
 				}
 			}
-			if (suite.scenarios.length === 0 && isAgentHost(fallback)) {
+			if (suite.scenarios.length === 0 && isKnownAgentHost(fallback)) {
 				hosts.add(fallback);
 			}
 		} catch {
@@ -88,7 +107,7 @@ export async function collectSuiteHosts(options: {
 		}
 	}
 	if (hosts.size === 0) {
-		return ["cursor"];
+		return cliHosts ?? ["cursor"];
 	}
 	return [...hosts];
 }
@@ -96,7 +115,10 @@ export async function collectSuiteHosts(options: {
 /** Missing auth for every host this run will launch. Undefined when all hosts are ready. */
 export function missingHostsAuth(hosts: readonly AgentHost[]): string | undefined {
 	const missing = hosts.map((host) => missingAgentAuth(host)).filter((message) => message);
-	return missing[0];
+	if (missing.length === 0) {
+		return undefined;
+	}
+	return missing.join("\n");
 }
 
 /** Suite, seed, package, and host checks. Does not launch an agent. */

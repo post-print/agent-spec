@@ -1,8 +1,22 @@
 export const AGENT_HOSTS = ["cursor", "claude", "openai"] as const;
-export type AgentHost = (typeof AGENT_HOSTS)[number];
+export type BuiltinAgentHost = (typeof AGENT_HOSTS)[number];
+/** Builtin host or a registered consumer slug. */
+export type AgentHost = BuiltinAgentHost | (string & {});
 
-export function isAgentHost(value: string): value is AgentHost {
+const HOST_SLUG = /^[a-z][a-z0-9-]{0,31}$/;
+
+export function isBuiltinAgentHost(value: string): value is BuiltinAgentHost {
 	return (AGENT_HOSTS as readonly string[]).includes(value);
+}
+
+/** Lowercase slug: starts with a letter, then letters, digits, or hyphens. */
+export function isHostSlug(value: string): boolean {
+	return HOST_SLUG.test(value);
+}
+
+/** True for a builtin host id. Registered slugs use `isKnownAgentHost`. */
+export function isAgentHost(value: string): value is AgentHost {
+	return isBuiltinAgentHost(value);
 }
 
 import type { McpServerConfig } from "./mcp.js";
@@ -123,6 +137,19 @@ export interface AgentSession {
 }
 
 export interface HostAdapter {
-	readonly host: AgentHost;
+	readonly host: string;
 	run(options: RunAgentOptions): Promise<AgentSession>;
+	/** Missing credential or binary. Undefined when this host can run. */
+	missingAuth?(): string | undefined;
+	/** Builtin judge family when this adapter does not implement `classify`. */
+	classifierHost?: BuiltinAgentHost;
+	/** Optional judge/classifier. Use this or `classifierHost`. */
+	classify?(options: { cwd: string; prompt: string; apiKey?: string }): Promise<{
+		status: string;
+		text: string;
+		rawStatus?: string;
+		usage?: AgentUsage;
+	}>;
+	/** Missing classifier auth. Undefined when the judge can run. */
+	missingClassifierAuth?(): string | undefined;
 }

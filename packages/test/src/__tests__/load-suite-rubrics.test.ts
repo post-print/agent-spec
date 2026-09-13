@@ -84,6 +84,24 @@ describe("loadSuiteFile external rubrics", () => {
 	});
 });
 
+describe("loadSuiteFile hosts", () => {
+	it("keeps a suite hosts list", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-suite-hosts-"));
+		const path = join(dir, "scenarios.json");
+		await writeFile(
+			path,
+			JSON.stringify({
+				name: "matrix",
+				hosts: ["cursor", "claude"],
+				scenarios: [{ name: "hello", prompt: "p", rubric: {} }],
+			}),
+		);
+		const suite = await loadSuiteFile(path);
+		expect(suite.hosts).toEqual(["cursor", "claude"]);
+		await rm(dir, { recursive: true, force: true });
+	});
+});
+
 describe("loadSuiteFile replay deprecation", () => {
 	it("rejects replay hosts and replayTrace fields with migration guidance", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "agent-test-replay-deprecated-"));

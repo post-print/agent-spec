@@ -33,13 +33,59 @@ JSON is an authoring adapter, not a stored answer. This repository keeps host-ag
 
 ```bash
 npx agent-test --suites-dir agent-suites
+npx agent-test --suites-dir agent-suites --host cursor
 npx agent-test --suites-dir agent-suites --suite smoke
-npx agent-test --suites-dir agent-suites --host claude
-npx agent-test --suites-dir agent-suites --host openai
+npx agent-test --suites-dir agent-suites --suite tools
+npx agent-test --suites-dir agent-suites --suite mcp
+npx agent-test --suites-dir agent-suites --suite judge
 npx agent-test --check --suites-dir agent-suites
 ```
 
-Direct runs need an exported host key. Cursor uses `CURSOR_API_KEY`. Claude uses `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY` plus the Codex CLI. The judge uses the same host family. It runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns it off. The CLI does not load `.env`.
+In-repo suites list `hosts: ["cursor", "claude", "openai"]`. `npx agent-test --suites-dir agent-suites` and `bun run test` run every suite on each host. That is the consumer confidence gate. Pass `--host cursor` to pin one adapter.
+
+`smoke` is the short host proof. `tools` checks Read and Write. `mcp` checks echo invoke and a lookup read. `judge` starts a second host call that scores the reply. `bun run test:smoke` stays on Cursor.
+
+`scenario.host` pins that scenario to one host. A matrix run skips it on the other hosts.
+
+## Custom hosts
+
+A consumer repo can register its own adapter.
+
+```js
+// agent-test.config.mjs
+import { defineConfig } from "@post-print/agent-test";
+
+export default defineConfig({
+  adapters: [
+    {
+      host: "gemini",
+      missingAuth() {
+        return process.env.GEMINI_API_KEY ? undefined : "GEMINI_API_KEY not set";
+      },
+      classifierHost: "cursor",
+      async run(options) {
+        return {
+          host: "gemini",
+          status: "completed",
+          durationMs: 0,
+          trace: {
+            messages: [{ role: "assistant", content: options.prompt }],
+            toolCalls: [],
+            shellCommands: [],
+            artifacts: {},
+          },
+        };
+      },
+    },
+  ],
+});
+```
+
+Then `--host gemini` and a suite `hosts` list can include `gemini`. You can also pass `--adapter ./hosts/gemini.mjs`. The module can export `{ adapters: [...] }` or call `registerHostAdapter` as a side effect.
+
+Do not reuse `cursor`, `claude`, `openai`, `replay`, or `all` as the slug.
+
+Direct runs need host auth. Cursor uses `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()`. The Cursor app login does not count. Claude uses `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login`. The judge uses the same host family. It runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns it off. The CLI does not load `.env`.
 
 `--allow-user-input` starts a second classifier as the user. That user agent answers AskQuestion-style tools. The test agent then continues with the original task plus the transcript.
 
@@ -64,7 +110,7 @@ Each scenario copies HEAD plus caller context into a temp folder. The folder get
 
 Host SDK INFO lines stay hidden. Set `AGENT_TEST_HOST_LOGS=1` or `--debug` to print them.
 
-A TTY run prints `agent started`, then updates an `agent` clock every 0.1s. Tool names and a short reply preview print as the host streams them. The clock line stays one row so the terminal can overwrite it. The HTML report line is a clickable label. The file path stays in the link URL.
+A TTY run prints `agent started`, then updates an `agent` clock every 0.1s. Tool names and a short reply preview print as the host streams them. The clock line stays one row so the terminal can overwrite it. The HTML report line is a localhost link. A click opens the browser. The preview exits after 30 minutes idle. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip the preview.
 
 `Ctrl+C` cancels active host work and deletes the temp folder. `--no-worktree` requires `AGENT_TEST_ALLOW_IN_PLACE=1` because agent edits will persist in the caller checkout.
 
@@ -82,4 +128,4 @@ node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --sui
 node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 ```
 
-Host-agent acceptance is `bun run test` (one JSON-suite CLI run against a real host). A key-gated GitHub Actions job runs the same suite when `CURSOR_API_KEY` is present.
+Host-agent acceptance is `bun run test`. That command runs smoke, tools, mcp, and judge on Cursor, Claude, and Codex. `bun run test:smoke`, `bun run test:tools`, `bun run test:mcp`, and `bun run test:judge` stay on Cursor. A key-gated GitHub Actions job runs the same suites on Cursor when `CURSOR_API_KEY` is present.

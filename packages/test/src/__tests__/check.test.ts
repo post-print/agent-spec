@@ -24,13 +24,21 @@ describe("check", () => {
 		expect(formatCheckSummary(report)).toContain("suite ok");
 	});
 
-	it("collects the suite default host when CLI host is unset", async () => {
+	it("collects the suite host matrix when CLI host is unset", async () => {
 		const hosts = await collectSuiteHosts({
 			cwd: repoRoot,
 			suitesDir: join(repoRoot, "agent-suites"),
 			filter: "smoke",
 		});
-		expect(hosts).toEqual(["cursor"]);
+		expect(hosts).toEqual(["cursor", "claude", "openai"]);
+	});
+
+	it("collects every host used by in-repo suites", async () => {
+		const hosts = await collectSuiteHosts({
+			cwd: repoRoot,
+			suitesDir: join(repoRoot, "agent-suites"),
+		});
+		expect(hosts).toEqual(["cursor", "claude", "openai"]);
 	});
 
 	it("honors a CLI host override", async () => {
@@ -43,14 +51,52 @@ describe("check", () => {
 		expect(hosts).toEqual(["claude"]);
 	});
 
+	it("keeps a CLI host matrix", async () => {
+		const hosts = await collectSuiteHosts({
+			cwd: repoRoot,
+			suitesDir: fixturesDir,
+			filter: "smoke",
+			hosts: ["cursor", "claude"],
+		});
+		expect(hosts).toEqual(["cursor", "claude"]);
+	});
+
 	it("names missing Cursor auth", () => {
 		const prior = process.env.CURSOR_API_KEY;
+		const priorMode = process.env.CURSOR_AUTH_MODE;
 		delete process.env.CURSOR_API_KEY;
+		delete process.env.CURSOR_AUTH_MODE;
 		expect(missingAgentAuth("cursor")).toMatch(/CURSOR_API_KEY/);
 		if (prior === undefined) {
 			delete process.env.CURSOR_API_KEY;
 		} else {
 			process.env.CURSOR_API_KEY = prior;
+		}
+		if (priorMode === undefined) {
+			delete process.env.CURSOR_AUTH_MODE;
+		} else {
+			process.env.CURSOR_AUTH_MODE = priorMode;
+		}
+	});
+
+	it("accepts a Cursor SDK login when CURSOR_AUTH_MODE=subscription", () => {
+		const prior = process.env.CURSOR_API_KEY;
+		const priorMode = process.env.CURSOR_AUTH_MODE;
+		delete process.env.CURSOR_API_KEY;
+		process.env.CURSOR_AUTH_MODE = "subscription";
+		try {
+			expect(missingAgentAuth("cursor")).toBeUndefined();
+		} finally {
+			if (prior === undefined) {
+				delete process.env.CURSOR_API_KEY;
+			} else {
+				process.env.CURSOR_API_KEY = prior;
+			}
+			if (priorMode === undefined) {
+				delete process.env.CURSOR_AUTH_MODE;
+			} else {
+				process.env.CURSOR_AUTH_MODE = priorMode;
+			}
 		}
 	});
 });

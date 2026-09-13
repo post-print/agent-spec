@@ -3,8 +3,10 @@ import { access } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
+import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
 import type { JudgeClassifierResult } from "./cursor-run.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
+import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
 	accumulateOpenaiEvent,
 	createOpenaiTraceAccumulator,
@@ -22,10 +24,30 @@ import {
 } from "./run-guards.js";
 import type { AgentTrace, LiveAgentEvent } from "./types.js";
 
+export type OpenaiAuthMode = HostAuthMode;
+
+export const OPENAI_AUTH_MODE_ENV = "OPENAI_AUTH_MODE";
+
+export const OPENAI_MISSING_KEY_MESSAGE =
+	"OPENAI_API_KEY or CODEX_API_KEY required for OpenAI agent runs, or set OPENAI_AUTH_MODE=subscription after `codex login`";
+
+export function resolveOpenaiAuthMode(
+	raw: string | undefined = process.env[OPENAI_AUTH_MODE_ENV],
+	apiKey?: string,
+): OpenaiAuthMode {
+	return resolveKeyOrLoginAuthMode({
+		envName: OPENAI_AUTH_MODE_ENV,
+		raw,
+		hasApiKey: Boolean((apiKey ?? process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY)?.trim()),
+		missingKeyMessage: OPENAI_MISSING_KEY_MESSAGE,
+	});
+}
+
 export interface OpenaiRunOptions {
 	cwd: string;
 	prompt: string;
 	apiKey?: string;
+	authMode?: OpenaiAuthMode;
 	model?: string;
 	timeoutMs?: number;
 	failOnUserInput?: boolean;
@@ -34,6 +56,8 @@ export interface OpenaiRunOptions {
 	bin?: string;
 	/** `workspace-write` for agent runs; `read-only` for classifiers. */
 	sandbox?: "workspace-write" | "read-only";
+	/** Inline MCP servers for this `codex exec` via `-c mcp_servers.<name>=…`. */
+	mcpServers?: Record<string, McpServerConfig>;
 }
 
 export interface OpenaiRunResult {
@@ -154,12 +178,69 @@ export async function resolveOpenaiBin(override?: string): Promise<string> {
 	return candidate;
 }
 
-export function buildOpenaiEnv(apiKey?: string): NodeJS.ProcessEnv {
-	const key = apiKey ?? process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY;
-	if (!key) {
-		return { ...process.env };
+/**
+ * Child env for the Codex CLI. Subscription mode drops API keys:
+ * the CLI prefers a key over the `codex login` ChatGPT session.
+ */
+export function buildOpenaiEnv(authMode: OpenaiAuthMode, apiKey?: string): NodeJS.ProcessEnv {
+	if (authMode === "api-key") {
+		const key = apiKey ?? process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY;
+		if (!key) {
+			return { ...process.env };
+		}
+		return { ...process.env, OPENAI_API_KEY: key, CODEX_API_KEY: key };
 	}
-	return { ...process.env, OPENAI_API_KEY: key, CODEX_API_KEY: key };
+	const env = { ...process.env };
+	delete env.OPENAI_API_KEY;
+	delete env.CODEX_API_KEY;
+	return env;
+}
+
+export function tomlString(value: string): string {
+	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/** One `-c mcp_servers.name={…}` override for `codex exec`. */
+export function buildOpenaiMcpOverride(name: string, config: McpServerConfig): string {
+	if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+		throw new Error(`OpenAI MCP server name must be a TOML key: ${name}`);
+	}
+	if ("command" in config && config.command) {
+		const parts = [`command=${tomlString(config.command)}`];
+		if (config.args && config.args.length > 0) {
+			parts.push(`args=[${config.args.map((arg) => tomlString(arg)).join(",")}]`);
+		}
+		if (config.cwd) {
+			parts.push(`cwd=${tomlString(config.cwd)}`);
+		}
+		if (config.env && Object.keys(config.env).length > 0) {
+			const env = Object.entries(config.env)
+				.map(([key, value]) => `${key}=${tomlString(value)}`)
+				.join(",");
+			parts.push(`env={${env}}`);
+		}
+		// Codex 0.154+ rejects MCP calls when approval_policy=never unless
+		// the server auto-approves tools.
+		parts.push('default_tools_approval_mode="approve"');
+		return `mcp_servers.${name}={${parts.join(",")}}`;
+	}
+	if ("url" in config && config.url) {
+		return `mcp_servers.${name}={url=${tomlString(config.url)},default_tools_approval_mode="approve"}`;
+	}
+	throw new Error(`OpenAI MCP server "${name}" needs a command or url`);
+}
+
+export function buildOpenaiMcpConfigArgs(
+	servers: Record<string, McpServerConfig> | undefined,
+): string[] {
+	if (!servers || Object.keys(servers).length === 0) {
+		return [];
+	}
+	const args: string[] = [];
+	for (const [name, config] of Object.entries(servers)) {
+		args.push("-c", buildOpenaiMcpOverride(name, config));
+	}
+	return args;
 }
 
 export function buildOpenaiExecArgs(options: {
@@ -167,12 +248,25 @@ export function buildOpenaiExecArgs(options: {
 	cwd: string;
 	model?: string;
 	sandbox?: "workspace-write" | "read-only";
+	mcpServers?: Record<string, McpServerConfig>;
 }): string[] {
 	const sandbox = options.sandbox ?? "workspace-write";
-	const args = ["exec", "--json", "--sandbox", sandbox, "--cd", options.cwd];
-	if (sandbox === "workspace-write") {
-		args.push("--approve-for-me");
-	}
+	const args = [
+		"exec",
+		"--json",
+		"--sandbox",
+		sandbox,
+		"--cd",
+		options.cwd,
+		// Do not load ~/.codex/config.toml. Auth still uses CODEX_HOME.
+		// A user model pin (for example gpt-5.6-luna) can fail older Codex CLIs.
+		"--ignore-user-config",
+		// Headless default is never. Set it explicitly so a leftover config
+		// cannot prompt, and so we do not need --approve-for-me (Codex >= 0.147).
+		"-c",
+		"approval_policy=never",
+	];
+	args.push(...buildOpenaiMcpConfigArgs(options.mcpServers));
 	const model =
 		options.model?.trim() ||
 		process.env.CODEX_AGENT_MODEL?.trim() ||
@@ -264,6 +358,11 @@ async function drainJsonl(
 
 /** Shared Codex CLI path — `codex exec --json` → AgentTrace. */
 export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiRunResult> {
+	const authMode = options.authMode ?? resolveOpenaiAuthMode(undefined, options.apiKey);
+	const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY;
+	if (authMode === "api-key" && !apiKey?.trim()) {
+		throw new Error(OPENAI_MISSING_KEY_MESSAGE);
+	}
 	const bin = await resolveOpenaiBin(options.bin);
 	let timedOut = false;
 	const args = buildOpenaiExecArgs({
@@ -271,6 +370,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		cwd: options.cwd,
 		model: options.model,
 		sandbox: options.sandbox,
+		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
 	});
 
 	const execute = async (): Promise<OpenaiRunResult> => {
@@ -278,7 +378,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		const abort = new AbortController();
 		const child = spawn(bin, args, {
 			cwd: options.cwd,
-			env: buildOpenaiEnv(options.apiKey),
+			env: buildOpenaiEnv(authMode, options.apiKey),
 			stdio: ["ignore", "pipe", "pipe"],
 			detached: process.platform !== "win32",
 		}) as OpenaiChildProcess;

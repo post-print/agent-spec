@@ -32,11 +32,46 @@ Replay-based testing is deprecated and removed. `runAgent` always launches the s
 
 | Host | Binary / SDK | Auth |
 | --- | --- | --- |
-| `cursor` | `@cursor/sdk` | `CURSOR_API_KEY` |
+| `cursor` | `@cursor/sdk` | `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()` |
 | `claude` | `claude` or `CLAUDE_CODE_BIN` | `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login |
-| `openai` | `codex` or `CODEX_BIN` | `OPENAI_API_KEY` or `CODEX_API_KEY` |
+| `openai` | `codex` or `CODEX_BIN` | `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login` |
+| custom slug | your `HostAdapter` | `missingAuth()` on the adapter |
 
-Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed>`.
+A consumer repo can add a host. Implement `HostAdapter` and call `registerHostAdapter`. Builtin ids stay reserved.
+
+```ts
+import { registerHostAdapter, type HostAdapter, runAgent } from "@post-print/agent-harness";
+
+const gemini: HostAdapter = {
+  host: "gemini",
+  missingAuth() {
+    return process.env.GEMINI_API_KEY ? undefined : "GEMINI_API_KEY not set";
+  },
+  classifierHost: "cursor",
+  async run(options) {
+    return {
+      host: "gemini",
+      status: "completed",
+      durationMs: 0,
+      trace: {
+        messages: [{ role: "assistant", content: options.prompt }],
+        toolCalls: [],
+        shellCommands: [],
+        artifacts: {},
+      },
+    };
+  },
+};
+
+registerHostAdapter(gemini);
+await runAgent({ host: "gemini", cwd: process.cwd(), prompt: "…" });
+```
+
+For `agent-test`, put adapters in `agent-test.config.mjs` or pass `--adapter ./hosts/gemini.mjs`. Isolated children load the same config.
+
+Set `classifierHost` to `cursor`, `claude`, or `openai`, or implement `classify()`. A custom host without one cannot run the judge.
+
+Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass to Codex as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply.
 
 ## Skills
 
@@ -48,6 +83,8 @@ The sealed workspace is a git repo. Hosts load project skills from `.agents/skil
 
 ## Judge
 
-`judgeTrace` uses the same host family as the test agent. Cursor judge calls still need `CURSOR_API_KEY`. Claude and OpenAI judges use their own host credentials.
+`judgeTrace` uses the same host family as the test agent. Cursor judge calls use `CURSOR_API_KEY` or the SDK login store. Claude and OpenAI judges use their own host credentials.
+
+The Cursor app login does not feed the SDK. Run `Cursor.auth.login()` once, or set `CURSOR_API_KEY`. `OPENAI_AUTH_MODE=subscription` uses the Codex CLI login and strips stale API keys from the child env.
 
 Consumer: `@post-print/agent-test`.

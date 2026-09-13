@@ -116,6 +116,7 @@ export async function loadSuiteFile(
 	const normalized: AgentSuiteFile = {
 		name: parsed.name,
 		description: parsed.description,
+		hosts: parsed.hosts,
 		defaults: parsed.defaults,
 		scenarios: parsed.scenarios.map((scenario) => ({
 			...scenario,
@@ -173,6 +174,7 @@ async function pathExists(path: string): Promise<boolean> {
 type SuiteFileShape = {
 	name: string;
 	description?: string;
+	hosts?: AgentSuiteFile["hosts"];
 	defaults?: AgentSuiteFile["defaults"];
 	scenarios: Array<Omit<AgentScenario, "rubric"> & { rubric?: ScenarioRubric }>;
 };
@@ -204,6 +206,9 @@ function isSuiteFileShape(value: unknown): value is SuiteFileShape {
 	}
 	const suite = value as SuiteFileShape;
 	if (typeof suite.name !== "string" || !Array.isArray(suite.scenarios)) {
+		return false;
+	}
+	if (suite.hosts !== undefined && !Array.isArray(suite.hosts)) {
 		return false;
 	}
 	if (suite.defaults?.mcpServers !== undefined && !isMcpServersMap(suite.defaults.mcpServers)) {

@@ -2,9 +2,9 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
-	type AgentHost,
 	type ContextProfile,
-	isAgentHost,
+	isHostSlug,
+	isKnownAgentHost,
 	isRepoRelativeSkillPath,
 	skillManifestRelPath,
 	skillPathsFromSetting,
@@ -15,6 +15,21 @@ import type { AgentScenario, AgentSuiteFile, ScenarioRubric } from "./types.js";
 
 const REPLAY_DEPRECATION =
 	"Replay-based testing is deprecated and no longer supported; use Cursor, Claude, or OpenAI.";
+
+function isKnownHostId(host: string): boolean {
+	return isKnownAgentHost(host);
+}
+
+function unknownHostMessage(host: unknown): string {
+	if (host === "replay") {
+		return REPLAY_DEPRECATION;
+	}
+	if (typeof host === "string" && isHostSlug(host)) {
+		return `unknown host "${host}". Register it with registerHostAdapter() or --adapter`;
+	}
+	return `host must be a lowercase slug (cursor|claude|openai or a registered adapter), got ${JSON.stringify(host)}`;
+}
+
 const VALID_PROFILES = new Set<ContextProfile>(["shared", "cursor", "claude", "skeleton"]);
 function isValidSkillSetting(value: unknown): boolean {
 	if (value === "none") {
@@ -168,16 +183,8 @@ function validateScenario(
 	suitePath: string,
 	scenario: AgentScenario,
 ): void {
-	if (scenario.host !== undefined && !isAgentHost(scenario.host)) {
-		pushIssue(
-			issues,
-			suitePath,
-			"host",
-			scenario.host === ("replay" as AgentHost)
-				? REPLAY_DEPRECATION
-				: `host must be cursor|claude|openai, got ${JSON.stringify(scenario.host)}`,
-			scenario.name,
-		);
+	if (scenario.host !== undefined && !isKnownHostId(scenario.host)) {
+		pushIssue(issues, suitePath, "host", unknownHostMessage(scenario.host), scenario.name);
 	}
 	if ("replayTrace" in scenario) {
 		pushIssue(issues, suitePath, "replayTrace", REPLAY_DEPRECATION, scenario.name);
@@ -221,6 +228,43 @@ function validateScenario(
 	validateRubric(issues, suitePath, scenario.name, scenario.rubric);
 }
 
+function validateHosts(
+	issues: SuiteValidationIssue[],
+	suitePath: string,
+	suite: AgentSuiteFile,
+): void {
+	if (suite.hosts === undefined) {
+		return;
+	}
+	if (!Array.isArray(suite.hosts) || suite.hosts.length === 0) {
+		pushIssue(issues, suitePath, "hosts", "hosts must be a non-empty array of host slugs");
+		return;
+	}
+	const seen = new Set<string>();
+	for (const host of suite.hosts) {
+		if (!isKnownHostId(host)) {
+			pushIssue(issues, suitePath, "hosts", unknownHostMessage(host));
+			continue;
+		}
+		if (seen.has(host)) {
+			pushIssue(issues, suitePath, "hosts", `duplicate host ${host}`);
+		}
+		seen.add(host);
+	}
+	if (
+		suite.defaults?.host !== undefined &&
+		isKnownHostId(suite.defaults.host) &&
+		!suite.hosts.includes(suite.defaults.host)
+	) {
+		pushIssue(
+			issues,
+			suitePath,
+			"defaults.host",
+			`defaults.host ${suite.defaults.host} must be listed in hosts`,
+		);
+	}
+}
+
 function validateDefaults(
 	issues: SuiteValidationIssue[],
 	suitePath: string,
@@ -230,15 +274,8 @@ function validateDefaults(
 	if (!defaults) {
 		return;
 	}
-	if (defaults.host !== undefined && !isAgentHost(defaults.host)) {
-		pushIssue(
-			issues,
-			suitePath,
-			"defaults.host",
-			defaults.host === ("replay" as AgentHost)
-				? REPLAY_DEPRECATION
-				: `host must be cursor|claude|openai, got ${JSON.stringify(defaults.host)}`,
-		);
+	if (defaults.host !== undefined && !isKnownHostId(defaults.host)) {
+		pushIssue(issues, suitePath, "defaults.host", unknownHostMessage(defaults.host));
 	}
 	if (defaults.profile !== undefined && !VALID_PROFILES.has(defaults.profile)) {
 		pushIssue(
@@ -266,12 +303,32 @@ function validateDefaults(
 	}
 }
 
+function mcpScriptPaths(suite: AgentSuiteFile, scenario: AgentScenario): string[] {
+	const servers = { ...suite.defaults?.mcpServers, ...scenario.mcpServers };
+	const paths: string[] = [];
+	for (const config of Object.values(servers)) {
+		if (!("command" in config) || !config.args) {
+			continue;
+		}
+		for (const arg of config.args) {
+			if (arg.startsWith("-")) {
+				continue;
+			}
+			if (/\.(mjs|cjs|js)$/.test(arg) || arg.includes("/")) {
+				paths.push(arg);
+			}
+		}
+	}
+	return paths;
+}
+
 /** Semantic validation beyond structural loadSuiteFile checks. */
 export function validateSuiteFile(
 	suitePath: string,
 	suite: AgentSuiteFile,
 ): SuiteValidationIssue[] {
 	const issues: SuiteValidationIssue[] = [];
+	validateHosts(issues, suitePath, suite);
 	validateDefaults(issues, suitePath, suite);
 	for (const scenario of suite.scenarios) {
 		validateScenario(issues, suitePath, scenario);
@@ -305,6 +362,19 @@ export async function validateSuitePaths(
 
 		if (options?.validatePaths && repoRoot) {
 			for (const scenario of suite.scenarios) {
+				for (const scriptPath of mcpScriptPaths(suite, scenario)) {
+					try {
+						await access(resolve(repoRoot, scriptPath));
+					} catch {
+						pushIssue(
+							issues,
+							suitePath,
+							"mcpServers",
+							`MCP script not found: ${scriptPath}`,
+							scenario.name,
+						);
+					}
+				}
 				if (scenario.seedPatch) {
 					const patchPath = resolve(repoRoot, scenario.seedPatch);
 					try {

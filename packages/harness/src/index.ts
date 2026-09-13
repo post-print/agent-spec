@@ -10,6 +10,12 @@ export {
 	createAdapter,
 	OpenaiAdapter,
 } from "./adapters/index.js";
+export {
+	HOST_AUTH_MODES,
+	type HostAuthMode,
+	parseOptionalAuthMode,
+	resolveKeyOrLoginAuthMode,
+} from "./auth-mode.js";
 export type { SdkMessage } from "./capture.js";
 export {
 	assistantPrefixBeforeTools,
@@ -60,6 +66,7 @@ export {
 	runClaudeAgent,
 	runClaudeClassifier,
 	takeLastClaudeRunTrace,
+	withMcpAllowedTools,
 } from "./claude-run.js";
 export {
 	type LoadContextOptions,
@@ -78,6 +85,9 @@ export {
 } from "./conversation.js";
 export {
 	assistantTextFromSdkMessages,
+	CURSOR_AUTH_MODE_ENV,
+	CURSOR_MISSING_KEY_MESSAGE,
+	type CursorAuthMode,
 	type CursorRunOptions,
 	type CursorRunResult,
 	cancelActiveCursorRun,
@@ -85,11 +95,22 @@ export {
 	type JudgeClassifierOptions,
 	type JudgeClassifierResult,
 	type JudgeSdkError,
+	resolveCursorAuthMode,
 	runCursorAgent,
 	runJudgeClassifier,
 	takeLastCursorRunTrace,
 	textBlocksFromSdkMessage,
+	withCursorAuthEnv,
 } from "./cursor-run.js";
+export {
+	clearRegisteredHostAdapters,
+	getRegisteredAdapter,
+	isKnownAgentHost,
+	knownAgentHosts,
+	listRegisteredHosts,
+	registerHostAdapter,
+	unregisterHostAdapter,
+} from "./host-registry.js";
 export {
 	formatTraceForJudge,
 	type JudgeCriterion,
@@ -123,10 +144,16 @@ export {
 export {
 	buildOpenaiEnv,
 	buildOpenaiExecArgs,
+	buildOpenaiMcpConfigArgs,
+	buildOpenaiMcpOverride,
 	cancelActiveOpenaiRun,
 	formatOpenaiRunFailure,
+	OPENAI_AUTH_MODE_ENV,
+	OPENAI_MISSING_KEY_MESSAGE,
+	type OpenaiAuthMode,
 	type OpenaiRunOptions,
 	type OpenaiRunResult,
+	resolveOpenaiAuthMode,
 	resolveOpenaiBin,
 	runOpenaiAgent,
 	runOpenaiClassifier,
@@ -175,9 +202,12 @@ export {
 	type AgentToolCall,
 	type AgentTrace,
 	type AgentUsage,
+	type BuiltinAgentHost,
 	type ContextProfile,
 	type HostAdapter,
 	isAgentHost,
+	isBuiltinAgentHost,
+	isHostSlug,
 	type LiveAgentEvent,
 	type LoadedContext,
 	type McpServerConfig,

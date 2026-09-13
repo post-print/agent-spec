@@ -201,12 +201,15 @@ export class TraceAssertion {
 		return this;
 	}
 
-	/** Substring must appear in JSON args of a Read-family tool call. */
+	/** Substring must appear in Read-family args or a Shell/Bash path access. */
 	toHaveReadPath(fragment: string): this {
-		if (!readToolArgsContain(this.trace.toolCalls, fragment)) {
+		if (
+			!readToolArgsContain(this.trace.toolCalls, fragment) &&
+			!shellAccessedPath(this.trace, fragment)
+		) {
 			this.push(
 				"toHaveReadPath",
-				`expected Read tool args containing "${fragment}"`,
+				`expected Read or Shell access containing "${fragment}"`,
 				readToolArgsEvidence(this.trace.toolCalls),
 			);
 		}
@@ -378,25 +381,56 @@ function parseToolSpec(spec: string): { name: string; argFragment?: string } {
 	};
 }
 
+/** Hosts disagree on write-tool names (Cursor `edit` / `Write`). */
+function toolNameNeedles(name: string): string[] {
+	const lower = name.toLowerCase();
+	if (lower === "write" || lower === "edit") {
+		return ["write", "edit"];
+	}
+	return [lower];
+}
+
 function toolSpecMatches(toolCalls: AgentTrace["toolCalls"], spec: string): boolean {
 	const { name, argFragment } = parseToolSpec(spec);
-	const nameNeedle = name.toLowerCase();
+	const nameNeedles = toolNameNeedles(name);
 	return toolCalls.some((call) => {
-		if (!call.name.toLowerCase().includes(nameNeedle)) {
+		const callName = call.name.toLowerCase();
+		const argsText = JSON.stringify(call.args ?? {}).toLowerCase();
+		const resultText = String(call.result ?? "").toLowerCase();
+		const identity = `${callName} ${argsText}`;
+		if (!nameNeedles.some((needle) => identity.includes(needle))) {
 			return false;
 		}
 		if (argFragment === undefined || argFragment.length === 0) {
 			return true;
 		}
 		const needle = argFragment.toLowerCase();
-		const argsText = JSON.stringify(call.args ?? {}).toLowerCase();
-		const resultText = String(call.result ?? "").toLowerCase();
 		return argsText.includes(needle) || resultText.includes(needle);
 	});
 }
 
 function isReadToolName(name: string): boolean {
 	return name.toLowerCase().includes("read");
+}
+
+function isShellToolName(name: string): boolean {
+	const lower = name.toLowerCase();
+	return lower.includes("shell") || lower === "bash";
+}
+
+function shellAccessedPath(trace: AgentTrace, fragment: string): boolean {
+	const needle = fragment.toLowerCase();
+	if (trace.shellCommands.some((command) => command.toLowerCase().includes(needle))) {
+		return true;
+	}
+	return trace.toolCalls.some((call) => {
+		if (!isShellToolName(call.name)) {
+			return false;
+		}
+		return JSON.stringify(call.args ?? {})
+			.toLowerCase()
+			.includes(needle);
+	});
 }
 
 function readToolCalls(toolCalls: AgentTrace["toolCalls"]): AgentTrace["toolCalls"] {

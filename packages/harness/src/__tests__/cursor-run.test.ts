@@ -152,10 +152,53 @@ describe("runCursorAgent usage", () => {
 		expect(result.usage).toEqual(result.trace.usage);
 		expect(agentCreate).toHaveBeenCalledWith(
 			expect.objectContaining({
+				apiKey: "test-key",
 				local: { cwd: process.cwd(), settingSources: ["project"] },
 			}),
 		);
 		jest.clearAllMocks();
+	});
+
+	it("omits apiKey when CURSOR_AUTH_MODE=subscription", async () => {
+		agentCreate.mockResolvedValue({
+			send: agentSend,
+			[Symbol.asyncDispose]: async () => {},
+		});
+		agentSend.mockResolvedValue({
+			stream: async function* () {},
+			wait: async () => ({ status: "finished" }),
+		});
+
+		const priorMode = process.env.CURSOR_AUTH_MODE;
+		const priorKey = process.env.CURSOR_API_KEY;
+		process.env.CURSOR_AUTH_MODE = "subscription";
+		process.env.CURSOR_API_KEY = "stale-key";
+		try {
+			const { runCursorAgent } = await import("../cursor-run.js");
+			await runCursorAgent({
+				cwd: process.cwd(),
+				prompt: "test",
+				authMode: "subscription",
+			});
+			expect(agentCreate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					local: { cwd: process.cwd(), settingSources: ["project"] },
+				}),
+			);
+			expect(agentCreate.mock.calls[0]?.[0]).not.toHaveProperty("apiKey");
+		} finally {
+			if (priorMode === undefined) {
+				delete process.env.CURSOR_AUTH_MODE;
+			} else {
+				process.env.CURSOR_AUTH_MODE = priorMode;
+			}
+			if (priorKey === undefined) {
+				delete process.env.CURSOR_API_KEY;
+			} else {
+				process.env.CURSOR_API_KEY = priorKey;
+			}
+			jest.clearAllMocks();
+		}
 	});
 });
 

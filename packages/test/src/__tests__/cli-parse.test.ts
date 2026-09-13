@@ -87,8 +87,37 @@ describe("parseCliArgs debug flags", () => {
 		const args = parseCliArgs(["node", "cli.js", "--fail-on=behavior", "--host=claude"]);
 		expect(args.failOn).toBe("behavior");
 		expect(args.host).toBe("claude");
+		expect(args.hosts).toEqual(["claude"]);
 		expect(parseCliArgs(["node", "cli.js", "--help"]).help).toBe(true);
 		expect(parseCliArgs(["node", "cli.js", "-h"]).help).toBe(true);
+	});
+
+	it("parses a consumer host slug and --adapter path", () => {
+		const args = parseCliArgs([
+			"node",
+			"cli.js",
+			"--host",
+			"gemini",
+			"--adapter",
+			"hosts/gemini.mjs",
+		]);
+		expect(args.host).toBe("gemini");
+		expect(args.hosts).toEqual(["gemini"]);
+		expect(args.adapterModules).toEqual([`${process.cwd()}/hosts/gemini.mjs`]);
+	});
+
+	it("parses a host matrix from commas, repeats, and all", () => {
+		expect(parseCliArgs(["node", "cli.js", "--host", "cursor,claude"]).hosts).toEqual([
+			"cursor",
+			"claude",
+		]);
+		expect(parseCliArgs(["node", "cli.js", "--host", "cursor", "--host", "openai"]).hosts).toEqual([
+			"cursor",
+			"openai",
+		]);
+		const all = parseCliArgs(["node", "cli.js", "--host", "all"]);
+		expect(all.hosts).toEqual(["cursor", "claude", "openai"]);
+		expect(all.hostAll).toBe(true);
 	});
 
 	it("rejects unknown flags", () => {
@@ -98,6 +127,7 @@ describe("parseCliArgs debug flags", () => {
 	it("prints check as the no-agent command in help", () => {
 		expect(formatHelp()).toContain("--check");
 		expect(formatHelp()).toContain("Do not launch an agent");
+		expect(formatHelp()).toContain("cursor|claude|openai|all");
 	});
 
 	it("parses --scenario-retries", () => {

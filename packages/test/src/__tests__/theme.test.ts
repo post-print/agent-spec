@@ -5,6 +5,7 @@ import {
 	clipToColumns,
 	configureCliColor,
 	formatFileHyperlink,
+	formatHyperlink,
 	theme,
 	truncatePath,
 	wrapText,
@@ -33,6 +34,13 @@ describe("formatFileHyperlink", () => {
 	});
 });
 
+describe("formatHyperlink", () => {
+	it("wraps an http URL for a browser click", () => {
+		const linked = formatHyperlink("http://127.0.0.1:7429/", "HTML report");
+		expect(linked).toBe("\u001b]8;;http://127.0.0.1:7429/\u0007HTML report\u001b]8;;\u0007");
+	});
+});
+
 describe("theme.fileTip", () => {
 	const priorLevel = chalk.level;
 
@@ -47,6 +55,13 @@ describe("theme.fileTip", () => {
 			"\u001b]8;;file:///tmp/out/report.html\u0007HTML report\u001b]8;;\u0007",
 		);
 		expect(line.includes("/tmp/out/report.html\u001b]8;;\u0007")).toBe(false);
+	});
+
+	it("shows a localhost URL so Cursor can open the browser", () => {
+		chalk.level = 0;
+		const line = theme.fileTip("HTML report", "http://127.0.0.1:7429/");
+		expect(line).toContain("\u001b]8;;http://127.0.0.1:7429/\u0007HTML report\u001b]8;;\u0007");
+		expect(line).toContain("http://127.0.0.1:7429/");
 	});
 });
 

@@ -78,3 +78,27 @@ function isMcpAuth(value: unknown): boolean {
 	}
 	return true;
 }
+
+/** Repo-relative stdio script args to copy into a sealed workspace. */
+export function mcpStdioScriptPaths(
+	servers: Record<string, McpServerConfig> | undefined,
+): string[] {
+	if (!servers) {
+		return [];
+	}
+	const paths: string[] = [];
+	for (const config of Object.values(servers)) {
+		if (!("command" in config) || !config.args) {
+			continue;
+		}
+		for (const arg of config.args) {
+			if (arg.startsWith("-")) {
+				continue;
+			}
+			if (/\.(mjs|cjs|js)$/.test(arg) || arg.includes("/")) {
+				paths.push(arg);
+			}
+		}
+	}
+	return paths;
+}

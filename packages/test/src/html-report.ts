@@ -14,7 +14,7 @@ import {
 	type ScenarioCompareDelta,
 	type SuiteCompareReport,
 } from "./compare.js";
-import { formatUsageStats, summarizeReportResults, summarizeReports } from "./suite-summary.js";
+import { formatTokenCount, summarizeReports } from "./suite-summary.js";
 import type { ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
 
 export interface HtmlReportMeta {
@@ -336,7 +336,7 @@ function formatTokensBadge(result: ScenarioResult): string | undefined {
 		return undefined;
 	}
 	if (typeof usage.totalTokens === "number") {
-		return `${usage.totalTokens} tok`;
+		return `${formatTokenCount(usage.totalTokens)} tokens`;
 	}
 	const parts: string[] = [];
 	if (typeof usage.inputTokens === "number") {
@@ -397,35 +397,40 @@ function renderTraceMeta(result: ScenarioResult): string {
 	return `<section class="scenario-meta"><h3>Trace stats</h3><div class="meta-grid">${html}</div></section>`;
 }
 
-function renderUsageStatsBlock(usage: UsageStats | undefined, title = "Token usage"): string {
-	if (!usage) {
+function costItem(label: string, detail: string, value: string): string {
+	return `<div class="cost-item"><span class="cost-value">${escapeHtml(value)}</span><span class="cost-label">${escapeHtml(label)}</span><span class="cost-detail">${escapeHtml(detail)}</span></div>`;
+}
+
+function renderCostSection(usage: UsageStats | undefined): string {
+	if (!usage || usage.sumTotalTokens === undefined) {
 		return "";
 	}
-	const rows: Array<[string, string]> = [
-		["Scenarios with usage", String(usage.scenariosWithUsage)],
-	];
-	if (usage.sumTotalTokens !== undefined) {
-		rows.push(["Sum totalTokens", String(usage.sumTotalTokens)]);
-	}
-	if (usage.p50TotalTokens !== undefined) {
-		rows.push(["p50 totalTokens", String(usage.p50TotalTokens)]);
-	}
-	if (usage.p95TotalTokens !== undefined) {
-		rows.push(["p95 totalTokens", String(usage.p95TotalTokens)]);
-	}
+	const items = [costItem("Total", "Cost of this run", formatTokenCount(usage.sumTotalTokens))];
 	if (usage.sumInputTokens !== undefined) {
-		rows.push(["Sum input", String(usage.sumInputTokens)]);
+		items.push(
+			costItem("In", "Prompt and context the host sent", formatTokenCount(usage.sumInputTokens)),
+		);
 	}
 	if (usage.sumOutputTokens !== undefined) {
-		rows.push(["Sum output", String(usage.sumOutputTokens)]);
+		items.push(costItem("Out", "Text the agent wrote", formatTokenCount(usage.sumOutputTokens)));
 	}
-	const items = rows
-		.map(
-			([label, value]) =>
-				`<div class="meta-item"><span class="meta-key">${escapeHtml(label)}</span><span class="meta-val">${escapeHtml(value)}</span></div>`,
-		)
-		.join("");
-	return `<section class="usage-summary"><h3>${escapeHtml(title)}</h3><div class="meta-grid">${items}</div><p class="usage-compact muted">${escapeHtml(formatUsageStats(usage))}</p></section>`;
+	if (usage.scenariosWithUsage > 1 && usage.p50TotalTokens !== undefined) {
+		items.push(
+			costItem(
+				"Typical",
+				"Middle scenario. Half cost less than this.",
+				formatTokenCount(usage.p50TotalTokens),
+			),
+		);
+	}
+	if (usage.scenariosWithUsage > 1 && usage.maxTotalTokens !== undefined) {
+		items.push(costItem("Largest", "Heaviest scenario", formatTokenCount(usage.maxTotalTokens)));
+	}
+	return `<section class="cost" aria-labelledby="cost-heading">
+  <h2 id="cost-heading">Token cost</h2>
+  <p class="cost-lede">Tokens are cost, not the verdict. Pass and fail sit on each scenario.</p>
+  <div class="cost-grid">${items.join("")}</div>
+</section>`;
 }
 
 function formatSigned(value: number | undefined): string {
@@ -632,114 +637,126 @@ function renderScenario(result: ScenarioResult): string {
 
 function renderSuite(report: SuiteRunReport): string {
 	const scenarios = report.results.map(renderScenario).join("\n");
-	const usage = (report.summary ?? summarizeReportResults(report.results)).usage;
-	const usageLine = usage
-		? `<p class="suite-usage">${escapeHtml(formatUsageStats(usage))}</p>`
-		: "";
 	return `
 <section class="suite">
   <header class="suite-header">
-    <div><h2>${escapeHtml(report.suite)}</h2><span class="host">${escapeHtml(report.host)}</span></div>
-    <div class="suite-meta">
-      <p class="suite-counts">${report.passed} passed · ${report.failed} failed · ${report.skipped} skipped</p>
-      ${usageLine}
+    <div class="suite-title">
+      <h2>${escapeHtml(report.suite)}</h2>
+      <span class="host">${escapeHtml(report.host)}</span>
     </div>
+    <p class="suite-counts"><span>${report.passed} passed</span><span>${report.failed} failed</span><span>${report.skipped} skipped</span></p>
   </header>
-  ${usage ? renderUsageStatsBlock(usage, "Suite token usage") : ""}
   ${scenarios}
 </section>`;
 }
 
 function sharedReportCss(): string {
 	return `
+  @layer reset, base, layout, components;
   :root {
-    --bg: #0f1419;
-    --panel: #1a2332;
-    --panel-2: #141c28;
-    --text: #e7ecf3;
-    --muted: #8b9bb4;
-    --border: #2a3548;
-    --pass: #3dd68c;
-    --fail: #f07178;
-    --skip: #ffcc66;
-    --user-bubble: #24406b;
-    --assistant-bubble: #1f2f26;
-    --system-bubble: #241f38;
-    --tool: #e0af68;
-    --tool-bubble: #2a2214;
-    --improve: #3dd68c;
-    --regress: #f07178;
+    color-scheme: dark;
+    --bg: oklch(0.18 0.02 250);
+    --panel: oklch(0.23 0.025 250);
+    --panel-2: oklch(0.2 0.022 250);
+    --text: oklch(0.93 0.015 250);
+    --muted: oklch(0.72 0.03 250);
+    --border: oklch(0.32 0.03 250);
+    --pass: oklch(0.8 0.16 155);
+    --fail: oklch(0.72 0.16 20);
+    --skip: oklch(0.84 0.14 85);
+    --user-bubble: oklch(0.3 0.06 250);
+    --assistant-bubble: oklch(0.26 0.04 155);
+    --system-bubble: oklch(0.26 0.04 300);
+    --tool: oklch(0.82 0.12 80);
+    --tool-bubble: oklch(0.26 0.04 80);
+    --improve: var(--pass);
+    --regress: var(--fail);
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.45;
+  @layer reset {
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    h1, h2, h3, h4, p, ol { margin: 0; }
+    dl, dd { margin: 0; }
   }
-  main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
-  h1 { font-size: 1.45rem; margin: 0; letter-spacing: -0.02em; }
-  h2 { font-size: 1.1rem; margin: 0; }
-  h3 { font-size: 0.78rem; margin: 0 0 0.5rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
-  h4 { font-size: 0.72rem; margin: 0.9rem 0 0.35rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-  .muted { color: var(--muted); }
-  .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; margin: 0; }
-  .empty.note { margin-bottom: 0.5rem; }
-  .report-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }
-  .report-kicker { color: var(--muted); font-size: 0.78rem; }
-  .summary {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.7rem 0.9rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
+  @layer base {
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      word-spacing: 0.16em;
+    }
+    main { max-width: 68rem; margin-inline: auto; padding: 1.5rem 1.25rem 3rem; }
+    h1 { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; }
+    h2 { font-size: 1.05rem; font-weight: 650; }
+    h3 { font-size: 0.8rem; color: var(--muted); font-weight: 650; }
+    h4 { font-size: 0.75rem; margin-block: 0.9rem 0.35rem; color: var(--muted); font-weight: 650; }
+    .muted { color: var(--muted); }
+    .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+    .empty.note { margin-bottom: 0.5rem; }
   }
-  .stats { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
-  .stat { padding: 0.3rem 0.55rem; border-radius: 6px; background: #111923; font-size: 0.8rem; }
-  .stat strong { font-size: 1rem; margin-right: 0.25rem; }
-  .stat-pass strong { color: var(--pass); }
-  .stat-fail strong { color: var(--fail); }
-  .stat-skip strong { color: var(--skip); }
-  .summary dl {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.15rem 1rem;
-    margin: 0;
-    font-size: 0.78rem;
+  @layer layout {
+    .report-header { display: grid; gap: 0.25rem; margin-bottom: 1rem; }
+    .brand { color: var(--muted); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .lede, .when { color: var(--muted); font-size: 0.85rem; }
+    .summary, .cost, .guide, .compare {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem 1rem;
+    }
+    .summary { display: grid; gap: 0.65rem; }
+    .stats { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .suite { margin-top: 1.75rem; display: grid; gap: 0.55rem; }
+    .suite-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+    .suite-title { display: flex; align-items: center; gap: 0.5rem; }
+    .cost { margin-top: 0.85rem; display: grid; gap: 0.65rem; }
+    .cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; }
+    .guide { margin-top: 0.85rem; }
+    .diagnostics { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem; }
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.45rem 0.75rem; }
   }
-  .summary dt { color: var(--muted); margin-right: -0.7rem; }
-  .summary dd { margin: 0; }
-  .report-usage { margin-top: 0.75rem; }
-  .suite { margin-top: 1.25rem; }
-  .suite-header { display: flex; align-items: end; justify-content: space-between; margin: 0 0 0.5rem; padding: 0 0.2rem; }
-  .suite-header > div { display: flex; align-items: center; gap: 0.5rem; }
-  .host { color: var(--muted); font-size: 0.72rem; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.4rem; }
-  .suite-meta { text-align: right; }
-  .suite-counts { color: var(--muted); margin: 0; font-size: 0.78rem; }
-  .suite-usage { color: var(--muted); margin: 0.15rem 0 0; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
-  .tokens { color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-  .usage-summary, .scenario-meta {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.65rem 0.7rem;
-    margin: 0 0 0.7rem;
-  }
-  .usage-compact { margin: 0.45rem 0 0; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
-  .meta-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.35rem 0.75rem;
-  }
-  .meta-item { display: flex; flex-direction: column; gap: 0.1rem; }
-  .meta-key { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  .meta-val { font-size: 0.88rem; font-variant-numeric: tabular-nums; word-break: break-word; }
-  .meta-row { margin-bottom: 0.7rem; }
+  @layer components {
+    .stat {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.35rem;
+      padding: 0.4rem 0.65rem;
+      border-radius: 8px;
+      background: var(--panel-2);
+      font-size: 0.85rem;
+    }
+    .stat strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+    .stat-pass strong { color: var(--pass); }
+    .stat-fail strong { color: var(--fail); }
+    .stat-skip strong { color: var(--skip); }
+    .guide summary { cursor: pointer; font-weight: 650; }
+    .guide ol { margin: 0.65rem 0 0; padding-inline-start: 1.2rem; display: grid; gap: 0.35rem; color: var(--muted); font-size: 0.88rem; }
+    .cost-lede { color: var(--muted); font-size: 0.85rem; }
+    .cost-item { display: grid; gap: 0.15rem; }
+    .cost-value { font-size: 1.2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .cost-label { font-size: 0.8rem; font-weight: 650; }
+    .cost-detail { color: var(--muted); font-size: 0.75rem; }
+    .host {
+      color: var(--muted);
+      font-size: 0.72rem;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.1rem 0.5rem;
+    }
+    .suite-counts { display: flex; flex-wrap: wrap; gap: 0.75rem; color: var(--muted); font-size: 0.85rem; }
+    .tokens { color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+    .usage-summary, .scenario-meta {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem 0.7rem;
+    }
+    .meta-item { display: grid; gap: 0.1rem; }
+    .meta-key { color: var(--muted); font-size: 0.75rem; }
+    .meta-val { font-size: 0.88rem; font-variant-numeric: tabular-nums; word-break: break-word; }
+    .meta-row { margin-bottom: 0.7rem; }
   details.scenario {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -882,11 +899,10 @@ function sharedReportCss(): string {
 
   @media (max-width: 720px) {
     main { padding: 0.75rem; }
-    .summary { align-items: flex-start; flex-direction: column; }
-    .summary dl { justify-content: flex-start; }
     .suite-header { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
     .diagnostics { grid-template-columns: 1fr; }
     .bubble, .tool-card { max-width: 92%; }
+  }
   }
 `;
 }
@@ -897,7 +913,8 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
 	const totalPassed = reports.reduce((sum, report) => sum + report.passed, 0);
 	const totalFailed = reports.reduce((sum, report) => sum + report.failed, 0);
 	const totalSkipped = reports.reduce((sum, report) => sum + report.skipped, 0);
-	const host = meta.host ?? reports[0]?.host ?? "unknown";
+	const hostNames = [...new Set(reports.map((report) => report.host).filter(Boolean))];
+	const host = meta.host ?? (hostNames.length > 0 ? hostNames.join(", ") : "unknown");
 	const runUsage = summarizeReports(reports).usage;
 
 	// Embed A/B only when explicitly requested (compare-pairs / compare labels), not for every 2-suite run.
@@ -920,6 +937,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
 
 	const suitesHtml = reports.map(renderSuite).join("\n");
 
+	const suiteWord = reports.length === 1 ? "suite" : "suites";
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -931,37 +949,28 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
 <body>
 <main>
   <header class="report-header">
-    <h1>agent-test report</h1>
-    <span class="report-kicker">${reports.length} suite${reports.length === 1 ? "" : "s"}</span>
+    <p class="brand">agent-test</p>
+    <h1>Run report</h1>
+    <p class="lede">${escapeHtml(String(host))} · ${reports.length} ${suiteWord}${meta.suitesDir ? ` · ${escapeHtml(meta.suitesDir)}` : ""}</p>
   </header>
-  <div class="summary">
+  <section class="summary" aria-label="Run verdict">
     <div class="stats">
-      <span class="stat stat-pass"><strong>${totalPassed}</strong> passed</span>
-      <span class="stat stat-fail"><strong>${totalFailed}</strong> failed</span>
-      <span class="stat stat-skip"><strong>${totalSkipped}</strong> skipped</span>
-      ${
-				runUsage?.sumTotalTokens !== undefined
-					? `<span class="stat"><strong>${runUsage.sumTotalTokens}</strong> tokens</span>`
-					: ""
-			}
+      <span class="stat stat-pass"><strong>${totalPassed}</strong><span>passed</span></span>
+      <span class="stat stat-fail"><strong>${totalFailed}</strong><span>failed</span></span>
+      <span class="stat stat-skip"><strong>${totalSkipped}</strong><span>skipped</span></span>
     </div>
-    <dl>
-      <dt>Host</dt><dd>${escapeHtml(String(host))}</dd>
-      <dt>Generated</dt><dd>${escapeHtml(generatedAt.toISOString())}</dd>
-      ${meta.suitesDir ? `<dt>Suites</dt><dd>${escapeHtml(meta.suitesDir)}</dd>` : ""}
-      ${
-				runUsage?.p50TotalTokens !== undefined
-					? `<dt>p50 tokens</dt><dd>${runUsage.p50TotalTokens}</dd>`
-					: ""
-			}
-      ${
-				runUsage?.p95TotalTokens !== undefined
-					? `<dt>p95 tokens</dt><dd>${runUsage.p95TotalTokens}</dd>`
-					: ""
-			}
-    </dl>
-  </div>
-  ${runUsage ? `<div class="report-usage">${renderUsageStatsBlock(runUsage, "Run token usage")}</div>` : ""}
+    <p class="when">Generated ${escapeHtml(generatedAt.toISOString())}</p>
+  </section>
+  <details class="guide">
+    <summary>How to read this report</summary>
+    <ol>
+      <li>The verdict is pass or fail. Tokens are cost, not the score.</li>
+      <li>Open a scenario for what we tested, what the agent did, and the outcome.</li>
+      <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
+      <li>In is prompt and context. Out is generated text.</li>
+    </ol>
+  </details>
+  ${renderCostSection(runUsage)}
   ${compareSection}
   ${suitesHtml}
 </main>

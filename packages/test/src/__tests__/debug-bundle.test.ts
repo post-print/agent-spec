@@ -128,6 +128,15 @@ describe("debug-bundle", () => {
 		expect(scenarioArtifactSlug("Foo Bar")).not.toBe(scenarioArtifactSlug("foo-bar"));
 	});
 
+	it("separates debug dirs by host", () => {
+		const root = (sessionId: string) => `/tmp/${sessionId}`;
+		const cursor = getDebugBundleDir("sess", "suite", "hello", root, "cursor");
+		const claude = getDebugBundleDir("sess", "suite", "hello", root, "claude");
+		expect(cursor).toContain(`${scenarioArtifactSlug("hello")}.cursor.debug`);
+		expect(claude).toContain(`${scenarioArtifactSlug("hello")}.claude.debug`);
+		expect(cursor).not.toBe(claude);
+	});
+
 	it("writes the six debug artifacts and redacts secrets", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "agent-test-debug-"));
 		dirs.push(dir);

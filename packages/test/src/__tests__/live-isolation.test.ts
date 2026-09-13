@@ -51,6 +51,18 @@ describe("live-isolation", () => {
 		expect(subprocessFailureMessage(1)).toContain("exited 1");
 	});
 
+	it("forwards --adapter to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "medium: grill",
+			suitesDir: "agent-suites",
+			adapterModules: ["/repo/hosts/gemini.mjs"],
+		});
+		expect(args).toContain("--adapter");
+		expect(args).toContain("/repo/hosts/gemini.mjs");
+	});
+
 	it("forwards --rubrics-dir to the child CLI", () => {
 		const { args } = buildLiveScenarioCommand({
 			cwd: "/repo",

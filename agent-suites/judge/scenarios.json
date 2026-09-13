@@ -1,0 +1,26 @@
+{
+	"name": "judge",
+	"description": "LLM judge scores the reply. Each scenario launches a test agent and a judge.",
+	"hosts": ["cursor", "claude", "openai"],
+	"defaults": {
+		"host": "cursor",
+		"profile": "cursor",
+		"skills": "none"
+	},
+	"scenarios": [
+		{
+			"name": "judge accepts an exact reply",
+			"prompt": "Reply with the text judge ok and nothing else. Do not use tools.",
+			"rubric": {
+				"must": ["judge ok"],
+				"mustNotCallTool": ["Shell", "Bash"],
+				"judge": [
+					{
+						"id": "exact-reply",
+						"question": "Did the agent reply with judge ok, allowing a trailing period, and avoid tools?"
+					}
+				]
+			}
+		}
+	]
+}

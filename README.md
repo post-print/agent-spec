@@ -23,8 +23,8 @@ Published packages are native ESM and run under Node (no Bun required at runtime
 
 ```bash
 npx agent-test --suites-dir agent-suites
-npx agent-test --suites-dir agent-suites --host claude
-npx agent-test --suites-dir agent-suites --host openai
+npx agent-test --suites-dir agent-suites --host cursor
+npx agent-test --suites-dir agent-suites --adapter ./hosts/gemini.mjs --host gemini
 ```
 
 ## Develop
@@ -41,14 +41,16 @@ bun run test:sandbox-safe
 
 ```bash
 node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
-node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
+node packages/test/dist/cli.js --check --suites-dir agent-suites
 ```
 
-Host-agent suite (exported host key; incurs provider usage):
+Host-agent suite (host key or CLI/SDK login; incurs provider usage):
 
 ```bash
 bun run test
 ```
+
+`bun run test` runs smoke, tools, mcp, and judge on Cursor, Claude, and Codex. Pin one host with `bun run test -- --host cursor`. `bun run test:smoke` is the short Cursor proof.
 
 Reliability targets: [docs/reliability.md](docs/reliability.md).
 
@@ -58,7 +60,7 @@ Scoped checks: `bun test <file>` and `bunx biome check <path>` (use `bunx biome`
 
 - Prefer `bun run test:sandbox-safe` under the default Cursor sandbox (skips git-init and `.cursor` tmp fixtures). Full `bun run test:unit` / `bun run check` need unrestricted (`all`) permissions.
 - `bun install` can warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox. Install still succeeds.
-- Direct runs need an exported host key. See `.env.example`. The CLI does not load `.env`.
+- Direct runs need host auth. A key or a login mode works. See `.env.example`. The CLI does not load `.env`.
 - Prefer CI publish (provenance) over manual `npm publish`. See Publish below.
 
 ## Publish

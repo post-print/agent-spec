@@ -1,0 +1,37 @@
+{
+	"name": "mcp",
+	"description": "MCP tool invoke, read, and result use. Each scenario launches a real host agent.",
+	"hosts": ["cursor", "claude", "openai"],
+	"defaults": {
+		"host": "cursor",
+		"profile": "cursor",
+		"skills": "none",
+		"mcpServers": {
+			"echo": {
+				"type": "stdio",
+				"command": "node",
+				"args": ["packages/test/fixtures/mcp-echo/server.mjs"]
+			}
+		}
+	},
+	"scenarios": [
+		{
+			"name": "echoes through MCP",
+			"prompt": "Call the echo MCP tool with text \"agent-test-mcp-echo-ok-1a7c\". Reply with the exact tool result. Do not use Shell or Bash.",
+			"rubric": {
+				"mustCallTool": ["echo:agent-test-mcp-echo-ok-1a7c"],
+				"mustNotCallTool": ["Shell", "Bash"],
+				"must": ["agent-test-mcp-echo-ok-1a7c"]
+			}
+		},
+		{
+			"name": "reads a note through MCP",
+			"prompt": "Call the lookup MCP tool with id \"alpha\". Reply with the exact note text. Do not guess. Do not use Shell or Bash.",
+			"rubric": {
+				"mustCallTool": ["lookup:alpha"],
+				"mustNotCallTool": ["Shell", "Bash"],
+				"must": ["agent-test-mcp-read-ok-4b8d"]
+			}
+		}
+	]
+}

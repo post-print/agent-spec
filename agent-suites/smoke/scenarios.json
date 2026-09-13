@@ -1,6 +1,7 @@
 {
 	"name": "smoke",
 	"description": "Host-agent smoke suite. Each scenario launches a real host agent.",
+	"hosts": ["cursor", "claude", "openai"],
 	"defaults": {
 		"host": "cursor",
 		"profile": "cursor",

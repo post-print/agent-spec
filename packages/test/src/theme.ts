@@ -17,13 +17,17 @@ export function colorEnabled(): boolean {
 	return chalk.level > 0;
 }
 
+/** OSC-8 hyperlink. Cursor opens `http://` in the browser and `file://` in the editor. */
+export function formatHyperlink(url: string, display: string): string {
+	return `${OSC8_OPEN}${url}${OSC8_CLOSE}${display}${OSC8_OPEN}${OSC8_CLOSE}`;
+}
+
 /**
- * Wrap a filesystem path in an OSC-8 `file://` hyperlink for clickable terminals
- * (Cursor, iTerm2, VS Code, etc.). Display text stays a plain path for copy-paste.
+ * Wrap a filesystem path in an OSC-8 `file://` hyperlink.
+ * Display text stays a plain path for copy-paste.
  */
 export function formatFileHyperlink(absolutePath: string, display = absolutePath): string {
-	const url = pathToFileURL(absolutePath).href;
-	return `${OSC8_OPEN}${url}${OSC8_CLOSE}${display}${OSC8_OPEN}${OSC8_CLOSE}`;
+	return formatHyperlink(pathToFileURL(absolutePath).href, display);
 }
 
 /** Truncate long temp/session paths to `…/last` or `…/parent/last`. */
@@ -260,9 +264,16 @@ export const theme = {
 		return chalk.dim.italic(message);
 	},
 
-	/** Tip line whose label is an OSC-8 `file://` hyperlink. The path stays in the URL. */
-	fileTip(label: string, absolutePath: string): string {
-		return theme.tip(formatFileHyperlink(absolutePath, label));
+	/**
+	 * Tip line with a clickable label.
+	 * `http://` stays visible so Cursor can open the browser.
+	 * A filesystem path stays in the OSC-8 URL only.
+	 */
+	fileTip(label: string, pathOrUrl: string): string {
+		if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+			return theme.tip(`${formatHyperlink(pathOrUrl, label)}  ${pathOrUrl}`);
+		}
+		return theme.tip(formatFileHyperlink(pathOrUrl, label));
 	},
 
 	warn(message: string): string {

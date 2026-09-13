@@ -12,6 +12,7 @@ import {
 	judgeAuthRequired,
 	outputContractForRubric,
 	runAgentTest,
+	runAllSuites,
 	runSuite,
 	shouldPrintSuiteChrome,
 } from "../run-suite.js";
@@ -91,9 +92,11 @@ describe("judgeAuthRequired", () => {
 describe("runAgentTest direct host selection", () => {
 	it("defaults to Cursor and supports a Claude scenario override", async () => {
 		const cursorKey = process.env.CURSOR_API_KEY;
+		const cursorAuthMode = process.env.CURSOR_AUTH_MODE;
 		const anthropicKey = process.env.ANTHROPIC_API_KEY;
 		const claudeAuthMode = process.env.CLAUDE_AUTH_MODE;
 		delete process.env.CURSOR_API_KEY;
+		delete process.env.CURSOR_AUTH_MODE;
 		delete process.env.ANTHROPIC_API_KEY;
 		process.env.CLAUDE_AUTH_MODE = "api-key";
 		try {
@@ -136,8 +139,10 @@ describe("runAgentTest direct host selection", () => {
 
 			const openaiKey = process.env.OPENAI_API_KEY;
 			const codexKey = process.env.CODEX_API_KEY;
+			const openaiAuthMode = process.env.OPENAI_AUTH_MODE;
 			delete process.env.OPENAI_API_KEY;
 			delete process.env.CODEX_API_KEY;
+			delete process.env.OPENAI_AUTH_MODE;
 			try {
 				const openai = await runAgentTest({
 					cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
@@ -152,10 +157,14 @@ describe("runAgentTest direct host selection", () => {
 				else process.env.OPENAI_API_KEY = openaiKey;
 				if (codexKey === undefined) delete process.env.CODEX_API_KEY;
 				else process.env.CODEX_API_KEY = codexKey;
+				if (openaiAuthMode === undefined) delete process.env.OPENAI_AUTH_MODE;
+				else process.env.OPENAI_AUTH_MODE = openaiAuthMode;
 			}
 		} finally {
 			if (cursorKey === undefined) delete process.env.CURSOR_API_KEY;
 			else process.env.CURSOR_API_KEY = cursorKey;
+			if (cursorAuthMode === undefined) delete process.env.CURSOR_AUTH_MODE;
+			else process.env.CURSOR_AUTH_MODE = cursorAuthMode;
 			if (anthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
 			else process.env.ANTHROPIC_API_KEY = anthropicKey;
 			if (claudeAuthMode === undefined) delete process.env.CLAUDE_AUTH_MODE;
@@ -574,7 +583,7 @@ describe("runSuite isolateLive", () => {
 			const rerunPath = join(
 				recordTrace.getLiveStagingSessionRoot("sess-rerun-override"),
 				"rerun-override",
-				`${recordTrace.scenarioArtifactSlug("failing")}.debug`,
+				`${recordTrace.scenarioArtifactSlug("failing")}.cursor.debug`,
 				"rerun.sh",
 			);
 			const rerun = await readFile(rerunPath, "utf8");
@@ -620,12 +629,81 @@ describe("runSuite isolateLive", () => {
 			const expectedDir = join(
 				recordTrace.getLiveStagingSessionRoot("sess-debug-pass"),
 				"debug-pass",
-				`${recordTrace.scenarioArtifactSlug(result.scenario)}.debug`,
+				`${recordTrace.scenarioArtifactSlug(result.scenario)}.cursor.debug`,
 			);
 			expect(result.debugBundleDir).toBe(expectedDir);
 			await expect(readFile(join(expectedDir, "transcript.md"), "utf8")).resolves.toEqual(
 				expect.any(String),
 			);
 		}
+	});
+});
+
+describe("host matrix", () => {
+	it("omits scenarios pinned to another host when the matrix locks the host", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-host-lock-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "host-lock",
+				scenarios: [
+					{ name: "shared", prompt: "p", skip: true, rubric: {} },
+					{ name: "claude-only", prompt: "p", host: "claude", skip: true, rubric: {} },
+					{ name: "cursor-only", prompt: "p", host: "cursor", skip: true, rubric: {} },
+				],
+			}),
+		);
+
+		const locked = await runSuite({
+			cwd: dir,
+			suitePath,
+			host: "cursor",
+			hostLocked: true,
+			judge: false,
+			worktree: false,
+		});
+		expect(locked.host).toBe("cursor");
+		expect(locked.results.map((result) => result.scenario)).toEqual(["shared", "cursor-only"]);
+
+		const unlocked = await runSuite({
+			cwd: dir,
+			suitePath,
+			host: "cursor",
+			judge: false,
+			worktree: false,
+		});
+		expect(unlocked.results.map((result) => result.scenario)).toEqual([
+			"shared",
+			"claude-only",
+			"cursor-only",
+		]);
+	});
+
+	it("expands suite hosts into one report per host", async () => {
+		const root = await mkdtemp(join(tmpdir(), "agent-test-host-matrix-"));
+		const suiteDir = join(root, "matrix");
+		await mkdir(suiteDir);
+		await writeFile(
+			join(suiteDir, "scenarios.json"),
+			JSON.stringify({
+				name: "matrix",
+				hosts: ["cursor", "claude"],
+				scenarios: [
+					{ name: "shared", prompt: "p", skip: true, rubric: {} },
+					{ name: "claude-only", prompt: "p", host: "claude", skip: true, rubric: {} },
+				],
+			}),
+		);
+
+		const reports = await runAllSuites({
+			cwd: root,
+			suitesDir: root,
+			judge: false,
+			worktree: false,
+		});
+		expect(reports.map((report) => report.host)).toEqual(["cursor", "claude"]);
+		expect(reports[0]?.results.map((result) => result.scenario)).toEqual(["shared"]);
+		expect(reports[1]?.results.map((result) => result.scenario)).toEqual(["shared", "claude-only"]);
 	});
 });

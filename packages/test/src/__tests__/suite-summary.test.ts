@@ -118,7 +118,10 @@ describe("suite-summary", () => {
 		expect(usage?.p50TotalTokens).toBe(percentileNearestRank([10, 20, 40], 50));
 		expect(usage?.p95TotalTokens).toBe(percentileNearestRank([10, 20, 40], 95));
 		expect(usage?.sumInputTokens).toBe(48);
-		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("70 tok");
+		expect(usage?.maxTotalTokens).toBe(40);
+		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("70 tokens");
+		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("typical 20");
+		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("largest 40");
 		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("3 scenarios");
 	});
 });

@@ -80,6 +80,7 @@ export function summarizeUsage(results: ScenarioResult[]): UsageStats | undefine
 		stats.sumTotalTokens = sumTotal;
 		stats.p50TotalTokens = percentileNearestRank(totals, 50);
 		stats.p95TotalTokens = percentileNearestRank(totals, 95);
+		stats.maxTotalTokens = totals[totals.length - 1];
 	}
 	if (sawInput) {
 		stats.sumInputTokens = sumInput;
@@ -174,6 +175,11 @@ function compactNumber(value: number): string {
 	return String(value);
 }
 
+/** Compact token count for CLI and HTML (`78.2k`). */
+export function formatTokenCount(value: number): string {
+	return compactNumber(value);
+}
+
 function countLabel(count: number, singular: string, plural: string): string {
 	return count === 1 ? `1 ${singular}` : `${count} ${plural}`;
 }
@@ -215,19 +221,19 @@ function formatRetrySummary(summary: RunSummary): string | undefined {
 export function formatUsageStats(usage: UsageStats): string {
 	const parts = [countLabel(usage.scenariosWithUsage, "scenario", "scenarios")];
 	if (usage.sumTotalTokens !== undefined) {
-		parts.push(`${compactNumber(usage.sumTotalTokens)} tok`);
+		parts.push(`${compactNumber(usage.sumTotalTokens)} tokens`);
 	}
-	if (usage.p50TotalTokens !== undefined) {
-		parts.push(`p50 ${compactNumber(usage.p50TotalTokens)}`);
+	if (usage.scenariosWithUsage > 1 && usage.p50TotalTokens !== undefined) {
+		parts.push(`typical ${compactNumber(usage.p50TotalTokens)}`);
 	}
-	if (usage.p95TotalTokens !== undefined) {
-		parts.push(`p95 ${compactNumber(usage.p95TotalTokens)}`);
+	if (usage.scenariosWithUsage > 1 && usage.maxTotalTokens !== undefined) {
+		parts.push(`largest ${compactNumber(usage.maxTotalTokens)}`);
 	}
 	if (usage.sumInputTokens !== undefined) {
-		parts.push(`in ${compactNumber(usage.sumInputTokens)}`);
+		parts.push(`${compactNumber(usage.sumInputTokens)} in`);
 	}
 	if (usage.sumOutputTokens !== undefined) {
-		parts.push(`out ${compactNumber(usage.sumOutputTokens)}`);
+		parts.push(`${compactNumber(usage.sumOutputTokens)} out`);
 	}
 	return parts.join(" · ");
 }

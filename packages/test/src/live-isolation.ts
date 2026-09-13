@@ -97,6 +97,8 @@ export interface SpawnLiveScenarioOptions {
 	judge?: boolean;
 	/** Agent host; forwarded so the child does not fall back to the cursor default. */
 	host?: AgentHost;
+	/** Consumer adapter modules; forwarded so the child can register the same hosts. */
+	adapterModules?: string[];
 	/** 1-based index in the full suite (for child CLI counters). */
 	scenarioIndex?: number;
 	/** Total scenarios in the full suite (for child CLI counters). */
@@ -146,6 +148,9 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	// demands CURSOR_API_KEY, whatever the parent was asked to run.
 	if (options.host) {
 		args.push("--host", options.host);
+	}
+	for (const modulePath of options.adapterModules ?? []) {
+		args.push("--adapter", modulePath);
 	}
 	if (options.judge === false) {
 		args.push("--no-judge");

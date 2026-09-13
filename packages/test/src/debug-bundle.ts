@@ -20,6 +20,7 @@ export interface DebugRerunOptions {
 	suite: string;
 	scenario: string;
 	host?: string;
+	adapterModules?: string[];
 	judge?: boolean;
 	worktree?: boolean;
 	timeoutMs?: number;
@@ -62,6 +63,7 @@ const AGENT_TEST_ENV_KEYS = [
 	"AGENT_TEST_VERBOSE",
 	"AGENT_TEST_VERBOSE_PATHS",
 	"AGENT_TEST_HOST_LOGS",
+	"AGENT_TEST_NO_REPORT_PREVIEW",
 	"AGENT_TEST_QUIET",
 	"AGENT_TEST_TIMEOUT_MS",
 	"AGENT_TEST_ALLOW_IN_PLACE",
@@ -107,6 +109,9 @@ export function buildRerunCommand(options: DebugRerunOptions): string {
 	}
 	if (options.host) {
 		args.push("--host", options.host);
+	}
+	for (const modulePath of options.adapterModules ?? []) {
+		args.push("--adapter", modulePath);
 	}
 	if (options.judge === false) {
 		args.push("--no-judge");
@@ -414,12 +419,11 @@ export function getDebugBundleDir(
 	suiteName: string,
 	scenarioName: string,
 	getSessionRoot: (sessionId: string) => string,
+	host?: string,
 ): string {
-	return join(
-		getSessionRoot(stagingSessionId),
-		suiteName,
-		`${scenarioArtifactSlug(scenarioName)}.debug`,
-	);
+	const slug = scenarioArtifactSlug(scenarioName);
+	const leaf = host ? `${slug}.${host}.debug` : `${slug}.debug`;
+	return join(getSessionRoot(stagingSessionId), suiteName, leaf);
 }
 
 /** Persist a scenario debug bundle (trace, failures, transcript, judge, env, rerun). */
@@ -551,7 +555,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		`# Re-run failed scenario ${shellCommentText(scenario.name)}`,
-		`# Requires a host key: CURSOR_API_KEY, CLAUDE_AUTH_MODE (+ ANTHROPIC_API_KEY or login), or OPENAI_API_KEY/CODEX_API_KEY.`,
+		`# Requires host auth: CURSOR_API_KEY or CURSOR_AUTH_MODE=subscription, CLAUDE_AUTH_MODE (+ ANTHROPIC_API_KEY or login), or OPENAI_API_KEY/CODEX_API_KEY or OPENAI_AUTH_MODE=subscription.`,
 		`cd ${shellQuote(rerun.cwd)}`,
 		buildRerunCommand(rerun),
 		"",
