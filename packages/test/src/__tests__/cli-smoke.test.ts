@@ -34,11 +34,12 @@ describe("cli smoke", () => {
 
 			const { stdout, stderr } = await execFileAsync(
 				process.execPath,
-				[binLink, "--validate-only", "--suites-dir", fixturesDir, "--suite", "smoke"],
+				[binLink, "--check", "--suites-dir", fixturesDir, "--suite", "smoke"],
 				{ cwd: repoRoot },
 			);
 
 			const raw = `${stdout}${stderr}`;
+			expect(raw).toMatch(/agent-test check/);
 			expect(raw).toMatch(/Validated 1 suite\(s\), 2 scenario\(s\): OK/);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

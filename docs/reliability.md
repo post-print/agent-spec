@@ -11,24 +11,16 @@
 | Surface | Target |
 | --- | --- |
 | Direct agent runs | At least 95% completion without infrastructure-only failure over 20 credentialed runs |
-| Seed patches | 100% apply cleanly through `--validate-seeds` |
-| Configuration | Zero silent misconfigurations through `--validate-only` |
+| Seed patches | 100% apply cleanly through `--check` |
+| Configuration | Zero silent misconfigurations through `--check` |
 | Isolation | Zero tool paths outside the sealed temp workspace |
 
 ## Verification commands
 
 ```bash
-# Structural and semantic suite validation; does not launch an agent
-node packages/test/dist/cli.js --validate-only --suites-dir agent-suites
-
-# Include seedPatch path checks
-node packages/test/dist/cli.js --validate-only --validate-paths --suites-dir agent-suites
-
-# Apply each seed patch in a temporary workspace; does not launch an agent
-node packages/test/dist/cli.js --validate-seeds --suites-dir agent-suites
-
-# Install and provider readiness. ok means package-ready. Read the host line for host keys.
-node packages/test/dist/cli.js --doctor
+# Suite, seed, package, and host check. Does not launch an agent.
+# Host not ready does not fail this command.
+node packages/test/dist/cli.js --check --suites-dir agent-suites
 
 # Direct Cursor execution (default host). Incurs provider usage.
 bun run test

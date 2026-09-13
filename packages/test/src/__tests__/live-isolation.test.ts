@@ -193,6 +193,17 @@ describe("live-isolation", () => {
 		]);
 	});
 
+	it("copies child stderr into a synthesized liveScenario failure", () => {
+		const failures = failuresForLiveSubprocessExit(
+			1,
+			undefined,
+			"CURSOR_API_KEY required for Cursor agent runs\n",
+		);
+		expect(failures[0]?.matcher).toBe("liveScenario");
+		expect(failures[0]?.message).toContain("exited 1");
+		expect(failures[0]?.message).toContain("CURSOR_API_KEY required for Cursor agent runs");
+	});
+
 	it("killActiveLiveChildren is safe when no children are tracked", () => {
 		expect(() => killActiveLiveChildren()).not.toThrow();
 	});

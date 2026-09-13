@@ -36,22 +36,23 @@ npx agent-test --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --suite smoke
 npx agent-test --suites-dir agent-suites --host claude
 npx agent-test --suites-dir agent-suites --host openai
-npx agent-test --doctor
+npx agent-test --check --suites-dir agent-suites
 ```
 
 Direct runs need an exported host key. Cursor uses `CURSOR_API_KEY`. Claude uses `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY` plus the Codex CLI. The judge uses the same host family. It runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns it off. The CLI does not load `.env`.
 
 `--allow-user-input` starts a second classifier as the user. That user agent answers AskQuestion-style tools. The test agent then continues with the original task plus the transcript.
 
-## Validation, rubrics, and comparison
+## Check, rubrics, and comparison
 
-These commands inspect configuration or existing reports. They do not launch an agent:
+`--check` inspects the suite, seeds, package, and host. It does not launch an agent. A live run runs the same check first, then starts the host.
 
 ```bash
-npx agent-test --validate-only --validate-paths --suites-dir agent-suites
-npx agent-test --validate-seeds --suites-dir agent-suites
+npx agent-test --check --suites-dir agent-suites
 npx agent-test compare --a clean.suite-report.json --b changed.suite-report.json --out-dir "$TMPDIR/compare"
 ```
+
+`--doctor`, `--validate-only`, `--validate-paths`, and `--validate-seeds` are aliases for `--check`.
 
 `scenarios.json` can omit inline rubric keys when a sibling `rubrics.json` / `scenarios.rubric.json` or `--rubrics-dir` supplies them.
 
@@ -73,9 +74,8 @@ Default CI does not launch a paid agent:
 
 ```bash
 bun run build
-node packages/test/dist/cli.js --validate-only --suites-dir packages/test/fixtures --suite smoke
-node packages/test/dist/cli.js --validate-only --suites-dir agent-suites --suite smoke
-node packages/test/dist/cli.js --doctor
+node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
+node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 ```
 
 Host-agent acceptance is `bun run test` (one JSON-suite CLI run against a real host). A key-gated GitHub Actions job runs the same suite when `CURSOR_API_KEY` is present.

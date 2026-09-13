@@ -16,6 +16,10 @@ import {
 	shouldPrintSuiteChrome,
 } from "../run-suite.js";
 
+function spawnResult(exitCode: number): liveIsolation.SpawnLiveScenarioResult {
+	return { exitCode, stderr: "" };
+}
+
 describe("discoverSuites", () => {
 	it("skips directories without scenarios.json", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "agent-test-"));
@@ -228,7 +232,9 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		const spawnSpy = jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+		const spawnSpy = jest
+			.spyOn(liveIsolation, "spawnLiveScenario")
+			.mockResolvedValue(spawnResult(0));
 
 		const report = await runSuite({
 			cwd: dir,
@@ -267,7 +273,9 @@ describe("runSuite isolateLive", () => {
 
 		jest
 			.spyOn(liveIsolation, "spawnLiveScenario")
-			.mockImplementation(async (options) => (options.scenarioName === "failing" ? 1 : 0));
+			.mockImplementation(async (options) =>
+				spawnResult(options.scenarioName === "failing" ? 1 : 0),
+			);
 		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (_path) => {
 			if (_path.includes("failing")) {
 				return {
@@ -326,10 +334,10 @@ describe("runSuite isolateLive", () => {
 			.spyOn(liveIsolation, "spawnLiveScenario")
 			.mockImplementation(async (options) => {
 				if (options.scenarioName !== "flaky") {
-					return 0;
+					return spawnResult(0);
 				}
 				flakySpawns++;
-				return flakySpawns === 1 ? 1 : 0;
+				return spawnResult(flakySpawns === 1 ? 1 : 0);
 			});
 		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
 			if (!path.includes("flaky")) {
@@ -396,7 +404,9 @@ describe("runSuite isolateLive", () => {
 
 		const spawnSpy = jest
 			.spyOn(liveIsolation, "spawnLiveScenario")
-			.mockImplementation(async (options) => (options.scenarioName === "real-miss" ? 1 : 0));
+			.mockImplementation(async (options) =>
+				spawnResult(options.scenarioName === "real-miss" ? 1 : 0),
+			);
 		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
 			path.includes("real-miss")
 				? {
@@ -451,7 +461,9 @@ describe("runSuite isolateLive", () => {
 
 		jest
 			.spyOn(liveIsolation, "spawnLiveScenario")
-			.mockImplementation(async (options) => (options.scenarioName === "late-kill" ? 124 : 0));
+			.mockImplementation(async (options) =>
+				spawnResult(options.scenarioName === "late-kill" ? 124 : 0),
+			);
 		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) => {
 			if (path.includes("late-kill")) {
 				return {
@@ -495,7 +507,7 @@ describe("runSuite isolateLive", () => {
 		);
 
 		const setSpy = jest.spyOn(recordTrace, "setLiveStagingRootOverride");
-		jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+		jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(spawnResult(0));
 
 		await runSuite({
 			cwd: dir,
@@ -531,7 +543,9 @@ describe("runSuite isolateLive", () => {
 
 		jest
 			.spyOn(liveIsolation, "spawnLiveScenario")
-			.mockImplementation(async (options) => (options.scenarioName === "failing" ? 1 : 0));
+			.mockImplementation(async (options) =>
+				spawnResult(options.scenarioName === "failing" ? 1 : 0),
+			);
 		jest.spyOn(recordTrace, "loadStagingResult").mockImplementation(async (path) =>
 			path.includes("failing")
 				? {
@@ -586,7 +600,7 @@ describe("runSuite isolateLive", () => {
 			}),
 		);
 
-		jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(0);
+		jest.spyOn(liveIsolation, "spawnLiveScenario").mockResolvedValue(spawnResult(0));
 
 		const report = await runSuite({
 			cwd: dir,

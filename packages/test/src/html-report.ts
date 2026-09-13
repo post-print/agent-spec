@@ -61,56 +61,82 @@ function statusClass(result: ScenarioResult): string {
 	return result.passed ? "status-passed" : "status-failed";
 }
 
+const MISSING_REQUIREMENT = {
+	label: "Missing requirement",
+	hint: "A required string did not appear in assistant text, commands, or tool results.",
+};
+const FORBIDDEN_BEHAVIOR = {
+	label: "Forbidden behavior",
+	hint: "The agent did something it was told not to do.",
+};
+const MISSING_COMMAND = {
+	label: "Missing command",
+	hint: "An expected command never ran.",
+};
+const MISSING_TOOL = {
+	label: "Missing tool call",
+	hint: "An expected tool was never invoked.",
+};
+const FORBIDDEN_TOOL = {
+	label: "Forbidden tool call",
+	hint: "A tool the scenario forbids was invoked.",
+};
+const MISSING_SKILL = {
+	label: "Missing skill",
+	hint: "The agent did not read a skill it was expected to use.",
+};
+const UNEXPECTED_SKILL = {
+	label: "Unexpected skill",
+	hint: "The agent read a skill it should have avoided.",
+};
+const MISSING_READ_PATH = {
+	label: "Missing read path",
+	hint: "Expected a Read tool call whose args mention this path fragment (registry-first / grounding).",
+};
+const FORBIDDEN_READ_PATH = {
+	label: "Forbidden read path",
+	hint: "A successful Read returned content from a path the scenario forbids (miss attempts do not fail).",
+};
+const ROUTING = {
+	label: "Routing",
+	hint: "The routing announcement did not match expectations.",
+};
+
 /** Human-readable label + one-line explanation for the matcher codes assertRubric/judge emit. */
 const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	runAgent: { label: "Agent run", hint: "The agent session itself failed or was cut short." },
-	must: {
-		label: "Missing requirement",
-		hint: "A required string did not appear in assistant text, commands, or tool results.",
+	liveScenario: {
+		label: "Isolated scenario",
+		hint: "The scenario subprocess exited before it wrote a result.",
 	},
-	mustNot: { label: "Forbidden behavior", hint: "The agent did something it was told not to do." },
-	mustRun: { label: "Missing command", hint: "An expected command never ran." },
-	mustCallTool: {
-		label: "Missing tool call",
-		hint: "An expected tool was never invoked.",
+	must: MISSING_REQUIREMENT,
+	mustInclude: MISSING_REQUIREMENT,
+	mustNot: FORBIDDEN_BEHAVIOR,
+	mustNotInclude: FORBIDDEN_BEHAVIOR,
+	mustRun: MISSING_COMMAND,
+	toHaveRunCommand: MISSING_COMMAND,
+	mustCallTool: MISSING_TOOL,
+	toHaveCalledTool: MISSING_TOOL,
+	mustNotCallTool: FORBIDDEN_TOOL,
+	toHaveNotCalledTool: FORBIDDEN_TOOL,
+	mustInvokeSkill: MISSING_SKILL,
+	toHaveInvokedSkill: MISSING_SKILL,
+	mustNotInvokeSkill: UNEXPECTED_SKILL,
+	toHaveNotInvokedSkill: UNEXPECTED_SKILL,
+	mustReadPath: MISSING_READ_PATH,
+	toHaveReadPath: MISSING_READ_PATH,
+	mustNotReadPath: FORBIDDEN_READ_PATH,
+	toHaveNotReadPath: FORBIDDEN_READ_PATH,
+	routingBlock: ROUTING,
+	toIncludeRoutingBlock: ROUTING,
+	toHaveRoutingBlockBeforeTools: ROUTING,
+	toHaveTier: ROUTING,
+	toHaveHandsOnTier: ROUTING,
+	toHaveHandsOnTierBeforeTools: ROUTING,
+	toHaveReviewDepth: {
+		label: "Review depth",
+		hint: "The review depth announcement did not match the rubric.",
 	},
-	mustNotCallTool: {
-		label: "Forbidden tool call",
-		hint: "A tool the scenario forbids was invoked.",
-	},
-	toHaveCalledTool: {
-		label: "Missing tool call",
-		hint: "An expected tool was never invoked.",
-	},
-	toHaveNotCalledTool: {
-		label: "Forbidden tool call",
-		hint: "A tool the scenario forbids was invoked.",
-	},
-	mustInvokeSkill: {
-		label: "Missing skill",
-		hint: "The agent didn't read a skill it was expected to use.",
-	},
-	mustNotInvokeSkill: {
-		label: "Unexpected skill",
-		hint: "The agent read a skill it should have avoided.",
-	},
-	mustReadPath: {
-		label: "Missing read path",
-		hint: "Expected a Read tool call whose args mention this path fragment (registry-first / grounding).",
-	},
-	mustNotReadPath: {
-		label: "Forbidden read path",
-		hint: "A successful Read returned content from a path the scenario forbids (miss attempts do not fail).",
-	},
-	toHaveReadPath: {
-		label: "Missing read path",
-		hint: "Expected a Read tool call whose args mention this path fragment (registry-first / grounding).",
-	},
-	toHaveNotReadPath: {
-		label: "Forbidden read path",
-		hint: "A successful Read returned content from a path the scenario forbids (miss attempts do not fail).",
-	},
-	routingBlock: { label: "Routing", hint: "The routing announcement didn't match expectations." },
 	workingTreeLeak: {
 		label: "Working tree leak",
 		hint: "The agent's edits leaked outside its isolated worktree.",

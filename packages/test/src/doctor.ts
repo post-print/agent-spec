@@ -4,9 +4,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+	type AgentHost,
 	CLAUDE_AUTH_MODE_ENV,
 	getHealthStatus,
 	HEALTH_CHECK_PATH,
+	parseClaudeAuthMode,
 } from "@post-print/agent-harness";
 
 export interface DoctorReport {
@@ -82,12 +84,25 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	}
 
 	const cliPath = options?.cliPath ?? join(dirname(fileURLToPath(import.meta.url)), "cli.js");
+	const cliCandidates = [cliPath];
+	if (cliPath.endsWith(".js")) {
+		cliCandidates.push(`${cliPath.slice(0, -3)}.ts`);
+	}
 	let cliPresent = false;
-	try {
-		accessSync(cliPath, constants.R_OK);
-		cliPresent = true;
-		messages.push(`CLI entry: ${cliPath}`);
-	} catch {
+	let resolvedCli = cliPath;
+	for (const candidate of cliCandidates) {
+		try {
+			accessSync(candidate, constants.R_OK);
+			cliPresent = true;
+			resolvedCli = candidate;
+			break;
+		} catch {
+			// try next
+		}
+	}
+	if (cliPresent) {
+		messages.push(`CLI entry: ${resolvedCli}`);
+	} else {
 		messages.push(`CLI entry missing at ${cliPath} (run bun run build)`);
 	}
 
@@ -171,11 +186,9 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		);
 	}
 
-	const cursorLiveReady = cursorApiKeySet && cursorSdkPresent;
-	const claudeLiveReady =
-		claudeBinPresent &&
-		(claudeAuthMode === "subscription" || (claudeAuthMode === "api-key" && anthropicApiKeySet));
-	const openaiLiveReady = openaiApiKeySet && openaiBinPresent;
+	const cursorLiveReady = missingAgentAuth("cursor") === undefined;
+	const claudeLiveReady = missingAgentAuth("claude") === undefined;
+	const openaiLiveReady = missingAgentAuth("openai") === undefined;
 	const liveReady = cursorLiveReady || claudeLiveReady || openaiLiveReady;
 
 	const health = getHealthStatus();
@@ -204,4 +217,47 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		health: HEALTH_CHECK_PATH,
 		messages,
 	};
+}
+
+/** Missing credential or binary for a live host adapter. Undefined when that host can run. */
+export function missingAgentAuth(host: AgentHost): string | undefined {
+	if (host === "claude") {
+		const raw = process.env[CLAUDE_AUTH_MODE_ENV]?.trim();
+		try {
+			const authMode = parseClaudeAuthMode(raw);
+			if (authMode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
+				return `${CLAUDE_AUTH_MODE_ENV}=api-key requires ANTHROPIC_API_KEY`;
+			}
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		}
+		if (!claudeBinOnPath()) {
+			return "Claude Code binary not found (install Claude Code CLI or set CLAUDE_CODE_BIN for --host claude)";
+		}
+		return undefined;
+	}
+	if (host === "openai") {
+		if (!process.env.OPENAI_API_KEY?.trim() && !process.env.CODEX_API_KEY?.trim()) {
+			return "OPENAI_API_KEY or CODEX_API_KEY required for OpenAI agent runs";
+		}
+		if (
+			!binOnPath(
+				process.env.CODEX_BIN?.trim(),
+				process.platform === "win32" ? ["codex.exe", "codex.cmd", "codex"] : ["codex"],
+			)
+		) {
+			return "OpenAI Codex binary not found (install Codex CLI or set CODEX_BIN for --host openai)";
+		}
+		return undefined;
+	}
+	if (!process.env.CURSOR_API_KEY?.trim()) {
+		return "CURSOR_API_KEY required for Cursor agent runs";
+	}
+	const require = createRequire(import.meta.url);
+	try {
+		require.resolve("@cursor/sdk");
+	} catch {
+		return "@cursor/sdk not installed — required for Cursor runs (npm i -D @cursor/sdk)";
+	}
+	return undefined;
 }

@@ -40,9 +40,8 @@ bun run test:sandbox-safe
 `bun run test:unit` does not launch a paid agent. Full unpaid gate: `bun run check` (needs unrestricted Cursor sandbox / `all` because some tests run `git init`). In-repo CLI checks after build:
 
 ```bash
-node packages/test/dist/cli.js --validate-only --suites-dir packages/test/fixtures --suite smoke
-node packages/test/dist/cli.js --validate-only --suites-dir agent-suites --suite smoke
-node packages/test/dist/cli.js --doctor
+node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
+node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 ```
 
 Host-agent suite (exported host key; incurs provider usage):

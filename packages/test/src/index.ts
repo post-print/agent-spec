@@ -1,4 +1,13 @@
 export {
+	type CheckOptions,
+	type CheckReport,
+	collectSuiteHosts,
+	formatCheckReport,
+	formatCheckSummary,
+	missingHostsAuth,
+	runCheck,
+} from "./check.js";
+export {
 	type ComparePairSpec,
 	compareSuiteReports,
 	formatCompareReportMarkdown,
@@ -25,6 +34,7 @@ export {
 	type WriteDebugBundleOptions,
 	writeDebugBundle,
 } from "./debug-bundle.js";
+export { missingAgentAuth, runDoctor } from "./doctor.js";
 export { assertRubric, expectTrace, TraceAssertion } from "./expect.js";
 export { assertionFailure } from "./failures.js";
 export {

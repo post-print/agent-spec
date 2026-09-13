@@ -566,7 +566,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 
 			while (true) {
 				attempts++;
-				const exitCode = await spawnLiveScenario({
+				const spawned = await spawnLiveScenario({
 					cwd: options.cwd,
 					suiteName: suite.name,
 					scenarioName: scenario.name,
@@ -587,19 +587,21 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					debugDir: options.debugDir,
 					previousExitCode: previousAttemptExitCode,
 				});
-				previousAttemptExitCode = exitCode;
-				previousIsolatedExitCode = exitCode;
+				previousAttemptExitCode = spawned.exitCode;
+				previousIsolatedExitCode = spawned.exitCode;
 				failures = [];
 				scenarioTrace = undefined;
 
-				if (exitCode !== 0) {
+				if (spawned.exitCode !== 0) {
 					const childResult =
 						options.stagingSessionId !== undefined
 							? await loadStagingResult(
 									getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
 								)
 							: undefined;
-					failures.push(...failuresForLiveSubprocessExit(exitCode, childResult));
+					failures.push(
+						...failuresForLiveSubprocessExit(spawned.exitCode, childResult, spawned.stderr),
+					);
 				}
 				if (options.stagingSessionId) {
 					const tracePath = getStagingTracePath(

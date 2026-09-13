@@ -47,18 +47,15 @@ jobs:
       - name: Node can import published agent-test ESM
         run: node -e "import('@post-print/agent-test').then(() => console.log('agent-test ok'))"
 
-      - name: Node can validate suite JSON via package bin symlink
+      - name: Node can check suite JSON via package bin symlink
         run: |
           mkdir -p node_modules/.bin
           chmod +x packages/test/dist/cli.js
           ln -sfn ../@post-print/agent-test/dist/cli.js node_modules/.bin/agent-test
-          node_modules/.bin/agent-test --validate-only --suites-dir packages/test/fixtures --suite smoke
+          node_modules/.bin/agent-test --check --suites-dir packages/test/fixtures --suite smoke
 
-      - name: Node can run agent-test doctor
-        run: node packages/test/dist/cli.js --doctor
-
-      - name: Node can validate the in-repo smoke suite
-        run: node packages/test/dist/cli.js --validate-only --validate-paths --suites-dir agent-suites --suite smoke
+      - name: Node can check the in-repo smoke suite
+        run: node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 
   host:
     if: ${{ secrets.CURSOR_API_KEY != '' }}

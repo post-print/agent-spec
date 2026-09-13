@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { parseCliArgs, resolveReportOutput } from "../cli.js";
+import { formatHelp, parseCliArgs, resolveReportOutput } from "../cli.js";
 
 describe("parseCliArgs debug flags", () => {
 	const priorDebug = process.env.AGENT_TEST_DEBUG;
@@ -73,7 +73,31 @@ describe("parseCliArgs debug flags", () => {
 		expect(args.validateOnly).toBe(true);
 		expect(args.validateSeeds).toBe(true);
 		expect(args.validatePaths).toBe(true);
+		expect(args.check).toBe(true);
 		expect(args.failOn).toBe("behavior");
+	});
+
+	it("treats --check and doctor aliases as the same check mode", () => {
+		expect(parseCliArgs(["node", "cli.js", "--check"]).check).toBe(true);
+		expect(parseCliArgs(["node", "cli.js", "--doctor"]).check).toBe(true);
+		expect(parseCliArgs(["node", "cli.js", "--validate-only"]).check).toBe(true);
+	});
+
+	it("parses --flag=value and --help", () => {
+		const args = parseCliArgs(["node", "cli.js", "--fail-on=behavior", "--host=claude"]);
+		expect(args.failOn).toBe("behavior");
+		expect(args.host).toBe("claude");
+		expect(parseCliArgs(["node", "cli.js", "--help"]).help).toBe(true);
+		expect(parseCliArgs(["node", "cli.js", "-h"]).help).toBe(true);
+	});
+
+	it("rejects unknown flags", () => {
+		expect(() => parseCliArgs(["node", "cli.js", "--not-a-flag"])).toThrow(/Unknown flag/);
+	});
+
+	it("prints check as the no-agent command in help", () => {
+		expect(formatHelp()).toContain("--check");
+		expect(formatHelp()).toContain("Do not launch an agent");
 	});
 
 	it("parses --scenario-retries", () => {

@@ -208,8 +208,16 @@ export function subprocessKillDelayMs(agentStartMs: number, agentTimeoutMs: numb
 	return agentStartMs + agentTimeoutMs + LIVE_SUBPROCESS_TIMEOUT_BUFFER_MS - Date.now();
 }
 
-/** Run one live scenario in a fresh Node subprocess; inherit stdio for live progress. */
-export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Promise<number> {
+export interface SpawnLiveScenarioResult {
+	exitCode: number;
+	/** Child stderr, also written through to the parent stderr. */
+	stderr: string;
+}
+
+/** Run one live scenario in a fresh Node subprocess; inherit stdout for live progress. */
+export async function spawnLiveScenario(
+	options: SpawnLiveScenarioOptions,
+): Promise<SpawnLiveScenarioResult> {
 	const { command, args, execArgv } = buildLiveScenarioCommand(options);
 
 	const env: NodeJS.ProcessEnv = {
@@ -225,12 +233,18 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 
 	const agentTimeoutMs = options.timeoutMs;
 	const subprocessTimeoutMs = liveSubprocessTimeoutMs(agentTimeoutMs);
+	const stderrChunks: string[] = [];
 
 	const exitCode = await new Promise<number>((resolveExit, reject) => {
 		const child = spawn(command, [...execArgv, ...args], {
 			cwd: options.cwd,
 			env,
-			stdio: "inherit",
+			stdio: ["inherit", "inherit", "pipe"],
+		});
+		child.stderr?.on("data", (chunk: Buffer | string) => {
+			const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+			stderrChunks.push(text);
+			process.stderr.write(text);
 		});
 		registerActiveChild(child);
 		let childClosed = false;
@@ -323,17 +337,32 @@ export async function spawnLiveScenario(options: SpawnLiveScenarioOptions): Prom
 	if (settleMs > 0) {
 		await sleep(settleMs);
 	}
-	return exitCode;
+	return { exitCode, stderr: stderrChunks.join("") };
 }
 
-export function subprocessFailureMessage(exitCode: number): string {
+function appendChildStderr(message: string, stderr?: string): string {
+	const trimmed = stderr?.trim();
+	if (!trimmed) {
+		return message;
+	}
+	const snippet = trimmed.length > 800 ? `${trimmed.slice(0, 800)}…` : trimmed;
+	return `${message}\n${snippet}`;
+}
+
+export function subprocessFailureMessage(exitCode: number, stderr?: string): string {
 	if (exitCode === 124) {
-		return "live scenario subprocess timed out (harness deadline exceeded)";
+		return appendChildStderr(
+			"live scenario subprocess timed out (harness deadline exceeded)",
+			stderr,
+		);
 	}
 	if (exitCode === 137) {
-		return "subprocess killed (137) — macOS OOM; close heavy apps or increase AGENT_TEST_SCENARIO_SETTLE_MS";
+		return appendChildStderr(
+			"subprocess killed (137) — macOS OOM; close heavy apps or increase AGENT_TEST_SCENARIO_SETTLE_MS",
+			stderr,
+		);
 	}
-	return `live scenario subprocess exited ${exitCode}`;
+	return appendChildStderr(`live scenario subprocess exited ${exitCode}`, stderr);
 }
 
 export interface LiveSubprocessStagingResult {
@@ -349,24 +378,33 @@ export interface LiveSubprocessStagingResult {
 export function failuresForLiveSubprocessExit(
 	exitCode: number,
 	childResult: LiveSubprocessStagingResult | undefined,
+	childStderr?: string,
 ): AssertionFailure[] {
 	if (exitCode === 0) {
 		return [];
 	}
 	if (childResult?.failures.length) {
-		return childResult.failures.map((failure) =>
+		return childResult.failures.map((failure, index) =>
 			assertionFailure(
 				failure.matcher,
 				failure.message,
 				categoryFromLegacyFailure(failure),
-				failure.evidence,
+				index === 0
+					? appendChildStderr(failure.evidence ?? "", childStderr) || failure.evidence
+					: failure.evidence,
 			),
 		);
 	}
 	if (exitCode === 124 && childResult?.passed === true) {
 		return [];
 	}
-	return [assertionFailure("liveScenario", subprocessFailureMessage(exitCode), "agent_runtime")];
+	return [
+		assertionFailure(
+			"liveScenario",
+			subprocessFailureMessage(exitCode, childStderr),
+			"agent_runtime",
+		),
+	];
 }
 
 /** Parent-provided counters for isolated child runs (1-based index). */

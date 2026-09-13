@@ -35,7 +35,7 @@ describe("html-report", () => {
 				makeReport([
 					makeResult({
 						passed: false,
-						failures: [{ matcher: "must", message: "missing <b>tag</b>" }],
+						failures: [{ matcher: "mustInclude", message: "missing <b>tag</b>" }],
 						judgeVerdicts: [
 							{
 								id: "tone",

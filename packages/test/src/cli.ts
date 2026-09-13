@@ -5,14 +5,13 @@ import { fileURLToPath } from "node:url";
 
 import {
 	type AgentHost,
-	CLAUDE_AUTH_MODE_ENV,
 	cleanupStaleScenarioWorktrees,
 	isAgentHost,
 	isPathUnderRoot,
 	missingClassifierAuth,
-	parseClaudeAuthMode,
 } from "@post-print/agent-harness";
 
+import { formatCheckReport, formatCheckSummary, missingHostsAuth, runCheck } from "./check.js";
 import { isCliMain } from "./cli-entry.js";
 import {
 	compareSuiteReports,
@@ -21,8 +20,7 @@ import {
 	parseComparePairToken,
 	writeCompareReport,
 } from "./compare.js";
-import { discoverSuites } from "./discover-suites.js";
-import { runDoctor } from "./doctor.js";
+import { missingAgentAuth } from "./doctor.js";
 import { writeHtmlReport } from "./html-report.js";
 import { assertDirectAgentPreflight } from "./preflight.js";
 import { logProgress } from "./progress.js";
@@ -47,8 +45,6 @@ import {
 } from "./suite-summary.js";
 import { configureCliColor, theme } from "./theme.js";
 import type { SuiteRunReport } from "./types.js";
-import { formatSeedValidationReport, validateSeedPatches } from "./validate-seeds.js";
-import { formatValidationReport, validateSuitePaths } from "./validate-suite.js";
 import { suppressNoisyRuntimeWarnings } from "./warnings.js";
 
 suppressNoisyRuntimeWarnings();
@@ -69,6 +65,9 @@ export interface ParsedCliArgs {
 	timeoutMs?: number;
 	noTimeout: boolean;
 	allowUserInput: boolean;
+	/** Check the suite and host. Do not launch an agent. */
+	check: boolean;
+	help: boolean;
 	doctor: boolean;
 	htmlReport: boolean;
 	/** Explicit HTML report path (ends in .html) or output directory for all report content. */
@@ -90,6 +89,85 @@ export interface ParsedCliArgs {
 	compareOutDir?: string;
 }
 
+function splitArgvFlag(token: string): { flag: string; inline?: string } | undefined {
+	if (!token.startsWith("-") || token === "-") {
+		return undefined;
+	}
+	if (token.startsWith("--")) {
+		const eq = token.indexOf("=");
+		if (eq === -1) {
+			return { flag: token };
+		}
+		return { flag: token.slice(0, eq), inline: token.slice(eq + 1) };
+	}
+	return { flag: token };
+}
+
+function readFlagValue(
+	flag: string,
+	inline: string | undefined,
+	argv: string[],
+	index: number,
+): { value: string; nextIndex: number } {
+	if (inline !== undefined) {
+		if (inline.length === 0) {
+			throw new Error(`${flag} requires a value`);
+		}
+		return { value: inline, nextIndex: index };
+	}
+	const next = argv[index + 1];
+	if (!next || next.startsWith("--") || /^-[A-Za-z]/.test(next)) {
+		throw new Error(`${flag} requires a value`);
+	}
+	return { value: next, nextIndex: index + 1 };
+}
+
+function enableCheckMode(target: {
+	check: boolean;
+	validateOnly: boolean;
+	validatePaths: boolean;
+	validateSeeds: boolean;
+}): void {
+	target.check = true;
+	target.validateOnly = true;
+	target.validatePaths = true;
+	target.validateSeeds = true;
+}
+
+/** Usage text for `--help`. */
+export function formatHelp(): string {
+	return [
+		"agent-test [compare] [options] [suite]",
+		"",
+		"Launch a host agent and score the transcript.",
+		"A run checks the suite and host first.",
+		"",
+		"  --check                         Check the suite and host. Do not launch an agent.",
+		"  --help, -h                      Print this help.",
+		"",
+		"  --host cursor|claude|openai     Host adapter (default: suite or cursor)",
+		"  --suites-dir <path>             Suite root (default: agent-suites)",
+		"  --suite <name>                  Run one suite",
+		"  --scenario <name>               Run one scenario",
+		"  --no-judge                      Skip the judge",
+		"  --fail-on all|behavior|infra-only",
+		"  --allow-user-input              Let a user agent answer AskQuestion tools",
+		"  --timeout-ms <n>                Agent deadline",
+		"  --no-timeout                    Disable the deadline",
+		"  --scenario-retries <n>          Announce-stop retries",
+		"  --debug                         Keep recordings and write a debug bundle",
+		"  --debug-dir <path>              Debug session parent directory",
+		"  --report-out <path>             HTML report file or directory",
+		"  --no-html-report                Skip the HTML report",
+		"  --no-worktree                   Run in the caller checkout (needs AGENT_TEST_ALLOW_IN_PLACE=1)",
+		"",
+		"  compare --a <report.json> --b <report.json> [--out-dir <dir>]",
+		"  --compare-pairs <a>:<b>         Live A/B pair",
+		"",
+		"--doctor, --validate-only, --validate-paths, and --validate-seeds run --check.",
+	].join("\n");
+}
+
 /** Parse agent-test CLI argv (exported for unit tests). */
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	const cwd = process.cwd();
@@ -105,6 +183,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let timeoutMs: number | undefined;
 	let noTimeout = false;
 	let allowUserInput = false;
+	let check = false;
+	let help = false;
 	let doctor = false;
 	let htmlReport = true;
 	let reportOut: string | undefined;
@@ -126,103 +206,171 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		compareMode = true;
 	}
 
+	const checkMode = {
+		check: false,
+		validateOnly: false,
+		validatePaths: false,
+		validateSeeds: false,
+	};
+
 	for (let i = startIndex; i < argv.length; i++) {
 		const token = argv[i];
-		if (token === "--host" && argv[i + 1]) {
-			const value = argv[++i];
-			if (value === "replay") {
-				throw new Error(
-					"Replay-based testing is deprecated and no longer supported; use --host cursor, --host claude, or --host openai.",
-				);
-			}
-			if (!isAgentHost(value)) {
-				throw new Error("--host must be cursor|claude|openai");
-			}
-			host = value;
-		} else if (token === "--suites-dir" && argv[i + 1]) {
-			suitesDir = argv[++i] as string;
-		} else if (token === "--rubrics-dir" && argv[i + 1]) {
-			rubricsDir = argv[++i] as string;
-		} else if (token === "--suite" && argv[i + 1]) {
-			filter = argv[++i];
-		} else if (token === "--scenario" && argv[i + 1]) {
-			scenarioFilter = argv[++i];
-		} else if (token === "--staging-session-id" && argv[i + 1]) {
-			stagingSessionId = argv[++i];
-		} else if (token === "--live") {
-			throw new Error("--live was removed because agent-test now always runs a real agent");
-		} else if (token === "--record") {
-			throw new Error(
-				"--record was removed; direct runs capture transient traces automatically (use --keep-recordings to retain them)",
-			);
-		} else if (token === "--record-fixtures") {
-			throw new Error(
-				"--record-fixtures was removed because replay-based testing is deprecated and no longer supported",
-			);
-		} else if (token === "--keep-recordings") {
-			keepRecordings = true;
-		} else if (token === "--judge") {
-			judge = true;
-		} else if (token === "--no-judge") {
-			judge = false;
-		} else if (token === "--no-worktree") {
-			worktree = false;
-		} else if (token === "--timeout-ms" && argv[i + 1]) {
-			const parsed = Number(argv[++i]);
-			if (Number.isFinite(parsed) && parsed > 0) {
-				timeoutMs = parsed;
-			}
-		} else if (token === "--no-timeout") {
-			noTimeout = true;
-		} else if (token === "--allow-user-input") {
-			allowUserInput = true;
-		} else if (token === "--doctor") {
-			doctor = true;
-		} else if (token === "--validate-only") {
-			validateOnly = true;
-		} else if (token === "--validate-seeds") {
-			validateSeeds = true;
-		} else if (token === "--validate-paths") {
-			validatePaths = true;
-		} else if (token === "--fail-on" && argv[i + 1]) {
-			const mode = argv[++i] as FailOnMode;
-			if (mode !== "all" && mode !== "behavior" && mode !== "infra-only") {
-				throw new Error("--fail-on must be all|behavior|infra-only");
-			}
-			failOn = mode;
-		} else if (token === "--scenario-retries" && argv[i + 1]) {
-			const parsed = Number(argv[++i]);
-			if (!Number.isInteger(parsed) || parsed < 0) {
-				throw new Error("--scenario-retries must be an integer >= 0");
-			}
-			scenarioRetries = parsed;
-		} else if (token === "--compare-pairs" && argv[i + 1]) {
-			comparePairs = argv[++i];
-		} else if ((token === "--a" || token === "--compare-a") && argv[i + 1]) {
-			compareA = argv[++i];
-			compareMode = true;
-		} else if ((token === "--b" || token === "--compare-b") && argv[i + 1]) {
-			compareB = argv[++i];
-			compareMode = true;
-		} else if ((token === "--out-dir" || token === "--compare-out") && argv[i + 1]) {
-			compareOutDir = argv[++i];
-		} else if (token === "--report-out" && argv[i + 1]) {
-			reportOut = argv[++i];
-		} else if (token === "--no-html-report") {
-			htmlReport = false;
-		} else if (token === "--debug") {
-			debug = true;
-		} else if (token === "--debug-dir") {
-			const value = argv[++i];
-			if (!value || value.startsWith("-")) {
-				throw new Error("--debug-dir requires a non-empty path argument");
-			}
-			debugDir = value;
-			debug = true;
-		} else if (token && !token.startsWith("-")) {
+		if (!token) {
+			continue;
+		}
+		const parsed = splitArgvFlag(token);
+		if (!parsed) {
 			filter = token;
+			continue;
+		}
+		const { flag, inline } = parsed;
+		const read = (): string => {
+			const result = readFlagValue(flag, inline, argv, i);
+			i = result.nextIndex;
+			return result.value;
+		};
+
+		switch (flag) {
+			case "--help":
+			case "-h":
+				help = true;
+				break;
+			case "--check":
+				enableCheckMode(checkMode);
+				break;
+			case "--doctor":
+				doctor = true;
+				enableCheckMode(checkMode);
+				break;
+			case "--validate-only":
+				enableCheckMode(checkMode);
+				break;
+			case "--validate-seeds":
+				enableCheckMode(checkMode);
+				break;
+			case "--validate-paths":
+				enableCheckMode(checkMode);
+				break;
+			case "--host": {
+				const value = read();
+				if (value === "replay") {
+					throw new Error(
+						"Replay-based testing is deprecated and no longer supported; use --host cursor, --host claude, or --host openai.",
+					);
+				}
+				if (!isAgentHost(value)) {
+					throw new Error("--host must be cursor|claude|openai");
+				}
+				host = value;
+				break;
+			}
+			case "--suites-dir":
+				suitesDir = read();
+				break;
+			case "--rubrics-dir":
+				rubricsDir = read();
+				break;
+			case "--suite":
+				filter = read();
+				break;
+			case "--scenario":
+				scenarioFilter = read();
+				break;
+			case "--staging-session-id":
+				stagingSessionId = read();
+				break;
+			case "--live":
+				throw new Error("--live was removed because agent-test now always runs a real agent");
+			case "--record":
+				throw new Error(
+					"--record was removed; direct runs capture transient traces automatically (use --keep-recordings to retain them)",
+				);
+			case "--record-fixtures":
+				throw new Error(
+					"--record-fixtures was removed because replay-based testing is deprecated and no longer supported",
+				);
+			case "--keep-recordings":
+				keepRecordings = true;
+				break;
+			case "--judge":
+				judge = true;
+				break;
+			case "--no-judge":
+				judge = false;
+				break;
+			case "--no-worktree":
+				worktree = false;
+				break;
+			case "--timeout-ms": {
+				const parsedTimeout = Number(read());
+				if (Number.isFinite(parsedTimeout) && parsedTimeout > 0) {
+					timeoutMs = parsedTimeout;
+				}
+				break;
+			}
+			case "--no-timeout":
+				noTimeout = true;
+				break;
+			case "--allow-user-input":
+				allowUserInput = true;
+				break;
+			case "--fail-on": {
+				const mode = read() as FailOnMode;
+				if (mode !== "all" && mode !== "behavior" && mode !== "infra-only") {
+					throw new Error("--fail-on must be all|behavior|infra-only");
+				}
+				failOn = mode;
+				break;
+			}
+			case "--scenario-retries": {
+				const parsedRetries = Number(read());
+				if (!Number.isInteger(parsedRetries) || parsedRetries < 0) {
+					throw new Error("--scenario-retries must be an integer >= 0");
+				}
+				scenarioRetries = parsedRetries;
+				break;
+			}
+			case "--compare-pairs":
+				comparePairs = read();
+				break;
+			case "--a":
+			case "--compare-a":
+				compareA = read();
+				compareMode = true;
+				break;
+			case "--b":
+			case "--compare-b":
+				compareB = read();
+				compareMode = true;
+				break;
+			case "--out-dir":
+			case "--compare-out":
+				compareOutDir = read();
+				break;
+			case "--report-out":
+				reportOut = read();
+				break;
+			case "--no-html-report":
+				htmlReport = false;
+				break;
+			case "--debug":
+				debug = true;
+				break;
+			case "--debug-dir": {
+				const value = read();
+				debugDir = value;
+				debug = true;
+				break;
+			}
+			default:
+				throw new Error(`Unknown flag: ${flag}`);
 		}
 	}
+
+	check = checkMode.check;
+	validateOnly = checkMode.validateOnly;
+	validatePaths = checkMode.validatePaths;
+	validateSeeds = checkMode.validateSeeds;
 
 	if (compareMode && !comparePairs) {
 		if (!compareA || !compareB) {
@@ -254,6 +402,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		timeoutMs: noTimeout ? 0 : timeoutMs,
 		noTimeout,
 		allowUserInput,
+		check,
+		help,
 		doctor,
 		htmlReport,
 		reportOut: reportOut ? resolve(cwd, reportOut) : undefined,
@@ -384,11 +534,20 @@ async function main(): Promise<number> {
 		return 1;
 	}
 
-	if (args.doctor) {
-		const report = runDoctor();
-		for (const message of report.messages) {
-			console.log(message);
-		}
+	if (args.help) {
+		console.log(formatHelp());
+		return 0;
+	}
+
+	if (args.check || args.doctor || args.validateOnly || args.validateSeeds) {
+		const report = await runCheck({
+			cwd: args.cwd,
+			suitesDir: args.suitesDir,
+			filter: args.filter,
+			rubricsDir: args.rubricsDir,
+			host: args.host,
+		});
+		console.log(formatCheckReport(report));
 		return report.ok ? 0 : 1;
 	}
 
@@ -409,40 +568,6 @@ async function main(): Promise<number> {
 		console.log(theme.tip(`compare markdown: ${written.markdownPath}`));
 		console.log(theme.fileTip("compare HTML", written.htmlPath));
 		return compare.summary.passRegressions > 0 ? 1 : 0;
-	}
-
-	if (args.validateOnly || args.validateSeeds) {
-		if (args.validateOnly) {
-			const suitePaths = await discoverSuites(resolve(args.cwd, args.suitesDir));
-			const filtered = args.filter
-				? suitePaths.filter(
-						(path) =>
-							path.includes(`/${args.filter}/`) || path.endsWith(`/${args.filter}/scenarios.json`),
-					)
-				: suitePaths;
-			const report = await validateSuitePaths(filtered, {
-				validatePaths: args.validatePaths,
-				repoRoot: args.cwd,
-				rubricsDir: args.rubricsDir,
-			});
-			console.log(formatValidationReport(report));
-			if (!report.ok) {
-				return 1;
-			}
-		}
-		if (args.validateSeeds) {
-			const report = await validateSeedPatches({
-				cwd: args.cwd,
-				suitesDir: args.suitesDir,
-				rubricsDir: args.rubricsDir,
-				filter: args.filter,
-			});
-			console.log(formatSeedValidationReport(report));
-			if (!report.ok) {
-				return 1;
-			}
-		}
-		return 0;
 	}
 
 	if (args.debugDir) {
@@ -469,29 +594,30 @@ async function main(): Promise<number> {
 		: undefined;
 
 	try {
-		if (args.host === "claude") {
-			try {
-				const authMode = parseClaudeAuthMode(process.env[CLAUDE_AUTH_MODE_ENV]);
-				if (authMode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
-					console.error(`${CLAUDE_AUTH_MODE_ENV}=api-key requires ANTHROPIC_API_KEY`);
-					return 1;
-				}
-			} catch (error) {
-				console.error(error instanceof Error ? error.message : error);
+		if (!isChild) {
+			const report = await runCheck({
+				cwd: args.cwd,
+				suitesDir: args.suitesDir,
+				filter: args.filter,
+				rubricsDir: args.rubricsDir,
+				host: args.host,
+			});
+			console.log(theme.tip(formatCheckSummary(report)));
+			if (!report.ok) {
+				console.error(formatCheckReport(report));
 				return 1;
 			}
-		}
-		if (args.host === "cursor" && !process.env.CURSOR_API_KEY?.trim()) {
-			console.error("CURSOR_API_KEY required for Cursor agent runs");
-			return 1;
-		}
-		if (
-			args.host === "openai" &&
-			!process.env.OPENAI_API_KEY?.trim() &&
-			!process.env.CODEX_API_KEY?.trim()
-		) {
-			console.error("OPENAI_API_KEY or CODEX_API_KEY required for OpenAI agent runs");
-			return 1;
+			const missingHost = missingHostsAuth(report.hosts);
+			if (missingHost) {
+				console.error(missingHost);
+				return 1;
+			}
+		} else {
+			const missingHost = missingAgentAuth(args.host ?? "cursor");
+			if (missingHost) {
+				console.error(missingHost);
+				return 1;
+			}
 		}
 		if (args.judge !== false) {
 			let rubrics: Awaited<ReturnType<typeof loadSelectedRubrics>> = [];

@@ -21,9 +21,8 @@ bun install
 bun run build
 bun run test:sandbox-safe
 bun run audit:self
-node packages/test/dist/cli.js --validate-only --suites-dir packages/test/fixtures --suite smoke
-node packages/test/dist/cli.js --validate-only --suites-dir agent-suites --suite smoke
-node packages/test/dist/cli.js --doctor
+node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
+node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 ```
 
 Full unpaid gate (`bun run check` = lint + typecheck + unit tests + build) needs unrestricted Cursor sandbox permissions (`all`) because some fixtures run `git init` or write `.cursor/` trees under tmp. Prefer `bun run test:sandbox-safe` under the default sandbox (skips those fixtures). Do not treat sandbox `git`/`hooks`/`.cursor` failures as a broken repo.
