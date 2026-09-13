@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -58,10 +59,33 @@ function unquoteGitPath(token: string): string {
 	return token;
 }
 
+/**
+ * Resolve a path, then follow existing ancestors so `/var` and `/private/var`
+ * compare as the same workspace on macOS.
+ */
+export function canonicalizePath(target: string): string {
+	const abs = resolve(target);
+	const missing: string[] = [];
+	let current = abs;
+	for (;;) {
+		try {
+			const real = realpathSync(current);
+			return missing.length === 0 ? real : join(real, ...missing);
+		} catch {
+			const parent = dirname(current);
+			if (parent === current) {
+				return abs;
+			}
+			missing.unshift(basename(current));
+			current = parent;
+		}
+	}
+}
+
 /** True when `target` is the same as or nested under `root`. */
 export function isPathUnderRoot(target: string, root: string): boolean {
-	const absTarget = resolve(target);
-	const absRoot = resolve(root);
+	const absTarget = canonicalizePath(target);
+	const absRoot = canonicalizePath(root);
 	const prefix = absRoot.endsWith(sep) ? absRoot : `${absRoot}${sep}`;
 	return absTarget === absRoot || absTarget.startsWith(prefix);
 }

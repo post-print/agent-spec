@@ -89,6 +89,12 @@ export interface ScenarioVerdictOptions {
 	rubricFailures?: RubricFailureDisplay[];
 	/** Primary failure category for the FAIL line. */
 	failureCategory?: string;
+	/** Tested / happened / outcome lines. */
+	story?: {
+		tested: string[];
+		happened: string[];
+		outcome: string[];
+	};
 	/** Show evidence and full failure detail (--debug / AGENT_TEST_VERBOSE). */
 	debug?: boolean;
 	debugBundleDir?: string;
@@ -251,23 +257,39 @@ export const theme = {
 				: `  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}${tokens}`,
 		];
 
-		for (const verdict of options.judgeVerdicts ?? []) {
-			const color = verdict.pass ? chalk.green : chalk.red;
-			lines.push(`  ${chalk.dim("│")}    ${chalk.dim("judge")}  ${chalk.dim(verdict.question)}`);
-			for (const wrapped of wrapText(verdict.rationale)) {
-				lines.push(`  ${chalk.dim("│")}           ${color(wrapped)}`);
+		if (options.story) {
+			lines.push(...storyLines("tested", options.story.tested));
+			lines.push(...storyLines("happened", options.story.happened));
+			lines.push(...storyLines("outcome", options.story.outcome, options.passed));
+			if (options.debug) {
+				for (const failure of options.rubricFailures ?? []) {
+					if (!failure.evidence) {
+						continue;
+					}
+					for (const wrapped of wrapText(failure.evidence)) {
+						lines.push(`  ${chalk.dim("│")}             ${chalk.dim(wrapped)}`);
+					}
+				}
 			}
-		}
+		} else {
+			for (const verdict of options.judgeVerdicts ?? []) {
+				const color = verdict.pass ? chalk.green : chalk.red;
+				lines.push(`  ${chalk.dim("│")}    ${chalk.dim("judge")}  ${chalk.dim(verdict.question)}`);
+				for (const wrapped of wrapText(verdict.rationale)) {
+					lines.push(`  ${chalk.dim("│")}           ${color(wrapped)}`);
+				}
+			}
 
-		for (const failure of options.rubricFailures ?? []) {
-			const category = failure.category ? chalk.yellow(failure.category) : chalk.yellow("rubric");
-			lines.push(`  ${chalk.dim("│")}    ${category}  ${chalk.dim(failure.matcher)}`);
-			for (const wrapped of wrapText(failure.message)) {
-				lines.push(`  ${chalk.dim("│")}           ${chalk.yellow(wrapped)}`);
-			}
-			if (options.debug && failure.evidence) {
-				for (const wrapped of wrapText(failure.evidence)) {
-					lines.push(`  ${chalk.dim("│")}           ${chalk.dim(wrapped)}`);
+			for (const failure of options.rubricFailures ?? []) {
+				const category = failure.category ? chalk.yellow(failure.category) : chalk.yellow("rubric");
+				lines.push(`  ${chalk.dim("│")}    ${category}  ${chalk.dim(failure.matcher)}`);
+				for (const wrapped of wrapText(failure.message)) {
+					lines.push(`  ${chalk.dim("│")}           ${chalk.yellow(wrapped)}`);
+				}
+				if (options.debug && failure.evidence) {
+					for (const wrapped of wrapText(failure.evidence)) {
+						lines.push(`  ${chalk.dim("│")}           ${chalk.dim(wrapped)}`);
+					}
 				}
 			}
 		}
@@ -281,3 +303,27 @@ export const theme = {
 		return lines;
 	},
 };
+
+function storyLines(
+	label: "tested" | "happened" | "outcome",
+	values: string[],
+	passed?: boolean,
+): string[] {
+	const rows = values.length > 0 ? values : ["(none)"];
+	const lines: string[] = [];
+	for (const [index, value] of rows.entries()) {
+		const wrapped = wrapText(value);
+		const body = wrapped.length > 0 ? wrapped : [value];
+		for (const [wrapIndex, part] of body.entries()) {
+			const prefix = index === 0 && wrapIndex === 0 ? chalk.dim(label.padEnd(9)) : "         ";
+			const color =
+				label === "outcome" && passed === false
+					? chalk.yellow
+					: label === "outcome" && passed === true
+						? chalk.green
+						: (text: string) => text;
+			lines.push(`  ${chalk.dim("│")}    ${prefix}${color(part)}`);
+		}
+	}
+	return lines;
+}

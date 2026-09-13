@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -97,5 +97,25 @@ describe("toolPathsOutsideWorkspace", () => {
 			workspace,
 		);
 		expect(escaped).toEqual(["/etc/passwd", "../secret.md"]);
+	});
+
+	it("does not flag a read through the real path of a symlink workspace", async () => {
+		const realRoot = await mkdtemp(join(tmpdir(), "seal-real-"));
+		const file = join(realRoot, "SKILL.md");
+		await writeFile(file, "# skill\n");
+		const linkParent = await mkdtemp(join(tmpdir(), "seal-link-"));
+		const linkRoot = join(linkParent, "seal");
+		await symlink(realRoot, linkRoot);
+		expect(
+			toolPathsOutsideWorkspace(
+				{
+					messages: [],
+					toolCalls: [{ name: "Read", args: { path: realpathSync(file) } }],
+					shellCommands: [],
+					artifacts: {},
+				},
+				linkRoot,
+			),
+		).toEqual([]);
 	});
 });

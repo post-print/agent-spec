@@ -156,6 +156,30 @@ describe("theme.scenarioVerdict", () => {
 		expect(joined).toContain("Agent invoked grill unexpectedly.");
 	});
 
+	it("renders tested, happened, and outcome on a pass", () => {
+		chalk.level = 0;
+		const lines = theme.scenarioVerdict({
+			passed: true,
+			index: 1,
+			total: 2,
+			name: "hello",
+			durationMs: 6800,
+			story: {
+				tested: ['reply includes "smoke ok"', "no Shell call"],
+				happened: ['agent replied "smoke ok"', "no tools"],
+				outcome: ["all checks passed"],
+			},
+		});
+		const joined = lines.join("\n");
+		expect(joined).toContain("PASS");
+		expect(joined).toContain("tested");
+		expect(joined).toContain('reply includes "smoke ok"');
+		expect(joined).toContain("happened");
+		expect(joined).toContain("no tools");
+		expect(joined).toContain("outcome");
+		expect(joined).toContain("all checks passed");
+	});
+
 	it("includes ANSI colors when chalk.level > 0", () => {
 		chalk.level = 1;
 		const lines = theme.scenarioVerdict({

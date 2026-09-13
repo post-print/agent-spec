@@ -86,6 +86,12 @@ export {
 	shouldRetryAnnounceStopFlake,
 } from "./scenario-retry.js";
 export {
+	buildScenarioStory,
+	describeOutcome,
+	describeRubricChecks,
+	describeTraceHappened,
+} from "./scenario-story.js";
+export {
 	buildScenarioResultUsage,
 	judgeUsageFromVerdicts,
 	totalTokensFromScenarioUsage,
@@ -114,6 +120,7 @@ export type {
 	RunSummary,
 	ScenarioResult,
 	ScenarioRubric,
+	ScenarioStory,
 	ScenarioUsageBreakdown,
 	SuiteRunReport,
 	UsageStats,

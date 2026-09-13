@@ -125,6 +125,13 @@ export interface JudgeVerdictResult {
 	usage?: AgentUsage;
 }
 
+/** CLI and HTML summary of what a scenario checked and what the agent did. */
+export interface ScenarioStory {
+	tested: string[];
+	happened: string[];
+	outcome: string[];
+}
+
 export interface ScenarioResult {
 	suite: string;
 	scenario: string;
@@ -146,6 +153,8 @@ export interface ScenarioResult {
 	judgeUsage?: AgentUsage;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
+	/** Plain-language summary of the check, the agent run, and the verdict. */
+	story?: ScenarioStory;
 	/** Absolute path to the debug bundle directory when --debug wrote one. */
 	debugBundleDir?: string;
 }

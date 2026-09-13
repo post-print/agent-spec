@@ -92,8 +92,10 @@ describe("runAgentTest direct host selection", () => {
 	it("defaults to Cursor and supports a Claude scenario override", async () => {
 		const cursorKey = process.env.CURSOR_API_KEY;
 		const anthropicKey = process.env.ANTHROPIC_API_KEY;
+		const claudeAuthMode = process.env.CLAUDE_AUTH_MODE;
 		delete process.env.CURSOR_API_KEY;
 		delete process.env.ANTHROPIC_API_KEY;
+		process.env.CLAUDE_AUTH_MODE = "api-key";
 		try {
 			const cursor = await runAgentTest({
 				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
@@ -156,6 +158,8 @@ describe("runAgentTest direct host selection", () => {
 			else process.env.CURSOR_API_KEY = cursorKey;
 			if (anthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
 			else process.env.ANTHROPIC_API_KEY = anthropicKey;
+			if (claudeAuthMode === undefined) delete process.env.CLAUDE_AUTH_MODE;
+			else process.env.CLAUDE_AUTH_MODE = claudeAuthMode;
 		}
 	});
 

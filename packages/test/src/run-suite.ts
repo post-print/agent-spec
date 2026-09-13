@@ -73,6 +73,7 @@ import {
 	restoreCallerHeadIfSeedCommit,
 	seedScenarioWorktree,
 } from "./scenario-seed.js";
+import { buildScenarioStory } from "./scenario-story.js";
 import { buildScenarioResultUsage, totalTokensFromScenarioUsage } from "./scenario-usage.js";
 import { summarizeReportResults } from "./suite-summary.js";
 import { theme } from "./theme.js";
@@ -84,6 +85,7 @@ import type {
 	JudgeVerdictResult,
 	ScenarioResult,
 	ScenarioRubric,
+	ScenarioStory,
 	SuiteRunReport,
 } from "./types.js";
 import { validateSuiteFile } from "./validate-suite.js";
@@ -367,6 +369,7 @@ function emitScenarioVerdict(options: {
 	totalTokens?: number;
 	judgeVerdicts?: JudgeVerdictResult[];
 	failures: AssertionFailure[];
+	story?: ScenarioStory;
 	debug?: boolean;
 	debugBundleDir?: string;
 }): void {
@@ -384,6 +387,7 @@ function emitScenarioVerdict(options: {
 			judgeVerdicts: options.judgeVerdicts,
 			rubricFailures: rubricFailuresOnly(options.failures),
 			failureCategory: options.failures[0]?.category,
+			story: options.story,
 			debug: options.debug,
 			debugBundleDir: options.debugBundleDir,
 		}),
@@ -550,6 +554,12 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					failures: [],
 					skipped: true,
 					durationMs: 0,
+					story: buildScenarioStory({
+						rubric: scenario.rubric,
+						passed: true,
+						skipped: true,
+						failures: [],
+					}),
 				});
 				continue;
 			}
@@ -661,6 +671,13 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				agentUsage: scenarioTrace?.usage,
 				judgeVerdicts,
 			});
+			const story = buildScenarioStory({
+				rubric: scenario.rubric,
+				trace: scenarioTrace,
+				passed,
+				failures,
+				judgeVerdicts,
+			});
 			const scenarioResult: ScenarioResult = {
 				suite: suite.name,
 				scenario: scenario.name,
@@ -671,6 +688,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				attempts,
 				judgeVerdicts,
 				trace: scenarioTrace,
+				story,
 				...usageFields,
 			};
 			const debugBundleDir = await maybeWriteDebugBundle({
@@ -701,6 +719,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, scenarioTrace?.usage),
 				judgeVerdicts,
 				failures,
+				story,
 				debug,
 				debugBundleDir,
 			});
@@ -871,6 +890,7 @@ async function runAgentTestBody(options: RunAgentTestOptions): Promise<ScenarioR
 			totalTokens: totalTokensFromScenarioUsage(result.usage, result.trace?.usage),
 			judgeVerdicts: result.judgeVerdicts,
 			failures: result.failures,
+			story: result.story,
 			debug,
 			debugBundleDir,
 		});
@@ -918,6 +938,12 @@ async function runAgentTestOnce(
 			failures: [],
 			skipped: true,
 			durationMs: 0,
+			story: buildScenarioStory({
+				rubric: scenario.rubric,
+				passed: true,
+				skipped: true,
+				failures: [],
+			}),
 		};
 	}
 
@@ -1173,15 +1199,24 @@ async function runAgentTestOnce(
 			worktreeHandle = undefined;
 		}
 
+		const passed = failures.length === 0;
+		const story = buildScenarioStory({
+			rubric: scenario.rubric,
+			trace,
+			passed,
+			failures,
+			judgeVerdicts,
+		});
 		const scenarioResult: ScenarioResult = {
 			suite: suiteName,
 			scenario: scenario.name,
 			compareId: scenario.compareId,
-			passed: failures.length === 0,
+			passed,
 			failures,
 			durationMs,
 			judgeVerdicts,
 			trace,
+			story,
 			...buildScenarioResultUsage({
 				agentUsage: session.usage ?? trace?.usage,
 				judgeVerdicts,
@@ -1209,7 +1244,7 @@ async function runAgentTestOnce(
 			scenarioResult.debugBundleDir = debugBundleDir;
 
 			emitScenarioVerdict({
-				passed: failures.length === 0,
+				passed,
 				index: scenarioIndex,
 				total: scenarioTotal,
 				name: scenario.name,
@@ -1217,6 +1252,7 @@ async function runAgentTestOnce(
 				totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, trace?.usage),
 				judgeVerdicts,
 				failures,
+				story,
 				debug,
 				debugBundleDir,
 			});

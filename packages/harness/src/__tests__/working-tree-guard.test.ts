@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
 	filterWorkingTreeLeaks,
@@ -103,5 +106,15 @@ describe("isPathUnderRoot", () => {
 	it("matches nested paths", () => {
 		expect(isPathUnderRoot("/repo/a/b/file.txt", "/repo/a")).toBe(true);
 		expect(isPathUnderRoot("/repo/b/file.txt", "/repo/a")).toBe(false);
+	});
+
+	it("treats a real path as inside a symlink workspace root", async () => {
+		const realRoot = await mkdtemp(join(tmpdir(), "wt-real-"));
+		const file = join(realRoot, "SKILL.md");
+		await writeFile(file, "# skill\n");
+		const linkParent = await mkdtemp(join(tmpdir(), "wt-link-"));
+		const linkRoot = join(linkParent, "seal");
+		await symlink(realRoot, linkRoot);
+		expect(isPathUnderRoot(file, linkRoot)).toBe(true);
 	});
 });

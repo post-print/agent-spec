@@ -139,7 +139,7 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	},
 	workingTreeLeak: {
 		label: "Working tree leak",
-		hint: "The agent's edits leaked outside its isolated worktree.",
+		hint: "The agent used a path outside the sealed workspace, or edited the caller checkout.",
 	},
 	recordTrace: { label: "Recording failed", hint: "Saving the trace to disk failed." },
 	judge: { label: "Judge", hint: "The LLM judge flagged this scenario." },
@@ -571,16 +571,38 @@ export function renderCompareHtmlReport(
 `;
 }
 
+function renderStoryList(title: string, lines: string[] | undefined): string {
+	if (!lines || lines.length === 0) {
+		return "";
+	}
+	const items = lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+	return `<section class="story-block"><h3>${escapeHtml(title)}</h3><ul class="story-list">${items}</ul></section>`;
+}
+
+function renderStory(result: ScenarioResult): string {
+	const story = result.story;
+	if (!story) {
+		return "";
+	}
+	return `<div class="story">
+    ${renderStoryList("Tested", story.tested)}
+    ${renderStoryList("Happened", story.happened)}
+    ${renderStoryList("Outcome", story.outcome)}
+  </div>`;
+}
+
 function renderScenario(result: ScenarioResult): string {
 	const open = result.passed || result.skipped ? "" : " open";
-	const failures = renderFailures(result);
+	const failures = result.story ? "" : renderFailures(result);
 	const judgeVerdicts = renderJudgeVerdicts(result);
 	const tokens = formatTokensBadge(result);
 	const usageDetail = renderUsageDetail(usageOf(result));
 	const traceMeta = renderTraceMeta(result);
+	const story = renderStory(result);
 	const diagnostics =
-		failures || judgeVerdicts
+		story || failures || judgeVerdicts
 			? `<div class="diagnostics">
+    ${story}
     ${failures ? `<section><h3>What went wrong</h3>${failures}</section>` : ""}
     ${judgeVerdicts ? `<section><h3>Judge verdict</h3>${judgeVerdicts}</section>` : ""}
   </div>`
@@ -756,6 +778,9 @@ function sharedReportCss(): string {
   .diagnostics section { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.7rem; min-width: 0; }
   .conversation { min-width: 0; }
 
+  .story { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.85rem; margin-bottom: 0.85rem; }
+  .story-block h3 { margin: 0 0 0.35rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .story-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.25rem; color: var(--text); }
   .failures { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
   .failures li { border-left: 3px solid var(--fail); padding-left: 0.6rem; }
   .failure-label { margin: 0; font-weight: 600; font-size: 0.85rem; color: var(--fail); }

@@ -108,6 +108,26 @@ describe("html-report", () => {
 		expect(html).toContain("medium");
 	});
 
+	it("renders tested, happened, and outcome from the scenario story", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					story: {
+						tested: ['reply includes "smoke ok"'],
+						happened: ['agent replied "smoke ok"', "no tools"],
+						outcome: ["all checks passed"],
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("Tested");
+		expect(html).toContain("Happened");
+		expect(html).toContain("Outcome");
+		expect(html).toContain("reply includes &quot;smoke ok&quot;");
+		expect(html).toContain("no tools");
+		expect(html).toContain("all checks passed");
+	});
+
 	it("renders grounding matcher labels and failure evidence", () => {
 		const html = renderHtmlReport([
 			makeReport([
