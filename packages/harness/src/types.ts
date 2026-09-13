@@ -84,6 +84,10 @@ export interface LoadedContext {
 	skillsMode?: SkillContextMode;
 }
 
+export type LiveAgentEvent =
+	| { type: "tool"; name: string; args?: Record<string, unknown> }
+	| { type: "text"; text: string };
+
 export interface RunAgentOptions {
 	host: AgentHost;
 	cwd: string;
@@ -101,6 +105,8 @@ export interface RunAgentOptions {
 	maxConversationTurns?: number;
 	/** Fires when the live harness deadline clock starts (after pre-stream SDK setup). */
 	onDeadlineStart?: () => void | Promise<void>;
+	/** Fires as the host streams assistant text and tool calls. */
+	onAgentEvent?: (event: LiveAgentEvent) => void;
 	env?: Record<string, string>;
 }
 

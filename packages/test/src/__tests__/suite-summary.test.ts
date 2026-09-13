@@ -11,6 +11,17 @@ import {
 } from "../suite-summary.js";
 
 describe("suite-summary", () => {
+	it("omits zero failure counts from the run summary", () => {
+		expect(formatRunSummary(summarizeFailures([]))).toBe("");
+	});
+
+	it("lists only failure categories that occurred", () => {
+		const summary = summarizeFailures([
+			assertionFailure("workingTreeLeak", "escaped", "worktree_leak"),
+		]);
+		expect(formatRunSummary(summary)).toBe("failures  1 worktree leak");
+	});
+
 	it("counts failure categories", () => {
 		const summary = summarizeFailures([
 			assertionFailure("mustInclude", "missing", "rubric_miss"),
@@ -72,8 +83,8 @@ describe("suite-summary", () => {
 		]);
 		expect(summary.scenarioRetriedScenarios).toBe(1);
 		expect(summary.retriedScenarios).toBe(1);
-		expect(formatRunSummary(summary)).toContain("scenario_retried=1");
-		expect(formatRunSummary(summary)).toContain("retried=1");
+		expect(formatRunSummary(summary)).toContain("1 scenario retry");
+		expect(formatRunSummary(summary)).toContain("1 judge retry");
 	});
 
 	it("summarizes token usage with sum/p50/p95", () => {
@@ -107,6 +118,7 @@ describe("suite-summary", () => {
 		expect(usage?.p50TotalTokens).toBe(percentileNearestRank([10, 20, 40], 50));
 		expect(usage?.p95TotalTokens).toBe(percentileNearestRank([10, 20, 40], 95));
 		expect(usage?.sumInputTokens).toBe(48);
-		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("tokens_sum=70");
+		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("70 tok");
+		expect(formatRunSummary({ ...summarizeFailures([]), usage })).toContain("3 scenarios");
 	});
 });

@@ -164,39 +164,86 @@ export function shouldFailScenario(failures: AssertionFailure[], mode: FailOnMod
 	return failures.some((failure) => !INFRA_CATEGORIES.has(failure.category));
 }
 
+function compactNumber(value: number): string {
+	if (value >= 1_000_000) {
+		return `${(value / 1_000_000).toFixed(1)}M`;
+	}
+	if (value >= 1000) {
+		return `${(value / 1000).toFixed(1)}k`;
+	}
+	return String(value);
+}
+
+function countLabel(count: number, singular: string, plural: string): string {
+	return count === 1 ? `1 ${singular}` : `${count} ${plural}`;
+}
+
+function formatFailureSummary(summary: RunSummary): string | undefined {
+	const parts: string[] = [];
+	if (summary.rubricFailures > 0) {
+		parts.push(countLabel(summary.rubricFailures, "rubric miss", "rubric misses"));
+	}
+	if (summary.infraFailures > 0) {
+		parts.push(countLabel(summary.infraFailures, "infra failure", "infra failures"));
+	}
+	if (summary.agentRuntimeFailures > 0) {
+		parts.push(countLabel(summary.agentRuntimeFailures, "runtime failure", "runtime failures"));
+	}
+	if (summary.judgeParseFailures > 0) {
+		parts.push(countLabel(summary.judgeParseFailures, "judge parse error", "judge parse errors"));
+	}
+	if (summary.worktreeLeaks > 0) {
+		parts.push(countLabel(summary.worktreeLeaks, "worktree leak", "worktree leaks"));
+	}
+	if (summary.recordingErrors > 0) {
+		parts.push(countLabel(summary.recordingErrors, "recording error", "recording errors"));
+	}
+	return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+function formatRetrySummary(summary: RunSummary): string | undefined {
+	const parts: string[] = [];
+	if (summary.retriedScenarios > 0) {
+		parts.push(countLabel(summary.retriedScenarios, "judge retry", "judge retries"));
+	}
+	if (summary.scenarioRetriedScenarios > 0) {
+		parts.push(countLabel(summary.scenarioRetriedScenarios, "scenario retry", "scenario retries"));
+	}
+	return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 export function formatUsageStats(usage: UsageStats): string {
-	const parts = [`usage_n=${usage.scenariosWithUsage}`];
+	const parts = [countLabel(usage.scenariosWithUsage, "scenario", "scenarios")];
 	if (usage.sumTotalTokens !== undefined) {
-		parts.push(`tokens_sum=${usage.sumTotalTokens}`);
+		parts.push(`${compactNumber(usage.sumTotalTokens)} tok`);
 	}
 	if (usage.p50TotalTokens !== undefined) {
-		parts.push(`p50=${usage.p50TotalTokens}`);
+		parts.push(`p50 ${compactNumber(usage.p50TotalTokens)}`);
 	}
 	if (usage.p95TotalTokens !== undefined) {
-		parts.push(`p95=${usage.p95TotalTokens}`);
+		parts.push(`p95 ${compactNumber(usage.p95TotalTokens)}`);
 	}
 	if (usage.sumInputTokens !== undefined) {
-		parts.push(`in=${usage.sumInputTokens}`);
+		parts.push(`in ${compactNumber(usage.sumInputTokens)}`);
 	}
 	if (usage.sumOutputTokens !== undefined) {
-		parts.push(`out=${usage.sumOutputTokens}`);
+		parts.push(`out ${compactNumber(usage.sumOutputTokens)}`);
 	}
 	return parts.join(" · ");
 }
 
 export function formatRunSummary(summary: RunSummary): string {
-	const base = [
-		`summary: rubric=${summary.rubricFailures}`,
-		`infra=${summary.infraFailures}`,
-		`runtime=${summary.agentRuntimeFailures}`,
-		`judge_parse=${summary.judgeParseFailures}`,
-		`worktree=${summary.worktreeLeaks}`,
-		`recording=${summary.recordingErrors}`,
-		`retried=${summary.retriedScenarios}`,
-		`scenario_retried=${summary.scenarioRetriedScenarios}`,
-	].join(" · ");
-	if (!summary.usage) {
-		return base;
+	const lines: string[] = [];
+	const failures = formatFailureSummary(summary);
+	if (failures) {
+		lines.push(`failures  ${failures}`);
 	}
-	return `${base}\n${formatUsageStats(summary.usage)}`;
+	const retries = formatRetrySummary(summary);
+	if (retries) {
+		lines.push(`retries   ${retries}`);
+	}
+	if (summary.usage) {
+		lines.push(formatUsageStats(summary.usage));
+	}
+	return lines.join("\n");
 }

@@ -5,6 +5,7 @@ import {
 	normalizeAgentUsage,
 	type SdkMessage,
 } from "./capture.js";
+import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
 	AgentRunTimeoutError,
@@ -12,7 +13,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, AgentUsage } from "./types.js";
+import type { AgentTrace, AgentUsage, LiveAgentEvent } from "./types.js";
 
 /** Minimal Cursor SDK run surface for cancel + wait cleanup. */
 interface CancellableSdkRun {
@@ -63,6 +64,8 @@ export interface CursorRunOptions {
 	failOnUserInput?: boolean;
 	/** Fires immediately before the harness deadline timer arms (after pre-stream setup). */
 	onDeadlineStart?: () => void | Promise<void>;
+	/** Fires as the SDK streams assistant text and tool calls. */
+	onAgentEvent?: (event: LiveAgentEvent) => void;
 }
 
 export interface JudgeClassifierOptions {
@@ -187,6 +190,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 
 	const failOnUserInput = options.failOnUserInput !== false;
 	const acc = createTraceAccumulator();
+	const liveState = createLiveNotifyState();
 	let timedOut = false;
 
 	const stashTrace = (usageOverride?: AgentUsage): AgentTrace => {
@@ -211,6 +215,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 		try {
 			for await (const event of run.stream()) {
 				accumulateSdkEvent(acc, event as SdkMessage);
+				emitLiveAgentEvents(acc, liveState, options.onAgentEvent);
 				const lastTool = acc.toolCalls.at(-1);
 				if (lastTool && isUserInputTool(lastTool.name)) {
 					if (failOnUserInput) {

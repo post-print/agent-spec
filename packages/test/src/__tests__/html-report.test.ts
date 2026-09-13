@@ -99,7 +99,7 @@ describe("html-report", () => {
 			]),
 		]);
 		expect(html).toContain("1234 tok");
-		expect(html).toContain("tokens_sum=1234");
+		expect(html).toContain("1.2k tok");
 		expect(html).toContain("p50 tokens");
 		expect(html).toContain("Token usage");
 		expect(html).toContain("Cache read");

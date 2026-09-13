@@ -21,6 +21,7 @@ import {
 	writeCompareReport,
 } from "./compare.js";
 import { missingAgentAuth } from "./doctor.js";
+import { installHostLogFilter } from "./host-log.js";
 import { writeHtmlReport } from "./html-report.js";
 import { assertDirectAgentPreflight } from "./preflight.js";
 import { logProgress } from "./progress.js";
@@ -529,6 +530,7 @@ async function main(): Promise<number> {
 	let args: ParsedCliArgs;
 	try {
 		args = parseCliArgs(process.argv);
+		installHostLogFilter();
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : error);
 		return 1;
@@ -673,23 +675,18 @@ async function main(): Promise<number> {
 				if (stagingSessionRoot) {
 					console.log(theme.bannerSession(stagingSessionRoot));
 				}
-				console.log(`  ${theme.tip("Ctrl+C cancels in-flight scenarios")}`);
+				const hints = ["Ctrl+C cancels"];
+				if (args.debug || process.env.AGENT_TEST_VERBOSE === "1") {
+					hints.push(args.keepRecordings ? "recordings kept" : "traces removed on exit");
+					hints.push("exit 137 = macOS OOM");
+				} else if (!args.keepRecordings) {
+					hints.push("traces removed on exit");
+				}
+				console.log(theme.bannerHints(hints));
 				if (worktreeDisabled) {
 					console.warn(
 						theme.warn("running in repo cwd — agent file edits will persist in your working tree"),
 					);
-				}
-				if (args.debug || process.env.AGENT_TEST_VERBOSE === "1") {
-					if (!args.keepRecordings) {
-						console.log(`  ${theme.tip("traces removed on exit unless --keep-recordings")}`);
-					} else {
-						console.log(`  ${theme.tip("debug: recordings kept")}`);
-					}
-					console.log(
-						`  ${theme.tip("exit 137 = macOS OOM — isolated subprocesses (AGENT_TEST_NO_ISOLATE=1 to disable)")}`,
-					);
-				} else if (!args.keepRecordings) {
-					console.log(`  ${theme.tip("traces removed on exit unless --keep-recordings")}`);
 				}
 			}
 		}
@@ -767,7 +764,10 @@ async function main(): Promise<number> {
 			}
 
 			const runSummary = summarizeReports(reports);
-			console.log(`\n${formatRunSummary(runSummary)}`);
+			const runSummaryText = formatRunSummary(runSummary);
+			if (runSummaryText) {
+				console.log(`\n${theme.runSummary(runSummaryText)}`);
+			}
 			if (args.failOn === "behavior" && runSummary.infraFailures > 0 && exitCode === 0) {
 				console.log(
 					theme.tip(`${runSummary.infraFailures} infra failure(s) ignored (--fail-on=behavior)`),

@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 
-import { configureCliColor, formatFileHyperlink, theme, truncatePath, wrapText } from "../theme.js";
+import {
+	clipToColumns,
+	configureCliColor,
+	formatFileHyperlink,
+	theme,
+	truncatePath,
+	wrapText,
+} from "../theme.js";
 
 describe("formatFileHyperlink", () => {
 	it("wraps an absolute path in an OSC-8 file:// hyperlink", () => {
@@ -33,12 +40,13 @@ describe("theme.fileTip", () => {
 		chalk.level = priorLevel;
 	});
 
-	it("prefixes a labeled tip with a clickable path", () => {
+	it("makes the label the clickable text and keeps the path in the URL", () => {
 		chalk.level = 0;
 		const line = theme.fileTip("HTML report", "/tmp/out/report.html");
-		expect(line).toContain("HTML report:");
-		expect(line).toContain("\u001b]8;;file:///tmp/out/report.html\u0007");
-		expect(line).toContain("/tmp/out/report.html");
+		expect(line).toContain(
+			"\u001b]8;;file:///tmp/out/report.html\u0007HTML report\u001b]8;;\u0007",
+		);
+		expect(line.includes("/tmp/out/report.html\u001b]8;;\u0007")).toBe(false);
 	});
 });
 
@@ -71,6 +79,19 @@ describe("truncatePath", () => {
 		process.env.AGENT_TEST_DEBUG = "1";
 		const full = "/a/b/c/d/e";
 		expect(truncatePath(full)).toBe(full);
+	});
+});
+
+describe("clipToColumns", () => {
+	it("keeps a short line intact", () => {
+		expect(clipToColumns("  agent  1.27s", 80)).toBe("  agent  1.27s");
+	});
+
+	it("cuts a long clock line so one row can overwrite it", () => {
+		const long = `  agent  5.70s  "${"Reading the skeleton skill and quoting its first heading ".repeat(2)}"`;
+		const clipped = clipToColumns(long, 40);
+		expect(clipped.endsWith("…")).toBe(true);
+		expect(clipped.length).toBeLessThanOrEqual(41);
 	});
 });
 
@@ -114,8 +135,6 @@ describe("theme.scenarioVerdict", () => {
 		const joined = lines.join("\n");
 		expect(joined).toContain("✓");
 		expect(joined).toContain("PASS");
-		expect(joined).toContain("[1/7]");
-		expect(joined).toContain("staged: merge-blockers only");
 		expect(joined).toContain("113.1s");
 		expect(joined).toContain("judge");
 		expect(joined).toContain("Does the review identify merge-blocking issues?");
@@ -176,8 +195,29 @@ describe("theme.scenarioVerdict", () => {
 		expect(joined).toContain('reply includes "smoke ok"');
 		expect(joined).toContain("happened");
 		expect(joined).toContain("no tools");
+		expect(joined).not.toContain("outcome");
+		expect(joined).not.toContain("all checks passed");
+	});
+
+	it("shows outcome on a fail story and humanizes the category", () => {
+		chalk.level = 0;
+		const lines = theme.scenarioVerdict({
+			passed: false,
+			name: "reads a project skill file",
+			durationMs: 14_900,
+			failureCategory: "worktree_leak",
+			story: {
+				tested: ["read SKILL.md"],
+				happened: ["Read .agents/skills/skeleton/SKILL.md"],
+				outcome: ["worktree leak — agent used a path outside the sealed workspace"],
+			},
+		});
+		const joined = lines.join("\n");
+		expect(joined).toContain("FAIL");
+		expect(joined).toContain("worktree leak");
 		expect(joined).toContain("outcome");
-		expect(joined).toContain("all checks passed");
+		expect(joined).toContain("agent used a path outside the sealed workspace");
+		expect(joined).not.toContain("worktree_leak");
 	});
 
 	it("includes ANSI colors when chalk.level > 0", () => {
@@ -195,6 +235,41 @@ describe("theme.summary", () => {
 	it("keeps colon-separated suite summary for CLI regex compatibility", () => {
 		chalk.level = 0;
 		expect(theme.summary("smoke", 1, 0, 0)).toMatch(/smoke:.*1 passed/);
+	});
+});
+
+describe("theme.agentClock", () => {
+	it("shows elapsed time and an optional reply preview", () => {
+		chalk.level = 0;
+		expect(theme.agentClock("1.2s")).toBe("agent  1.2s");
+		expect(theme.agentClock("1.2s", '"# Skeleton"')).toBe('agent  1.2s  "# Skeleton"');
+	});
+});
+
+describe("theme.liveTool", () => {
+	it("prints a tool name and path", () => {
+		chalk.level = 0;
+		expect(theme.liveTool("Read", ".agents/skills/skeleton/SKILL.md")).toBe(
+			"Read  .agents/skills/skeleton/SKILL.md",
+		);
+	});
+});
+
+describe("theme.hostLog", () => {
+	it("indents a compact host line", () => {
+		chalk.level = 0;
+		expect(theme.hostLog("info", "skills", "load completed · 124ms")).toBe(
+			"  host  INFO  skills  load completed · 124ms",
+		);
+	});
+});
+
+describe("theme.runSummary", () => {
+	it("keeps failure and token lines", () => {
+		chalk.level = 0;
+		expect(theme.runSummary("failures  1 worktree leak\n2 scenarios · 70.2k tok")).toContain(
+			"1 worktree leak",
+		);
 	});
 });
 

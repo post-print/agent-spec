@@ -10,7 +10,7 @@ import type {
 const PATH_ARG_KEYS = ["path", "file_path", "filePath", "target_file", "uri", "cwd"] as const;
 const EXCERPT_CHARS = 80;
 
-function quoteExcerpt(text: string): string {
+export function quoteExcerpt(text: string): string {
 	const compact = text.trim().replace(/\s+/g, " ");
 	if (!compact) {
 		return '""';
@@ -34,7 +34,7 @@ function displayToolPath(path: string): string {
 	return stripped;
 }
 
-function pathFromArgs(args: Record<string, unknown> | undefined): string | undefined {
+export function pathFromArgs(args: Record<string, unknown> | undefined): string | undefined {
 	if (!args) {
 		return undefined;
 	}
@@ -127,20 +127,27 @@ export function describeTraceHappened(trace?: AgentTrace): string[] {
 	return lines;
 }
 
+function shortenPathsInText(text: string): string {
+	return text.replace(/(?:file:\/\/)?\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*/g, (path) =>
+		displayToolPath(path),
+	);
+}
+
 function describeFailure(failure: AssertionFailure): string {
+	const message = shortenPathsInText(failure.message);
 	if (failure.category === "worktree_leak") {
-		return `worktree leak — ${failure.message}`;
+		return `worktree leak — ${message}`;
 	}
 	if (failure.category === "agent_runtime") {
-		return `agent run failed — ${failure.message}`;
+		return `agent run failed — ${message}`;
 	}
 	if (failure.category === "judge_infra" || failure.category === "judge_parse") {
-		return `judge failed — ${failure.message}`;
+		return `judge failed — ${message}`;
 	}
 	if (failure.category === "recording_error") {
-		return `recording failed — ${failure.message}`;
+		return `recording failed — ${message}`;
 	}
-	return failure.message;
+	return message;
 }
 
 /** Pass or fail in plain language. */

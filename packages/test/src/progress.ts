@@ -1,8 +1,10 @@
 import { logger } from "@post-print/agent-harness";
 
-import { formatDurationLabel, theme } from "./theme.js";
+import { clipToColumns, formatClock, formatDurationLabel, theme } from "./theme.js";
 
 const DEFAULT_HEARTBEAT_MS = 60_000;
+/** Tenth of a second. Faster ticks flood stdout and wrap the clock line. */
+export const TTY_HEARTBEAT_MS = 100;
 
 function enabled(): boolean {
 	return process.env.AGENT_TEST_QUIET !== "1" && !process.env.VITEST;
@@ -10,6 +12,13 @@ function enabled(): boolean {
 
 export function formatDuration(ms: number): string {
 	return formatDurationLabel(ms);
+}
+
+export function resolveHeartbeatInterval(isTty: boolean, overrideMs?: number): number {
+	if (overrideMs !== undefined) {
+		return overrideMs;
+	}
+	return isTty ? TTY_HEARTBEAT_MS : DEFAULT_HEARTBEAT_MS;
 }
 
 export function logProgress(message: string): void {
@@ -39,6 +48,15 @@ export function logPhaseNested(message: string): void {
 	console.log(theme.phaseTree("│   ", message));
 }
 
+/** Durable live line (tool call) under the agent clock. */
+export function logLive(message: string): void {
+	if (!enabled()) {
+		return;
+	}
+	clearHeartbeatLine();
+	console.log(theme.phaseTree("│   ", message));
+}
+
 /** Print a verdict block (PASS/FAIL + reasons). */
 export function logVerdict(lines: string[]): void {
 	if (!enabled()) {
@@ -51,6 +69,7 @@ export function logVerdict(lines: string[]): void {
 }
 
 let heartbeatActive = false;
+let heartbeatPaint: (() => void) | undefined;
 
 function clearHeartbeatLine(): void {
 	if (!heartbeatActive || !process.stdout.isTTY) {
@@ -61,36 +80,56 @@ function clearHeartbeatLine(): void {
 }
 
 function writeHeartbeatOverwrite(message: string): void {
-	process.stdout.write(`\r${theme.phaseTree("│   ", message)}\x1b[K`);
+	const columns =
+		process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
+	const line = clipToColumns(theme.phaseTree("│   ", message), columns);
+	process.stdout.write(`\x1b[2K\r${line}`);
 	heartbeatActive = true;
+}
+
+export function refreshHeartbeat(): void {
+	heartbeatPaint?.();
 }
 
 /** Log every `intervalMs` while `promise` is pending (live agent runs). */
 export async function withHeartbeat<T>(
 	promise: Promise<T>,
-	options: { label?: string; intervalMs?: number; started?: number },
+	options: {
+		label?: string;
+		intervalMs?: number;
+		started?: number;
+		preview?: () => string | undefined;
+	},
 ): Promise<T> {
 	if (!enabled()) {
 		return promise;
 	}
 
 	const started = options.started ?? performance.now();
-	const intervalMs = options.intervalMs ?? DEFAULT_HEARTBEAT_MS;
 	const useOverwrite = Boolean(process.stdout.isTTY);
-	const timer = setInterval(() => {
-		const elapsed = theme.duration(formatDuration(performance.now() - started));
+	const intervalMs = resolveHeartbeatInterval(useOverwrite, options.intervalMs);
+	const label = options.label ?? "agent";
+	const paint = () => {
+		const elapsed = formatClock(performance.now() - started);
+		const preview = options.preview?.();
+		const line = theme.agentClock(elapsed, preview);
 		if (useOverwrite) {
-			writeHeartbeatOverwrite(elapsed);
+			writeHeartbeatOverwrite(line);
 			return;
 		}
-		const label = options.label ?? "running";
-		logPhaseNested(`${label}  ${elapsed}`);
-	}, intervalMs);
+		logPhaseNested(theme.phase(label, theme.duration(elapsed)));
+	};
+	heartbeatPaint = paint;
+	paint();
+	const timer = setInterval(paint, intervalMs);
 
 	try {
 		return await promise;
 	} finally {
 		clearInterval(timer);
+		if (heartbeatPaint === paint) {
+			heartbeatPaint = undefined;
+		}
 		clearHeartbeatLine();
 	}
 }

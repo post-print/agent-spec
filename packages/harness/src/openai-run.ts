@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
 import type { JudgeClassifierResult } from "./cursor-run.js";
+import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import {
 	accumulateOpenaiEvent,
 	createOpenaiTraceAccumulator,
@@ -19,7 +20,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace } from "./types.js";
+import type { AgentTrace, LiveAgentEvent } from "./types.js";
 
 export interface OpenaiRunOptions {
 	cwd: string;
@@ -29,6 +30,7 @@ export interface OpenaiRunOptions {
 	timeoutMs?: number;
 	failOnUserInput?: boolean;
 	onDeadlineStart?: () => void | Promise<void>;
+	onAgentEvent?: (event: LiveAgentEvent) => void;
 	bin?: string;
 	/** `workspace-write` for agent runs; `read-only` for classifiers. */
 	sandbox?: "workspace-write" | "read-only";
@@ -187,7 +189,9 @@ async function drainJsonl(
 	acc: OpenaiTraceAccumulator,
 	failOnUserInput: boolean,
 	signal: AbortSignal,
+	onAgentEvent?: (event: LiveAgentEvent) => void,
 ): Promise<{ exitCode: number | null; stderr: string }> {
+	const liveState = createLiveNotifyState();
 	const stderrChunks: string[] = [];
 	child.stderr.setEncoding("utf8");
 	child.stderr.on("data", (chunk: string) => {
@@ -222,6 +226,7 @@ async function drainJsonl(
 					continue;
 				}
 				accumulateOpenaiEvent(acc, event);
+				emitLiveAgentEvents(acc, liveState, onAgentEvent);
 				stashTrace(acc);
 				const lastTool = acc.toolCalls.at(-1);
 				if (lastTool && isUserInputTool(lastTool.name)) {
@@ -294,6 +299,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 				acc,
 				options.failOnUserInput !== false,
 				abort.signal,
+				options.onAgentEvent,
 			);
 			const trace = stashTrace(acc);
 			const rawStatus = acc.rawStatus ?? (exitCode === 0 ? "success" : "error");

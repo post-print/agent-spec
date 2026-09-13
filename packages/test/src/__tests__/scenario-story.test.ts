@@ -93,5 +93,7 @@ describe("buildScenarioStory", () => {
 		expect(story.tested).toEqual(["read SKILL.md"]);
 		expect(story.happened).toEqual(["Read …/tmp/seal/SKILL.md"]);
 		expect(story.outcome[0]).toContain("worktree leak");
+		expect(story.outcome[0]).toContain("…/tmp/seal/SKILL.md");
+		expect(story.outcome[0]).not.toContain("/private/tmp/seal/SKILL.md");
 	});
 });

@@ -103,6 +103,12 @@ export {
 	parseJudgeResponse,
 	skillInvokeJudgeCriteria,
 } from "./judge.js";
+export {
+	createLiveNotifyState,
+	drainLiveAgentEvents,
+	emitLiveAgentEvents,
+	type LiveNotifyState,
+} from "./live-agent-event.js";
 export { type Logger, type LogLevel, logger } from "./logger.js";
 export {
 	getHealthStatus,
@@ -172,6 +178,7 @@ export {
 	type ContextProfile,
 	type HostAdapter,
 	isAgentHost,
+	type LiveAgentEvent,
 	type LoadedContext,
 	type McpServerConfig,
 	type RoutingContract,

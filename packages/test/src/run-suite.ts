@@ -5,6 +5,7 @@ import type {
 	AgentHost,
 	AgentTrace,
 	JudgeCriterion,
+	LiveAgentEvent,
 	McpServerConfig,
 	RoutingContract,
 	SkillContextSetting,
@@ -49,7 +50,15 @@ import {
 } from "./live-isolation.js";
 import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
-import { formatDuration, logPhase, logProgress, logVerdict, withHeartbeat } from "./progress.js";
+import {
+	formatDuration,
+	logLive,
+	logPhase,
+	logProgress,
+	logVerdict,
+	refreshHeartbeat,
+	withHeartbeat,
+} from "./progress.js";
 import {
 	cleanupStagingSession,
 	createLiveStagingSessionId,
@@ -73,7 +82,7 @@ import {
 	restoreCallerHeadIfSeedCommit,
 	seedScenarioWorktree,
 } from "./scenario-seed.js";
-import { buildScenarioStory } from "./scenario-story.js";
+import { buildScenarioStory, pathFromArgs, quoteExcerpt } from "./scenario-story.js";
 import { buildScenarioResultUsage, totalTokensFromScenarioUsage } from "./scenario-usage.js";
 import { summarizeReportResults } from "./suite-summary.js";
 import { theme } from "./theme.js";
@@ -975,7 +984,6 @@ async function runAgentTestOnce(
 			overlayPaths: defaultSealedOverlayPaths(contextSources, skillPathsFromSetting(skills)),
 		});
 		activeWorktreeCleanup = worktreeHandle.cleanup;
-		logPhase(theme.phase("worktree", theme.path(worktreeHandle.path)));
 		if (scenario.seedPatch) {
 			logPhase(theme.phase("seed", theme.basename(scenario.seedPatch)));
 			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch, {
@@ -988,21 +996,20 @@ async function runAgentTestOnce(
 	const runCwd = worktreeHandle?.path ?? cwd;
 
 	try {
-		logPhase(theme.phase("context"));
 		const context = await loadContext({
 			cwd: runCwd,
 			profile,
 			skills,
 			contextSources,
 		});
-		logPhase(theme.phase("agent"));
-
 		const outputContract = outputContractForRubric(scenario.rubric);
 		const agentStartMarkerPath =
 			isChildProcess() && stagingSessionId
 				? getStagingAgentStartPath(stagingSessionId, suiteName, scenario.name)
 				: undefined;
+		logPhase(theme.phase("agent", theme.phaseDim("started")));
 		const agentStarted = performance.now();
+		let livePreview: string | undefined;
 		const session = await withHeartbeat(
 			runAgent({
 				host,
@@ -1018,8 +1025,19 @@ async function runAgentTestOnce(
 				onDeadlineStart: agentStartMarkerPath
 					? () => writeAgentStartMarker(agentStartMarkerPath)
 					: undefined,
+				onAgentEvent: (event: LiveAgentEvent) => {
+					if (event.type === "tool") {
+						logLive(theme.liveTool(event.name, pathFromArgs(event.args)));
+						livePreview = undefined;
+						refreshHeartbeat();
+						return;
+					}
+					// Clock tick paints the preview. Do not rewrite here — a long
+					// line wraps and `\r` cannot clear the leftover row.
+					livePreview = quoteExcerpt(event.text);
+				},
 			}),
-			{ started: agentStarted },
+			{ started: agentStarted, preview: () => livePreview },
 		);
 
 		logPhase(
@@ -1069,7 +1087,6 @@ async function runAgentTestOnce(
 			);
 		}
 
-		logPhase(theme.phase("rubric"));
 		failures.push(
 			...assertRubric(trace, scenario.rubric, {
 				skillsMode: context.skillsMode,
@@ -1150,7 +1167,9 @@ async function runAgentTestOnce(
 		if (stagingTracePath) {
 			try {
 				const path = await recordTrace(stagingTracePath, trace);
-				logPhase(theme.phase("trace", theme.path(path)));
+				if (keepRecordings || debug) {
+					logPhase(theme.phase("trace", theme.path(path)));
+				}
 			} catch (error) {
 				failures.push(
 					assertionFailure(
@@ -1186,9 +1205,6 @@ async function runAgentTestOnce(
 		}
 
 		if (worktreeHandle) {
-			const willJudge =
-				Boolean(judge) && !isChildProcess() && collectJudgeCriteria(scenario.rubric).length > 0;
-			logPhase(theme.phase("cleanup"), { last: !willJudge });
 			await worktreeHandle.cleanup();
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;
@@ -1273,7 +1289,6 @@ async function runAgentTestOnce(
 			}
 		}
 		if (worktreeHandle) {
-			logPhase(theme.phase("cleanup"), { last: true });
 			await worktreeHandle.cleanup();
 			if (activeWorktreeCleanup === worktreeHandle.cleanup) {
 				activeWorktreeCleanup = undefined;

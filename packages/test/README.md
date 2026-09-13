@@ -62,6 +62,10 @@ Each scenario copies HEAD plus caller context into a temp folder. The folder get
 
 `--debug` retains an evidence bundle under `$TMPDIR/agent-spec/sessions/<id>/` by default. Use `--debug-dir` to override the parent directory.
 
+Host SDK INFO lines stay hidden. Set `AGENT_TEST_HOST_LOGS=1` or `--debug` to print them.
+
+A TTY run prints `agent started`, then updates an `agent` clock every 0.1s. Tool names and a short reply preview print as the host streams them. The clock line stays one row so the terminal can overwrite it. The HTML report line is a clickable label. The file path stays in the link URL.
+
 `Ctrl+C` cancels active host work and deletes the temp folder. `--no-worktree` requires `AGENT_TEST_ALLOW_IN_PLACE=1` because agent edits will persist in the caller checkout.
 
 ## MCP servers

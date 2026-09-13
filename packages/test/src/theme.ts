@@ -100,14 +100,34 @@ export interface ScenarioVerdictOptions {
 	debugBundleDir?: string;
 }
 
-export function formatTokenCount(totalTokens: number): string {
+export function formatTokenNumber(totalTokens: number): string {
 	if (totalTokens >= 1_000_000) {
-		return `${(totalTokens / 1_000_000).toFixed(1)}M tok`;
+		return `${(totalTokens / 1_000_000).toFixed(1)}M`;
 	}
 	if (totalTokens >= 1000) {
-		return `${(totalTokens / 1000).toFixed(1)}k tok`;
+		return `${(totalTokens / 1000).toFixed(1)}k`;
 	}
-	return `${totalTokens} tok`;
+	return String(totalTokens);
+}
+
+export function formatTokenCount(totalTokens: number): string {
+	return `${formatTokenNumber(totalTokens)} tok`;
+}
+
+const FAILURE_CATEGORY_LABEL: Record<string, string> = {
+	rubric_miss: "rubric",
+	judge_infra: "judge infra",
+	judge_parse: "judge parse",
+	agent_runtime: "agent runtime",
+	worktree_leak: "worktree leak",
+	recording_error: "recording",
+};
+
+export function formatFailureCategory(category?: string): string | undefined {
+	if (!category) {
+		return undefined;
+	}
+	return FAILURE_CATEGORY_LABEL[category] ?? category.replaceAll("_", " ");
 }
 
 export function formatDurationLabel(ms: number): string {
@@ -115,6 +135,56 @@ export function formatDurationLabel(ms: number): string {
 		return `${Math.round(ms)}ms`;
 	}
 	return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** Elapsed clock for an in-flight agent. Tenths of a second. */
+export function formatClock(ms: number): string {
+	return `${Math.max(0, ms / 1000).toFixed(1)}s`;
+}
+
+/** Visible character count that skips CSI color sequences. */
+export function visibleLength(text: string): number {
+	let count = 0;
+	for (let index = 0; index < text.length; index++) {
+		if (text.charCodeAt(index) === 27) {
+			const end = text.indexOf("m", index);
+			if (end === -1) {
+				break;
+			}
+			index = end;
+			continue;
+		}
+		count += 1;
+	}
+	return count;
+}
+
+/** Keep a live clock line on one terminal row so `\r` can overwrite it. */
+export function clipToColumns(text: string, columns: number): string {
+	const cols = Math.max(20, columns);
+	if (visibleLength(text) <= cols) {
+		return text;
+	}
+	let count = 0;
+	let end = 0;
+	for (let index = 0; index < text.length; index++) {
+		if (text.charCodeAt(index) === 27) {
+			const seqEnd = text.indexOf("m", index);
+			if (seqEnd === -1) {
+				end = text.length;
+				break;
+			}
+			index = seqEnd;
+			end = index + 1;
+			continue;
+		}
+		if (count >= cols - 1) {
+			break;
+		}
+		count += 1;
+		end = index + 1;
+	}
+	return `${text.slice(0, end)}…`;
 }
 
 function criterionLabel(count: number): string {
@@ -135,8 +205,13 @@ export const theme = {
 		return host ? `${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}` : chalk.bold.white(name);
 	},
 
-	phaseTree(prefix: "├─" | "└─" | "│   ", message: string): string {
-		return `  ${chalk.dim(prefix)} ${message}`;
+	phaseTree(_prefix: "├─" | "└─" | "│   ", message: string): string {
+		return `  ${message}`;
+	},
+
+	hostLog(level: string, service: string, detail: string): string {
+		const levelColor = level === "error" ? chalk.red : level === "warn" ? chalk.yellow : chalk.dim;
+		return `  ${chalk.dim("host")}  ${levelColor(level.toUpperCase())}  ${chalk.dim(service)}  ${chalk.dim(detail)}`;
 	},
 
 	path(p: string): string {
@@ -162,6 +237,21 @@ export const theme = {
 		return `${chalk.dim(label)}  ${detail}`;
 	},
 
+	agentClock(elapsedLabel: string, preview?: string): string {
+		const clock = theme.phase("agent", theme.duration(elapsedLabel));
+		if (!preview) {
+			return clock;
+		}
+		return `${clock}  ${chalk.dim(preview)}`;
+	},
+
+	liveTool(name: string, detail?: string): string {
+		if (!detail) {
+			return chalk.dim(name);
+		}
+		return `${chalk.dim(name)}  ${chalk.cyan(detail)}`;
+	},
+
 	statusCompleted(status: string): string {
 		return status === "completed" ? chalk.green(status) : chalk.red(status);
 	},
@@ -170,9 +260,9 @@ export const theme = {
 		return chalk.dim.italic(message);
 	},
 
-	/** Tip line with a clickable file path (OSC-8 file:// hyperlink). */
+	/** Tip line whose label is an OSC-8 `file://` hyperlink. The path stays in the URL. */
 	fileTip(label: string, absolutePath: string): string {
-		return theme.tip(`${label}: ${formatFileHyperlink(absolutePath)}`);
+		return theme.tip(formatFileHyperlink(absolutePath, label));
 	},
 
 	warn(message: string): string {
@@ -189,6 +279,17 @@ export const theme = {
 
 	bannerSession(path: string): string {
 		return `  ${chalk.dim("session")}  ${chalk.cyan(truncatePath(path))}`;
+	},
+
+	bannerHints(hints: string[]): string {
+		return `  ${chalk.dim(hints.join("  ·  "))}`;
+	},
+
+	runSummary(text: string): string {
+		return text
+			.split("\n")
+			.map((line) => (line.startsWith("failures") ? chalk.red(line) : chalk.dim(line)))
+			.join("\n");
 	},
 
 	summary(suite: string, passed: number, failed: number, skipped: number): string {
@@ -237,58 +338,55 @@ export const theme = {
 	scenarioVerdict(options: ScenarioVerdictOptions): string[] {
 		const mark = options.passed ? chalk.bold.green("✓") : chalk.bold.red("✗");
 		const status = options.passed ? chalk.bold.green("PASS") : chalk.bold.red("FAIL");
-		const counter =
-			options.index !== undefined && options.total !== undefined
-				? `[${options.index}/${options.total}] `
-				: "";
-		const duration = chalk.yellow(`(${formatDurationLabel(options.durationMs)})`);
+		const duration = chalk.yellow(formatDurationLabel(options.durationMs));
 		const tokens =
 			options.totalTokens !== undefined
 				? chalk.dim(` · ${formatTokenCount(options.totalTokens)}`)
 				: "";
-		const primaryCategory =
-			!options.passed && options.failureCategory
-				? chalk.yellow(options.failureCategory)
-				: undefined;
-		const lines: string[] = [
-			`  ${chalk.dim("│")}`,
-			primaryCategory
-				? `  ${chalk.dim("│")}  ${mark} ${status}  ${primaryCategory}  ${counter}${chalk.bold.white(options.name)}  ${duration}${tokens}`
-				: `  ${chalk.dim("│")}  ${mark} ${status}  ${counter}${chalk.bold.white(options.name)}  ${duration}${tokens}`,
-		];
+		const primaryCategory = !options.passed
+			? formatFailureCategory(options.failureCategory)
+			: undefined;
+		const category = primaryCategory ? `${chalk.yellow(primaryCategory)}  ` : "";
+		const lines: string[] = ["", `  ${mark} ${status}  ${category}${duration}${tokens}`];
 
 		if (options.story) {
 			lines.push(...storyLines("tested", options.story.tested));
 			lines.push(...storyLines("happened", options.story.happened));
-			lines.push(...storyLines("outcome", options.story.outcome, options.passed));
+			lines.push(
+				...storyLines(
+					"outcome",
+					visibleOutcome(options.story.outcome, options.passed),
+					options.passed,
+				),
+			);
 			if (options.debug) {
 				for (const failure of options.rubricFailures ?? []) {
 					if (!failure.evidence) {
 						continue;
 					}
 					for (const wrapped of wrapText(failure.evidence)) {
-						lines.push(`  ${chalk.dim("│")}             ${chalk.dim(wrapped)}`);
+						lines.push(`             ${chalk.dim(wrapped)}`);
 					}
 				}
 			}
 		} else {
 			for (const verdict of options.judgeVerdicts ?? []) {
 				const color = verdict.pass ? chalk.green : chalk.red;
-				lines.push(`  ${chalk.dim("│")}    ${chalk.dim("judge")}  ${chalk.dim(verdict.question)}`);
+				lines.push(`    ${chalk.dim("judge")}    ${chalk.dim(verdict.question)}`);
 				for (const wrapped of wrapText(verdict.rationale)) {
-					lines.push(`  ${chalk.dim("│")}           ${color(wrapped)}`);
+					lines.push(`             ${color(wrapped)}`);
 				}
 			}
 
 			for (const failure of options.rubricFailures ?? []) {
-				const category = failure.category ? chalk.yellow(failure.category) : chalk.yellow("rubric");
-				lines.push(`  ${chalk.dim("│")}    ${category}  ${chalk.dim(failure.matcher)}`);
+				const failureCategory = chalk.yellow(formatFailureCategory(failure.category) ?? "rubric");
+				lines.push(`    ${failureCategory}    ${chalk.dim(failure.matcher)}`);
 				for (const wrapped of wrapText(failure.message)) {
-					lines.push(`  ${chalk.dim("│")}           ${chalk.yellow(wrapped)}`);
+					lines.push(`             ${chalk.yellow(wrapped)}`);
 				}
 				if (options.debug && failure.evidence) {
 					for (const wrapped of wrapText(failure.evidence)) {
-						lines.push(`  ${chalk.dim("│")}           ${chalk.dim(wrapped)}`);
+						lines.push(`             ${chalk.dim(wrapped)}`);
 					}
 				}
 			}
@@ -296,7 +394,7 @@ export const theme = {
 
 		if (options.debug && options.debugBundleDir) {
 			lines.push(
-				`  ${chalk.dim("│")}    ${chalk.dim("debug")}  ${chalk.cyan(truncatePath(join(options.debugBundleDir, "transcript.md")))}`,
+				`    ${chalk.dim("debug")}     ${chalk.cyan(truncatePath(join(options.debugBundleDir, "transcript.md")))}`,
 			);
 		}
 
@@ -304,25 +402,34 @@ export const theme = {
 	},
 };
 
+function visibleOutcome(values: string[], passed: boolean): string[] {
+	if (!passed) {
+		return values;
+	}
+	return values.filter((value) => value !== "all checks passed" && value !== "skipped");
+}
+
 function storyLines(
 	label: "tested" | "happened" | "outcome",
 	values: string[],
 	passed?: boolean,
 ): string[] {
-	const rows = values.length > 0 ? values : ["(none)"];
+	if (values.length === 0) {
+		return [];
+	}
 	const lines: string[] = [];
-	for (const [index, value] of rows.entries()) {
+	for (const [index, value] of values.entries()) {
 		const wrapped = wrapText(value);
 		const body = wrapped.length > 0 ? wrapped : [value];
 		for (const [wrapIndex, part] of body.entries()) {
-			const prefix = index === 0 && wrapIndex === 0 ? chalk.dim(label.padEnd(9)) : "         ";
+			const prefix = index === 0 && wrapIndex === 0 ? chalk.dim(label.padEnd(10)) : "          ";
 			const color =
 				label === "outcome" && passed === false
 					? chalk.yellow
 					: label === "outcome" && passed === true
 						? chalk.green
 						: (text: string) => text;
-			lines.push(`  ${chalk.dim("│")}    ${prefix}${color(part)}`);
+			lines.push(`    ${prefix}${color(part)}`);
 		}
 	}
 	return lines;

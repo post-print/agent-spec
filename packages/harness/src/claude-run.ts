@@ -13,6 +13,7 @@ import {
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
 import type { JudgeClassifierResult } from "./cursor-run.js";
+import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
 	AgentRunTimeoutError,
@@ -21,7 +22,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace } from "./types.js";
+import type { AgentTrace, LiveAgentEvent } from "./types.js";
 
 const DEFAULT_ALLOWED_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,Agent";
 
@@ -37,6 +38,8 @@ export interface ClaudeRunOptions {
 	failOnUserInput?: boolean;
 	/** Fires immediately before the harness deadline timer arms (after spawn setup). */
 	onDeadlineStart?: () => void | Promise<void>;
+	/** Fires as the CLI streams assistant text and tool calls. */
+	onAgentEvent?: (event: LiveAgentEvent) => void;
 	/** Override binary path; defaults to CLAUDE_CODE_BIN or `claude`. */
 	bin?: string;
 	/** Override --allowedTools; defaults to CLAUDE_CODE_ALLOWED_TOOLS or built-in list. */
@@ -302,7 +305,9 @@ async function drainNdjson(
 	acc: ClaudeTraceAccumulator,
 	failOnUserInput: boolean,
 	signal: AbortSignal,
+	onAgentEvent?: (event: LiveAgentEvent) => void,
 ): Promise<{ exitCode: number | null; stderr: string }> {
+	const liveState = createLiveNotifyState();
 	const stderrChunks: string[] = [];
 	child.stderr.setEncoding("utf8");
 	child.stderr.on("data", (chunk: string) => {
@@ -337,6 +342,7 @@ async function drainNdjson(
 					continue;
 				}
 				accumulateClaudeEvent(acc, event);
+				emitLiveAgentEvents(acc, liveState, onAgentEvent);
 				stashTrace(acc);
 				const lastTool = acc.toolCalls.at(-1);
 				if (lastTool && isUserInputTool(lastTool.name)) {
@@ -422,6 +428,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 					acc,
 					options.failOnUserInput !== false,
 					abort.signal,
+					options.onAgentEvent,
 				);
 				const trace = stashTrace(acc);
 				const rawStatus =

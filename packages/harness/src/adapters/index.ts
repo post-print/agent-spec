@@ -69,6 +69,7 @@ export class CursorAdapter implements HostAdapter {
 				timeoutMs: options.timeoutMs,
 				failOnUserInput: options.failOnUserInput,
 				onDeadlineStart: options.onDeadlineStart,
+				onAgentEvent: options.onAgentEvent,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);
 			const trace = enrichTrace({
@@ -151,6 +152,7 @@ export class ClaudeAdapter implements HostAdapter {
 				timeoutMs: options.timeoutMs,
 				failOnUserInput: options.failOnUserInput,
 				onDeadlineStart: options.onDeadlineStart,
+				onAgentEvent: options.onAgentEvent,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);
 			const resultError = streamedTrace.artifacts.claudeResultError;
@@ -241,6 +243,7 @@ export class OpenaiAdapter implements HostAdapter {
 				timeoutMs: options.timeoutMs,
 				failOnUserInput: options.failOnUserInput,
 				onDeadlineStart: options.onDeadlineStart,
+				onAgentEvent: options.onAgentEvent,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);
 			const resultError = streamedTrace.artifacts.openaiResultError;
