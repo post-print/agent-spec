@@ -133,6 +133,67 @@ describe("validate-suite", () => {
 		expect(issues.some((issue) => issue.field === "allowUserSkills")).toBe(true);
 	});
 
+	it("accepts a scenario description and arm descriptions", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "pair",
+						description: "Checks that a short prompt uses fewer tokens.",
+						prompt: "test",
+						compare: {
+							a: {
+								label: "alpha",
+								description: "Asks for a long summary.",
+								workspace: "agent-suites/judge/workspaces/compare-a",
+							},
+							b: {
+								label: "beta",
+								description: "Asks for one sentence.",
+								workspace: "agent-suites/judge/workspaces/compare-b",
+							},
+						},
+						rubric: {},
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects an empty scenario description", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "case",
+					description: "   ",
+					prompt: "test",
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "description")).toBe(true);
+	});
+
+	it("rejects an empty compare arm description", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						a: { description: "" },
+						b: {},
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.a.description")).toBe(true);
+	});
+
 	it("accepts a compare scenario without a judge", () => {
 		expect(
 			validateSuiteFile("/tmp/scenarios.json", {

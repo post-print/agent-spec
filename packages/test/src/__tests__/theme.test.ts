@@ -49,13 +49,13 @@ describe("theme.fileTip", () => {
 		chalk.level = priorLevel;
 	});
 
-	it("makes the label the clickable text and keeps the path in the URL", () => {
+	it("marks a filesystem path as a file and keeps the path visible", () => {
 		chalk.level = 0;
 		const line = theme.fileTip("HTML report", "/tmp/out/report.html");
+		expect(line).toContain("HTML report file");
 		expect(line).toContain(
-			"\u001b]8;;file:///tmp/out/report.html\u0007HTML report\u001b]8;;\u0007",
+			"\u001b]8;;file:///tmp/out/report.html\u0007/tmp/out/report.html\u001b]8;;\u0007",
 		);
-		expect(line.includes("/tmp/out/report.html\u001b]8;;\u0007")).toBe(false);
 	});
 
 	it("shows a localhost URL so Cursor can open the browser", () => {
@@ -280,6 +280,21 @@ describe("theme.scenarioVerdict", () => {
 			durationMs: 2,
 		});
 		expect(lines.some((line) => line.includes("\u001b["))).toBe(true);
+	});
+});
+
+describe("theme.scenarioDescription", () => {
+	const priorLevel = chalk.level;
+
+	afterEach(() => {
+		chalk.level = priorLevel;
+	});
+
+	it("indents a plain-language test note", () => {
+		chalk.level = 0;
+		expect(theme.scenarioDescription("Checks that the short prompt uses fewer tokens.")).toEqual([
+			"    Checks that the short prompt uses fewer tokens.",
+		]);
 	});
 });
 

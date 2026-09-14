@@ -163,10 +163,12 @@ describe("html-report", () => {
 			makeReport([
 				makeResult({
 					prompt: "Read word.txt.",
+					description: "Checks that two workspaces reply with different words.",
 					compare: {
 						a: {
 							id: "a",
 							label: "alpha",
+							description: "Reads the alpha workspace word.",
 							prompt: "Read word.txt.",
 							durationMs: 1200,
 							trace: {
@@ -180,6 +182,7 @@ describe("html-report", () => {
 						b: {
 							id: "b",
 							label: "beta",
+							description: "Reads the beta workspace word.",
 							prompt: "Read word.txt.",
 							durationMs: 800,
 							trace: {
@@ -194,15 +197,30 @@ describe("html-report", () => {
 				}),
 			]),
 		]);
-		expect(html).toContain("Conversation · alpha");
-		expect(html).toContain("Conversation · beta");
+		expect(html).toContain("compare-layout");
+		expect(html).toContain("compare-arm-a");
+		expect(html).toContain("compare-arm-b");
+		expect(html).toContain("Arm A");
+		expect(html).toContain("Arm B");
+		expect(html).toContain("Checks that two workspaces reply with different words.");
+		expect(html).toContain("Reads the alpha workspace word.");
+		expect(html).toContain("Reads the beta workspace word.");
 		expect(html).toContain("alpha-compare-a7c1");
 		expect(html).toContain("beta-compare-b3e9");
 		expect(html).toContain("Comparison");
+		expect(html).toContain("beta is faster than alpha");
 		expect(html).toContain("1.2s");
 		expect(html).toContain("1,200");
 		expect(html).toContain("900");
 		expect(html).toContain("-300");
+		const aIdx = html.indexOf("alpha-compare-a7c1");
+		const bIdx = html.indexOf("beta-compare-b3e9");
+		const cmpIdx = html.indexOf("Comparison");
+		expect(aIdx).toBeGreaterThan(-1);
+		expect(bIdx).toBeGreaterThan(aIdx);
+		expect(cmpIdx).toBeGreaterThan(bIdx);
+		expect(html).toContain("compare-scenario");
+		expect(html).toContain('compare-scenario" open>');
 	});
 
 	it("renders criteria and result from the scenario story", () => {

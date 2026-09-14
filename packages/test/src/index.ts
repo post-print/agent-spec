@@ -13,11 +13,14 @@ export {
 	applyCompareArm,
 	applySidecarCompareDurations,
 	assertCompareMetrics,
+	compareArmDescription,
 	compareArmLabel,
 	compareArmTokens,
 	compareStoryFields,
+	describeCompareOutcome,
 	mergeArmRubric,
 	parseCompareArmId,
+	plainDescription,
 	prefixCompareFailures,
 } from "./compare-scenario.js";
 export {

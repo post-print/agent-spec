@@ -217,6 +217,10 @@ export const theme = {
 		return host ? `${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}` : chalk.bold.white(name);
 	},
 
+	scenarioDescription(text: string): string[] {
+		return wrapText(text.trim(), wrapColumnWidth(4)).map((line) => `    ${chalk.dim(line)}`);
+	},
+
 	phaseTree(_prefix: "├─" | "└─" | "│   ", message: string): string {
 		return `    ${message}`;
 	},
@@ -273,15 +277,15 @@ export const theme = {
 	},
 
 	/**
-	 * Tip line with a clickable label.
+	 * Tip line with a clickable target.
 	 * `http://` stays visible so Cursor can open the browser.
-	 * A filesystem path stays in the OSC-8 URL only.
+	 * A filesystem path stays visible. Cursor opens that path in the editor.
 	 */
 	fileTip(label: string, pathOrUrl: string): string {
 		if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
 			return theme.tip(`${formatHyperlink(pathOrUrl, label)}  ${pathOrUrl}`);
 		}
-		return theme.tip(formatFileHyperlink(pathOrUrl, label));
+		return theme.tip(`${label} file  ${formatFileHyperlink(pathOrUrl)}`);
 	},
 
 	warn(message: string): string {

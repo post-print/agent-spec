@@ -181,11 +181,33 @@ function validateRubric(
 	}
 }
 
+function validateOptionalDescription(
+	issues: SuiteValidationIssue[],
+	suitePath: string,
+	field: string,
+	value: unknown,
+	scenarioName?: string,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (typeof value !== "string" || !value.trim()) {
+		pushIssue(issues, suitePath, field, "description must be a non-empty string", scenarioName);
+	}
+}
+
 function validateScenario(
 	issues: SuiteValidationIssue[],
 	suitePath: string,
 	scenario: AgentScenario,
 ): void {
+	validateOptionalDescription(
+		issues,
+		suitePath,
+		"description",
+		scenario.description,
+		scenario.name,
+	);
 	if (scenario.host !== undefined && !isKnownHostId(scenario.host)) {
 		pushIssue(issues, suitePath, "host", unknownHostMessage(scenario.host), scenario.name);
 	}
@@ -257,6 +279,13 @@ function validateCompareArmFields(
 	if (arm.label !== undefined && (typeof arm.label !== "string" || !arm.label.trim())) {
 		pushIssue(issues, suitePath, fieldPrefix, "label must be a non-empty string", scenarioName);
 	}
+	validateOptionalDescription(
+		issues,
+		suitePath,
+		`${fieldPrefix}.description`,
+		arm.description,
+		scenarioName,
+	);
 	if (arm.prompt !== undefined && typeof arm.prompt !== "string") {
 		pushIssue(issues, suitePath, `${fieldPrefix}.prompt`, "prompt must be a string", scenarioName);
 	}

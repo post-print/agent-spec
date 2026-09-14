@@ -1,5 +1,6 @@
 import type { AgentTrace } from "@post-print/agent-harness";
 
+import { describeCompareOutcome } from "./compare-scenario.js";
 import type {
 	AssertionFailure,
 	CompareArmId,
@@ -237,6 +238,8 @@ export function buildScenarioStory(options: {
 		bRubric?: ScenarioRubric;
 		aTrace?: AgentTrace;
 		bTrace?: AgentTrace;
+		aDurationMs?: number;
+		bDurationMs?: number;
 	};
 }): ScenarioStory {
 	const result = options.skipped
@@ -249,6 +252,22 @@ export function buildScenarioStory(options: {
 					...describeTraceHappened(options.compare.bTrace).map(
 						(line) => `${options.compare?.bLabel}: ${line}`,
 					),
+					...describeCompareOutcome({
+						a: {
+							id: "a",
+							label: options.compare.aLabel,
+							prompt: "",
+							trace: options.compare.aTrace,
+							durationMs: options.compare.aDurationMs,
+						},
+						b: {
+							id: "b",
+							label: options.compare.bLabel,
+							prompt: "",
+							trace: options.compare.bTrace,
+							durationMs: options.compare.bDurationMs,
+						},
+					}),
 				]
 			: describeTraceHappened(options.trace);
 	return {

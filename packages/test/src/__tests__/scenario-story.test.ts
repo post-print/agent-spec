@@ -80,17 +80,21 @@ describe("buildScenarioStory", () => {
 			compare: {
 				aLabel: "alpha",
 				bLabel: "beta",
+				aDurationMs: 1200,
+				bDurationMs: 800,
 				aTrace: {
 					messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
-					toolCalls: [],
+					toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
 					shellCommands: [],
 					artifacts: {},
+					usage: { totalTokens: 400 },
 				},
 				bTrace: {
 					messages: [{ role: "assistant", content: "beta-compare-b3e9" }],
 					toolCalls: [],
 					shellCommands: [],
 					artifacts: {},
+					usage: { totalTokens: 100 },
 				},
 			},
 		});
@@ -98,6 +102,9 @@ describe("buildScenarioStory", () => {
 		expect(story.criteria.some((line) => line.includes("judge answers"))).toBe(true);
 		expect(story.result.some((line) => line.startsWith("alpha:"))).toBe(true);
 		expect(story.result.some((line) => line.startsWith("beta:"))).toBe(true);
+		expect(story.result).toContain("beta is faster than alpha (800ms vs 1.2s)");
+		expect(story.result).toContain("beta uses fewer tokens than alpha (100 vs 400)");
+		expect(story.result).toContain("beta makes fewer tool calls than alpha (0 vs 1)");
 	});
 
 	it("lists metric gates without a judge", () => {

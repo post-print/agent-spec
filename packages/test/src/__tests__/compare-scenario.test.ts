@@ -4,8 +4,11 @@ import {
 	applyCompareArm,
 	applySidecarCompareDurations,
 	assertCompareMetrics,
+	compareArmDescription,
 	compareArmLabel,
+	describeCompareOutcome,
 	mergeArmRubric,
+	plainDescription,
 	prefixCompareFailures,
 } from "../compare-scenario.js";
 import type { AgentScenario, ScenarioCompareResult } from "../types.js";
@@ -25,6 +28,14 @@ describe("compare-scenario", () => {
 	it("uses the arm label or A/B", () => {
 		expect(compareArmLabel(base.compare?.a, "a")).toBe("alpha");
 		expect(compareArmLabel(undefined, "b")).toBe("B");
+	});
+
+	it("trims a description and drops blank text", () => {
+		expect(plainDescription("  Checks the short prompt.  ")).toBe("Checks the short prompt.");
+		expect(plainDescription("   ")).toBeUndefined();
+		expect(compareArmDescription({ description: " Asks for one sentence. " })).toBe(
+			"Asks for one sentence.",
+		);
 	});
 
 	it("applies arm overrides and drops compare", () => {
@@ -89,6 +100,31 @@ describe("compare-scenario", () => {
 		const failures = assertCompareMetrics({ cheaper: "a" }, pair);
 		expect(failures[0]?.matcher).toBe("cheaper");
 		expect(failures[0]?.message).toContain("did not report tokens");
+	});
+
+	it("describes which arm is faster, cheaper, and lighter on tools", () => {
+		const pair = pairResult({ aMs: 1200, bMs: 800, aTokens: 400, bTokens: 100 });
+		pair.a.trace = {
+			messages: [],
+			toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
+			shellCommands: [],
+			artifacts: {},
+			usage: { totalTokens: 400 },
+		};
+		expect(describeCompareOutcome(pair)).toEqual([
+			"beta is faster than alpha (800ms vs 1.2s)",
+			"beta uses fewer tokens than alpha (100 vs 400)",
+			"beta makes fewer tool calls than alpha (0 vs 1)",
+		]);
+	});
+
+	it("describes a tie on duration", () => {
+		const pair = pairResult({ aMs: 800, bMs: 800, aTokens: 50, bTokens: 50 });
+		expect(describeCompareOutcome(pair)).toEqual([
+			"both arms took 800ms",
+			"both arms use 50 tokens",
+			"both arms make 0 tool calls",
+		]);
 	});
 
 	it("applies sidecar arm durations", () => {

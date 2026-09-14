@@ -38,6 +38,7 @@ agent-suites/
 | Field | Role |
 | --- | --- |
 | `name` | Scenario id. |
+| `description` | Optional plain-language note. It says what the scenario tests. |
 | `prompt` | User prompt sent to the host. |
 | `compare` | Two live arms. See Compare below. |
 | `host` | Pin this scenario to one host. A matrix run skips it on the other hosts. |
@@ -83,7 +84,7 @@ The judge sees assistant text, tool args, and tool results. `--no-judge` skips j
 
 ## Compare
 
-Set `compare.a` and `compare.b`. Each arm can override prompt, host, workspace, skills, context, MCP, seed, `allowUserSkills`, and extra rubric checks.
+Set `compare.a` and `compare.b`. Each arm can override prompt, host, workspace, skills, context, MCP, seed, `allowUserSkills`, extra rubric checks, and an optional `description`.
 
 Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. Pairwise `rubric.judge` stays on the scenario.
 
@@ -92,10 +93,15 @@ Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm.
 ```json
 {
   "name": "cheaper prompt",
+  "description": "Checks that a short prompt uses fewer tokens than a long prompt.",
   "prompt": "Read README.txt. Reply with one sentence.",
   "compare": {
-    "a": { "label": "verbose", "prompt": "Read README.txt. Write a long summary." },
-    "b": { "label": "short" },
+    "a": {
+      "label": "verbose",
+      "description": "Asks for a long summary.",
+      "prompt": "Read README.txt. Write a long summary."
+    },
+    "b": { "label": "short", "description": "Asks for one sentence." },
     "cheaper": "b"
   },
   "rubric": { "mustReadPath": ["README.txt"] }

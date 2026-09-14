@@ -45,8 +45,10 @@ import {
 	applyCompareArm,
 	applySidecarCompareDurations,
 	assertCompareMetrics,
+	compareArmDescription,
 	compareArmLabel,
 	compareStoryFields,
+	plainDescription,
 	prefixCompareFailures,
 } from "./compare-scenario.js";
 import { collectDebugEnvironment, getDebugBundleDir, writeDebugBundle } from "./debug-bundle.js";
@@ -142,6 +144,16 @@ async function restoreActiveCallerHead(): Promise<void> {
 
 function isChildProcess(): boolean {
 	return process.env.AGENT_TEST_CHILD === "1";
+}
+
+function logScenarioDescription(description?: string): void {
+	const text = plainDescription(description);
+	if (!text) {
+		return;
+	}
+	for (const line of theme.scenarioDescription(text)) {
+		logProgress(line);
+	}
 }
 
 function resolveMaxConversationTurns(): number | undefined {
@@ -647,9 +659,11 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 			if (scenario.skip) {
 				const skipLabel = `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`;
 				logProgress(theme.skipped(skipLabel));
+				logScenarioDescription(scenario.description);
 				results.push({
 					suite: suite.name,
 					scenario: scenario.name,
+					description: plainDescription(scenario.description),
 					prompt: scenario.prompt,
 					passed: true,
 					failures: [],
@@ -836,12 +850,15 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 							...compareStoryFields(scenario),
 							aTrace: compareResult.a.trace,
 							bTrace: compareResult.b.trace,
+							aDurationMs: compareResult.a.durationMs,
+							bDurationMs: compareResult.b.durationMs,
 						}
 					: undefined,
 			});
 			const scenarioResult: ScenarioResult = {
 				suite: suite.name,
 				scenario: scenario.name,
+				description: plainDescription(scenario.description),
 				prompt: scenario.prompt,
 				passed,
 				failures,
@@ -1147,9 +1164,11 @@ async function runAgentTestOnce(
 				? `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`
 				: scenario.name;
 		logProgress(theme.skipped(skipLabel));
+		logScenarioDescription(scenario.description);
 		return {
 			suite: suiteName,
 			scenario: scenario.name,
+			description: plainDescription(scenario.description),
 			prompt: scenario.prompt,
 			passed: true,
 			failures: [],
@@ -1209,8 +1228,10 @@ async function runAgentTestOnce(
 		logPhase(theme.phase("arm", `${runOptions.compareArm.toUpperCase()} ${host}`));
 	} else if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
 		logProgress(theme.scenarioTitle(scenarioIndex, scenarioTotal, scenario.name, host));
+		logScenarioDescription(scenario.description);
 	} else {
 		logProgress(theme.scenarioLabel(scenario.name, host));
+		logScenarioDescription(scenario.description);
 	}
 
 	const useWorktree = worktree !== false && !process.env.AGENT_TEST_NO_WORKTREE;
@@ -1481,6 +1502,7 @@ async function runAgentTestOnce(
 		const scenarioResult: ScenarioResult = {
 			suite: suiteName,
 			scenario: scenario.name,
+			description: plainDescription(scenario.description),
 			prompt: scenario.prompt,
 			passed,
 			failures,
@@ -1589,6 +1611,7 @@ async function runCompareAgentTestOnce(
 	} else {
 		logProgress(theme.scenarioLabel(scenario.name, host));
 	}
+	logScenarioDescription(scenario.description);
 
 	const aScenario = applyCompareArm(scenario, "a");
 	const bScenario = applyCompareArm(scenario, "b");
@@ -1674,6 +1697,7 @@ async function runCompareAgentTestOnce(
 		a: {
 			id: "a",
 			label: aLabel,
+			description: compareArmDescription(scenario.compare?.a),
 			prompt: aScenario.prompt,
 			trace: aResult.trace,
 			durationMs: aResult.durationMs,
@@ -1681,6 +1705,7 @@ async function runCompareAgentTestOnce(
 		b: {
 			id: "b",
 			label: bLabel,
+			description: compareArmDescription(scenario.compare?.b),
 			prompt: bScenario.prompt,
 			trace: bResult.trace,
 			durationMs: bResult.durationMs,
@@ -1736,11 +1761,14 @@ async function runCompareAgentTestOnce(
 			...compareStoryFields(scenario),
 			aTrace: compareResult.a.trace,
 			bTrace: compareResult.b.trace,
+			aDurationMs: compareResult.a.durationMs,
+			bDurationMs: compareResult.b.durationMs,
 		},
 	});
 	const scenarioResult: ScenarioResult = {
 		suite: suiteName,
 		scenario: scenario.name,
+		description: plainDescription(scenario.description),
 		prompt: scenario.prompt,
 		passed,
 		failures,
@@ -1810,8 +1838,20 @@ async function loadCompareResultFromStaging(
 		}
 	};
 	return {
-		a: { id: "a", label: aLabel, prompt: aScenario.prompt, trace: await loadArm("a") },
-		b: { id: "b", label: bLabel, prompt: bScenario.prompt, trace: await loadArm("b") },
+		a: {
+			id: "a",
+			label: aLabel,
+			description: compareArmDescription(scenario.compare?.a),
+			prompt: aScenario.prompt,
+			trace: await loadArm("a"),
+		},
+		b: {
+			id: "b",
+			label: bLabel,
+			description: compareArmDescription(scenario.compare?.b),
+			prompt: bScenario.prompt,
+			trace: await loadArm("b"),
+		},
 	};
 }
 

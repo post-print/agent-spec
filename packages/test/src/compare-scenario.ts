@@ -62,6 +62,16 @@ export function compareArmLabel(arm: CompareArm | undefined, side: CompareArmId)
 	return side === "a" ? "A" : "B";
 }
 
+/** Trim a description. Empty text becomes undefined. */
+export function plainDescription(value?: string): string | undefined {
+	const text = value?.trim();
+	return text ? text : undefined;
+}
+
+export function compareArmDescription(arm: CompareArm | undefined): string | undefined {
+	return plainDescription(arm?.description);
+}
+
 function otherArm(side: CompareArmId): CompareArmId {
 	return side === "a" ? "b" : "a";
 }
@@ -120,6 +130,71 @@ export function prefixCompareFailures(
 		...failure,
 		message: `${label}: ${failure.message}`,
 	}));
+}
+
+function formatCompareDuration(ms: number): string {
+	if (ms < 1000) {
+		return `${Math.round(ms)}ms`;
+	}
+	return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function armToolCount(arm: CompareArmResult): number | undefined {
+	return arm.trace ? arm.trace.toolCalls.length : undefined;
+}
+
+/**
+ * Plain-language winners after both arms finish.
+ * Lower duration, token count, and tool count win.
+ */
+export function describeCompareOutcome(compare: ScenarioCompareResult): string[] {
+	const lines: string[] = [];
+	const aLabel = compare.a.label;
+	const bLabel = compare.b.label;
+
+	const aMs = compare.a.durationMs;
+	const bMs = compare.b.durationMs;
+	if (typeof aMs === "number" && typeof bMs === "number") {
+		if (aMs === bMs) {
+			lines.push(`both arms took ${formatCompareDuration(aMs)}`);
+		} else if (aMs < bMs) {
+			lines.push(
+				`${aLabel} is faster than ${bLabel} (${formatCompareDuration(aMs)} vs ${formatCompareDuration(bMs)})`,
+			);
+		} else {
+			lines.push(
+				`${bLabel} is faster than ${aLabel} (${formatCompareDuration(bMs)} vs ${formatCompareDuration(aMs)})`,
+			);
+		}
+	}
+
+	const aTokens = compareArmTokens(compare.a);
+	const bTokens = compareArmTokens(compare.b);
+	if (typeof aTokens === "number" && typeof bTokens === "number") {
+		if (aTokens === bTokens) {
+			lines.push(`both arms use ${aTokens} tokens`);
+		} else if (aTokens < bTokens) {
+			lines.push(`${aLabel} uses fewer tokens than ${bLabel} (${aTokens} vs ${bTokens})`);
+		} else {
+			lines.push(`${bLabel} uses fewer tokens than ${aLabel} (${bTokens} vs ${aTokens})`);
+		}
+	}
+
+	const aTools = armToolCount(compare.a);
+	const bTools = armToolCount(compare.b);
+	if (typeof aTools === "number" && typeof bTools === "number") {
+		if (aTools === bTools) {
+			lines.push(
+				aTools === 1 ? "both arms make 1 tool call" : `both arms make ${aTools} tool calls`,
+			);
+		} else if (aTools < bTools) {
+			lines.push(`${aLabel} makes fewer tool calls than ${bLabel} (${aTools} vs ${bTools})`);
+		} else {
+			lines.push(`${bLabel} makes fewer tool calls than ${aLabel} (${bTools} vs ${aTools})`);
+		}
+	}
+
+	return lines;
 }
 
 export function applySidecarCompareDurations(

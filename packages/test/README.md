@@ -21,6 +21,7 @@ const result = await runAgentTest({
   cwd: process.cwd(),
   scenario: {
     name: "uses the project instructions",
+    description: "Checks that the agent reads AGENTS.md.",
     prompt: "Review the current change.",
     rubric: { mustReadPath: ["AGENTS.md"] },
   },

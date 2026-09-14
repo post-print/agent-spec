@@ -55,6 +55,8 @@ export type CompareArmId = "a" | "b";
 /** Overrides for one side of a compare scenario. Omitted fields inherit the scenario. */
 export interface CompareArm {
 	label?: string;
+	/** Plain-language note for this arm. */
+	description?: string;
 	prompt?: string;
 	host?: AgentHost;
 	profile?: ContextProfile;
@@ -90,6 +92,8 @@ export interface CompareArmResult {
 	id: CompareArmId;
 	label: string;
 	prompt: string;
+	/** Plain-language note for this arm. */
+	description?: string;
 	trace?: AgentTrace;
 	durationMs?: number;
 }
@@ -101,6 +105,8 @@ export interface ScenarioCompareResult {
 
 export interface AgentScenario {
 	name: string;
+	/** Plain-language note. Says what this scenario tests. */
+	description?: string;
 	/** Run two arms. Optional metric gates and an optional pairwise judge. */
 	compare?: ScenarioCompare;
 	prompt: string;
@@ -227,6 +233,8 @@ export interface ScenarioResult {
 	judgeUsage?: AgentUsage;
 	/** Scenario prompt sent to the host (for HTML conversation). */
 	prompt?: string;
+	/** Plain-language note. Says what this scenario tests. */
+	description?: string;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
 	/** Both arms when this scenario is a compare run. */

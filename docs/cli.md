@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
 
-<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/package.json -->
+<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json -->
 
 `agent-test` launches a host agent and scores the transcript. Every live run runs `--check` first.
 
@@ -65,7 +65,7 @@ Removed flags fail with a message: `--live`, `--record`, `--record-fixtures`, `-
 | `--debug-dir <path>` | Parent directory for that bundle. Default `$TMPDIR/agent-spec`. |
 | `--no-worktree` | Run in the caller checkout. Needs `AGENT_TEST_ALLOW_IN_PLACE=1`. |
 
-A TTY live run prints a localhost HTML preview. The preview exits after 30 minutes idle. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip it.
+A TTY live run prints a localhost HTML preview. Cmd-click the `http://` URL to open the browser. The preview exits after 30 minutes idle. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip it. That prints a file path. Cursor opens the file path in the editor.
 
 `--debug-dir` inside the git repo prints a tip. Prefer `$TMPDIR` so debug files stay out of `git status`.
 

@@ -9,6 +9,7 @@ import type {
 	AgentUsage,
 } from "@post-print/agent-harness";
 
+import { describeCompareOutcome } from "./compare-scenario.js";
 import { summarizeReports } from "./suite-summary.js";
 import type { CompareArmResult, ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
 
@@ -542,6 +543,16 @@ function tokenDelta(
 	return bValue - aValue;
 }
 
+function winnerCellClass(delta: number | undefined, side: "a" | "b"): string {
+	if (delta === undefined || delta === 0) {
+		return "";
+	}
+	if (side === "a") {
+		return delta > 0 ? "is-better" : "is-worse";
+	}
+	return delta < 0 ? "is-better" : "is-worse";
+}
+
 function renderCompareMetricRow(
 	label: string,
 	aText: string,
@@ -551,8 +562,8 @@ function renderCompareMetricRow(
 ): string {
 	return `<tr>
   <th scope="row">${escapeHtml(label)}</th>
-  <td>${escapeHtml(aText)}</td>
-  <td>${escapeHtml(bText)}</td>
+  <td class="${winnerCellClass(delta, "a")}">${escapeHtml(aText)}</td>
+  <td class="${winnerCellClass(delta, "b")}">${escapeHtml(bText)}</td>
   <td class="${deltaClass(delta)}">${escapeHtml(deltaText)}</td>
 </tr>`;
 }
@@ -569,12 +580,18 @@ function renderCompareMetrics(result: ScenarioResult): string {
 	const bTools = armToolCount(compare.b);
 	const toolDelta = aTools !== undefined && bTools !== undefined ? bTools - aTools : undefined;
 	const totalDelta = tokenDelta(compare.a, compare.b, "total");
+	const callouts = describeCompareOutcome(compare);
+	const calloutList =
+		callouts.length > 0
+			? `<ul class="compare-callouts">${callouts.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+			: "";
 	return `
 <section class="compare">
   <header class="compare-header">
     <h3>Comparison</h3>
     <p class="muted">${escapeHtml(compare.a.label)} vs ${escapeHtml(compare.b.label)}. Δ is B minus A. A lower time and a lower token count is better.</p>
   </header>
+  ${calloutList}
   <div class="compare-table-wrap">
     <table class="compare-table">
       <thead>
@@ -597,6 +614,60 @@ function renderCompareMetrics(result: ScenarioResult): string {
 </section>`;
 }
 
+function renderArmMetrics(arm: CompareArmResult): string {
+	const parts: string[] = [];
+	const ms = armDurationMs(arm);
+	if (ms !== undefined) {
+		parts.push(formatDuration(ms));
+	}
+	const tokens = formatArmTokens(arm, "total");
+	if (tokens !== "n/a") {
+		parts.push(`${tokens} tokens`);
+	}
+	const tools = armToolCount(arm);
+	if (tools !== undefined) {
+		parts.push(tools === 1 ? "1 tool" : `${formatInteger(tools)} tools`);
+	}
+	if (parts.length === 0) {
+		return "";
+	}
+	return `<p class="compare-arm-metrics">${escapeHtml(parts.join(" · "))}</p>`;
+}
+
+function renderArmColumn(arm: CompareArmResult, side: "a" | "b"): string {
+	const description = arm.description
+		? `<p class="compare-arm-description">${escapeHtml(arm.description)}</p>`
+		: "";
+	return `
+<article class="compare-arm compare-arm-${side}">
+  <header class="compare-arm-header">
+    <p class="compare-arm-kicker">${side === "a" ? "Arm A" : "Arm B"}</p>
+    <h3>${escapeHtml(arm.label)}</h3>
+    ${description}
+    ${renderArmMetrics(arm)}
+  </header>
+  ${renderChat(arm.trace, arm.prompt)}
+</article>`;
+}
+
+function renderCompareConversations(result: ScenarioResult): string {
+	const compare = result.compare;
+	if (!compare) {
+		return `<section class="conversation">
+    <h3>Conversation</h3>
+    ${renderChat(result.trace, result.prompt)}
+  </section>`;
+	}
+	return `
+<div class="compare-layout">
+  <div class="compare-arms">
+    ${renderArmColumn(compare.a, "a")}
+    ${renderArmColumn(compare.b, "b")}
+  </div>
+  ${renderCompareMetrics(result)}
+</div>`;
+}
+
 function renderStoryList(title: string, lines: string[] | undefined): string {
 	if (!lines || lines.length === 0) {
 		return "";
@@ -617,12 +688,12 @@ function renderStory(result: ScenarioResult): string {
 }
 
 function renderScenario(result: ScenarioResult): string {
-	const open = result.passed || result.skipped ? "" : " open";
+	const open = result.skipped ? "" : !result.passed || result.compare ? " open" : "";
 	const failures = result.story ? "" : renderFailures(result);
 	const judgeVerdicts = renderJudgeVerdicts(result);
 	const tokens = formatTokensBadge(result);
-	const usageDetail = renderUsageDetail(usageOf(result));
-	const traceMeta = renderTraceMeta(result);
+	const usageDetail = result.compare ? "" : renderUsageDetail(usageOf(result));
+	const traceMeta = result.compare ? "" : renderTraceMeta(result);
 	const story = renderStory(result);
 	const diagnostics =
 		story || failures || judgeVerdicts
@@ -636,33 +707,25 @@ function renderScenario(result: ScenarioResult): string {
 		usageDetail || traceMeta
 			? `<div class="diagnostics meta-row">${usageDetail}${traceMeta}</div>`
 			: "";
+	const compareClass = result.compare ? " compare-scenario" : "";
+	const description = result.description
+		? `<span class="scenario-lede">${escapeHtml(result.description)}</span>`
+		: "";
 	return `
-<details class="scenario ${statusClass(result)}"${open}>
+<details class="scenario ${statusClass(result)}${compareClass}"${open}>
   <summary>
     <span class="badge ${statusClass(result)}">${statusLabel(result)}</span>
-    <span class="scenario-name">${escapeHtml(result.scenario)}</span>
+    <span class="scenario-heading">
+      <span class="scenario-name">${escapeHtml(result.scenario)}</span>
+      ${description}
+    </span>
     ${tokens ? `<span class="tokens">${escapeHtml(tokens)}</span>` : ""}
     <span class="duration">${escapeHtml(formatDuration(result.durationMs))}</span>
   </summary>
   <div class="scenario-body">
   ${diagnostics}
   ${metaRow}
-  ${renderCompareMetrics(result)}
-  ${
-		result.compare
-			? `<section class="conversation">
-    <h3>Conversation · ${escapeHtml(result.compare.a.label)}</h3>
-    ${renderChat(result.compare.a.trace, result.compare.a.prompt)}
-  </section>
-  <section class="conversation">
-    <h3>Conversation · ${escapeHtml(result.compare.b.label)}</h3>
-    ${renderChat(result.compare.b.trace, result.compare.b.prompt)}
-  </section>`
-			: `<section class="conversation">
-    <h3>Conversation</h3>
-    ${renderChat(result.trace, result.prompt)}
-  </section>`
-	}
+  ${renderCompareConversations(result)}
   </div>
 </details>`;
 }
@@ -701,6 +764,8 @@ function sharedReportCss(): string {
     --system-bubble: oklch(0.26 0.04 300);
     --tool: oklch(0.82 0.12 80);
     --tool-bubble: oklch(0.26 0.04 80);
+    --arm-a: oklch(0.72 0.12 250);
+    --arm-b: oklch(0.78 0.14 75);
   }
   @layer reset {
     * { box-sizing: border-box; }
@@ -717,6 +782,7 @@ function sharedReportCss(): string {
       word-spacing: 0.16em;
     }
     main { max-width: 68rem; margin-inline: auto; padding: 1.5rem 1.25rem 3rem; }
+    main:has(.compare-layout) { max-width: 96rem; }
     h1 { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; }
     h2 { font-size: 1.05rem; font-weight: 650; }
     h3 { font-size: 0.8rem; color: var(--muted); font-weight: 650; }
@@ -805,7 +871,9 @@ function sharedReportCss(): string {
   }
   details.scenario[open] summary { border-bottom: 1px solid var(--border); background: #17202d; }
   details.scenario summary::-webkit-details-marker { display: none; }
+  .scenario-heading { display: grid; gap: 0.1rem; min-width: 12rem; flex: 1 1 16rem; }
   .scenario-name { font-weight: 600; font-size: 0.9rem; }
+  .scenario-lede { color: var(--muted); font-size: 0.78rem; font-weight: 400; }
   .duration { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
   .badge {
     display: inline-block;
@@ -896,8 +964,47 @@ function sharedReportCss(): string {
   .shell-commands li { font-size: 0.8rem; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.5rem; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
 
+  .compare-layout {
+    container-type: inline-size;
+    display: grid;
+    gap: 0.9rem;
+  }
+  .compare-arms {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.85rem;
+    align-items: stretch;
+  }
+  .compare-arm {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 0.65rem;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.8rem 0.85rem;
+    border-block-start-width: 3px;
+  }
+  .compare-arm-a { border-block-start-color: var(--arm-a); }
+  .compare-arm-b { border-block-start-color: var(--arm-b); }
+  .compare-arm-header { display: grid; gap: 0.15rem; padding-bottom: 0.55rem; border-bottom: 1px solid var(--border); }
+  .compare-arm-kicker {
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .compare-arm-a .compare-arm-kicker { color: var(--arm-a); }
+  .compare-arm-b .compare-arm-kicker { color: var(--arm-b); }
+  .compare-arm-header h3 { color: var(--text); font-size: 0.95rem; }
+  .compare-arm-description { color: var(--muted); font-size: 0.8rem; }
+  .compare-arm-metrics { color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .compare-arm .bubble, .compare-arm .tool-card { max-width: 100%; }
+
   .compare {
-    margin-top: 1.1rem;
+    margin-top: 0;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -905,6 +1012,13 @@ function sharedReportCss(): string {
   }
   .compare-header { margin-bottom: 0.65rem; }
   .compare-header h3 { margin-bottom: 0.2rem; }
+  .compare-callouts {
+    margin: 0 0 0.75rem;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+  }
   .compare-table-wrap { overflow-x: auto; }
   .compare-table {
     width: 100%;
@@ -922,12 +1036,19 @@ function sharedReportCss(): string {
   .delta-up { color: var(--fail); }
   .delta-down { color: var(--pass); }
   .delta-flat { color: var(--muted); }
+  .is-better { color: var(--pass); font-weight: 650; }
+  .is-worse { color: var(--muted); }
+
+  @container (max-width: 44rem) {
+    .compare-arms { grid-template-columns: minmax(0, 1fr); }
+  }
 
   @media (max-width: 720px) {
     main { padding: 0.75rem; }
     .suite-header { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
     .diagnostics { grid-template-columns: 1fr; }
     .bubble, .tool-card { max-width: 92%; }
+    .compare-arms { grid-template-columns: minmax(0, 1fr); }
   }
   }
 `;
@@ -973,7 +1094,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     <h2 id="guide-heading">How to read this report</h2>
     <ol>
       <li>The verdict is pass or fail. Tokens are cost, not the score.</li>
-      <li>Open a scenario for the criteria and the result. A compare scenario shows a time and token table, then two conversations.</li>
+      <li>Open a scenario for the criteria and the result. A compare scenario shows the two arms side by side, then a comparison of time, tokens, and tools.</li>
       <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
       <li>In is prompt and context. Out is generated text.</li>
     </ol>

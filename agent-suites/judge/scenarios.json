@@ -42,14 +42,17 @@
 		},
 		{
 			"name": "compares two workspace arms",
+			"description": "Checks that two sealed workspaces reply with different one-word tokens.",
 			"prompt": "Read word.txt. Reply with only that word. Do not add other words.",
 			"compare": {
 				"a": {
 					"label": "alpha",
+					"description": "Reads word.txt from the alpha workspace.",
 					"workspace": "agent-suites/judge/workspaces/compare-a"
 				},
 				"b": {
 					"label": "beta",
+					"description": "Reads word.txt from the beta workspace.",
 					"workspace": "agent-suites/judge/workspaces/compare-b"
 				}
 			},
@@ -66,10 +69,12 @@
 		},
 		{
 			"name": "skill arm is cheaper and more faithful",
+			"description": "Checks that the brief-ship skill writes a cheaper plan that stays closer to the note.",
 			"prompt": "Read every markdown file. Write a detailed shipping plan with background, risks, and next steps.",
 			"compare": {
 				"a": {
 					"label": "no skill",
+					"description": "No brief-ship skill. The agent can write a longer plan.",
 					"workspace": "agent-suites/judge/workspaces/skill-off",
 					"skills": "none",
 					"rubric": {
@@ -78,6 +83,7 @@
 				},
 				"b": {
 					"label": "with skill",
+					"description": "Uses the brief-ship skill. The agent must stay on the note.",
 					"workspace": "agent-suites/judge/workspaces/skill-on",
 					"skills": [".agents/skills/brief-ship/SKILL.md"],
 					"rubric": {
