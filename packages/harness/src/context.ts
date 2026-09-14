@@ -15,12 +15,13 @@ const SHARED_SOURCES = [
 const CLAUDE_SOURCES = ["CLAUDE.md", "AGENTS.md"] as const;
 
 const SKELETON_REGISTRY = ".skeleton/registry.md";
+const SKELETON_TOML = "skeleton.toml";
 const SKELETON_CONFIG = ".skeleton/config.yaml";
 const SKELETON_CUSTOMIZE_DIR = ".skeleton/customize";
 
 const CURSOR_RULES_DIR = ".cursor/rules";
 
-/** Max chars of config.yaml body kept in the preamble (header/summary, not plugin trees). */
+/** Max chars of skeleton.toml or config.yaml kept in the preamble. */
 const SKELETON_CONFIG_SUMMARY_MAX_CHARS = 2_500;
 
 async function fileExists(path: string): Promise<boolean> {
@@ -200,12 +201,18 @@ export async function loadContext(options: LoadContextOptions): Promise<LoadedCo
 	}
 
 	if (profile === "skeleton") {
-		const configText = await readIfExists(options.cwd, SKELETON_CONFIG);
-		if (configText !== null) {
-			const summary = summarizeSkeletonConfig(configText);
-			await pushSource(SKELETON_CONFIG, summary.length > 0 ? summary : configText);
-			for (const basename of parseSkeletonAlwaysInclude(configText)) {
-				await pushSource(resolveContextSourcePath(basename));
+		const tomlText = await readIfExists(options.cwd, SKELETON_TOML);
+		if (tomlText !== null) {
+			const summary = summarizeSkeletonConfig(tomlText);
+			await pushSource(SKELETON_TOML, summary.length > 0 ? summary : tomlText);
+		} else {
+			const configText = await readIfExists(options.cwd, SKELETON_CONFIG);
+			if (configText !== null) {
+				const summary = summarizeSkeletonConfig(configText);
+				await pushSource(SKELETON_CONFIG, summary.length > 0 ? summary : configText);
+				for (const basename of parseSkeletonAlwaysInclude(configText)) {
+					await pushSource(resolveContextSourcePath(basename));
+				}
 			}
 		}
 	}

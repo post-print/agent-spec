@@ -1,8 +1,10 @@
 # @post-print/agent-harness
 
-**Source of truth for** agent-harness package.
+<!-- source-of-truth: agent-harness package -->
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+
+<!-- review-deps: paths=packages/harness/src/*.ts,packages/harness/src/**/*.ts,packages/harness/package.json -->
 
 Host-agnostic runtime for direct Cursor, Claude, and OpenAI Codex execution, capture, and judging.
 
@@ -79,7 +81,7 @@ The sealed workspace is a git repo. Hosts load project skills from `.agents/skil
 
 ## Isolation
 
-`createSealedWorkspace` copies `git archive HEAD` plus caller context (rules, skill trees, `AGENTS.md`) into a temp folder. Pass `workspace` to copy a caller-relative folder instead. It then runs `git init` in that folder so git does not walk to the caller repo. The test runner fails the scenario when tool paths leave that folder.
+`createSealedWorkspace` copies `git archive HEAD` plus caller context (rules, skill trees, `AGENTS.md`, `skeleton.toml`) into a temp folder. Pass `workspace` to copy a caller-relative folder instead. It then runs `git init` in that folder so git does not walk to the caller repo. The test runner fails the scenario when tool paths leave that folder.
 
 ## Judge
 

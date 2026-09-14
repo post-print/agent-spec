@@ -81,6 +81,19 @@ describe("loadContext", () => {
 		expect(context.preamble).toContain("keep registry first");
 	});
 
+	it("prefers skeleton.toml over legacy config.yaml", async () => {
+		const repoRoot = await fixtureRepo();
+		await mkdir(join(repoRoot, ".skeleton"), { recursive: true });
+		await writeFile(join(repoRoot, ".skeleton/registry.md"), "# Registry\n", "utf8");
+		await writeFile(join(repoRoot, "skeleton.toml"), "daysUntilStale = 180\n", "utf8");
+		await writeFile(join(repoRoot, ".skeleton/config.yaml"), "daysUntilStale: 90\n", "utf8");
+
+		const context = await loadContext({ cwd: repoRoot, profile: "skeleton" });
+		expect(context.sources).toContain("skeleton.toml");
+		expect(context.sources).not.toContain(".skeleton/config.yaml");
+		expect(context.preamble).toContain("daysUntilStale = 180");
+	});
+
 	it("keeps shared profile unchanged when contextSources are omitted", async () => {
 		const repoRoot = await fixtureRepo();
 		const context = await loadContext({ cwd: repoRoot, profile: "shared" });

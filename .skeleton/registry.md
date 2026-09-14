@@ -1,8 +1,12 @@
 # Registry
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-02 -->
+<!-- source-of-truth: topic routing in this repo -->
 
-**Source of truth for** topic routing in this repo. Edit rows here; edit content in canonical files only.
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+
+<!-- review-deps: paths=README.md,AGENTS.md,packages/*/README.md,docs/*.md -->
+
+Human topic index. Local audit writes `.skeleton/catalog.md` for agents. Edit rows here. Edit content in canonical files only.
 
 ## Documentation
 

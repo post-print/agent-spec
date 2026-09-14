@@ -128,6 +128,7 @@ export function defaultSealedOverlayPaths(extra?: string[], skillPaths?: string[
 		"CLAUDE.md",
 		".cursor/rules",
 		".skeleton/registry.md",
+		"skeleton.toml",
 		".skeleton/config.yaml",
 		".skeleton/customize",
 		...SKILL_ROOTS,

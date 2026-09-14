@@ -1,8 +1,10 @@
 # agent-spec
 
-**Source of truth for** package overview.
+<!-- source-of-truth: package overview -->
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+
+<!-- review-deps: paths=package.json,packages/*/package.json -->
 
 Executable specs for coding-agent behavior.
 

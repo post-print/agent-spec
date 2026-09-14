@@ -5,3 +5,5 @@ dist/
 .env
 coverage/
 _agent/
+.skeleton/catalog.md
+

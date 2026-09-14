@@ -1,8 +1,10 @@
 # @post-print/agent-test
 
-**Source of truth for** the direct-agent test package.
+<!-- source-of-truth: the direct-agent test package -->
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+
+<!-- review-deps: paths=packages/test/src/*.ts,packages/test/src/**/*.ts,packages/test/package.json -->
 
 Scenario runner for real Cursor, Claude, and OpenAI Codex agents, built on `@post-print/agent-harness`.
 

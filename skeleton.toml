@@ -1,0 +1,41 @@
+# https://github.com/csark0812/skeleton — root config (preferred over .skeleton/config.yaml)
+
+daysUntilStale = 180
+
+[scan]
+include = [
+  "README.md",
+  "AGENTS.md",
+  "packages/*/README.md",
+  "docs/*.md",
+  ".skeleton/registry.md",
+]
+exclude = [
+  ".agents/skills/**",
+  ".claude/skills/**",
+  "**/references/**",
+  "**/node_modules/**",
+  "agent-suites/**",
+]
+
+[deny]
+paths = []
+
+[skillOwnership]
+lockfile = "skills-lock.json"
+
+[reviewProof]
+mode = "hash"
+
+[reviewCoverage]
+include = [
+  "packages/harness/src/**/*.ts",
+  "packages/test/src/**/*.ts",
+  "package.json",
+  "packages/*/package.json",
+]
+exclude = [
+  "**/__tests__/**",
+  "**/*.test.ts",
+  "**/fixtures/**",
+]

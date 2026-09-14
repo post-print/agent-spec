@@ -1,10 +1,19 @@
 # Agent entry (agent-spec)
 
-**Source of truth for** agent cold-start in this repo.
+<!-- source-of-truth: agent cold-start in this repo -->
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
 
+<!-- review-deps: paths=package.json,skeleton.toml,.github/workflows/test.yml -->
+
 Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agent-harness` and `@post-print/agent-test`.
+
+## Doc routing
+
+1. Local `audit` / `validate` writes `.skeleton/catalog.md` (skipped when `CI=true`).
+2. Skim the catalog summaries.
+3. For a hit, read only the source-of-truth line / first ~20 lines of that file.
+4. Open the full doc only if it is truly relevant.
 
 ## Prerequisites
 
@@ -29,7 +38,7 @@ Full unpaid gate (`bun run check` = lint + typecheck + unit tests + build) needs
 
 `bun install` can warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox. That is safe to ignore or re-run with `all` permissions.
 
-Use `bun run lint` / `bunx biome` (pinned 2.5.8). A global `biome` on PATH is often older and will fail this repo's config.
+Use `bun run lint` / `bunx biome` (pinned 2.5.12). A global `biome` on PATH is often older and will fail this repo's config.
 
 Host-agent proof after export of the host keys:
 
@@ -43,16 +52,23 @@ bun run test
 
 | Change type | Run |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Docs / registry / `.skeleton/` | `bun run validate:changed -- <path>` or `bun run audit:self` |
-| Synced toolbox skills (`.agents/skills/`, `.claude/skills/`) | skipped — lint in [csark0812/toolbox](https://github.com/csark0812/toolbox); override via `.skeleton/customize/<slug>.md` |
+| Docs / `skeleton.toml` / `.skeleton/` | `bun run validate:changed -- <path>` or `bun run audit:self` |
+| Synced toolbox skills (`.agents/skills/`, `.claude/skills/`) | skipped — lint in [csark0812/toolbox](https://github.com/csark0812/toolbox) or the owning skill repo |
 | TypeScript under `packages/` (scoped) | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed |
 | TypeScript under `packages/` (full) | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions) |
 | Host-agent suite | `bun run test` (smoke, tools, mcp, judge, depth × Cursor, Claude, Codex). Slice: `bun run test:smoke` or `--host cursor`. |
+
+`validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Hash review proof lives in `.skeleton/review-lock.json`. After a complete re-read, attest explicit paths only:
+
+```bash
+skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewed
+```
 
 ## Layout
 
 - `packages/harness` — host-agnostic agent runtime (Cursor, Claude, OpenAI Codex)
 - `packages/test` — direct-agent scenario runner + `agent-test` CLI; JSON suites are an input adapter
 - `agent-suites/` — in-repo host-agent suites. Each scenario uses a dedicated workspace. A `compare` scenario runs two arms. Optional metric rules pick a winner. An arm can add extra rubric checks. A pairwise judge runs only when `rubric.judge` is set. Host-global user skills stay out unless `allowUserSkills` is true. Default CLI `--suites-dir`
+- `skeleton.toml` — Skeleton scan perimeter, review proof, and coverage
 - `.agents/skills/` — project skills (Cursor/Codex); `.claude/skills/` mirrors for Claude Code
 - Team skills from [csark0812/toolbox](https://github.com/csark0812/toolbox); lockfile: `skills-lock.json`

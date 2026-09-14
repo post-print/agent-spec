@@ -1,8 +1,10 @@
 # Reliability
 
-**Source of truth for** agent-spec reliability targets and verification commands.
+<!-- source-of-truth: agent-spec reliability targets and verification commands -->
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+
+<!-- review-deps: paths=package.json,agent-suites/**/scenarios.json -->
 
 `bun run test:unit` does not launch a paid agent. `bun run test` launches Cursor, Claude, or OpenAI Codex. Replay-based testing is deprecated and removed. JSON suites only configure direct runs.
 
