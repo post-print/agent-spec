@@ -17,6 +17,19 @@ Executable specs for coding-agent behavior.
 
 Consumer repos can call the typed `runAgentTest` API or keep JSON suites locally (`agent-suites/<suite>/scenarios.json`). JSON is an authoring adapter. A live CLI run launches Cursor, Claude, or OpenAI Codex.
 
+## Docs
+
+First consumer hour: [docs/getting-started.md](docs/getting-started.md). Topic index: [.skeleton/registry.md](.skeleton/registry.md).
+
+| Paper | Use when |
+| --- | --- |
+| [Getting started](docs/getting-started.md) | Install, write one suite, check, launch |
+| [CLI](docs/cli.md) | Flags, check versus live, in-repo scripts |
+| [Suites](docs/suites.md) | JSON fields, rubric, compare, MCP |
+| [Hosts](docs/hosts.md) | Auth and custom adapters |
+| [Isolation](docs/isolation.md) | Sealed workspace, skills, debug bundles |
+| [Reliability](docs/reliability.md) | Targets, fail-on, environment knobs |
+
 > **Deprecated and removed:** replay-based tests and committed replay traces are no longer supported. `host: "replay"`, `replayTrace`, `--record-fixtures`, and the old `--live` mode flag fail with migration guidance.
 
 ## Consumer usage (Node >= 22)

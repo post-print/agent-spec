@@ -89,4 +89,4 @@ The sealed workspace is a git repo. Hosts load project skills from `.agents/skil
 
 The Cursor app login does not feed the SDK. Run `Cursor.auth.login()` once, or set `CURSOR_API_KEY`. `OPENAI_AUTH_MODE=subscription` uses the Codex CLI login and strips stale API keys from the child env.
 
-Consumer: `@post-print/agent-test`.
+Consumer: `@post-print/agent-test`. Auth and adapters: [docs/hosts.md](../../docs/hosts.md). Sealed workspace: [docs/isolation.md](../../docs/isolation.md).

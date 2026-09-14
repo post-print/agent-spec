@@ -16,4 +16,9 @@ Human topic index. Local audit writes `.skeleton/catalog.md` for agents. Edit ro
 | agent cold-start in this repo. | [AGENTS.md](../AGENTS.md)                  |
 | agent-harness package.         | [README.md](../packages/harness/README.md) |
 | agent-test package.            | [README.md](../packages/test/README.md)    |
+| first consumer run.            | [getting-started.md](../docs/getting-started.md) |
+| agent-test CLI flags.          | [cli.md](../docs/cli.md)                   |
+| JSON suite authoring.          | [suites.md](../docs/suites.md)             |
+| host auth and adapters.        | [hosts.md](../docs/hosts.md)               |
+| sealed workspace isolation.    | [isolation.md](../docs/isolation.md)       |
 | direct-test reliability.       | [reliability.md](../docs/reliability.md)   |

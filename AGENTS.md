@@ -15,6 +15,15 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 3. For a hit, read only the source-of-truth line / first ~20 lines of that file.
 4. Open the full doc only if it is truly relevant.
 
+| Branch | Paper |
+| --- | --- |
+| Getting started (install, first suite, first live run) | [docs/getting-started.md](docs/getting-started.md) |
+| CLI flags, check versus live | [docs/cli.md](docs/cli.md) |
+| Suites, rubric, compare, MCP | [docs/suites.md](docs/suites.md) |
+| Hosts, auth, custom adapters | [docs/hosts.md](docs/hosts.md) |
+| Isolation, sealed workspace, debug | [docs/isolation.md](docs/isolation.md) |
+| Reliability targets and fail-on | [docs/reliability.md](docs/reliability.md) |
+
 ## Prerequisites
 
 - Bun `1.4.0` (see `packageManager` in `package.json`)
