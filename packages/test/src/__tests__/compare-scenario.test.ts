@@ -6,6 +6,7 @@ import {
 	assertCompareMetrics,
 	compareArmDescription,
 	compareArmLabel,
+	compareStoryFields,
 	describeCompareOutcome,
 	mergeArmRubric,
 	plainDescription,
@@ -25,9 +26,30 @@ const base: AgentScenario = {
 };
 
 describe("compare-scenario", () => {
-	it("uses the arm label or A/B", () => {
+	it("passes arm descriptions into story fields", () => {
+		const fields = compareStoryFields({
+			...base,
+			compare: {
+				a: {
+					label: "control",
+					description: " Intact catalog. Names the real Billing API webhook. ",
+				},
+				b: {
+					label: "experimental",
+					description: "Contested catalog. Reports duplicate summaries.",
+				},
+			},
+		});
+		expect(fields.aLabel).toBe("control");
+		expect(fields.bLabel).toBe("experimental");
+		expect(fields.aDescription).toBe("Intact catalog. Names the real Billing API webhook.");
+		expect(fields.bDescription).toBe("Contested catalog. Reports duplicate summaries.");
+	});
+
+	it("uses the arm label or control and experimental", () => {
 		expect(compareArmLabel(base.compare?.a, "a")).toBe("alpha");
-		expect(compareArmLabel(undefined, "b")).toBe("B");
+		expect(compareArmLabel(undefined, "a")).toBe("control");
+		expect(compareArmLabel(undefined, "b")).toBe("experimental");
 	});
 
 	it("trims a description and drops blank text", () => {

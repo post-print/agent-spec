@@ -88,6 +88,14 @@ export class TraceAssertion {
 		return this.trace.messages.map((m: { content: string }) => m.content).join("");
 	}
 
+	/** Assistant reply text only. Tool results, commands, and artifacts do not count. */
+	private replyHaystack(): string {
+		return this.trace.messages
+			.filter((message: AgentMessage) => message.role === "assistant")
+			.map((message: AgentMessage) => message.content)
+			.join("\n");
+	}
+
 	private assertionHaystack(): string {
 		return [
 			this.messageText(),
@@ -337,7 +345,7 @@ export class TraceAssertion {
 	}
 
 	mustInclude(text: string): this {
-		const haystack = this.assertionHaystack();
+		const haystack = this.replyHaystack();
 		if (!haystack.toLowerCase().includes(text.toLowerCase())) {
 			const near = nearestMissLine(haystack, text);
 			this.push(

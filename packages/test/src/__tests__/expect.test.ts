@@ -57,9 +57,36 @@ describe("expectTrace", () => {
 		expect(failures).toHaveLength(0);
 	});
 
-	it("checks mustInclude across shell commands", () => {
+	it("does not treat a shell command as must evidence", () => {
 		const failures = assertRubric(sampleTrace, { must: ["validate:changed"] });
-		expect(failures).toHaveLength(0);
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.matcher).toBe("mustInclude");
+	});
+
+	it("fails must when the required string is only in a Read result", () => {
+		const trace: AgentTrace = {
+			messages: [
+				{
+					role: "assistant",
+					content: "I read AGENTS.md and will follow it.",
+				},
+			],
+			toolCalls: [
+				{
+					name: "Read",
+					args: { path: "AGENTS.md" },
+					result: "VALIDATE_CMD=skeleton validate changed\nOther tokens.",
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		const failures = assertRubric(trace, {
+			must: ["VALIDATE_CMD=skeleton validate changed"],
+		});
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.matcher).toBe("mustInclude");
+		expect(failures[0]?.category).toBe("rubric_miss");
 	});
 
 	it("does not treat a Read tool result as mustNot evidence", () => {
@@ -333,7 +360,7 @@ describe("expectTrace", () => {
 		).toHaveLength(0);
 	});
 
-	it("checks must against MCP tool results", () => {
+	it("does not treat an MCP tool result as must evidence", () => {
 		const trace: AgentTrace = {
 			messages: [{ role: "assistant", content: "done" }],
 			toolCalls: [
@@ -346,7 +373,9 @@ describe("expectTrace", () => {
 			shellCommands: [],
 			artifacts: {},
 		};
-		expect(assertRubric(trace, { must: ["mcp echo ok"] })).toHaveLength(0);
+		const failures = assertRubric(trace, { must: ["mcp echo ok"] });
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.matcher).toBe("mustInclude");
 	});
 
 	it("checks mustCallTool when the fragment is only in the tool result", () => {

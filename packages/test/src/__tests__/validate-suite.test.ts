@@ -176,6 +176,31 @@ describe("validate-suite", () => {
 		expect(issues.some((issue) => issue.field === "description")).toBe(true);
 	});
 
+	it("rejects a compare arm with no description", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						a: {
+							label: "alpha",
+							workspace: "agent-suites/judge/workspaces/compare-a",
+						},
+						b: {
+							label: "beta",
+							description: "Asks for one sentence.",
+							workspace: "agent-suites/judge/workspaces/compare-b",
+						},
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.a.description")).toBe(true);
+	});
+
 	it("rejects an empty compare arm description", () => {
 		const issues = validateSuiteFile("/tmp/scenarios.json", {
 			name: "bad",
@@ -203,8 +228,16 @@ describe("validate-suite", () => {
 						name: "pair",
 						prompt: "test",
 						compare: {
-							a: { label: "alpha", workspace: "agent-suites/judge/workspaces/compare-a" },
-							b: { label: "beta", workspace: "agent-suites/judge/workspaces/compare-b" },
+							a: {
+								label: "alpha",
+								description: "Asks for a long summary.",
+								workspace: "agent-suites/judge/workspaces/compare-a",
+							},
+							b: {
+								label: "beta",
+								description: "Asks for one sentence.",
+								workspace: "agent-suites/judge/workspaces/compare-b",
+							},
 							cheaper: "b",
 						},
 						rubric: {},
@@ -242,8 +275,16 @@ describe("validate-suite", () => {
 						name: "pair",
 						prompt: "test",
 						compare: {
-							a: { label: "alpha", workspace: "agent-suites/judge/workspaces/compare-a" },
-							b: { label: "beta", workspace: "agent-suites/judge/workspaces/compare-b" },
+							a: {
+								label: "alpha",
+								description: "Reads word.txt from the alpha workspace.",
+								workspace: "agent-suites/judge/workspaces/compare-a",
+							},
+							b: {
+								label: "beta",
+								description: "Reads word.txt from the beta workspace.",
+								workspace: "agent-suites/judge/workspaces/compare-b",
+							},
 						},
 						rubric: { judge: ["Did the arms differ?"] },
 					},
@@ -263,11 +304,13 @@ describe("validate-suite", () => {
 						compare: {
 							a: {
 								label: "no skill",
+								description: "No brief-ship skill. The agent can write a longer plan.",
 								workspace: "agent-suites/judge/workspaces/skill-off",
 								rubric: { mustNotInvokeSkill: ["brief-ship"] },
 							},
 							b: {
 								label: "with skill",
+								description: "Uses the brief-ship skill. The agent must stay on the note.",
 								workspace: "agent-suites/judge/workspaces/skill-on",
 								skills: [".agents/skills/brief-ship/SKILL.md"],
 								rubric: { mustInvokeSkill: ["brief-ship"] },

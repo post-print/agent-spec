@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
 
-<!-- review-deps: paths=packages/test/src/types.ts,packages/test/src/validate-suite.ts,agent-suites/**/scenarios.json -->
+<!-- review-deps: paths=packages/test/src/types.ts,packages/test/src/compare-scenario.ts,packages/test/src/validate-suite.ts,agent-suites/**/scenarios.json -->
 
 A **suite** is `agent-suites/<name>/scenarios.json`. A **scenario** is one prompt plus a rubric. JSON loads into `runAgentTest`. It is not a stored answer.
 
@@ -61,11 +61,11 @@ Sidecar rubrics: omit inline rubric keys when a sibling `rubrics.json` / `scenar
 
 ## Rubric matchers
 
-Deterministic matchers read the transcript. That includes assistant text, tool names, args, and tool results unless a row says otherwise.
+Deterministic matchers read the transcript. Each row states which parts of the trace it searches.
 
 | Key | Pass when |
 | --- | --- |
-| `must` | Each string appears in text, commands, artifacts, or tool args and results. |
+| `must` | Each string appears in assistant reply text. Tool results, commands, and artifacts do not count. |
 | `mustNot` | None of the strings appear in text, commands, artifacts, or tool args. Tool results are ignored. |
 | `mustRun` | Each string appears in a shell command. |
 | `mustCallTool` | A tool name substring matches. `name:fragment` also requires the fragment in JSON args or the tool result. |
@@ -84,7 +84,7 @@ The judge sees assistant text, tool args, and tool results. `--no-judge` skips j
 
 ## Compare
 
-Set `compare.a` and `compare.b`. Each arm can override prompt, host, workspace, skills, context, MCP, seed, `allowUserSkills`, extra rubric checks, and an optional `description`.
+Set `compare.a` and `compare.b`. Each arm must have a `description`. That note says what the arm tests. Each arm can override prompt, host, workspace, skills, context, MCP, seed, `allowUserSkills`, and extra rubric checks. If you omit `label`, arm a is named control. Arm b is named experimental.
 
 Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. Pairwise `rubric.judge` stays on the scenario.
 

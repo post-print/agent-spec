@@ -72,6 +72,27 @@ describe("buildScenarioStory", () => {
 		expect(story.verdict).toEqual([]);
 	});
 
+	it("lists each compare arm description in the criteria", () => {
+		const story = buildScenarioStory({
+			rubric: {},
+			passed: true,
+			failures: [],
+			compare: {
+				aLabel: "control",
+				bLabel: "experimental",
+				aDescription: "Intact catalog. Names the real Billing API webhook.",
+				bDescription: "Contested catalog. Reports duplicate summaries.",
+			},
+		});
+		expect(story.criteria).toContain("compare control vs experimental");
+		expect(story.criteria).toContain(
+			"control: Intact catalog. Names the real Billing API webhook.",
+		);
+		expect(story.criteria).toContain(
+			"experimental: Contested catalog. Reports duplicate summaries.",
+		);
+	});
+
 	it("lists both compare arms in the result", () => {
 		const story = buildScenarioStory({
 			rubric: { judge: ["Did the arms differ?"] },

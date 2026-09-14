@@ -59,7 +59,7 @@ export function compareArmLabel(arm: CompareArm | undefined, side: CompareArmId)
 	if (label) {
 		return label;
 	}
-	return side === "a" ? "A" : "B";
+	return side === "a" ? "control" : "experimental";
 }
 
 /** Trim a description. Empty text becomes undefined. */
@@ -107,6 +107,8 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 export function compareStoryFields(scenario: AgentScenario): {
 	aLabel: string;
 	bLabel: string;
+	aDescription?: string;
+	bDescription?: string;
 	faster?: CompareArmId;
 	cheaper?: CompareArmId;
 	aRubric?: ScenarioRubric;
@@ -115,6 +117,8 @@ export function compareStoryFields(scenario: AgentScenario): {
 	return {
 		aLabel: compareArmLabel(scenario.compare?.a, "a"),
 		bLabel: compareArmLabel(scenario.compare?.b, "b"),
+		aDescription: compareArmDescription(scenario.compare?.a),
+		bDescription: compareArmDescription(scenario.compare?.b),
 		faster: scenario.compare?.faster,
 		cheaper: scenario.compare?.cheaper,
 		aRubric: scenario.compare?.a.rubric,

@@ -279,13 +279,15 @@ function validateCompareArmFields(
 	if (arm.label !== undefined && (typeof arm.label !== "string" || !arm.label.trim())) {
 		pushIssue(issues, suitePath, fieldPrefix, "label must be a non-empty string", scenarioName);
 	}
-	validateOptionalDescription(
-		issues,
-		suitePath,
-		`${fieldPrefix}.description`,
-		arm.description,
-		scenarioName,
-	);
+	if (typeof arm.description !== "string" || !arm.description.trim()) {
+		pushIssue(
+			issues,
+			suitePath,
+			`${fieldPrefix}.description`,
+			"description is required",
+			scenarioName,
+		);
+	}
 	if (arm.prompt !== undefined && typeof arm.prompt !== "string") {
 		pushIssue(issues, suitePath, `${fieldPrefix}.prompt`, "prompt must be a string", scenarioName);
 	}

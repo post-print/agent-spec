@@ -20,7 +20,7 @@ export interface ScenarioRubric {
 	tier?: "low" | "medium" | "high";
 	/** Chat-style tier announce — infer one-line routing from transcript when routing.tier absent. */
 	handsOnRouting?: boolean;
-	/** Substring in assistant text, commands, artifacts, or tool args and results. */
+	/** Substring that must appear in assistant reply text. */
 	must?: string[];
 	/** Substring that must not appear in assistant text, commands, artifacts, or tool args. Tool results are ignored. */
 	mustNot?: string[];
@@ -54,8 +54,9 @@ export type CompareArmId = "a" | "b";
 
 /** Overrides for one side of a compare scenario. Omitted fields inherit the scenario. */
 export interface CompareArm {
+	/** Display name. Omitted labels are control (a) and experimental (b). */
 	label?: string;
-	/** Plain-language note for this arm. */
+	/** Required. Says what this arm tests. */
 	description?: string;
 	prompt?: string;
 	host?: AgentHost;

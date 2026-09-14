@@ -87,15 +87,16 @@
 		},
 		"docs/suites.md": {
 			"reviewedAt": "2026-09-13",
-			"documentHash": "sha256:68bc55a9edcc03e8fc666d884aa406175f0a0fa848388d463a754511aadb7d31",
+			"documentHash": "sha256:50c9f821f827e7266cb47bbce0bb2131c7bb863e812725a9be07d3324d407400",
 			"reviewDependencies": {
 				"agent-suites/depth/scenarios.json": "sha256:81e3e59b0b41fcec16d3593da66a6f2fa9a32563fe73051983a6235b031a8e54",
 				"agent-suites/judge/scenarios.json": "sha256:8fff486a17640cc31b2cda3e0f0c3056d716ed4e3db686e4f79d1b84a28d1bc9",
 				"agent-suites/mcp/scenarios.json": "sha256:e475040e8d4c814a75cc3c00b050c4aecab682a1347355dc6419ef87b5d44d1b",
 				"agent-suites/smoke/scenarios.json": "sha256:555860d111416fa7723a2d31f0caf5de02eb96447b8cfd2039e97192294081cb",
 				"agent-suites/tools/scenarios.json": "sha256:86111ab6604cda3be6c0fb502fc4b295e73d12e908a2d3d628baefb60cdf1d64",
-				"packages/test/src/types.ts": "sha256:1320bb8357b9649a6a22d9a0e0d28542260d2d231bd2c9eeed9daa3f6d788ce0",
-				"packages/test/src/validate-suite.ts": "sha256:9190dd861cbcd18cc7c61ce116552a8325701ea054763ac24e55cda86dc4c470"
+				"packages/test/src/compare-scenario.ts": "sha256:afa1ac90ec21cbb945f0cd2130e6341f7b520b23292d0b2be26a784f530d0e27",
+				"packages/test/src/types.ts": "sha256:d4c4fdfa1c194cecdf1be02a5b2a963b046f60d3ca6c615f09293338e0659ad8",
+				"packages/test/src/validate-suite.ts": "sha256:1f63d5b77ea65beae8a0c13f92aad548b5094558cdd51eae5d5c0ae0513c4090"
 			}
 		},
 		"packages/harness/README.md": {

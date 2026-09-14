@@ -59,6 +59,8 @@ export function describeRubricChecks(
 	compare?: {
 		aLabel: string;
 		bLabel: string;
+		aDescription?: string;
+		bDescription?: string;
 		faster?: CompareArmId;
 		cheaper?: CompareArmId;
 		aRubric?: ScenarioRubric;
@@ -107,6 +109,12 @@ export function describeRubricChecks(
 	}
 	if (compare) {
 		lines.push(`compare ${compare.aLabel} vs ${compare.bLabel}`);
+		if (compare.aDescription) {
+			lines.push(`${compare.aLabel}: ${compare.aDescription}`);
+		}
+		if (compare.bDescription) {
+			lines.push(`${compare.bLabel}: ${compare.bDescription}`);
+		}
 		if (compare.faster) {
 			const winner = compare.faster === "a" ? compare.aLabel : compare.bLabel;
 			const loser = compare.faster === "a" ? compare.bLabel : compare.aLabel;
@@ -232,6 +240,8 @@ export function buildScenarioStory(options: {
 	compare?: {
 		aLabel: string;
 		bLabel: string;
+		aDescription?: string;
+		bDescription?: string;
 		faster?: CompareArmId;
 		cheaper?: CompareArmId;
 		aRubric?: ScenarioRubric;
