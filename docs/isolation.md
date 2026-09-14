@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
 
-<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts -->
+<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts -->
 
 A **sealed workspace** is a temp git repo that the host must not leave. The runner fails the scenario when a tool path leaves that folder. A leftover caller-tree check still restores leaked caller edits.
 
@@ -29,9 +29,9 @@ Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skill
 
 The `skills` field only overlays extra repo-relative folders that are not already in that repo. `"none"` adds no extra overlay.
 
-Host-global user skills stay out unless `allowUserSkills` is true. Those trees live under `~/.cursor/skills`, `~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`. Keep `allowUserSkills` false for a custom workspace fixture.
+Host-global user skills stay out unless `allowUserSkills` is true. Those trees live under `~/.cursor/skills-cursor`, `~/.cursor/skills`, `~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`. Keep `allowUserSkills` false for a custom workspace fixture.
 
-The deny path uses Cursor `settingSources: ["project"]`, Claude `--setting-sources project` or `--bare`, and Codex `--ignore-user-config`.
+The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees. Claude uses `--setting-sources project` or `--bare`. Codex uses `--ignore-user-config`. Cursor still indexes user skills from `os.homedir()` when `settingSources` omits `user`. The harness then points `HOME` at an empty tree for that Node process.
 
 ## Context
 

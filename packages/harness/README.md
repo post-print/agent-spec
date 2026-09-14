@@ -77,7 +77,7 @@ Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config
 
 ## Skills
 
-The sealed workspace is a git repo. Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skills`, and `.claude/skills` inside that folder. Optional `skills` paths only overlay extra folders that are not already in that repo. Host-global user skills stay out unless `allowUserSkills` is true. The deny path uses Cursor `settingSources: ["project"]`, Claude `--setting-sources project` or `--bare`, and Codex `--ignore-user-config`. The judge scores any criterion against the full transcript, including tool names, args, and results. A tool result is an outcome.
+The sealed workspace is a git repo. Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skills`, and `.claude/skills` inside that folder. Optional `skills` paths only overlay extra folders that are not already in that repo. Host-global user skills stay out unless `allowUserSkills` is true. The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees, Claude `--setting-sources project` or `--bare`, and Codex `--ignore-user-config`. The judge scores any criterion against the full transcript, including tool names, args, and results. A tool result is an outcome.
 
 ## Isolation
 

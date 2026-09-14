@@ -234,11 +234,18 @@ export {
 	type JudgeUserSimulatorOptions,
 } from "./user-simulator.js";
 export {
+	CURSOR_USER_HOME_DIR_PREFIX,
+	CURSOR_USER_SKILL_ROOTS,
 	type CursorSettingSource,
+	type CursorUserHome,
 	claudeSessionFlags,
+	countUserSkillEntries,
+	createCursorUserHome,
 	cursorSettingSources,
+	cursorUserSkillRoots,
 	openaiUserConfigArgs,
 	resolveAllowUserSkills,
+	withCursorUserHome,
 } from "./user-skills.js";
 export {
 	captureWorkingTreeStatus,

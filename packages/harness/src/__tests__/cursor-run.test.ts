@@ -183,6 +183,33 @@ describe("runCursorAgent usage", () => {
 		jest.clearAllMocks();
 	});
 
+	it("uses an isolated HOME when user skills stay out", async () => {
+		const originalHome = process.env.HOME;
+		let homeDuringCreate: string | undefined;
+		agentCreate.mockImplementation(async () => {
+			homeDuringCreate = process.env.HOME;
+			return {
+				send: agentSend,
+				[Symbol.asyncDispose]: async () => {},
+			};
+		});
+		agentSend.mockResolvedValue({
+			stream: async function* () {},
+			wait: async () => ({ status: "finished" }),
+		});
+		const { runCursorAgent } = await import("../cursor-run.js");
+		await runCursorAgent({
+			cwd: process.cwd(),
+			prompt: "test",
+			apiKey: "test-key",
+		});
+		expect(homeDuringCreate).toBeDefined();
+		expect(homeDuringCreate).not.toBe(originalHome);
+		expect(homeDuringCreate).toContain("agent-harness-cursor-home-");
+		expect(process.env.HOME).toBe(originalHome);
+		jest.clearAllMocks();
+	});
+
 	it("omits apiKey when CURSOR_AUTH_MODE=subscription", async () => {
 		agentCreate.mockResolvedValue({
 			send: agentSend,
