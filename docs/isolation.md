@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts -->
+<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/harness/src/openai-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts -->
 
 A **sealed workspace** is a temp git repo that the host must not leave. The runner fails the scenario when a tool path leaves that folder. A leftover caller-tree check still restores leaked caller edits.
 
@@ -21,7 +21,9 @@ Overlays on a HEAD copy include `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `skel
 
 A subfolder path must stay repo-relative. It must not contain `..`.
 
-In-repo suites set `workspace` on every scenario. Treat that folder as a fixture.
+In-repo suites set `workspace` in suite defaults or on a scenario. Treat that folder as a fixture.
+
+Cursor file tools and shell tools use the same selected workspace. Cursor can store a large tool result under its temporary `.cursor/projects/.../agent-tools/` folder. That host-owned result file is evidence plumbing, so the path check ignores it. Other paths outside the sealed workspace still fail.
 
 ## Skills
 
@@ -31,7 +33,7 @@ The `skills` field only overlays extra repo-relative folders that are not alread
 
 Host-global user skills stay out unless `allowUserSkills` is true. Those trees live under `~/.cursor/skills-cursor`, `~/.cursor/skills`, `~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`. Keep `allowUserSkills` false for a custom workspace fixture.
 
-The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees. That temp home copies `~/.cursor/sdk` so subscription login still works. Claude uses `--setting-sources project` or `--bare`. Codex uses `--ignore-user-config`. Cursor still indexes user skills from `os.homedir()` when `settingSources` omits `user`. The harness then points `HOME` at an empty tree for that Node process.
+The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees. That temp home copies `~/.cursor/sdk` so subscription login still works. Claude uses `--setting-sources project` or `--bare`. Codex uses `--ignore-user-config` and a temp home that contains only `auth.json`. Cursor still indexes user skills from `os.homedir()` when `settingSources` omits `user`. The harness then points `HOME` at an empty tree for that Node process.
 
 ## Context
 

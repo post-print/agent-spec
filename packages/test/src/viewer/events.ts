@@ -45,6 +45,8 @@ export type ViewerEvent =
 				turns?: number;
 				tokens?: number;
 				tools?: number;
+				durationMs?: number;
+				passed?: boolean;
 			};
 	  } & ViewerEventEnvelope)
 	| ({ type: "judge"; verdicts: ViewerJudgeVerdictEvent[] } & ViewerEventEnvelope)

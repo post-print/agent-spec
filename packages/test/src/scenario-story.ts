@@ -5,11 +5,10 @@ import {
 	type CompareStoryArm,
 	type CompareStoryFields,
 	describeCompareOutcome,
-	resolveCompareMetricPairs,
 } from "./compare-scenario.js";
 import type {
 	AssertionFailure,
-	CompareMetricGate,
+	CompareGate,
 	JudgeVerdictResult,
 	ScenarioRubric,
 	ScenarioStory,
@@ -77,8 +76,7 @@ export type StoryCompareInput = Partial<CompareStoryFields> & {
 	bLabel?: string;
 	aDescription?: string;
 	bDescription?: string;
-	faster?: CompareMetricGate;
-	cheaper?: CompareMetricGate;
+	gates?: CompareGate[];
 	aRubric?: ScenarioRubric;
 	bRubric?: ScenarioRubric;
 	aTrace?: AgentTrace;
@@ -98,21 +96,11 @@ function compareHeading(labels: string[]): string {
 	return `compare ${labels.slice(0, -1).join(", ")}, and ${last}`;
 }
 
-function labelForArm(arms: CompareStoryArm[], id: string): string {
-	return arms.find((arm) => arm.id === id)?.label ?? id;
-}
-
 function normalizeStoryCompare(compare: StoryCompareInput): CompareStoryFields {
 	if (compare.arms && compare.arms.length > 0) {
-		const armIds = compare.arms.map((arm) => arm.id);
 		return {
 			arms: compare.arms,
-			faster: Array.isArray(compare.faster)
-				? compare.faster
-				: resolveCompareMetricPairs(compare.faster, armIds),
-			cheaper: Array.isArray(compare.cheaper)
-				? compare.cheaper
-				: resolveCompareMetricPairs(compare.cheaper, armIds),
+			gates: compare.gates,
 			aLabel: compare.aLabel ?? compare.arms[0]?.label ?? "control",
 			bLabel: compare.bLabel ?? compare.arms[1]?.label ?? "experimental",
 			aDescription: compare.aDescription ?? compare.arms[0]?.description,
@@ -143,8 +131,7 @@ function normalizeStoryCompare(compare: StoryCompareInput): CompareStoryFields {
 	];
 	return {
 		arms,
-		faster: resolveCompareMetricPairs(compare.faster, ["a", "b"]),
-		cheaper: resolveCompareMetricPairs(compare.cheaper, ["a", "b"]),
+		gates: compare.gates,
 		aLabel,
 		bLabel,
 		aDescription: compare.aDescription,
@@ -189,6 +176,13 @@ function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
 	}
 	for (const tool of rubric.mustCallTool ?? []) {
 		specs.push({ text: `call ${tool}`, matcher: "toHaveCalledTool", needle: tool });
+	}
+	for (const tool of rubric.mustCallToolsInOrder ?? []) {
+		specs.push({
+			text: `call ${tool} in order`,
+			matcher: "toHaveCalledToolsInOrder",
+			needle: tool,
+		});
 	}
 	for (const tool of rubric.mustNotCallTool ?? []) {
 		specs.push({ text: `no ${tool} call`, matcher: "toHaveNotCalledTool", needle: tool });
@@ -305,20 +299,6 @@ function judgeChecks(
 	];
 }
 
-function pairCheckFailed(
-	failures: AssertionFailure[],
-	matcher: "faster" | "cheaper",
-	winnerLabel: string,
-	loserLabel: string,
-): boolean {
-	return failures.some(
-		(failure) =>
-			failure.matcher === matcher &&
-			failure.message.includes(winnerLabel) &&
-			failure.message.includes(loserLabel),
-	);
-}
-
 function buildCompareMetricSection(
 	compare: CompareStoryFields,
 	failures: AssertionFailure[],
@@ -331,44 +311,23 @@ function buildCompareMetricSection(
 			prompt: "",
 			trace: arm.trace,
 			durationMs: arm.durationMs,
+			passed: arm.passed,
+			judgeVerdicts: arm.judgeVerdicts,
 		})),
-		{ faster: compare.faster, cheaper: compare.cheaper },
+		compare.gates,
 	);
 	const outcomes = describeCompareOutcome(result);
-	const checks: StoryCheck[] = [];
-	const claimed = new Set<string>();
-	for (const pair of compare.faster ?? []) {
-		const winner = labelForArm(compare.arms, pair.winner);
-		const loser = labelForArm(compare.arms, pair.loser);
-		const measured = outcomes.find(
-			(line) =>
-				line.includes(`${winner} uses fewer turns than ${loser}`) ||
-				line.includes(`${loser} uses fewer turns than ${winner}`),
-		);
-		const text = measured ?? `${winner} uses fewer turns than ${loser}`;
-		claimed.add(text);
-		checks.push({
-			text,
-			status: pairCheckFailed(failures, "faster", winner, loser) ? "fail" : "pass",
-		});
-	}
-	for (const pair of compare.cheaper ?? []) {
-		const winner = labelForArm(compare.arms, pair.winner);
-		const loser = labelForArm(compare.arms, pair.loser);
-		const measured = outcomes.find(
-			(line) =>
-				line.includes(`${winner} uses fewer tokens than ${loser}`) ||
-				line.includes(`${loser} uses fewer tokens than ${winner}`),
-		);
-		const text = measured ?? `${winner} uses fewer tokens than ${loser}`;
-		claimed.add(text);
-		checks.push({
-			text,
-			status: pairCheckFailed(failures, "cheaper", winner, loser) ? "fail" : "pass",
-		});
-	}
+	const checks: StoryCheck[] = (compare.gates ?? []).map((gate) => ({
+		text:
+			"winner" in gate
+				? `${gate.winner} beats ${gate.loser} on ${gate.metric}`
+				: `${gate.arm} ${gate.metric} is ${gate.operator} ${gate.value}`,
+		status: failures.some((failure) => failure.matcher === `compareGate:${gate.metric}`)
+			? "fail"
+			: "pass",
+	}));
 	checks.push(...judge);
-	const notes = outcomes.filter((line) => !claimed.has(line));
+	const notes = outcomes;
 	if (checks.length === 0 && notes.length === 0) {
 		return undefined;
 	}
@@ -396,16 +355,19 @@ function buildStorySections(options: {
 		];
 	}
 	const sharedSpecs = rubricCheckSpecs(options.rubric);
-	const sections: StorySection[] = compare.arms.map((arm) => ({
-		title: arm.label,
-		description: arm.description,
-		checks: scoreSpecs(
-			[...sharedSpecs, ...rubricCheckSpecs(arm.rubric)],
-			options.failures,
-			arm.label,
-		),
-		notes: describeTraceHappened(arm.trace),
-	}));
+	const sections: StorySection[] = compare.arms.map((arm) => {
+		const armFailures = arm.failures;
+		return {
+			title: arm.label,
+			description: arm.description,
+			checks: scoreSpecs(
+				[...sharedSpecs, ...rubricCheckSpecs(arm.rubric)],
+				armFailures ?? options.failures,
+				armFailures ? undefined : arm.label,
+			),
+			notes: describeTraceHappened(arm.trace),
+		};
+	});
 	const compareSection = buildCompareMetricSection(
 		compare,
 		options.failures,
@@ -434,16 +396,12 @@ export function describeRubricChecks(
 				lines.push(`${arm.label}: ${arm.description}`);
 			}
 		}
-		for (const pair of normalized.faster ?? []) {
+		for (const gate of normalized.gates ?? [])
 			lines.push(
-				`${labelForArm(normalized.arms, pair.winner)} uses fewer turns than ${labelForArm(normalized.arms, pair.loser)}`,
+				"winner" in gate
+					? `${gate.winner} beats ${gate.loser} on ${gate.metric}`
+					: `${gate.arm} ${gate.metric} is ${gate.operator} ${gate.value}`,
 			);
-		}
-		for (const pair of normalized.cheaper ?? []) {
-			lines.push(
-				`${labelForArm(normalized.arms, pair.winner)} uses fewer tokens than ${labelForArm(normalized.arms, pair.loser)}`,
-			);
-		}
 		for (const arm of normalized.arms) {
 			for (const spec of rubricCheckSpecs(arm.rubric)) {
 				lines.push(`${arm.label}: ${spec.text}`);
@@ -560,30 +518,7 @@ function failureIsScored(
 				return true;
 			}
 		}
-		for (const pair of compare.faster ?? []) {
-			if (
-				pairCheckFailed(
-					[failure],
-					"faster",
-					labelForArm(compare.arms, pair.winner),
-					labelForArm(compare.arms, pair.loser),
-				)
-			) {
-				return true;
-			}
-		}
-		for (const pair of compare.cheaper ?? []) {
-			if (
-				pairCheckFailed(
-					[failure],
-					"cheaper",
-					labelForArm(compare.arms, pair.winner),
-					labelForArm(compare.arms, pair.loser),
-				)
-			) {
-				return true;
-			}
-		}
+		if (failure.matcher.startsWith("compareGate:")) return true;
 		return false;
 	}
 	return rubricCheckSpecs(rubric).some((spec) => specFailed([failure], spec));
@@ -636,8 +571,10 @@ export function buildScenarioStory(options: {
 								prompt: "",
 								trace: arm.trace,
 								durationMs: arm.durationMs,
+								passed: arm.passed,
+								judgeVerdicts: arm.judgeVerdicts,
 							})),
-							{ faster: compare.faster, cheaper: compare.cheaper },
+							compare.gates,
 						),
 					),
 				]

@@ -2,16 +2,11 @@ import { resolve } from "node:path";
 
 import type { AgentHost } from "@post-print/agent-harness";
 
-import {
-	compareArmDescription,
-	compareArmLabel,
-	resolveCompareArms,
-	resolveCompareMetricPairs,
-} from "../compare-scenario.js";
+import { compareArmDescription, compareArmLabel, resolveCompareArms } from "../compare-scenario.js";
 import { discoverSuites } from "../discover-suites.js";
 import { resolveSuiteHosts } from "../hosts.js";
 import { loadSuiteFile } from "../load-suite.js";
-import type { CompareMetricPair, ScenarioRubric } from "../types.js";
+import type { CompareGate, ScenarioRubric } from "../types.js";
 
 export interface ViewerCatalogArm {
 	id: string;
@@ -28,8 +23,7 @@ export interface ViewerCatalogScenario {
 	host?: AgentHost;
 	rubric: ScenarioRubric;
 	compare?: ViewerCatalogArm[];
-	faster?: CompareMetricPair[];
-	cheaper?: CompareMetricPair[];
+	gates?: CompareGate[];
 	contextSources?: string[];
 }
 
@@ -120,15 +114,7 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 				}
 				if (arms.length > 0) {
 					row.compare = arms;
-					const armIds = arms.map((arm) => arm.id);
-					const faster = resolveCompareMetricPairs(scenario.compare?.faster, armIds);
-					const cheaper = resolveCompareMetricPairs(scenario.compare?.cheaper, armIds);
-					if (faster.length > 0) {
-						row.faster = faster;
-					}
-					if (cheaper.length > 0) {
-						row.cheaper = cheaper;
-					}
+					if (scenario.compare?.gates?.length) row.gates = scenario.compare.gates;
 				}
 				return row;
 			}),

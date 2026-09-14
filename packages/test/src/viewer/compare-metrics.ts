@@ -1,6 +1,6 @@
-import type { CompareMetricPair } from "../types.js";
+import type { CompareGateResult } from "../types.js";
 
-export type ViewerCompareMetricId = "turns" | "tokens" | "tools";
+export type ViewerCompareMetricId = "turns" | "tokens" | "tools" | "durationMs";
 
 export interface ViewerArmMetricRow {
 	id: string;
@@ -8,6 +8,7 @@ export interface ViewerArmMetricRow {
 	turns?: number;
 	tokens?: number;
 	tools?: number;
+	durationMs?: number;
 }
 
 export interface ViewerMetricSummary {
@@ -18,7 +19,7 @@ export interface ViewerMetricSummary {
 }
 
 export interface ViewerGateSummary {
-	metric: "faster" | "cheaper";
+	metric: string;
 	passed: boolean;
 	line: string;
 }
@@ -32,19 +33,21 @@ const METRICS: Array<{ id: ViewerCompareMetricId; label: string }> = [
 	{ id: "turns", label: "Turns" },
 	{ id: "tokens", label: "Tokens" },
 	{ id: "tools", label: "Tools" },
+	{ id: "durationMs", label: "Duration" },
 ];
 
-/** Lower turns, tokens, and tool counts win. Named pairs do not pick one overall winner. */
+/** Lower turns, tokens, tool counts, and duration win. Named pairs do not pick one overall winner. */
 export function summarizeViewerCompare(
 	arms: ViewerArmMetricRow[],
-	gates?: { faster?: CompareMetricPair[]; cheaper?: CompareMetricPair[] },
+	gates: CompareGateResult[] = [],
 ): ViewerCompareSummary {
 	return {
 		metrics: METRICS.map((metric) => summarizeMetric(arms, metric.id, metric.label)),
-		gates: [
-			...summarizeGates(arms, "faster", gates?.faster ?? [], "use fewer turns than", "turns"),
-			...summarizeGates(arms, "cheaper", gates?.cheaper ?? [], "use fewer tokens than", "tokens"),
-		],
+		gates: gates.map((gate) => ({
+			metric: gate.gate.metric,
+			passed: gate.passed,
+			line: `${gate.message}. ${gate.passed ? "Pass." : "Fail."}`,
+		})),
 	};
 }
 
@@ -119,42 +122,6 @@ function summarizeMetric(
 		winnerIds: [winner.id],
 		line: `${label}: lowest is ${winner.label} (${shown}).`,
 	};
-}
-
-function summarizeGates(
-	arms: ViewerArmMetricRow[],
-	metric: "faster" | "cheaper",
-	pairs: CompareMetricPair[],
-	verb: string,
-	field: "turns" | "tokens",
-): ViewerGateSummary[] {
-	const byId = new Map(arms.map((arm) => [arm.id, arm]));
-	return pairs.map((pair) => {
-		const winner = byId.get(pair.winner);
-		const loser = byId.get(pair.loser);
-		if (!winner || !loser) {
-			return {
-				metric,
-				passed: false,
-				line: `${pair.winner} must ${verb} ${pair.loser}, but one arm is missing. Fail.`,
-			};
-		}
-		const winnerValue = winner[field];
-		const loserValue = loser[field];
-		if (typeof winnerValue !== "number" || typeof loserValue !== "number") {
-			return {
-				metric,
-				passed: false,
-				line: `${winner.label} must ${verb} ${loser.label}, but one arm did not report ${field}. Fail.`,
-			};
-		}
-		const passed = winnerValue < loserValue;
-		return {
-			metric,
-			passed,
-			line: `${winner.label} must ${verb} ${loser.label} (${winnerValue} vs ${loserValue}). ${passed ? "Pass." : "Fail."}`,
-		};
-	});
 }
 
 function joinLabels(labels: string[]): string {

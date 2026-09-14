@@ -59,7 +59,7 @@ describe("viewer page", () => {
 		expect(html).not.toContain('class="matrix"');
 	});
 
-	it("embeds tab switcher script for n-arm compares", () => {
+	it("embeds the arm tab switcher and run progress", () => {
 		const html = renderViewerPage(fourArmCatalog);
 		expect(html).toContain("skeleton clean");
 		expect(html).toContain("no skill messy");
@@ -67,6 +67,8 @@ describe("viewer page", () => {
 		expect(html).toContain("selectCompareTab");
 		expect(html).toContain("dataset.userPicked");
 		expect(html).toContain("compare-tabs");
+		expect(html).toContain('id="run-progress"');
+		expect(html).toContain("recordProgress");
 		expect(html).toContain("displayToolPath");
 		expect(html).toContain("chat-running");
 		expect(html).toContain("hideAllRunning");

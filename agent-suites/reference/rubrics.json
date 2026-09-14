@@ -1,0 +1,8 @@
+{
+  "scenarios": {
+    "uses a sidecar rubric": {
+      "must": ["SIDECAR_OK"],
+      "mustNotCallTool": ["Read", "Shell", "Bash"]
+    }
+  }
+}

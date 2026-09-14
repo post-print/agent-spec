@@ -172,6 +172,8 @@ describe("html-report", () => {
 								description: "Reads the alpha workspace word.",
 								prompt: "Read word.txt.",
 								durationMs: 1200,
+								passed: false,
+								failures: [{ matcher: "mustInclude", message: "The answer is wrong." }],
 								trace: {
 									messages: [
 										{ role: "assistant", content: "alpha-compare-a7c1" },
@@ -189,6 +191,16 @@ describe("html-report", () => {
 								description: "Reads the beta workspace word.",
 								prompt: "Read word.txt.",
 								durationMs: 800,
+								passed: true,
+								failures: [],
+								judgeVerdicts: [
+									{
+										id: "grounded",
+										question: "Does the answer use the project fact?",
+										pass: true,
+										rationale: "The answer uses the file.",
+									},
+								],
 								trace: {
 									messages: [{ role: "assistant", content: "beta-compare-b3e9" }],
 									toolCalls: [],
@@ -213,12 +225,16 @@ describe("html-report", () => {
 		expect(html).toContain("Checks that two workspaces reply with different words.");
 		expect(html).toContain("Reads the alpha workspace word.");
 		expect(html).toContain("Reads the beta workspace word.");
+		expect(html).toContain("Outcome");
+		expect(html).toContain("Duration");
+		expect(html).toContain("beta judge grounded: pass");
+		expect(html).toContain("The answer is wrong.");
 		expect(html).toContain("alpha-compare-a7c1");
 		expect(html).toContain("beta-compare-b3e9");
 		expect(html).toContain("Comparison");
 		expect(html).toContain("Winners");
 		expect(html).toContain("beta wins");
-		expect(html).toContain("beta uses fewer turns than alpha");
+		expect(html).toContain("Turns: beta wins");
 		expect(html).toContain("Turns");
 		expect(html).toContain("1,200");
 		expect(html).toContain("900");
@@ -298,9 +314,25 @@ describe("html-report", () => {
 								},
 							},
 						],
-						cheaper: [
-							{ winner: "skel-clean", loser: "none-clean" },
-							{ winner: "skel-messy", loser: "none-messy" },
+						gates: [
+							{ metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+							{ metric: "tokens", winner: "skel-messy", loser: "none-messy" },
+						],
+						gateResults: [
+							{
+								gate: { metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+								passed: true,
+								left: 80,
+								right: 200,
+								message: "skel-clean must beat none-clean on tokens",
+							},
+							{
+								gate: { metric: "tokens", winner: "skel-messy", loser: "none-messy" },
+								passed: true,
+								left: 90,
+								right: 220,
+								message: "skel-messy must beat none-messy on tokens",
+							},
 						],
 					},
 				}),
@@ -315,7 +347,7 @@ describe("html-report", () => {
 		expect(html).toContain('for="ct-smoke-hello-cursor-skel-clean"');
 		expect(html).toContain("Winners");
 		expect(html).toContain("lowest is skeleton clean");
-		expect(html).toContain("skeleton clean must use fewer tokens than no skill clean");
+		expect(html).toContain("skel-clean must beat none-clean on tokens");
 		expect(html).not.toContain("Δ is B minus A");
 		expect(html).not.toContain("four-way");
 	});

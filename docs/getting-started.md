@@ -28,11 +28,11 @@ The package is native ESM. Bun is not required at runtime. This repo uses Bun on
 
 ## 2. Write a suite
 
-Create `agent-suites/smoke/scenarios.json`:
+Create `agent-suites/confidence/scenarios.json`:
 
 ```json
 {
-  "name": "smoke",
+  "name": "confidence",
   "hosts": ["cursor"],
   "defaults": {
     "host": "cursor",
@@ -40,11 +40,11 @@ Create `agent-suites/smoke/scenarios.json`:
   },
   "scenarios": [
     {
-      "name": "hello",
-      "workspace": "agent-suites/smoke/workspaces/hello",
-      "prompt": "Reply with the exact sentence: smoke ok. Do not use tools.",
+      "name": "returns exact text",
+      "workspace": "agent-suites/fixtures/task-list",
+      "prompt": "Reply with exactly: CONFIDENCE_OK",
       "rubric": {
-        "must": ["smoke ok"],
+        "must": ["CONFIDENCE_OK"],
         "mustNotCallTool": ["Shell", "Bash"]
       }
     }
@@ -52,12 +52,12 @@ Create `agent-suites/smoke/scenarios.json`:
 }
 ```
 
-Create `agent-suites/smoke/workspaces/hello/README.txt` with any short note. The runner copies that folder into a sealed temp repo.
+Create the workspace folder. The runner copies that folder into a sealed temp repo.
 
 ## 3. Check without a live run
 
 ```bash
-npx agent-test --check --suites-dir agent-suites --suite smoke
+npx agent-test --check --suites-dir agent-suites --suite confidence
 ```
 
 `--check` inspects the suite, seeds, package, and host. It does not launch an agent. A missing host key does not fail this command.
@@ -83,7 +83,7 @@ Claude and OpenAI steps live in [hosts.md](hosts.md).
 ## 5. Launch the host
 
 ```bash
-npx agent-test --suites-dir agent-suites --suite smoke --host cursor --fail-on=behavior
+npx agent-test --suites-dir agent-suites --suite confidence --host cursor --fail-on=behavior
 ```
 
 A TTY run prints an `agent` clock and a localhost HTML report link. `--fail-on=behavior` ignores judge and host infrastructure flakes. The CLI default is `--fail-on=all`. In-repo scripts use `behavior`. Categories live in [reliability.md](reliability.md).
@@ -116,3 +116,48 @@ The default host is Cursor. Isolation, judging, timeout, and announce-stop retry
 | Auth and custom hosts | [hosts.md](hosts.md) |
 | Sealed workspace and debug bundles | [isolation.md](isolation.md) |
 | Targets and fail-on | [reliability.md](reliability.md) |
+
+## Example path
+
+Use the examples in this order:
+
+1. Run `bun run test:confidence` to see the small pull-request gate.
+2. Read `agent-suites/tour/scenarios.json`, then run `bun run test:tour`.
+   The tour includes a stale-summary control, two authoritative MCP paths,
+   and a control-versus-tool experiment.
+3. Read `agent-suites/reference/scenarios.json`, then run
+   `bun run test:reference`. It keeps one simple example for each public
+   field, including hosts, profiles, context, skills, seed patches, ordered
+   tools, sidecar rubrics, compare gates, judge metrics, routing, and skips.
+
+Each scenario gets a fresh sealed workspace. A comparison scenario runs each
+arm independently. The arm result is still shown, including an intentional
+failed control. The suite result is the experiment result: all declared
+absolute and pair gates must pass. This lets a test prove that a bad control
+was bad without presenting that expected result as an unexpected suite failure.
+
+For a new suite, copy the small shape below, replace the prompt and fixture
+paths, and run `--check` before using host credentials:
+
+```json
+{
+  "name": "my-suite",
+  "hosts": ["cursor"],
+  "defaults": { "allowUserSkills": false },
+  "scenarios": [
+    {
+      "name": "reads one fact",
+      "workspace": "fixtures/my-project",
+      "prompt": "Read PROJECT.md. Reply with the owner.",
+      "rubric": {
+        "mustReadPath": ["PROJECT.md"],
+        "must": ["Mina"]
+      }
+    }
+  ]
+}
+```
+
+Keep new names, descriptions, prompts, judge questions, and fixture text in
+Simple English. Use exact code, command names, paths, and quoted errors where
+the rubric depends on them.

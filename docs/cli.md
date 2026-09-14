@@ -57,7 +57,7 @@ npx agent-test viewer --suites-dir agent-suites
 
 The server binds `127.0.0.1` only. Cursor is selected by default. Host tabs list every suite host.
 
-Run starts a live host agent. The live chat sits under the scenario. Each host has its own tab. The result of that run sits under the chat. A failed run lists the reason. Setup phases and host errors show in that same pane. The chat shows loaded context files. Each file says why the runner loaded it. A running mark shows while the host agent replies. It goes away when the cell finishes. Cancel run stops the live host agent. The banner shows Cancelling the run until the child stops. The chat then shows Cancelled. A compare cell lists a winner for turns, tokens, and tools after the arms finish. Two-arm chats sit side by side. Three or more arms use tabs to switch chats. Compare arms of one cell run together. Hosts run one after another unless you tick Run hosts together. `--workers` sets how many agents run at once. The viewer default is 4. The range is 1-32.
+Run starts a live host agent. A progress bar shows how many tests finished, passed, failed, skipped, and remain. The live chat sits under the scenario. Each host has its own tab. The result of that run sits under the chat. A failed run lists the reason. Setup phases and host errors show in that same pane. The chat shows loaded context files. Each file says why the runner loaded it. A running mark shows while the host agent replies. It goes away when the cell finishes. Cancel run stops the live host agent. The banner shows Cancelling the run until the child stops. The chat then shows Cancelled. Each compare arm has a tab. Select a tab to see that arm's chat. A compare cell lists the measured turns, tokens, tools, and duration after the arms finish. Compare arms of one cell run together. Hosts run one after another unless you tick Run hosts together. `--workers` sets how many agents run at once. The viewer default is 4. The range is 1-32.
 
 `--port` sets the listen port. `0` picks a free port.
 
@@ -125,18 +125,20 @@ Auth variables live in [hosts.md](hosts.md).
 
 | Script | What it runs |
 | --- | --- |
-| `bun run test` | All in-repo suites on Cursor, Claude, and Codex. `--fail-on=behavior`. |
-| `bun run test:smoke` | `smoke` on Cursor. |
-| `bun run test:tools` | `tools` on Cursor. |
-| `bun run test:mcp` | `mcp` on Cursor. |
-| `bun run test:judge` | `judge` on Cursor. |
-| `bun run test:depth` | `depth` on Cursor. |
+| `bun run test` | The Cursor confidence gate. `--fail-on=behavior`. |
+| `bun run test:confidence` | The Cursor confidence gate. |
+| `bun run test:tour` | The seven-scenario product tour on Cursor. |
+| `bun run test:reference` | The complete runnable reference on Cursor. |
+| `bun run test:matrix` | Confidence on all built-in hosts. Run this manually. |
+| `bun run test:sdk:consumer` | The installed-package contract without host credentials. |
+| `bun run test:sdk:hosts` | The direct API smoke on all built-in hosts. Run this manually. |
+| `bun run test:reliability` | Twenty Cursor confidence runs. Run this manually. |
 | `bun run test:e2e` | Playwright checks for the suite viewer and the HTML report. |
 
 Pass extra flags after `--`:
 
 ```bash
-bun run test -- --host cursor --suite smoke
+bun run test:tour -- --scenario "answers from the project guide"
 ```
 
 CI host jobs that use `CURSOR_API_KEY` must pass `--auth-mode api-key`.

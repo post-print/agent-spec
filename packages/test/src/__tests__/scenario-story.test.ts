@@ -143,12 +143,11 @@ describe("buildScenarioStory", () => {
 		expect(story.criteria.some((line) => line.includes("judge answers"))).toBe(true);
 		expect(story.result.some((line) => line.startsWith("alpha:"))).toBe(true);
 		expect(story.result.some((line) => line.startsWith("beta:"))).toBe(true);
-		expect(story.result).toContain("beta uses fewer turns than alpha (1 vs 2)");
-		expect(story.result).toContain("beta uses fewer tokens than alpha (100 vs 400)");
-		expect(story.result).toContain("beta makes fewer tool calls than alpha (0 vs 1)");
+		expect(story.result).toContain("alpha: 2 turns, 400 tokens, 1 tools");
+		expect(story.result).toContain("beta: 1 turns, 100 tokens, 0 tools");
 	});
 
-	it("lists metric gates without a judge", () => {
+	it("lists comparison gates without a judge", () => {
 		const story = buildScenarioStory({
 			rubric: {},
 			passed: true,
@@ -156,17 +155,19 @@ describe("buildScenarioStory", () => {
 			compare: {
 				aLabel: "alpha",
 				bLabel: "beta",
-				faster: "a",
-				cheaper: "b",
+				gates: [
+					{ metric: "turns", winner: "a", loser: "b" },
+					{ metric: "tokens", winner: "b", loser: "a" },
+				],
 			},
 		});
 		expect(story.criteria).toContain("compare alpha vs beta");
-		expect(story.criteria).toContain("alpha uses fewer turns than beta");
-		expect(story.criteria).toContain("beta uses fewer tokens than alpha");
+		expect(story.criteria).toContain("a beats b on turns");
+		expect(story.criteria).toContain("b beats a on tokens");
 		expect(story.criteria.some((line) => line.includes("judge"))).toBe(false);
 	});
 
-	it("lists named arms and cheaper pairs in the criteria", () => {
+	it("lists named arms and pair gates in the criteria", () => {
 		const story = buildScenarioStory({
 			rubric: {},
 			passed: true,
@@ -186,17 +187,17 @@ describe("buildScenarioStory", () => {
 						description: "No skill on a messy catalog.",
 					},
 				],
-				cheaper: [
-					{ winner: "skel-clean", loser: "none-clean" },
-					{ winner: "skel-messy", loser: "none-messy" },
+				gates: [
+					{ metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+					{ metric: "tokens", winner: "skel-messy", loser: "none-messy" },
 				],
 			},
 		});
 		expect(story.criteria).toContain(
 			"compare skeleton clean, no skill clean, skeleton messy, and no skill messy",
 		);
-		expect(story.criteria).toContain("skeleton clean uses fewer tokens than no skill clean");
-		expect(story.criteria).toContain("skeleton messy uses fewer tokens than no skill messy");
+		expect(story.criteria).toContain("skel-clean beats none-clean on tokens");
+		expect(story.criteria).toContain("skel-messy beats none-messy on tokens");
 		expect(story.criteria).toContain("skeleton clean: Skill on a clean catalog.");
 	});
 
@@ -208,13 +209,13 @@ describe("buildScenarioStory", () => {
 			compare: {
 				aLabel: "no skill",
 				bLabel: "with skill",
-				cheaper: "b",
+				gates: [{ metric: "tokens", winner: "b", loser: "a" }],
 				aRubric: { mustNotInvokeSkill: ["brief-ship"] },
 				bRubric: { mustInvokeSkill: ["brief-ship"] },
 			},
 		});
 		expect(story.criteria).toContain("read note.md");
-		expect(story.criteria).toContain("with skill uses fewer tokens than no skill");
+		expect(story.criteria).toContain("b beats a on tokens");
 		expect(story.criteria).toContain("no skill: no brief-ship skill");
 		expect(story.criteria).toContain("with skill: invoke skill brief-ship");
 	});
@@ -284,13 +285,13 @@ describe("buildScenarioStory", () => {
 		expect(story.verdict.some((line) => line.includes("forbidden text"))).toBe(false);
 	});
 
-	it("scores a faster gate on the compare section", () => {
+	it("scores a failed comparison gate on the compare section", () => {
 		const story = buildScenarioStory({
 			rubric: {},
 			passed: false,
 			failures: [
 				{
-					matcher: "faster",
+					matcher: "compareGate:turns",
 					message: "cli-lanes must use fewer turns than audit-all (5 vs 3)",
 				},
 			],
@@ -319,12 +320,44 @@ describe("buildScenarioStory", () => {
 					shellCommands: [],
 					artifacts: {},
 				},
-				faster: "a",
+				gates: [{ metric: "turns", winner: "a", loser: "b" }],
 			},
 		});
 		const compare = story.sections?.find((section) => section.title === "compare");
 		expect(compare?.checks).toContainEqual({
-			text: "audit-all uses fewer turns than cli-lanes (3 vs 5)",
+			text: "a beats b on turns",
+			status: "fail",
+		});
+	});
+
+	it("shows an expected failed arm check as failed", () => {
+		const story = buildScenarioStory({
+			rubric: {},
+			passed: true,
+			failures: [],
+			compare: {
+				arms: [
+					{
+						id: "control",
+						label: "control",
+						rubric: { must: ["CURRENT"] },
+						passed: false,
+						failures: [
+							{
+								matcher: "mustInclude",
+								message: 'expected text not found: "CURRENT"',
+								category: "rubric_miss",
+							},
+						],
+					},
+					{ id: "experiment", label: "experiment", passed: true, failures: [] },
+				],
+				aLabel: "control",
+				bLabel: "experiment",
+			},
+		});
+		expect(story.sections?.[0]?.checks).toContainEqual({
+			text: 'reply includes "CURRENT"',
 			status: "fail",
 		});
 	});

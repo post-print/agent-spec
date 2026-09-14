@@ -132,6 +132,46 @@ function viewerCss(): string {
     word-break: break-word;
   }
   .run-banner { font-size: 0.85rem; color: var(--muted); }
+  .run-progress {
+    display: grid;
+    gap: 0.55rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .run-progress[hidden] { display: none; }
+  .run-progress-head, .run-progress-counts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem 1rem;
+  }
+  .run-progress-title { margin: 0; font-weight: 700; }
+  .run-progress-counts { justify-content: flex-start; color: var(--muted); font-size: 0.8rem; }
+  .run-progress-counts strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .run-progress-counts .progress-passed strong { color: var(--pass); }
+  .run-progress-counts .progress-failed strong { color: var(--fail); }
+  .run-progress-counts .progress-skipped strong { color: var(--skip); }
+  .run-progress-track {
+    height: 0.7rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+  .run-progress-fill {
+    display: block;
+    width: 0;
+    height: 100%;
+    background: var(--pass);
+    transition: width 180ms ease-out;
+  }
+  .run-progress[data-has-failures="true"] .run-progress-fill {
+    background: linear-gradient(90deg, var(--pass), var(--fail));
+  }
   .compare-tab[data-status="running"] { color: var(--skip); }
   .compare-tab[data-status="passed"] { color: var(--pass); }
   .compare-tab[data-status="failed"] { color: var(--fail); }
@@ -328,6 +368,7 @@ function clientScript(): string {
   var source = null;
   var runId = null;
   var cancelRequested = false;
+  var progress = { total: 0, completed: 0, passed: 0, failed: 0, skipped: 0, seen: {}, experiments: {} };
 
   function selectedHosts() {
     return Array.prototype.map.call(document.querySelectorAll("[data-host-toggle]:checked"), function (box) {
@@ -341,6 +382,134 @@ function clientScript(): string {
 
   function setRunBanner(text) {
     document.getElementById("run-banner").textContent = text;
+  }
+
+  function runnableTargets(body) {
+    var requestedHosts = body.hosts && body.hosts.length ? body.hosts : catalog.defaultSelectedHosts;
+    var total = 0;
+    catalog.suites.forEach(function (suite) {
+      if (body.suite && suite.name !== body.suite) {
+        return;
+      }
+      suite.scenarios.forEach(function (scenario) {
+        if (body.scenario && scenario.name !== body.scenario) {
+          return;
+        }
+        if (scenario.skip) {
+          return;
+        }
+        requestedHosts.forEach(function (host) {
+          if (suite.hosts.indexOf(host) === -1 || (scenario.host && scenario.host !== host)) {
+            return;
+          }
+          total += 1;
+        });
+      });
+    });
+    return total;
+  }
+
+  function renderProgress() {
+    var box = document.getElementById("run-progress");
+    var total = Math.max(progress.total, progress.completed);
+    var remaining = Math.max(0, total - progress.completed);
+    box.hidden = total === 0;
+    box.setAttribute("data-has-failures", progress.failed > 0 ? "true" : "false");
+    var testLabel = total === 1 ? "test" : "tests";
+    box.querySelector(".run-progress-title").textContent = progress.completed + " of " + total + " " + testLabel + " finished";
+    box.querySelector(".progress-passed strong").textContent = String(progress.passed);
+    box.querySelector(".progress-failed strong").textContent = String(progress.failed);
+    box.querySelector(".progress-skipped strong").textContent = String(progress.skipped);
+    box.querySelector(".progress-remaining strong").textContent = String(remaining);
+    var percent = total > 0 ? Math.round((progress.completed / total) * 100) : 0;
+    var fill = box.querySelector(".run-progress-fill");
+    fill.style.width = percent + "%";
+    fill.parentNode.setAttribute("aria-valuenow", String(progress.completed));
+    fill.parentNode.setAttribute("aria-valuemax", String(total));
+  }
+
+  function resetProgress(body) {
+    progress = { total: runnableTargets(body), completed: 0, passed: 0, failed: 0, skipped: 0, seen: {}, experiments: {} };
+    renderProgress();
+  }
+
+  function recordProgress(event) {
+    var key = cellKey(event);
+    if (progress.seen[key]) {
+      return;
+    }
+    progress.seen[key] = true;
+    var experiment = experimentState(event);
+    experiment.cells[event.arm || "_"] = event;
+    var scenario = findScenario(event.suite, event.scenario);
+    var expectedArms = scenario && scenario.compare && scenario.compare.length ? scenario.compare.length : 1;
+    if (Object.keys(experiment.cells).length < expectedArms || experiment.counted) {
+      renderProgress();
+      return;
+    }
+    experiment.counted = true;
+    progress.completed += 1;
+    var outcome = experimentOutcome(scenario, experiment.cells);
+    if (outcome === "skipped") progress.skipped += 1;
+    else if (outcome === "passed") progress.passed += 1;
+    else progress.failed += 1;
+    renderProgress();
+  }
+
+  function finishProgress(event) {
+    // The stream reports one cell per comparison arm. Progress is based on
+    // the completed scenario/host experiment, so expected failed controls do
+    // not turn a passing comparison into a red suite result.
+    progress.total = Math.max(progress.total, progress.completed);
+    renderProgress();
+  }
+
+  function experimentKey(event) {
+    return [event.suite, event.scenario, event.host].join("::");
+  }
+
+  function experimentState(event) {
+    var key = experimentKey(event);
+    if (!progress.experiments[key]) {
+      progress.experiments[key] = { cells: {}, counted: false };
+    }
+    return progress.experiments[key];
+  }
+
+  function experimentOutcome(scenario, cells) {
+    var events = Object.keys(cells).map(function (id) { return cells[id]; });
+    if (events.some(function (event) { return event.skipped; })) return "skipped";
+    var byArm = {};
+    events.forEach(function (event) { byArm[event.arm || "_"] = event; });
+    if (!scenario || !scenario.compare || !scenario.compare.length) {
+      return events.every(function (event) { return event.passed; }) ? "passed" : "failed";
+    }
+    var gates = scenario.gates || [];
+    var behaviorOk = events.every(function (event) {
+      return event.passed || (event.failures || []).every(function (failure) {
+        return gates.some(function (gate) {
+          return gate.metric === "outcome" && gate.arm === event.arm && gate.operator === "equal" && gate.value === "fail";
+        });
+      });
+    });
+    var gatesOk = gates.every(function (gate) {
+      if (gate.metric === "outcome" && gate.arm) {
+        var event = byArm[gate.arm];
+        if (!event) return false;
+        var actual = event.passed ? "pass" : "fail";
+        return gate.operator === "equal" ? actual === gate.value : false;
+      }
+      if (["turns", "tokens", "tools", "durationMs"].indexOf(gate.metric) !== -1 && gate.winner && gate.loser) {
+        var winner = byArm[gate.winner];
+        var loser = byArm[gate.loser];
+        var field = gate.metric === "durationMs" ? "durationMs" : gate.metric;
+        var winnerValue = winner && winner.metrics && winner.metrics[field];
+        var loserValue = loser && loser.metrics && loser.metrics[field];
+        return typeof winnerValue === "number" && typeof loserValue === "number" && winnerValue < loserValue;
+      }
+      return true;
+    });
+    return behaviorOk && gatesOk ? "passed" : "failed";
   }
 
   function cellKey(event) {
@@ -419,13 +588,6 @@ function clientScript(): string {
     if (tab) {
       tab.setAttribute("data-status", status);
     }
-  }
-
-  function armLabel(scenario, armId, fallback) {
-    var arm = scenario && scenario.compare
-      ? scenario.compare.filter(function (entry) { return entry.id === armId; })[0]
-      : null;
-    return arm ? arm.label : fallback;
   }
 
   function createLiveArticle(event, title) {
@@ -637,25 +799,22 @@ function clientScript(): string {
   function ensureCompareWrap(event, scenario, slot) {
     var wrapId = compareWrapId(event);
     var wrap = document.getElementById(wrapId);
-    var many = scenario && scenario.compare && scenario.compare.length > 2;
     if (!wrap) {
       wrap = document.createElement("div");
-      wrap.className = many ? "compare-layout compare-tabs" : "compare-layout";
+      wrap.className = "compare-layout compare-tabs";
       wrap.id = wrapId;
-      var list = null;
-      if (many) {
-        list = document.createElement("div");
-        list.className = "compare-tablist";
-        list.setAttribute("role", "tablist");
-        wrap.appendChild(list);
-      }
+      var list = document.createElement("div");
+      list.className = "compare-tablist";
+      list.setAttribute("role", "tablist");
+      list.setAttribute("aria-label", "Comparison arms");
+      wrap.appendChild(list);
       var arms = document.createElement("div");
       arms.className = "compare-arms";
       if (scenario && scenario.compare) {
         arms.setAttribute("data-arm-count", String(scenario.compare.length));
       }
       wrap.appendChild(arms);
-      if (many && list) {
+      if (scenario && scenario.compare) {
         scenario.compare.forEach(function (arm, index) {
           var article = createLiveArticle({
             suite: event.suite,
@@ -698,14 +857,12 @@ function clientScript(): string {
       var wrap = ensureCompareWrap(event, scenario, slot);
       existing = document.getElementById(paneId(event));
       if (existing) {
-        if (wrap.classList.contains("compare-tabs") && wrap.dataset.userPicked !== "1") {
+        if (wrap.dataset.userPicked !== "1") {
           selectCompareTab(wrap, event.arm);
         }
         return existing.querySelector(".chat");
       }
-      var twoArm = createLiveArticle(event, armLabel(scenario, event.arm, event.arm));
-      wrap.querySelector(".compare-arms").appendChild(twoArm);
-      return twoArm.querySelector(".chat");
+      return null;
     }
     var article = createLiveArticle(event, event.host);
     slot.appendChild(article);
@@ -949,22 +1106,23 @@ function clientScript(): string {
     return { line: label + ": lowest is " + winner.label + " (" + shown + ")." };
   }
 
-  function summarizeGates(arms, metric, pairs, verb, field) {
+  function summarizeGates(arms, gates) {
     var byId = {};
     arms.forEach(function (arm) { byId[arm.id] = arm; });
-    return (pairs || []).map(function (pair) {
-      var winner = byId[pair.winner];
-      var loser = byId[pair.loser];
-      if (!winner || !loser) {
-        return { passed: false, line: pair.winner + " must " + verb + " " + pair.loser + ", but one arm is missing. Fail." };
+    return (gates || []).map(function (gate) {
+      var field = gate.metric === "durationMs" ? "durationMs" : gate.metric;
+      var winner = byId[gate.winner];
+      var loser = byId[gate.loser];
+      if (!winner || !loser || ["turns", "tokens", "tools", "durationMs"].indexOf(field) === -1) {
+        return { passed: true, line: gate.metric + ": scored in the final result." };
       }
       var winnerValue = winner[field];
       var loserValue = loser[field];
       if (typeof winnerValue !== "number" || typeof loserValue !== "number") {
-        return { passed: false, line: winner.label + " must " + verb + " " + loser.label + ", but one arm did not report " + field + ". Fail." };
+        return { passed: false, line: gate.metric + ": one arm did not report a value. Fail." };
       }
       var passed = winnerValue < loserValue;
-      return { passed: passed, line: winner.label + " must " + verb + " " + loser.label + " (" + winnerValue + " vs " + loserValue + "). " + (passed ? "Pass." : "Fail.") };
+      return { passed: passed, line: winner.label + " must beat " + loser.label + " on " + gate.metric + " (" + winnerValue + " vs " + loserValue + "). " + (passed ? "Pass." : "Fail.") };
     });
   }
 
@@ -990,15 +1148,17 @@ function clientScript(): string {
         turns: metrics.turns,
         tokens: metrics.tokens,
         tools: metrics.tools,
+		durationMs: metrics.durationMs,
+		passed: metrics.passed,
       });
     }
     var metricLines = [
       summarizeMetric(rows, "turns", "Turns"),
       summarizeMetric(rows, "tokens", "Tokens"),
       summarizeMetric(rows, "tools", "Tools"),
+	  summarizeMetric(rows, "durationMs", "Duration"),
     ];
-    var gateLines = summarizeGates(rows, "faster", scenario.faster, "use fewer turns than", "turns")
-      .concat(summarizeGates(rows, "cheaper", scenario.cheaper, "use fewer tokens than", "tokens"));
+    var gateLines = summarizeGates(rows, scenario.gates);
     var existing = wrap.querySelector(".compare-winners");
     if (existing) {
       existing.remove();
@@ -1148,6 +1308,7 @@ function clientScript(): string {
       return;
     }
     if (event.type === "run_finished") {
+      finishProgress(event);
       hideAllRunning();
       sealAllChats();
       if (cancelRequested) {
@@ -1155,7 +1316,7 @@ function clientScript(): string {
         setRunBanner("Run cancelled.");
       } else {
         setRunBanner(
-          "Run finished. " + event.passed + " passed. " + event.failed + " failed. " + event.skipped + " skipped."
+          "Run finished. " + progress.passed + " passed. " + progress.failed + " failed. " + progress.skipped + " skipped."
         );
       }
       setCancelButton("Cancel run", true);
@@ -1257,13 +1418,17 @@ function clientScript(): string {
       return;
     }
     if (event.type === "cell_finished") {
+      recordProgress(event);
       if (!chatIsOpen(event)) {
         return;
       }
       hideRunning(event);
       setStreaming(event, false);
       markCell(event, event.skipped ? "skipped" : event.passed ? "passed" : "failed", event.skipped ? "status-skipped" : event.passed ? "status-passed" : "status-failed");
-      finishedMetrics[cellKey(event)] = event.metrics || {};
+	  finishedMetrics[cellKey(event)] = Object.assign({}, event.metrics || {}, {
+		durationMs: event.durationMs,
+		passed: event.passed,
+	  });
       renderCellResult(event);
       if (event.arm) {
         var finishedWrap = document.getElementById(compareWrapId(event));
@@ -1318,6 +1483,7 @@ function clientScript(): string {
       );
       return;
     }
+    resetProgress(body);
     markRunTargets(body, "starting", "status-skipped");
     var firstCard = document.querySelector(
       body.suite && body.scenario
@@ -1357,6 +1523,8 @@ function clientScript(): string {
       var payload = await response.json();
       if (!response.ok) {
         setRunBanner(payload.error || "Run failed to start.");
+        progress = { total: 0, completed: 0, passed: 0, failed: 0, skipped: 0, seen: {} };
+        renderProgress();
         markRunTargets(body, "idle", "muted");
         return;
       }
@@ -1490,6 +1658,20 @@ ${viewerCss()}
         <button class="danger" id="cancel-run" disabled>Cancel run</button>
       </div>
       <p class="run-banner" id="run-banner"></p>
+    </section>
+    <section class="run-progress" id="run-progress" aria-live="polite" hidden>
+      <div class="run-progress-head">
+        <p class="run-progress-title">0 of 0 tests finished</p>
+      </div>
+      <div class="run-progress-track" role="progressbar" aria-label="Suite run progress" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0">
+        <span class="run-progress-fill"></span>
+      </div>
+      <div class="run-progress-counts">
+        <span class="progress-passed">Passed <strong>0</strong></span>
+        <span class="progress-failed">Failed <strong>0</strong></span>
+        <span class="progress-skipped">Skipped <strong>0</strong></span>
+        <span class="progress-remaining">Remaining <strong>0</strong></span>
+      </div>
     </section>
     ${suites}
   </main>

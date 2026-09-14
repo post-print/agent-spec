@@ -36,6 +36,8 @@ export interface ScenarioRubric {
 	 * JSON args or the tool result. Matches built-in and MCP tool calls.
 	 */
 	mustCallTool?: string[];
+	/** Required tool calls in chronological order. Extra calls are permitted. */
+	mustCallToolsInOrder?: string[];
 	mustNotCallTool?: string[];
 	/**
 	 * Substring that must appear in Read-family args or a Shell/Bash path access.
@@ -60,16 +62,37 @@ export interface ScenarioRubric {
 export type CompareArmId = string;
 
 /** Named winner-versus-loser pair for a metric gate. */
-export interface CompareMetricPair {
-	winner: CompareArmId;
-	loser: CompareArmId;
+export type CompareMetric =
+	| "outcome"
+	| "turns"
+	| "tokens"
+	| "tools"
+	| "durationMs"
+	| `judge:${string}`;
+
+export type CompareGateOperator = "equal" | "lessThan" | "atMost" | "atLeast" | "greaterThan";
+
+export type CompareGate =
+	| { metric: CompareMetric; winner: CompareArmId; loser: CompareArmId }
+	| {
+			metric: CompareMetric;
+			arm: CompareArmId;
+			operator: CompareGateOperator;
+			value: number | "pass" | "fail";
+	  };
+
+export interface CompareJudgeMetric {
+	id: string;
+	question: string;
 }
 
-/**
- * Two-arm form names the winner. Named-arm form lists winner-versus-loser pairs.
- * A 2x2 must not require one arm to beat every other arm.
- */
-export type CompareMetricGate = CompareArmId | CompareMetricPair[];
+export interface CompareGateResult {
+	gate: CompareGate;
+	passed: boolean;
+	left?: number | "pass" | "fail";
+	right?: number | "pass" | "fail";
+	message: string;
+}
 
 /** Overrides for one side of a compare scenario. Omitted fields inherit the scenario. */
 export interface CompareArm {
@@ -99,7 +122,7 @@ export interface CompareArm {
 /**
  * Two or more live arms in one scenario.
  * Keep `a` and `b` for the two-arm form. Use `arms` when the scenario has more than two workspaces.
- * `faster` and `cheaper` are optional metric gates.
+ * `gates` are optional outcome and measurement requirements.
  * `rubric.judge` is optional and scores every arm transcript.
  */
 export interface ScenarioCompare {
@@ -107,17 +130,10 @@ export interface ScenarioCompare {
 	b?: CompareArm;
 	/** Named arms. Each row needs `id`, `description`, and a workspace override when the trees differ. */
 	arms?: CompareArm[];
-	/**
-	 * Two-arm form: named arm must use fewer agent turns than the other arm.
-	 * Named-arm form: winner-versus-loser pairs.
-	 * An agent turn is one assistant message on the trace.
-	 */
-	faster?: CompareMetricGate;
-	/**
-	 * Two-arm form: named arm must use fewer total tokens than the other arm.
-	 * Named-arm form: winner-versus-loser pairs.
-	 */
-	cheaper?: CompareMetricGate;
+	/** Questions that the judge scores once for each arm. */
+	judgeMetrics?: CompareJudgeMetric[];
+	/** Independent conditions that decide an experiment. */
+	gates?: CompareGate[];
 }
 
 export interface CompareArmResult {
@@ -128,6 +144,9 @@ export interface CompareArmResult {
 	description?: string;
 	trace?: AgentTrace;
 	durationMs?: number;
+	passed?: boolean;
+	failures?: AssertionFailure[];
+	judgeVerdicts?: JudgeVerdictResult[];
 }
 
 export interface ScenarioCompareResult {
@@ -137,10 +156,8 @@ export interface ScenarioCompareResult {
 	a?: CompareArmResult;
 	/** Present when an arm id is `b`. */
 	b?: CompareArmResult;
-	/** Resolved faster pairs after load. */
-	faster?: CompareMetricPair[];
-	/** Resolved cheaper pairs after load. */
-	cheaper?: CompareMetricPair[];
+	gates?: CompareGate[];
+	gateResults?: CompareGateResult[];
 }
 
 export interface AgentScenario {

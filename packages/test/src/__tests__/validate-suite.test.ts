@@ -275,7 +275,7 @@ describe("validate-suite", () => {
 								description: "Asks for one sentence.",
 								workspace: "agent-suites/judge/workspaces/compare-b",
 							},
-							cheaper: "b",
+							gates: [{ metric: "tokens", winner: "b", loser: "a" }],
 						},
 						rubric: {},
 					},
@@ -284,7 +284,7 @@ describe("validate-suite", () => {
 		).toEqual([]);
 	});
 
-	it("rejects compare.faster that is not a or b", () => {
+	it("rejects the removed compare.faster field", () => {
 		const issues = validateSuiteFile("/tmp/scenarios.json", {
 			name: "bad",
 			scenarios: [
@@ -294,12 +294,12 @@ describe("validate-suite", () => {
 					compare: {
 						a: {},
 						b: {},
-						faster: "c" as "a",
+						faster: "c",
 					},
 					rubric: {},
 				},
 			],
-		});
+		} as never);
 		expect(issues.some((issue) => issue.field === "compare.faster")).toBe(true);
 	});
 
@@ -352,7 +352,7 @@ describe("validate-suite", () => {
 								skills: [".agents/skills/brief-ship/SKILL.md"],
 								rubric: { mustInvokeSkill: ["brief-ship"] },
 							},
-							cheaper: "b",
+							gates: [{ metric: "tokens", winner: "b", loser: "a" }],
 						},
 						rubric: { mustReadPath: ["note.md"] },
 					},
@@ -361,7 +361,7 @@ describe("validate-suite", () => {
 		).toEqual([]);
 	});
 
-	it("accepts named arms with cheaper pairs", () => {
+	it("accepts named arms with pair gates", () => {
 		expect(
 			validateSuiteFile("/tmp/scenarios.json", {
 				name: "ok",
@@ -392,9 +392,9 @@ describe("validate-suite", () => {
 									workspace: "workspaces/none-messy",
 								},
 							],
-							cheaper: [
-								{ winner: "skel-clean", loser: "none-clean" },
-								{ winner: "skel-messy", loser: "none-messy" },
+							gates: [
+								{ metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+								{ metric: "tokens", winner: "skel-messy", loser: "none-messy" },
 							],
 						},
 						rubric: {},
@@ -404,7 +404,7 @@ describe("validate-suite", () => {
 		).toEqual([]);
 	});
 
-	it("rejects a single cheaper winner when compare has more than two arms", () => {
+	it("rejects the removed compare.cheaper field", () => {
 		const issues = validateSuiteFile("/tmp/scenarios.json", {
 			name: "bad",
 			scenarios: [
@@ -423,7 +423,7 @@ describe("validate-suite", () => {
 					rubric: {},
 				},
 			],
-		});
+		} as never);
 		expect(issues.some((issue) => issue.field === "compare.cheaper")).toBe(true);
 	});
 
@@ -469,7 +469,7 @@ describe("validate-suite", () => {
 		expect(issues.some((issue) => issue.field === "compare.arms[0].id")).toBe(true);
 	});
 
-	it("rejects a cheaper pair with an unknown arm", () => {
+	it("rejects a gate with an unknown arm", () => {
 		const issues = validateSuiteFile("/tmp/scenarios.json", {
 			name: "bad",
 			scenarios: [
@@ -481,13 +481,56 @@ describe("validate-suite", () => {
 							{ id: "skel-clean", description: "Skill on a clean catalog." },
 							{ id: "none-clean", description: "No skill on a clean catalog." },
 						],
-						cheaper: [{ winner: "skel-clean", loser: "missing" }],
+						gates: [{ metric: "tokens", winner: "skel-clean", loser: "missing" }],
 					},
 					rubric: {},
 				},
 			],
 		});
-		expect(issues.some((issue) => issue.field === "compare.cheaper[0].loser")).toBe(true);
+		expect(issues.some((issue) => issue.field === "compare.gates[0].loser")).toBe(true);
+	});
+
+	it("accepts absolute gates and per-arm judge metrics", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "pair",
+						prompt: "Test the two paths.",
+						compare: {
+							a: { description: "Uses the first path." },
+							b: { description: "Uses the second path." },
+							judgeMetrics: [{ id: "clear", question: "Is the answer clear?" }],
+							gates: [
+								{ metric: "outcome", arm: "a", operator: "equal", value: "pass" },
+								{ metric: "judge:clear", winner: "a", loser: "b" },
+							],
+						},
+						rubric: {},
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects a judge gate with no matching judge metric", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "Test the two paths.",
+					compare: {
+						a: { description: "Uses the first path." },
+						b: { description: "Uses the second path." },
+						gates: [{ metric: "judge:missing", winner: "a", loser: "b" }],
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.gates[0].metric")).toBe(true);
 	});
 
 	it("rejects judge questions on an arm rubric", () => {

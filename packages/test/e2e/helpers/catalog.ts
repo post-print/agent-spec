@@ -70,10 +70,10 @@ export const e2eCatalog: ViewerCatalog = {
 						{ id: "skel-messy", label: "skeleton messy" },
 						{ id: "none-messy", label: "no skill messy" },
 					],
-					faster: [{ winner: "skel-clean", loser: "none-messy" }],
-					cheaper: [
-						{ winner: "skel-clean", loser: "none-clean" },
-						{ winner: "skel-messy", loser: "none-messy" },
+					gates: [
+						{ metric: "turns", winner: "skel-clean", loser: "none-messy" },
+						{ metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+						{ metric: "tokens", winner: "skel-messy", loser: "none-messy" },
 					],
 				},
 			],

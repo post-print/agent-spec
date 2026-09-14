@@ -46,6 +46,7 @@ test.describe("suite viewer", () => {
 			await expect(page.getByRole("button", { name: "Run selection" })).toBeVisible();
 			await expect(page.getByRole("button", { name: "Cancel run" })).toBeDisabled();
 			await expect(page.locator("#run-banner")).toHaveText("");
+			await expect(page.locator("#run-progress")).toBeHidden();
 
 			await expect(hostToggle(page, "cursor")).toBeChecked();
 			await expect(hostToggle(page, "claude")).not.toBeChecked();
@@ -157,6 +158,39 @@ test.describe("suite viewer", () => {
 			);
 			await expect(cellStatus(page, "smoke", "skipped", "cursor")).toHaveText("skip");
 			await expect(cellStatus(page, "smoke", "pinned", "cursor")).toHaveText("skip");
+		});
+
+		test("shows finished, passed, failed, skipped, and remaining counts", async ({ page }) => {
+			viewer = await openViewer(page, {
+				scripts: {
+					"smoke::hello::cursor::_": [
+						{ type: "wait", gate: "finish-first" },
+						{ type: "finish", passed: true, durationMs: 4 },
+					],
+					"smoke::context brief::cursor::_": [
+						{
+							type: "finish",
+							passed: false,
+							durationMs: 4,
+							failures: [{ matcher: "toContain", message: "The expected text was missing." }],
+						},
+					],
+				},
+			});
+			await page.locator('button.run-suite[data-suite="smoke"]').click();
+			const progress = page.locator("#run-progress");
+			await expect(progress).toBeVisible();
+			await expect(progress.locator(".run-progress-title")).toHaveText("1 of 2 tests finished");
+			await expect(progress.locator(".progress-passed strong")).toHaveText("0");
+			await expect(progress.locator(".progress-failed strong")).toHaveText("1");
+			await expect(progress.locator(".progress-skipped strong")).toHaveText("0");
+			await expect(progress.locator(".progress-remaining strong")).toHaveText("1");
+			viewer.gates.release("finish-first");
+			await expect(progress.locator(".run-progress-title")).toHaveText("2 of 2 tests finished");
+			await expect(progress.locator(".progress-passed strong")).toHaveText("1");
+			await expect(progress.locator(".progress-failed strong")).toHaveText("1");
+			await expect(progress.locator(".progress-remaining strong")).toHaveText("0");
+			await expect(progress.locator(".run-progress-track")).toHaveAttribute("aria-valuenow", "2");
 		});
 
 		test("run selection with no host ticked still falls back to cursor", async ({ page }) => {
@@ -460,7 +494,7 @@ test.describe("suite viewer", () => {
 	});
 
 	test.describe("compare", () => {
-		test("shows two-arm chats side by side and names winners", async ({ page }) => {
+		test("uses tabs for two arms and names winners", async ({ page }) => {
 			viewer = await openViewer(page, {
 				scripts: {
 					"judge::pair::cursor::a": [
@@ -478,12 +512,14 @@ test.describe("suite viewer", () => {
 			await runCell(page, "judge", "pair", "cursor").click();
 			const slot = liveSlot(page, "judge", "pair");
 			await expect(page.locator("#run-banner")).toContainText("2 passed");
-			await expect(slot.locator(".compare-tablist")).toHaveCount(0);
+			await expect(slot.locator(".compare-tablist")).toBeVisible();
+			await expect(slot.locator(".compare-tab")).toHaveCount(2);
 			await expect(slot.locator(".live-cell")).toHaveCount(2);
-			await expect(slot.locator(".live-cell").first()).toBeVisible();
-			await expect(slot.locator(".live-cell").nth(1)).toBeVisible();
-			await expect(slot.getByText("alpha-live")).toBeVisible();
+			await expect(slot.getByText("alpha-live")).toBeHidden();
 			await expect(slot.getByText("beta-live")).toBeVisible();
+			await slot.getByRole("tab", { name: "alpha" }).click();
+			await expect(slot.getByText("alpha-live")).toBeVisible();
+			await expect(slot.getByText("beta-live")).toBeHidden();
 			const winners = slot.locator(".compare-winners");
 			await expect(winners.getByRole("heading", { name: "Winners" })).toBeVisible();
 			await expect(winners.getByText("Turns: beta wins (2 vs 1).")).toBeVisible();
@@ -542,19 +578,15 @@ test.describe("suite viewer", () => {
 			).toBeVisible();
 			await expect(winners.getByText("Tokens: lowest is skeleton clean")).toBeVisible();
 			await expect(
-				winners.getByText(
-					"skeleton clean must use fewer turns than no skill messy (1 vs 3). Pass.",
-				),
+				winners.getByText("skeleton clean must beat no skill messy on turns (1 vs 3). Pass."),
 			).toBeVisible();
 			await expect(
-				winners.getByText(
-					"skeleton clean must use fewer tokens than no skill clean (80 vs 200). Pass.",
-				),
+				winners.getByText("skeleton clean must beat no skill clean on tokens (80 vs 200). Pass."),
 			).toBeVisible();
 			await expect(winners.locator(".compare-winner-pass")).toHaveCount(3);
 		});
 
-		test("stacks two-arm chats on a narrow viewport", async ({ page }) => {
+		test("shows one selected arm on a narrow viewport", async ({ page }) => {
 			await page.setViewportSize({ width: 390, height: 844 });
 			viewer = await openViewer(page, {
 				scripts: {
@@ -573,6 +605,7 @@ test.describe("suite viewer", () => {
 			await expect(arms).toBeVisible();
 			const tracks = await arms.evaluate((node) => getComputedStyle(node).gridTemplateColumns);
 			expect(tracks.split(/\s+/).filter(Boolean)).toHaveLength(1);
+			await expect(arms.locator(".live-cell:visible")).toHaveCount(1);
 		});
 	});
 

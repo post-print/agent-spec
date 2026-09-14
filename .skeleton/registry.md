@@ -22,3 +22,4 @@ Human topic index. Local audit writes `.skeleton/catalog.md` for agents. Edit ro
 | host auth and adapters.        | [hosts.md](../docs/hosts.md)               |
 | sealed workspace isolation.    | [isolation.md](../docs/isolation.md)       |
 | direct-test reliability.       | [reliability.md](../docs/reliability.md)   |
+| layered showcase decisions.    | [layered-showcase-plan.md](../docs/layered-showcase-plan.md) |

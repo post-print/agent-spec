@@ -189,6 +189,26 @@ function candidatePathsFromArgs(args: Record<string, unknown> | undefined): stri
 			paths.push(value.replace(/^file:\/\//, ""));
 		}
 	}
+	const command = args.command;
+	if (typeof command === "string") {
+		const ignoredExecutables = new Set(["/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/env"]);
+		for (const match of command.matchAll(/(?:^|[\s"'])((?:\.\.\/|\/)[^\s"';&|)]+)/g)) {
+			const path = match[1]?.replace(/[,:]+$/, "");
+			// Shell commands often inspect runner temp folders while running tests.
+			// Only flag external agent configuration paths here; direct tool path
+			// arguments still use the complete escape check below.
+			if (
+				path &&
+				!ignoredExecutables.has(path) &&
+				(path.includes("/.agents/skills/") ||
+					path.endsWith("/AGENTS.md") ||
+					path.endsWith("/CLAUDE.md") ||
+					path.includes("/.cursor/"))
+			) {
+				paths.push(path);
+			}
+		}
+	}
 	return paths;
 }
 
@@ -199,6 +219,10 @@ export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: stri
 	for (const call of trace.toolCalls) {
 		for (const raw of candidatePathsFromArgs(call.args)) {
 			const abs = isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
+			const normalized = abs.replaceAll("\\", "/");
+			if (normalized.includes("/.cursor/projects/") && normalized.includes("/agent-tools/")) {
+				continue;
+			}
 			if (!isPathUnderRoot(abs, root)) {
 				escaped.push(raw);
 			}

@@ -1,5 +1,4 @@
 import { resolvedTotalTokens } from "@post-print/agent-harness";
-
 import { assertionFailure } from "./failures.js";
 import type {
 	AgentScenario,
@@ -7,9 +6,10 @@ import type {
 	CompareArm,
 	CompareArmId,
 	CompareArmResult,
-	CompareMetricGate,
-	CompareMetricPair,
-	ScenarioCompare,
+	CompareGate,
+	CompareGateResult,
+	CompareMetric,
+	JudgeVerdictResult,
 	ScenarioCompareResult,
 	ScenarioRubric,
 } from "./types.js";
@@ -20,20 +20,19 @@ const RUBRIC_ARRAY_KEYS = [
 	"mustRun",
 	"allowedCommands",
 	"mustCallTool",
+	"mustCallToolsInOrder",
 	"mustNotCallTool",
 	"mustReadPath",
 	"mustNotReadPath",
 	"mustInvokeSkill",
 	"mustNotInvokeSkill",
 ] as const;
-
 const COMPARE_ARM_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
 export interface ResolvedCompareArm {
 	id: CompareArmId;
 	arm: CompareArm;
 }
-
 export interface CompareStoryArm {
 	id: CompareArmId;
 	label: string;
@@ -41,12 +40,13 @@ export interface CompareStoryArm {
 	rubric?: ScenarioRubric;
 	trace?: CompareArmResult["trace"];
 	durationMs?: number;
+	passed?: boolean;
+	failures?: CompareArmResult["failures"];
+	judgeVerdicts?: JudgeVerdictResult[];
 }
-
 export interface CompareStoryFields {
 	arms: CompareStoryArm[];
-	faster?: CompareMetricPair[];
-	cheaper?: CompareMetricPair[];
+	gates?: CompareGate[];
 	aLabel: string;
 	bLabel: string;
 	aDescription?: string;
@@ -55,11 +55,8 @@ export interface CompareStoryFields {
 	bRubric?: ScenarioRubric;
 }
 
-/** Append arm-only array checks. Keep the shared judge on the scenario rubric. */
 export function mergeArmRubric(base: ScenarioRubric, overlay?: ScenarioRubric): ScenarioRubric {
-	if (!overlay) {
-		return base;
-	}
+	if (!overlay) return base;
 	const merged: ScenarioRubric = {
 		...base,
 		tier: overlay.tier ?? base.tier,
@@ -70,156 +67,75 @@ export function mergeArmRubric(base: ScenarioRubric, overlay?: ScenarioRubric): 
 	};
 	for (const key of RUBRIC_ARRAY_KEYS) {
 		const extra = overlay[key];
-		if (extra !== undefined) {
-			merged[key] = [...(base[key] ?? []), ...extra];
-		}
+		if (extra !== undefined) merged[key] = [...(base[key] ?? []), ...extra];
 	}
 	return merged;
 }
 
 export function parseCompareArmId(value: unknown): CompareArmId | undefined {
-	if (typeof value !== "string") {
-		return undefined;
-	}
+	if (typeof value !== "string") return undefined;
 	const id = value.trim();
 	return COMPARE_ARM_ID_PATTERN.test(id) ? id : undefined;
 }
-
 export function compareArmLabel(arm: CompareArm | undefined, side: CompareArmId): string {
-	const label = arm?.label?.trim();
-	if (label) {
-		return label;
-	}
-	if (side === "a") {
-		return "control";
-	}
-	if (side === "b") {
-		return "experimental";
-	}
-	return side;
+	return arm?.label?.trim() || (side === "a" ? "control" : side === "b" ? "experimental" : side);
 }
-
-/** Trim a description. Empty text becomes undefined. */
 export function plainDescription(value?: string): string | undefined {
-	const text = value?.trim();
-	return text ? text : undefined;
+	return value?.trim() || undefined;
 }
-
-export function compareArmDescription(arm: CompareArm | undefined): string | undefined {
+export function compareArmDescription(arm?: CompareArm): string | undefined {
 	return plainDescription(arm?.description);
 }
 
-export function resolveCompareArms(compare?: ScenarioCompare): ResolvedCompareArm[] {
-	if (!compare) {
-		return [];
-	}
-	if (Array.isArray(compare.arms)) {
+export function resolveCompareArms(compare?: AgentScenario["compare"]): ResolvedCompareArm[] {
+	if (!compare) return [];
+	if (Array.isArray(compare.arms))
 		return compare.arms
 			.filter((arm): arm is CompareArm => typeof arm === "object" && arm !== null)
-			.map((arm) => ({
-				id: typeof arm.id === "string" ? arm.id.trim() : "",
-				arm,
-			}));
-	}
+			.map((arm) => ({ id: typeof arm.id === "string" ? arm.id.trim() : "", arm }));
 	const arms: ResolvedCompareArm[] = [];
-	if (compare.a && typeof compare.a === "object") {
-		arms.push({ id: "a", arm: compare.a });
-	}
-	if (compare.b && typeof compare.b === "object") {
-		arms.push({ id: "b", arm: compare.b });
-	}
+	if (compare.a && typeof compare.a === "object") arms.push({ id: "a", arm: compare.a });
+	if (compare.b && typeof compare.b === "object") arms.push({ id: "b", arm: compare.b });
 	return arms;
 }
-
 export function compareResultArms(result: ScenarioCompareResult): CompareArmResult[] {
-	if (result.arms && result.arms.length > 0) {
-		return result.arms;
-	}
-	const arms: CompareArmResult[] = [];
-	if (result.a) {
-		arms.push(result.a);
-	}
-	if (result.b) {
-		arms.push(result.b);
-	}
-	return arms;
+	return result.arms.length > 0
+		? result.arms
+		: [result.a, result.b].filter((arm): arm is CompareArmResult => arm !== undefined);
 }
-
 export function buildCompareResult(
 	arms: CompareArmResult[],
-	gates?: Pick<ScenarioCompareResult, "faster" | "cheaper">,
+	gates?: CompareGate[],
 ): ScenarioCompareResult {
 	return {
 		arms,
 		a: arms.find((arm) => arm.id === "a"),
 		b: arms.find((arm) => arm.id === "b"),
-		faster: gates?.faster,
-		cheaper: gates?.cheaper,
+		gates,
 	};
 }
-
-export function resolveCompareMetricPairs(
-	gate: CompareMetricGate | undefined,
-	armIds: readonly string[],
-): CompareMetricPair[] {
-	if (gate === undefined) {
-		return [];
-	}
-	if (typeof gate === "string") {
-		if (armIds.length !== 2 || !armIds.includes(gate)) {
-			return [];
-		}
-		const loser = armIds.find((id) => id !== gate);
-		if (!loser) {
-			return [];
-		}
-		return [{ winner: gate, loser }];
-	}
-	if (!Array.isArray(gate)) {
-		return [];
-	}
-	return gate.filter(
-		(pair): pair is CompareMetricPair =>
-			typeof pair === "object" &&
-			pair !== null &&
-			typeof pair.winner === "string" &&
-			typeof pair.loser === "string",
-	);
-}
-
 export function compareArmTokens(arm: CompareArmResult): number | undefined {
 	return resolvedTotalTokens(arm.trace?.usage);
 }
-
-/** Assistant messages on the trace. One message is one agent turn after stream coalesce. */
 export function compareArmTurns(arm: CompareArmResult): number | undefined {
-	if (!arm.trace) {
-		return undefined;
-	}
-	return arm.trace.messages.filter((message) => message.role === "assistant").length;
+	return arm.trace?.messages.filter((message) => message.role === "assistant").length;
 }
-
+export function compareArmTools(arm: CompareArmResult): number | undefined {
+	return arm.trace?.toolCalls.length;
+}
 export function formatCompareTurns(turns: number): string {
 	return turns === 1 ? "1 turn" : `${turns} turns`;
 }
 
-/** Apply one compare arm, or throw when the arm id is missing. */
 export function requireCompareArm(scenario: AgentScenario, side: CompareArmId): AgentScenario {
-	const resolved = resolveCompareArms(scenario.compare);
-	if (!resolved.some((entry) => entry.id === side)) {
+	if (!resolveCompareArms(scenario.compare).some((entry) => entry.id === side))
 		throw new Error(`Scenario ${scenario.name} has no compare arm ${side}`);
-	}
 	return applyCompareArm(scenario, side);
 }
-
-/** Apply one compare arm onto the shared scenario. Drops `compare` so the arm is a normal run. */
 export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): AgentScenario {
 	const { compare, ...rest } = scenario;
-	const resolved = resolveCompareArms(compare).find((entry) => entry.id === side);
-	const arm = resolved?.arm;
-	if (!arm) {
-		return rest;
-	}
+	const arm = resolveCompareArms(compare).find((entry) => entry.id === side)?.arm;
+	if (!arm) return rest;
 	return {
 		...rest,
 		prompt: arm.prompt ?? rest.prompt,
@@ -236,27 +152,8 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 	};
 }
 
-export function attachCompareStoryResults(
-	fields: CompareStoryFields,
-	result: ScenarioCompareResult,
-): CompareStoryFields {
-	const byId = new Map(compareResultArms(result).map((arm) => [arm.id, arm]));
-	return {
-		...fields,
-		faster: result.faster ?? fields.faster,
-		cheaper: result.cheaper ?? fields.cheaper,
-		arms: fields.arms.map((arm) => ({
-			...arm,
-			trace: byId.get(arm.id)?.trace,
-			durationMs: byId.get(arm.id)?.durationMs,
-		})),
-	};
-}
-
 export function compareStoryFields(scenario: AgentScenario): CompareStoryFields {
-	const resolved = resolveCompareArms(scenario.compare);
-	const armIds = resolved.map((entry) => entry.id);
-	const arms: CompareStoryArm[] = resolved.map((entry) => ({
+	const arms = resolveCompareArms(scenario.compare).map((entry) => ({
 		id: entry.id,
 		label: compareArmLabel(entry.arm, entry.id),
 		description: compareArmDescription(entry.arm),
@@ -264,149 +161,146 @@ export function compareStoryFields(scenario: AgentScenario): CompareStoryFields 
 	}));
 	return {
 		arms,
-		faster: resolveCompareMetricPairs(scenario.compare?.faster, armIds),
-		cheaper: resolveCompareMetricPairs(scenario.compare?.cheaper, armIds),
-		aLabel: arms[0]?.label ?? compareArmLabel(scenario.compare?.a, "a"),
-		bLabel: arms[1]?.label ?? compareArmLabel(scenario.compare?.b, "b"),
+		gates: scenario.compare?.gates,
+		aLabel: arms[0]?.label ?? "control",
+		bLabel: arms[1]?.label ?? "experimental",
 		aDescription: arms[0]?.description,
 		bDescription: arms[1]?.description,
 		aRubric: arms[0]?.rubric,
 		bRubric: arms[1]?.rubric,
 	};
 }
-
+export function attachCompareStoryResults(
+	fields: CompareStoryFields,
+	result: ScenarioCompareResult,
+): CompareStoryFields {
+	const byId = new Map(compareResultArms(result).map((arm) => [arm.id, arm]));
+	return {
+		...fields,
+		gates: result.gates ?? fields.gates,
+		arms: fields.arms.map((arm) => {
+			const measured = byId.get(arm.id);
+			return {
+				...arm,
+				trace: measured?.trace,
+				durationMs: measured?.durationMs,
+				passed: measured?.passed,
+				failures: measured?.failures,
+				judgeVerdicts: measured?.judgeVerdicts,
+			};
+		}),
+	};
+}
 export function prefixCompareFailures(
 	label: string,
 	failures: AssertionFailure[],
 ): AssertionFailure[] {
-	return failures.map((failure) => ({
-		...failure,
-		message: `${label}: ${failure.message}`,
-	}));
+	return failures.map((failure) => ({ ...failure, message: `${label}: ${failure.message}` }));
 }
 
-function armToolCount(arm: CompareArmResult): number | undefined {
-	return arm.trace ? arm.trace.toolCalls.length : undefined;
+function judgeValue(arm: CompareArmResult, id: string): "pass" | "fail" | undefined {
+	const verdict = arm.judgeVerdicts?.find((item) => item.id === id);
+	return verdict ? (verdict.pass ? "pass" : "fail") : undefined;
 }
-
-function armById(arms: CompareArmResult[], id: CompareArmId): CompareArmResult | undefined {
-	return arms.find((arm) => arm.id === id);
+export function compareMetricValue(
+	arm: CompareArmResult,
+	metric: CompareMetric,
+): number | "pass" | "fail" | undefined {
+	if (metric === "outcome")
+		return arm.passed === undefined ? undefined : arm.passed ? "pass" : "fail";
+	if (metric === "turns") return compareArmTurns(arm);
+	if (metric === "tokens") return compareArmTokens(arm);
+	if (metric === "tools") return compareArmTools(arm);
+	if (metric === "durationMs") return arm.durationMs;
+	return judgeValue(arm, metric.slice("judge:".length));
 }
-
-function describePairTurns(winner: CompareArmResult, loser: CompareArmResult): string | undefined {
-	const winnerTurns = compareArmTurns(winner);
-	const loserTurns = compareArmTurns(loser);
-	if (typeof winnerTurns !== "number" || typeof loserTurns !== "number") {
-		return undefined;
-	}
-	if (winnerTurns === loserTurns) {
-		return `${winner.label} and ${loser.label} use ${formatCompareTurns(winnerTurns)}`;
-	}
-	if (winnerTurns < loserTurns) {
-		return `${winner.label} uses fewer turns than ${loser.label} (${winnerTurns} vs ${loserTurns})`;
-	}
-	return `${loser.label} uses fewer turns than ${winner.label} (${loserTurns} vs ${winnerTurns})`;
+function normalizedValue(value: number | "pass" | "fail"): number {
+	return typeof value === "number" ? value : value === "pass" ? 1 : 0;
 }
-
-function describePairTokens(winner: CompareArmResult, loser: CompareArmResult): string | undefined {
-	const winnerTokens = compareArmTokens(winner);
-	const loserTokens = compareArmTokens(loser);
-	if (typeof winnerTokens !== "number" || typeof loserTokens !== "number") {
-		return undefined;
-	}
-	if (winnerTokens === loserTokens) {
-		return `${winner.label} and ${loser.label} use ${winnerTokens} tokens`;
-	}
-	if (winnerTokens < loserTokens) {
-		return `${winner.label} uses fewer tokens than ${loser.label} (${winnerTokens} vs ${loserTokens})`;
-	}
-	return `${loser.label} uses fewer tokens than ${winner.label} (${loserTokens} vs ${winnerTokens})`;
+function compareAbsolute(
+	left: number | "pass" | "fail",
+	operator: Extract<CompareGate, { arm: string }>["operator"],
+	right: number | "pass" | "fail",
+): boolean {
+	const a = normalizedValue(left);
+	const b = normalizedValue(right);
+	if (operator === "equal") return a === b;
+	if (operator === "lessThan") return a < b;
+	if (operator === "atMost") return a <= b;
+	if (operator === "atLeast") return a >= b;
+	return a > b;
 }
-
-function describeTwoArmOutcome(left: CompareArmResult, right: CompareArmResult): string[] {
-	const lines: string[] = [];
-	const aTurns = compareArmTurns(left);
-	const bTurns = compareArmTurns(right);
-	if (typeof aTurns === "number" && typeof bTurns === "number") {
-		if (aTurns === bTurns) {
-			lines.push(`both arms use ${formatCompareTurns(aTurns)}`);
-		} else {
-			const turns = describePairTurns(left, right);
-			if (turns) {
-				lines.push(turns);
-			}
+export function evaluateCompareGates(
+	gates: CompareGate[] | undefined,
+	result: ScenarioCompareResult,
+): CompareGateResult[] {
+	const byId = new Map(compareResultArms(result).map((arm) => [arm.id, arm]));
+	return (gates ?? []).map((gate) => {
+		if ("winner" in gate) {
+			const winner = byId.get(gate.winner);
+			const loser = byId.get(gate.loser);
+			const left = winner ? compareMetricValue(winner, gate.metric) : undefined;
+			const right = loser ? compareMetricValue(loser, gate.metric) : undefined;
+			const passed =
+				left !== undefined &&
+				right !== undefined &&
+				(typeof left === "number" && typeof right === "number"
+					? left < right
+					: left === "pass" && right === "fail");
+			return {
+				gate,
+				passed,
+				left,
+				right,
+				message: `${gate.winner} must beat ${gate.loser} on ${gate.metric}`,
+			};
 		}
-	}
-
-	const aTokens = compareArmTokens(left);
-	const bTokens = compareArmTokens(right);
-	if (typeof aTokens === "number" && typeof bTokens === "number") {
-		if (aTokens === bTokens) {
-			lines.push(`both arms use ${aTokens} tokens`);
-		} else {
-			const tokens = describePairTokens(left, right);
-			if (tokens) {
-				lines.push(tokens);
-			}
-		}
-	}
-
-	const aTools = armToolCount(left);
-	const bTools = armToolCount(right);
-	if (typeof aTools === "number" && typeof bTools === "number") {
-		if (aTools === bTools) {
-			lines.push(
-				aTools === 1 ? "both arms make 1 tool call" : `both arms make ${aTools} tool calls`,
-			);
-		} else if (aTools < bTools) {
-			lines.push(
-				`${left.label} makes fewer tool calls than ${right.label} (${aTools} vs ${bTools})`,
-			);
-		} else {
-			lines.push(
-				`${right.label} makes fewer tool calls than ${left.label} (${bTools} vs ${aTools})`,
-			);
-		}
-	}
-
-	return lines;
+		const arm = byId.get(gate.arm);
+		const left = arm ? compareMetricValue(arm, gate.metric) : undefined;
+		const passed = left !== undefined && compareAbsolute(left, gate.operator, gate.value);
+		return {
+			gate,
+			passed,
+			left,
+			right: gate.value,
+			message: `${gate.arm} ${gate.metric} must be ${gate.operator} ${gate.value}`,
+		};
+	});
 }
-
-/**
- * Plain-language outcomes after the arms finish.
- * Two-arm form reports the single pair. Named-arm form reports declared pairs only.
- */
+export function assertCompareGates(
+	gates: CompareGate[] | undefined,
+	result: ScenarioCompareResult,
+): AssertionFailure[] {
+	return evaluateCompareGates(gates, result)
+		.filter((item) => !item.passed)
+		.map((item) =>
+			assertionFailure(
+				`compareGate:${item.gate.metric}`,
+				`${item.message} (actual ${String(item.left)} vs ${String(item.right)})`,
+				"rubric_miss",
+			),
+		);
+}
 export function describeCompareOutcome(compare: ScenarioCompareResult): string[] {
-	const arms = compareResultArms(compare);
-	if (arms.length === 2 && arms[0] && arms[1]) {
-		return describeTwoArmOutcome(arms[0], arms[1]);
-	}
-	const lines: string[] = [];
-	for (const pair of compare.faster ?? []) {
-		const winner = armById(arms, pair.winner);
-		const loser = armById(arms, pair.loser);
-		if (!winner || !loser) {
-			continue;
-		}
-		const line = describePairTurns(winner, loser);
-		if (line) {
-			lines.push(line);
-		}
-	}
-	for (const pair of compare.cheaper ?? []) {
-		const winner = armById(arms, pair.winner);
-		const loser = armById(arms, pair.loser);
-		if (!winner || !loser) {
-			continue;
-		}
-		const line = describePairTokens(winner, loser);
-		if (line) {
-			lines.push(line);
+	const lines = compareResultArms(compare).map((arm) => {
+		const values = [
+			arm.passed === undefined ? undefined : arm.passed ? "pass" : "fail",
+			compareArmTurns(arm) === undefined ? undefined : `${compareArmTurns(arm)} turns`,
+			compareArmTokens(arm) === undefined ? undefined : `${compareArmTokens(arm)} tokens`,
+			compareArmTools(arm) === undefined ? undefined : `${compareArmTools(arm)} tools`,
+			arm.durationMs === undefined ? undefined : `${arm.durationMs} ms`,
+		].filter(Boolean);
+		return `${arm.label}: ${values.join(", ")}`;
+	});
+	for (const arm of compareResultArms(compare)) {
+		for (const verdict of arm.judgeVerdicts ?? []) {
+			lines.push(
+				`${arm.label} judge ${verdict.id}: ${verdict.pass ? "pass" : "fail"}. ${verdict.rationale}`,
+			);
 		}
 	}
 	return lines;
 }
-
 export function applySidecarCompareDurations(
 	compare: ScenarioCompareResult,
 	sidecar?: {
@@ -417,104 +311,21 @@ export function applySidecarCompareDurations(
 		};
 	},
 ): ScenarioCompareResult {
-	if (!sidecar?.compare) {
-		return compare;
-	}
-	const arms = compareResultArms(compare).map((arm) => {
-		const fromMap = sidecar.compare?.arms?.[arm.id]?.durationMs;
-		const fromAlias =
-			arm.id === "a"
+	if (!sidecar?.compare) return compare;
+	const arms = compareResultArms(compare).map((arm) => ({
+		...arm,
+		durationMs:
+			sidecar.compare?.arms?.[arm.id]?.durationMs ??
+			(arm.id === "a"
 				? sidecar.compare?.a?.durationMs
 				: arm.id === "b"
 					? sidecar.compare?.b?.durationMs
-					: undefined;
-		return {
-			...arm,
-			durationMs: fromMap ?? fromAlias ?? arm.durationMs,
-		};
-	});
-	return buildCompareResult(arms, { faster: compare.faster, cheaper: compare.cheaper });
-}
-
-function assertMetricPair(
-	matcher: "faster" | "cheaper",
-	pair: CompareMetricPair,
-	byId: Map<string, CompareArmResult>,
-	read: (arm: CompareArmResult) => number | undefined,
-	verb: string,
-	unit: string,
-	reported: string,
-): AssertionFailure[] {
-	const winner = byId.get(pair.winner);
-	const loser = byId.get(pair.loser);
-	if (!winner || !loser) {
-		return [
-			assertionFailure(
-				matcher,
-				`${pair.winner} must ${verb} ${pair.loser}, but one arm is missing from the result`,
-				"rubric_miss",
-			),
-		];
-	}
-	const winnerValue = read(winner);
-	const loserValue = read(loser);
-	if (winnerValue === undefined || loserValue === undefined) {
-		return [
-			assertionFailure(
-				matcher,
-				`${winner.label} must ${verb} ${loser.label}, but one arm did not report ${reported}`,
-				"rubric_miss",
-			),
-		];
-	}
-	if (!(winnerValue < loserValue)) {
-		const winnerText = unit ? `${winnerValue}${unit}` : `${winnerValue}`;
-		const loserText = unit ? `${loserValue}${unit}` : `${loserValue}`;
-		return [
-			assertionFailure(
-				matcher,
-				`${winner.label} must ${verb} ${loser.label} (${winnerText} vs ${loserText})`,
-				"rubric_miss",
-			),
-		];
-	}
-	return [];
-}
-
-/** Score optional faster/cheaper gates after the arms finish. */
-export function assertCompareMetrics(
-	spec: Pick<ScenarioCompare, "faster" | "cheaper">,
-	result: ScenarioCompareResult,
-): AssertionFailure[] {
-	const arms = compareResultArms(result);
-	const armIds = arms.map((arm) => arm.id);
-	const byId = new Map(arms.map((arm) => [arm.id, arm]));
-	const failures: AssertionFailure[] = [];
-	for (const pair of resolveCompareMetricPairs(spec.faster, armIds)) {
-		failures.push(
-			...assertMetricPair(
-				"faster",
-				pair,
-				byId,
-				compareArmTurns,
-				"use fewer turns than",
-				"",
-				"turns",
-			),
-		);
-	}
-	for (const pair of resolveCompareMetricPairs(spec.cheaper, armIds)) {
-		failures.push(
-			...assertMetricPair(
-				"cheaper",
-				pair,
-				byId,
-				compareArmTokens,
-				"use fewer tokens than",
-				"",
-				"tokens",
-			),
-		);
-	}
-	return failures;
+					: undefined) ??
+			arm.durationMs,
+	}));
+	return {
+		...compare,
+		...buildCompareResult(arms, compare.gates),
+		gateResults: compare.gateResults,
+	};
 }

@@ -1,6 +1,33 @@
 import { describe, expect, it } from "bun:test";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { buildOpenaiExecArgs, buildOpenaiMcpOverride } from "../openai-run.js";
+import { buildOpenaiExecArgs, buildOpenaiMcpOverride, createOpenaiRunHome } from "../openai-run.js";
+
+it("creates an auth-only home for an isolated Codex run", async () => {
+	const realHome = await mkdtemp(join(tmpdir(), "openai-real-home-"));
+	const realCodexHome = join(realHome, ".codex");
+	await mkdir(join(realHome, ".agents/skills/private"), { recursive: true });
+	await mkdir(realCodexHome, { recursive: true });
+	await writeFile(join(realHome, ".agents/skills/private/SKILL.md"), "private", "utf8");
+	await writeFile(join(realCodexHome, "AGENTS.md"), "private instructions", "utf8");
+	await writeFile(join(realCodexHome, "auth.json"), "login", "utf8");
+	try {
+		const isolated = await createOpenaiRunHome({ realHome, realCodexHome });
+		try {
+			expect(await readFile(join(isolated.codexHome, "auth.json"), "utf8")).toBe("login");
+			await expect(
+				access(join(isolated.home, ".agents/skills/private/SKILL.md")),
+			).rejects.toThrow();
+			await expect(access(join(isolated.codexHome, "AGENTS.md"))).rejects.toThrow();
+		} finally {
+			await isolated.cleanup();
+		}
+	} finally {
+		await rm(realHome, { recursive: true, force: true });
+	}
+});
 
 describe("buildOpenaiExecArgs", () => {
 	it("pins the Codex sandbox to the sealed workspace", () => {

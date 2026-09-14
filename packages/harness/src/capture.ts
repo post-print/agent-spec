@@ -188,6 +188,12 @@ export function extractShellCommands(...chunks: string[]): string[] {
 /** Infer routing metadata from live agent prose when not structured. */
 /** Assistant prose before the first tool call when chronological event order is available. */
 export function assistantPrefixBeforeTools(trace: AgentTrace): string {
+	if (trace.toolCalls.length === 0) {
+		return trace.messages
+			.filter((message) => message.role === "assistant")
+			.map((message) => message.content)
+			.join("");
+	}
 	if (trace.assistantTextBeforeTools !== undefined) {
 		return trace.assistantTextBeforeTools;
 	}

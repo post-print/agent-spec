@@ -94,7 +94,7 @@ describe("scenarioNeedsJudge", () => {
 	it("is off for a compare scenario with no judge questions", () => {
 		expect(
 			scenarioNeedsJudge(true, {
-				compare: { a: {}, b: {}, cheaper: "b" },
+				compare: { a: {}, b: {}, gates: [{ metric: "tokens", winner: "b", loser: "a" }] },
 				rubric: { mustInvokeSkill: ["probe"] },
 			}),
 		).toBe(false);
@@ -105,6 +105,19 @@ describe("scenarioNeedsJudge", () => {
 			scenarioNeedsJudge(true, {
 				compare: { a: {}, b: {} },
 				rubric: { judge: ["Did the arms differ?"] },
+			}),
+		).toBe(true);
+	});
+
+	it("is on for a compare scenario with per-arm judge metrics", () => {
+		expect(
+			scenarioNeedsJudge(true, {
+				compare: {
+					a: {},
+					b: {},
+					judgeMetrics: [{ id: "clear", question: "Is the answer clear?" }],
+				},
+				rubric: {},
 			}),
 		).toBe(true);
 	});

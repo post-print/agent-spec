@@ -105,7 +105,7 @@ test.describe("html report preview", () => {
 		await expect(pair.getByText("Arm B")).toBeVisible();
 		await expect(pair.getByRole("heading", { name: "Comparison" })).toBeVisible();
 		await expect(pair.locator(".compare-winners")).toContainText("beta wins");
-		await expect(pair.getByText("beta uses fewer turns than alpha")).toBeVisible();
+		await expect(pair.getByText("Turns: beta wins (2 vs 1).")).toBeVisible();
 		const columns = await pair.locator(".compare-arms").evaluate((node) => {
 			return getComputedStyle(node).gridTemplateColumns;
 		});
@@ -123,10 +123,10 @@ test.describe("html report preview", () => {
 		await expect(four.locator('[data-arm-id="none-messy"]')).toBeVisible();
 		await expect(four.getByText("none-messy-ok")).toBeVisible();
 		await expect(four.locator('[data-arm-id="skel-clean"]')).toBeHidden();
-		await expect(four.getByText("lowest is skeleton clean")).toBeVisible();
 		await expect(
-			four.getByText("skeleton clean must use fewer tokens than no skill clean"),
+			four.getByText("Tokens: lowest is skeleton clean", { exact: false }),
 		).toBeVisible();
+		await expect(four.getByText("skel-clean must beat none-clean on tokens. Pass.")).toBeVisible();
 		await expect(four.getByText("Δ is B minus A")).toHaveCount(0);
 	});
 

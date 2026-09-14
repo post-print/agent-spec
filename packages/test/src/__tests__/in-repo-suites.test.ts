@@ -15,11 +15,9 @@ const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 describe("in-repo suites", () => {
 	it("validates every host-agent suite without launching an agent", async () => {
 		const paths = await discoverSuites(join(repoRoot, "agent-suites"));
-		expect(paths.some((path) => path.endsWith(join("smoke", "scenarios.json")))).toBe(true);
-		expect(paths.some((path) => path.endsWith(join("tools", "scenarios.json")))).toBe(true);
-		expect(paths.some((path) => path.endsWith(join("mcp", "scenarios.json")))).toBe(true);
-		expect(paths.some((path) => path.endsWith(join("judge", "scenarios.json")))).toBe(true);
-		expect(paths.some((path) => path.endsWith(join("depth", "scenarios.json")))).toBe(true);
+		expect(paths.some((path) => path.endsWith(join("confidence", "scenarios.json")))).toBe(true);
+		expect(paths.some((path) => path.endsWith(join("tour", "scenarios.json")))).toBe(true);
+		expect(paths.some((path) => path.endsWith(join("reference", "scenarios.json")))).toBe(true);
 		for (const suitePath of paths) {
 			const suite = await loadSuiteFile(suitePath);
 			expect(validateSuiteFile(suitePath, suite)).toEqual([]);
@@ -45,34 +43,32 @@ describe("in-repo suites", () => {
 		expect(report.ok).toBe(true);
 	});
 
-	it("keeps smoke as a short host proof", async () => {
+	it("keeps confidence as a six-scenario host proof", async () => {
 		const paths = await discoverSuites(join(repoRoot, "agent-suites"));
-		const suitePath = paths.find((path) => path.endsWith(join("smoke", "scenarios.json")));
+		const suitePath = paths.find((path) => path.endsWith(join("confidence", "scenarios.json")));
 		expect(suitePath).toBeDefined();
 		if (!suitePath) {
 			return;
 		}
 		const suite = await loadSuiteFile(suitePath);
+		expect(suite.scenarios).toHaveLength(6);
 		expect(suite.scenarios.map((scenario) => scenario.name)).toContain(
-			"reads a project skill file",
+			"uses two MCP tools in order",
 		);
 	});
 
-	it("keeps depth as a workspace-root runner-seam suite", async () => {
+	it("keeps the tour as seven independent scenarios", async () => {
 		const paths = await discoverSuites(join(repoRoot, "agent-suites"));
-		const suitePath = paths.find((path) => path.endsWith(join("depth", "scenarios.json")));
+		const suitePath = paths.find((path) => path.endsWith(join("tour", "scenarios.json")));
 		expect(suitePath).toBeDefined();
 		if (!suitePath) {
 			return;
 		}
 		const suite = await loadSuiteFile(suitePath);
-		expect(suite.scenarios.map((scenario) => scenario.name)).toEqual([
-			"uses injected context",
-			"applies a seed patch",
-			"runs a required command",
-			"follows a workspace skill",
-			"sees only the workspace tree",
-		]);
-		expect(suite.scenarios.every((scenario) => scenario.workspace)).toBe(true);
+		expect(suite.scenarios).toHaveLength(7);
+		expect(suite.scenarios.map((scenario) => scenario.name)).toContain(
+			"measures the value of a helpful tool",
+		);
+		expect(suite.defaults?.workspace).toBe("agent-suites/fixtures/task-list");
 	});
 });

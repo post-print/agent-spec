@@ -10,6 +10,15 @@ const SERVER_INFO = { name: "mcp-echo", version: "0.2.0" };
 const LOOKUP_NOTES = {
 	alpha: "agent-test-mcp-read-ok-4b8d",
 };
+const TASKS = {
+	"TASK-104": {
+		id: "TASK-104",
+		title: "Ship the task list",
+		owner: "Mina",
+		due: "2026-09-24",
+		status: "ready",
+	},
+};
 const NOTE_URI = "note://alpha";
 
 /** @type {Buffer} */
@@ -59,6 +68,33 @@ function toolsList() {
 				required: ["id"],
 			},
 		},
+		{
+			name: "search_tasks",
+			description: "Find task summaries. A summary can be out of date.",
+			inputSchema: {
+				type: "object",
+				properties: { text: { type: "string", description: "Words to find" } },
+				required: ["text"],
+			},
+		},
+		{
+			name: "get_task",
+			description: "Get the current task record by its ID.",
+			inputSchema: {
+				type: "object",
+				properties: { id: { type: "string", description: "Task ID" } },
+				required: ["id"],
+			},
+		},
+		{
+			name: "task_index",
+			description: "Get the one current task that matches a short question.",
+			inputSchema: {
+				type: "object",
+				properties: { question: { type: "string", description: "Question about a task" } },
+				required: ["question"],
+			},
+		},
 	];
 }
 
@@ -85,6 +121,43 @@ function handleToolsCall(id, params) {
 			id,
 			result: {
 				content: [{ type: "text", text }],
+				isError: false,
+			},
+		});
+		return;
+	}
+	if (name === "search_tasks") {
+		writeMessage({
+			jsonrpc: "2.0",
+			id,
+			result: {
+				content: [
+					{ type: "text", text: "TASK-104: Ship the task list. Summary due date: 2026-09-20." },
+				],
+				isError: false,
+			},
+		});
+		return;
+	}
+	if (name === "get_task") {
+		const taskId = typeof args.id === "string" ? args.id : "";
+		const task = TASKS[taskId];
+		writeMessage({
+			jsonrpc: "2.0",
+			id,
+			result: {
+				content: [{ type: "text", text: task ? JSON.stringify(task) : "unknown task" }],
+				isError: false,
+			},
+		});
+		return;
+	}
+	if (name === "task_index") {
+		writeMessage({
+			jsonrpc: "2.0",
+			id,
+			result: {
+				content: [{ type: "text", text: JSON.stringify(TASKS["TASK-104"]) }],
 				isError: false,
 			},
 		});

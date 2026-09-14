@@ -38,7 +38,7 @@ JSON is an authoring adapter, not a stored answer. This repository keeps host-ag
 npx agent-test login
 npx agent-test --check --suites-dir agent-suites
 npx agent-test viewer --suites-dir agent-suites --workers 2
-npx agent-test --suites-dir agent-suites --host cursor --suite smoke
+npx agent-test --suites-dir agent-suites --host cursor --suite confidence
 npx agent-test --suites-dir agent-suites --host cursor --auth-mode api-key
 ```
 
@@ -53,14 +53,16 @@ Default CI does not launch a host agent:
 ```bash
 bun run build
 node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
-node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
+node packages/test/dist/cli.js --check --suites-dir agent-suites
 ```
 
-Host-agent acceptance is `bun run test`. That command runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. `bun run test:smoke`, `bun run test:tools`, `bun run test:mcp`, `bun run test:judge`, and `bun run test:depth` stay on Cursor. A key-gated GitHub Actions job runs the same suites on Cursor with `--auth-mode api-key` when `CURSOR_API_KEY` is present.
+Host-agent acceptance is `bun run test`. That command runs the Cursor confidence suite. The tour and reference have their own commands. The host matrix and 20-run qualification are manual. A key-gated GitHub Actions job runs Cursor confidence and the direct SDK smoke when `CURSOR_API_KEY` is present.
+
+`bun run test:sdk:consumer` packs both packages, installs them in a clean Node 22 fixture, compiles the public declarations, runs a fake adapter, inspects comparison results, and runs the installed CLI. It does not use host credentials.
 
 ## Viewer e2e
 
-Playwright drives the suite viewer and the HTML report preview.
+Playwright drives the suite viewer and the HTML report preview. The viewer shows run totals at the top. Each compare arm has a tab that swaps the visible chat.
 
 ```bash
 bunx playwright install chromium

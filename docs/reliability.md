@@ -6,7 +6,7 @@
 
 <!-- review-deps: paths=package.json,agent-suites/**/scenarios.json -->
 
-`bun run test:unit` does not launch a host agent. `bun run test` launches Cursor, Claude, or OpenAI Codex. Replay-based testing is deprecated and removed. JSON suites only configure direct runs.
+`bun run test:unit` does not launch a host agent. `bun run test` runs the Cursor confidence gate. JSON suites only configure direct runs.
 
 How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
 
@@ -14,7 +14,11 @@ How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
 
 | Surface | Target |
 | --- | --- |
-| Direct agent runs | At least 95% completion without infrastructure-only failure over 20 credentialed runs |
+| Each confidence scenario | At least 19 of 20 runs have no behavior failure |
+| Each confidence scenario | At least 19 of 20 runs have no infrastructure failure |
+| Judge scenario | At least 19 of 20 judge passes |
+| Qualification run | No worktree leak, recording error, or judge-format error |
+| Deterministic controls | Every known-good and known-bad control returns the expected verdict |
 | Seed patches | 100% apply cleanly through `--check` |
 | Configuration | Zero silent misconfigurations through `--check` |
 | Isolation | Zero tool paths outside the sealed temp workspace. Host-global user skills stay out unless `allowUserSkills` is true |
@@ -26,19 +30,29 @@ How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
 # Host not ready does not fail this command.
 node packages/test/dist/cli.js --check --suites-dir agent-suites
 
-# Consumer confidence gate. Smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex.
+# Required pull request gate on Cursor.
 bun run test
+bun run test:confidence
 
-# One host
-bun run test -- --host cursor
-# API-key billing (CI host job)
-bun run test -- --host cursor --auth-mode api-key
-bun run test:smoke
-bun run test:tools
-bun run test:mcp
-bun run test:judge
-bun run test:depth
+# Product tour and complete reference.
+bun run test:tour
+bun run test:reference
+
+# Manual host and reliability work.
+bun run test:matrix
+bun run test:sdk:hosts
+bun run test:reliability
+
+# Package contract. This does not use host credentials.
+bun run test:sdk:consumer
 ```
+
+The 20-run command runs the deterministic controls first. It then runs the six Cursor confidence scenarios 20 times. It prints the count for each scenario and fails when any threshold is missed.
+
+For compare scenarios, qualify the experiment result, not the number of arm
+transcripts. A declared failed control is an expected measurement. It is not a
+reliability failure when the outcome gate accepts it. Infrastructure, isolation,
+recording, and judge-format errors always remain failures.
 
 ## Signals and failures
 

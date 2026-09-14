@@ -5,19 +5,20 @@ import { renderViewerCompareBoard, summarizeViewerCompare } from "../viewer/comp
 describe("viewer compare metrics", () => {
 	it("names the two-arm winner on each metric", () => {
 		const summary = summarizeViewerCompare([
-			{ id: "a", label: "no skill", turns: 4, tokens: 400, tools: 3 },
-			{ id: "b", label: "with skill", turns: 2, tokens: 120, tools: 3 },
+			{ id: "a", label: "no skill", turns: 4, tokens: 400, tools: 3, durationMs: 40 },
+			{ id: "b", label: "with skill", turns: 2, tokens: 120, tools: 3, durationMs: 20 },
 		]);
 		expect(summary.metrics.map((metric) => metric.line)).toEqual([
 			"Turns: with skill wins (4 vs 2).",
 			"Tokens: with skill wins (400 vs 120).",
 			"Tools: tie (3 vs 3).",
+			"Duration: with skill wins (40 vs 20).",
 		]);
 		expect(summary.metrics[0]?.winnerIds).toEqual(["b"]);
 		expect(summary.gates).toEqual([]);
 	});
 
-	it("scores cheaper and faster gates without a four-way winner", () => {
+	it("shows gate results without a four-way winner", () => {
 		const summary = summarizeViewerCompare(
 			[
 				{ id: "skel-clean", label: "skeleton clean", turns: 1, tokens: 80, tools: 1 },
@@ -25,36 +26,54 @@ describe("viewer compare metrics", () => {
 				{ id: "skel-messy", label: "skeleton messy", turns: 1, tokens: 90, tools: 1 },
 				{ id: "none-messy", label: "no skill messy", turns: 3, tokens: 220, tools: 2 },
 			],
-			{
-				cheaper: [
-					{ winner: "skel-clean", loser: "none-clean" },
-					{ winner: "skel-messy", loser: "none-messy" },
-				],
-			},
+			[
+				{
+					gate: { metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+					passed: true,
+					left: 80,
+					right: 200,
+					message: "skel-clean must beat none-clean on tokens",
+				},
+				{
+					gate: { metric: "tokens", winner: "skel-messy", loser: "none-messy" },
+					passed: true,
+					left: 90,
+					right: 220,
+					message: "skel-messy must beat none-messy on tokens",
+				},
+			],
 		);
 		expect(summary.metrics[1]?.line).toBe(
 			"Tokens: lowest is skeleton clean (80 vs 200 vs 90 vs 220).",
 		);
 		expect(summary.metrics.some((metric) => /wins all|four-way/i.test(metric.line))).toBe(false);
 		expect(summary.gates.map((gate) => gate.line)).toEqual([
-			"skeleton clean must use fewer tokens than no skill clean (80 vs 200). Pass.",
-			"skeleton messy must use fewer tokens than no skill messy (90 vs 220). Pass.",
+			"skel-clean must beat none-clean on tokens. Pass.",
+			"skel-messy must beat none-messy on tokens. Pass.",
 		]);
 		expect(summary.gates.every((gate) => gate.passed)).toBe(true);
 	});
 
-	it("fails a cheaper gate when the named arm does not win", () => {
+	it("shows a failed gate", () => {
 		const summary = summarizeViewerCompare(
 			[
 				{ id: "a", label: "control", tokens: 80 },
 				{ id: "b", label: "experimental", tokens: 120 },
 			],
-			{ cheaper: [{ winner: "b", loser: "a" }] },
+			[
+				{
+					gate: { metric: "tokens", winner: "b", loser: "a" },
+					passed: false,
+					left: 120,
+					right: 80,
+					message: "b must beat a on tokens",
+				},
+			],
 		);
 		expect(summary.gates[0]).toEqual({
-			metric: "cheaper",
+			metric: "tokens",
 			passed: false,
-			line: "experimental must use fewer tokens than control (120 vs 80). Fail.",
+			line: "b must beat a on tokens. Fail.",
 		});
 	});
 

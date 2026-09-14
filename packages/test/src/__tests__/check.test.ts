@@ -36,7 +36,7 @@ describe("check", () => {
 		const hosts = await collectSuiteHosts({
 			cwd: repoRoot,
 			suitesDir: join(repoRoot, "agent-suites"),
-			filter: "smoke",
+			filter: "confidence",
 		});
 		expect(hosts).toEqual(["cursor", "claude", "openai"]);
 	});

@@ -73,15 +73,15 @@ For `agent-test`, put adapters in `agent-test.config.mjs` or pass `--adapter ./h
 
 Set `classifierHost` to `cursor`, `claude`, or `openai`, or implement `classify()`. A custom host without one cannot run the judge.
 
-Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass to Codex as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply.
+Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass to Codex as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the Codex child gets a temp home with only its login file.
 
 ## Skills
 
-The sealed workspace is a git repo. Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skills`, and `.claude/skills` inside that folder. Optional `skills` paths only overlay extra folders that are not already in that repo. Host-global user skills stay out unless `allowUserSkills` is true. The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees, Claude `--setting-sources project` or `--bare`, and Codex `--ignore-user-config`. The judge scores any criterion against the full transcript, including tool names, args, and results. A tool result is an outcome.
+The sealed workspace is a git repo. Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skills`, and `.claude/skills` inside that folder. Optional `skills` paths only overlay extra folders that are not already in that repo. Host-global user skills stay out unless `allowUserSkills` is true. The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees, Claude `--setting-sources project` or `--bare`, and Codex `--ignore-user-config` plus an auth-only temp home. The judge scores any criterion against the full transcript, including tool names, args, and results. A tool result is an outcome.
 
 ## Isolation
 
-`createSealedWorkspace` copies `git archive HEAD` plus caller context (rules, skill trees, `AGENTS.md`, `skeleton.toml`) into a temp folder. Pass `workspace` to copy a caller-relative folder instead. It then runs `git init` in that folder so git does not walk to the caller repo. The test runner fails the scenario when tool paths leave that folder.
+`createSealedWorkspace` copies `git archive HEAD` plus caller context (rules, skill trees, `AGENTS.md`, `skeleton.toml`) into a temp folder. Pass `workspace` to copy a caller-relative folder instead. It then runs `git init` in that folder so git does not walk to the caller repo. Cursor file and shell tools use that same folder. The test runner fails the scenario when tool paths leave it. Cursor's temporary large-output files are host evidence and do not count as leaks.
 
 ## Judge
 

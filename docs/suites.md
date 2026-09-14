@@ -12,11 +12,11 @@ Layout:
 
 ```
 agent-suites/
-  smoke/
+  confidence/
     scenarios.json
-    workspaces/
-      hello/
-        README.txt
+  fixtures/
+    task-list/
+      PROJECT.md
 ```
 
 `--suites-dir` points at the parent of those suite folders. Default is `agent-suites`.
@@ -70,6 +70,7 @@ Deterministic matchers read the transcript. Each row states which parts of the t
 | `mustRun` | Each string appears in a shell command. |
 | `allowedCommands` | Every shell statement includes one listed fragment. Combined commands split on `&&`, `||`, `;`, `|`, and newlines. An empty list forbids every shell command. Omit the key for no allowlist. |
 | `mustCallTool` | A tool name substring matches. `name:fragment` also requires the fragment in JSON args or the tool result. |
+| `mustCallToolsInOrder` | Each tool matches from left to right. Extra calls can appear between required calls. Each required item uses one call. |
 | `mustNotCallTool` | No matching tool call. |
 | `mustReadPath` | A Read-family arg or a Shell/Bash path access contains the substring. |
 | `mustNotReadPath` | No Read tool arg contains the substring. |
@@ -97,9 +98,22 @@ Use `compare.arms` when the scenario has more than two workspaces. Each named ar
 
 Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. `rubric.judge` stays on the scenario. The judge sees every arm transcript. It does not pick one winner.
 
-The live verdict lists each arm. Shared rubric checks appear under every arm. Extra arm checks stay on that arm. Faster and cheaper gates sit in a compare section. Each check shows pass or fail. The HTML report and the viewer list a winner for turns, tokens, and tools. Named pairs still do not pick one overall winner. Two-arm chats sit side by side. Three or more arms use tabs to switch chats.
+The live verdict lists each arm. Shared rubric checks appear under every arm. Extra arm checks stay on that arm. The report shows outcome, turns, tokens, tools, duration, and per-arm judge results when available. Metrics stay informational unless a gate names them. Reports do not invent one overall winner.
 
-For two arms, `compare.faster` and `compare.cheaper` name the arm that must win. The win is a strict less-than on agent turns or total tokens.
+The suite viewer follows the same rule. It counts one completed result for each
+scenario and host, not one result for every arm. The arm tabs still show each
+arm's own outcome. For example, a stale-summary control may be red while the
+comparison card and the run banner are green because the declared experiment
+gates passed. An arm that fails without an expected outcome gate remains an
+unexpected failure.
+
+`compare.gates` holds independent conditions. All declared gates must pass. A pair gate names a winner and loser. For a numeric metric, the winner must have a lower value. An outcome gate requires the winner to pass and the loser to fail. A `judge:<id>` gate requires that judge metric to pass for the winner and fail for the loser. A tie or missing value fails a strict pair gate.
+
+An absolute gate names one arm, an operator, and a value. Use `pass` or `fail` for an outcome or judge value. Use a number for turns, tokens, tools, or duration.
+
+When gates are present, each arm's deterministic result becomes its outcome measurement. An expected failed control does not fail the scenario by itself. The gates decide whether the experiment passes. Infrastructure, isolation, recording, and judge-format failures still fail in their normal categories. When gates are absent, every arm must pass.
+
+`compare.judgeMetrics` runs each question against each arm. The report keeps each arm's result and trace. A shared `rubric.judge` can still compare the complete set of arms.
 
 An agent turn is one assistant message on the trace. The harness joins stream tokens into that message, then starts a new turn after tools.
 
@@ -107,19 +121,27 @@ When `compare.arms` has more than two arms, name winner-versus-loser pairs. A 2x
 
 ```json
 {
-  "name": "cheaper prompt",
-  "description": "Checks that a short prompt uses fewer tokens than a long prompt.",
-  "prompt": "Read README.txt. Reply with one sentence.",
+  "name": "helpful tool",
+  "description": "Checks whether a task index reduces work.",
+  "prompt": "Find the due date. Reply with the date only.",
   "compare": {
     "a": {
-      "label": "verbose",
-      "description": "Asks for a long summary.",
-      "prompt": "Read README.txt. Write a long summary."
+      "label": "files",
+      "description": "Reads the task files.",
+      "rubric": { "must": ["2026-09-24"] }
     },
-    "b": { "label": "short", "description": "Asks for one sentence." },
-    "cheaper": "b"
+    "b": {
+      "label": "index",
+      "description": "Uses the task index tool.",
+      "rubric": { "must": ["2026-09-24"], "mustCallTool": ["task_index"] }
+    },
+    "gates": [
+      { "metric": "outcome", "arm": "a", "operator": "equal", "value": "pass" },
+      { "metric": "outcome", "arm": "b", "operator": "equal", "value": "pass" },
+      { "metric": "tools", "winner": "b", "loser": "a" }
+    ]
   },
-  "rubric": { "mustReadPath": ["README.txt"] }
+  "rubric": {}
 }
 ```
 
@@ -155,16 +177,20 @@ When `compare.arms` has more than two arms, name winner-versus-loser pairs. A 2x
         "workspace": "workspaces/none-messy"
       }
     ],
-    "cheaper": [
-      { "winner": "skel-clean", "loser": "none-clean" },
-      { "winner": "skel-messy", "loser": "none-messy" }
+    "gates": [
+      { "metric": "tokens", "winner": "skel-clean", "loser": "none-clean" },
+      { "metric": "tokens", "winner": "skel-messy", "loser": "none-messy" }
     ]
   },
   "rubric": { "mustReadPath": ["README.txt"] }
 }
 ```
 
-Use separate workspaces when one arm has a skill and the other does not. Put `mustInvokeSkill` on the skill arm only. In-repo examples live under `agent-suites/judge`.
+Use separate workspaces when one arm has a skill and the other does not. Put `mustInvokeSkill` on the skill arm only. The runnable examples live under `agent-suites/reference` and `agent-suites/tour`.
+
+### Breaking compare change
+
+`compare.faster` and `compare.cheaper` were removed. `--check` rejects them. Move each old value to a gate. Use `turns` for `faster` and `tokens` for `cheaper`. There are no aliases and no second scoring path.
 
 ## MCP servers
 

@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: package overview -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
 <!-- review-deps: paths=package.json,packages/*/package.json -->
 
@@ -29,6 +29,23 @@ First consumer hour: [docs/getting-started.md](docs/getting-started.md). Topic i
 | [Hosts](docs/hosts.md) | Auth and custom adapters |
 | [Isolation](docs/isolation.md) | Sealed workspace, skills, debug bundles |
 | [Reliability](docs/reliability.md) | Targets, fail-on, environment knobs |
+
+## Example suites
+
+The repository includes three runnable suites. They are designed as a short
+learning path, not as hidden fixtures:
+
+| Suite | What it shows | Command |
+| --- | --- | --- |
+| `confidence` | Six low-variance pull-request checks | `bun run test:confidence` |
+| `tour` | A product tour, including MCP workflows and a tool experiment | `bun run test:tour` |
+| `reference` | One example for each public suite feature | `bun run test:reference` |
+
+Start with [Getting started](docs/getting-started.md), then read the
+[suite authoring guide](docs/suites.md). Every live scenario starts in a new
+sealed workspace. A compare scenario keeps each arm visible and reports one
+experiment outcome; an expected failed control arm does not make the
+experiment fail when its declared gates pass.
 
 > **Deprecated and removed:** replay-based tests and committed replay traces are no longer supported. `host: "replay"`, `replayTrace`, `--record-fixtures`, and the old `--live` mode flag fail with migration guidance.
 
@@ -65,7 +82,13 @@ Host-agent suite (host key or CLI/SDK login; incurs provider usage):
 bun run test
 ```
 
-`bun run test` runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. Pin one host with `bun run test -- --host cursor`. `bun run test:smoke` is the short Cursor proof.
+`bun run test` runs the six-scenario Cursor confidence gate. `bun run test:tour` runs the product tour. `bun run test:reference` runs the full reference. Run `bun run test:matrix` and `bun run test:reliability` manually.
+
+The installed-package contract needs no host credentials:
+
+```bash
+bun run test:sdk:consumer
+```
 
 Reliability targets: [docs/reliability.md](docs/reliability.md).
 

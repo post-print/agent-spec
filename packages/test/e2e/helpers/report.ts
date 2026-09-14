@@ -240,9 +240,25 @@ export function e2eReports(): SuiteRunReport[] {
 						},
 					},
 				],
-				cheaper: [
-					{ winner: "skel-clean", loser: "none-clean" },
-					{ winner: "skel-messy", loser: "none-messy" },
+				gates: [
+					{ metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+					{ metric: "tokens", winner: "skel-messy", loser: "none-messy" },
+				],
+				gateResults: [
+					{
+						gate: { metric: "tokens", winner: "skel-clean", loser: "none-clean" },
+						passed: true,
+						left: 80,
+						right: 200,
+						message: "skel-clean must beat none-clean on tokens",
+					},
+					{
+						gate: { metric: "tokens", winner: "skel-messy", loser: "none-messy" },
+						passed: true,
+						left: 90,
+						right: 220,
+						message: "skel-messy must beat none-messy on tokens",
+					},
 				],
 			},
 		}),

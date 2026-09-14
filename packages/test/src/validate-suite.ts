@@ -17,7 +17,7 @@ import type {
 	AgentScenario,
 	AgentSuiteFile,
 	CompareArm,
-	CompareMetricPair,
+	CompareGate,
 	ScenarioCompare,
 	ScenarioRubric,
 } from "./types.js";
@@ -134,6 +134,7 @@ function validateRubric(
 		"mustRun",
 		"allowedCommands",
 		"mustCallTool",
+		"mustCallToolsInOrder",
 		"mustNotCallTool",
 		"mustReadPath",
 		"mustNotReadPath",
@@ -406,22 +407,72 @@ function validateCompare(
 	const armIds = resolveCompareArms(compare)
 		.map((entry) => entry.id)
 		.filter(Boolean);
-	validateCompareMetricGate(
-		issues,
-		suitePath,
-		scenario.name,
-		"compare.faster",
-		compare.faster,
-		armIds,
-	);
-	validateCompareMetricGate(
-		issues,
-		suitePath,
-		scenario.name,
-		"compare.cheaper",
-		compare.cheaper,
-		armIds,
-	);
+	const raw = compare as unknown as Record<string, unknown>;
+	for (const removed of ["faster", "cheaper"] as const) {
+		if (removed in raw)
+			pushIssue(
+				issues,
+				suitePath,
+				`compare.${removed}`,
+				`compare.${removed} was removed. Use compare.gates`,
+				scenario.name,
+			);
+	}
+	validateCompareGates(issues, suitePath, scenario.name, compare.gates, armIds);
+	if (compare.judgeMetrics !== undefined) {
+		if (!Array.isArray(compare.judgeMetrics) || compare.judgeMetrics.length === 0) {
+			pushIssue(
+				issues,
+				suitePath,
+				"compare.judgeMetrics",
+				"judgeMetrics must be a non-empty array",
+				scenario.name,
+			);
+		} else {
+			const ids = new Set<string>();
+			for (const [index, metric] of compare.judgeMetrics.entries()) {
+				if (
+					!metric ||
+					typeof metric.id !== "string" ||
+					!metric.id.trim() ||
+					typeof metric.question !== "string" ||
+					!metric.question.trim()
+				)
+					pushIssue(
+						issues,
+						suitePath,
+						`compare.judgeMetrics[${index}]`,
+						"judge metric needs an id and a question",
+						scenario.name,
+					);
+				else if (ids.has(metric.id))
+					pushIssue(
+						issues,
+						suitePath,
+						`compare.judgeMetrics[${index}].id`,
+						"judge metric id must be unique",
+						scenario.name,
+					);
+				else ids.add(metric.id);
+			}
+		}
+	}
+	const judgeMetricIds = new Set(compare.judgeMetrics?.map((metric) => metric.id) ?? []);
+	for (const [index, gate] of (compare.gates ?? []).entries()) {
+		if (
+			typeof gate.metric === "string" &&
+			gate.metric.startsWith("judge:") &&
+			!judgeMetricIds.has(gate.metric.slice("judge:".length))
+		) {
+			pushIssue(
+				issues,
+				suitePath,
+				`compare.gates[${index}].metric`,
+				"judge gate must name a compare.judgeMetrics id",
+				scenario.name,
+			);
+		}
+	}
 }
 
 function validateNamedCompareArms(
@@ -465,109 +516,96 @@ function validateNamedCompareArms(
 	}
 }
 
-function validateCompareMetricGate(
+function validateCompareGates(
 	issues: SuiteValidationIssue[],
 	suitePath: string,
 	scenarioName: string,
-	field: string,
 	value: unknown,
 	armIds: string[],
 ): void {
-	if (value === undefined) {
-		return;
-	}
-	if (typeof value === "string") {
-		if (armIds.length !== 2) {
-			pushIssue(
-				issues,
-				suitePath,
-				field,
-				`${field} must be an array of { winner, loser } pairs when compare has more than two arms`,
-				scenarioName,
-			);
-			return;
-		}
-		if (!armIds.includes(value)) {
-			pushIssue(
-				issues,
-				suitePath,
-				field,
-				`${field} must be ${armIds.map((id) => JSON.stringify(id)).join(" or ")}`,
-				scenarioName,
-			);
-		}
-		return;
-	}
+	if (value === undefined) return;
 	if (!Array.isArray(value) || value.length === 0) {
-		pushIssue(
-			issues,
-			suitePath,
-			field,
-			armIds.length === 2
-				? `${field} must be ${armIds.map((id) => JSON.stringify(id)).join(" or ")} or an array of { winner, loser } pairs`
-				: `${field} must be an array of { winner, loser } pairs`,
-			scenarioName,
-		);
+		pushIssue(issues, suitePath, "compare.gates", "gates must be a non-empty array", scenarioName);
 		return;
 	}
-	const seen = new Set<string>();
-	for (const [index, pair] of value.entries()) {
-		if (typeof pair !== "object" || pair === null) {
-			pushIssue(
-				issues,
-				suitePath,
-				`${field}[${index}]`,
-				"pair must be { winner, loser }",
-				scenarioName,
-			);
+	const metrics = new Set(["outcome", "turns", "tokens", "tools", "durationMs"]);
+	const operators = new Set(["equal", "lessThan", "atMost", "atLeast", "greaterThan"]);
+	for (const [index, item] of value.entries()) {
+		const field = `compare.gates[${index}]`;
+		if (!item || typeof item !== "object") {
+			pushIssue(issues, suitePath, field, "gate must be an object", scenarioName);
 			continue;
 		}
-		const typed = pair as CompareMetricPair;
-		validateMetricPairEnd(
-			issues,
-			suitePath,
-			scenarioName,
-			`${field}[${index}].winner`,
-			typed.winner,
-			armIds,
-		);
-		validateMetricPairEnd(
-			issues,
-			suitePath,
-			scenarioName,
-			`${field}[${index}].loser`,
-			typed.loser,
-			armIds,
-		);
-		if (typeof typed.winner === "string" && typed.winner === typed.loser) {
+		const gate = item as CompareGate;
+		if (
+			typeof gate.metric !== "string" ||
+			(!metrics.has(gate.metric) && !gate.metric.startsWith("judge:"))
+		)
 			pushIssue(
 				issues,
 				suitePath,
-				`${field}[${index}]`,
-				"winner and loser must be different arms",
+				`${field}.metric`,
+				"metric must name a supported comparison value",
 				scenarioName,
 			);
-		}
-		if (typeof typed.winner === "string" && typeof typed.loser === "string") {
-			const key = `${typed.winner}>${typed.loser}`;
-			if (seen.has(key)) {
-				pushIssue(issues, suitePath, `${field}[${index}]`, "duplicate pair", scenarioName);
-			}
-			seen.add(key);
-		}
-	}
-}
-
-function validateMetricPairEnd(
-	issues: SuiteValidationIssue[],
-	suitePath: string,
-	scenarioName: string,
-	field: string,
-	value: unknown,
-	armIds: string[],
-): void {
-	if (typeof value !== "string" || !armIds.includes(value)) {
-		pushIssue(issues, suitePath, field, `must be one of ${armIds.join(", ")}`, scenarioName);
+		if ("winner" in gate) {
+			if (!armIds.includes(gate.winner))
+				pushIssue(
+					issues,
+					suitePath,
+					`${field}.winner`,
+					`must be one of ${armIds.join(", ")}`,
+					scenarioName,
+				);
+			if (!armIds.includes(gate.loser))
+				pushIssue(
+					issues,
+					suitePath,
+					`${field}.loser`,
+					`must be one of ${armIds.join(", ")}`,
+					scenarioName,
+				);
+			if (gate.winner === gate.loser)
+				pushIssue(
+					issues,
+					suitePath,
+					field,
+					"winner and loser must be different arms",
+					scenarioName,
+				);
+		} else if ("arm" in gate) {
+			if (!armIds.includes(gate.arm))
+				pushIssue(
+					issues,
+					suitePath,
+					`${field}.arm`,
+					`must be one of ${armIds.join(", ")}`,
+					scenarioName,
+				);
+			if (!operators.has(gate.operator))
+				pushIssue(
+					issues,
+					suitePath,
+					`${field}.operator`,
+					"operator is not supported",
+					scenarioName,
+				);
+			if (typeof gate.value !== "number" && gate.value !== "pass" && gate.value !== "fail")
+				pushIssue(
+					issues,
+					suitePath,
+					`${field}.value`,
+					"value must be a number, pass, or fail",
+					scenarioName,
+				);
+		} else
+			pushIssue(
+				issues,
+				suitePath,
+				field,
+				"gate needs winner and loser, or arm, operator, and value",
+				scenarioName,
+			);
 	}
 }
 

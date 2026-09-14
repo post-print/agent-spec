@@ -1,5 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
@@ -86,6 +88,37 @@ interface ActiveOpenaiChild {
 
 let activeOpenaiRun: ActiveOpenaiChild | undefined;
 let lastOpenaiRunTrace: AgentTrace | undefined;
+
+interface OpenaiRunHome {
+	home: string;
+	codexHome: string;
+	cleanup: () => Promise<void>;
+}
+
+/** A clean home with only the Codex login file. */
+export async function createOpenaiRunHome(options?: {
+	realHome?: string;
+	realCodexHome?: string;
+}): Promise<OpenaiRunHome> {
+	const realHome = options?.realHome ?? homedir();
+	const realCodexHome =
+		options?.realCodexHome ?? process.env.CODEX_HOME ?? join(realHome, ".codex");
+	const home = await mkdtemp(join(tmpdir(), "agent-harness-openai-home-"));
+	const codexHome = join(home, ".codex");
+	await mkdir(codexHome, { recursive: true });
+	try {
+		await copyFile(join(realCodexHome, "auth.json"), join(codexHome, "auth.json"));
+	} catch {
+		// API-key runs and logged-out checks do not have a login file.
+	}
+	return {
+		home,
+		codexHome,
+		cleanup: async () => {
+			await rm(home, { recursive: true, force: true });
+		},
+	};
+}
 
 function stashTrace(acc: OpenaiTraceAccumulator): AgentTrace {
 	const trace = finalizeOpenaiTraceAccumulator(acc);
@@ -379,13 +412,20 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
 		allowUserSkills: options.allowUserSkills === true,
 	});
+	const runHome = options.allowUserSkills === true ? undefined : await createOpenaiRunHome();
 
 	const execute = async (): Promise<OpenaiRunResult> => {
 		const acc = createOpenaiTraceAccumulator();
 		const abort = new AbortController();
+		const env = buildOpenaiEnv(authMode, options.apiKey);
+		if (runHome) {
+			env.HOME = runHome.home;
+			env.USERPROFILE = runHome.home;
+			env.CODEX_HOME = runHome.codexHome;
+		}
 		const child = spawn(bin, args, {
 			cwd: options.cwd,
-			env: buildOpenaiEnv(authMode, options.apiKey),
+			env,
 			stdio: ["ignore", "pipe", "pipe"],
 			detached: process.platform !== "win32",
 		}) as OpenaiChildProcess;
@@ -443,24 +483,27 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		}
 	};
 
-	if (options.timeoutMs && options.timeoutMs > 0) {
-		await options.onDeadlineStart?.();
-		try {
-			return await withRunTimeout(execute, options.timeoutMs, {
-				onTimeout: () => {
-					timedOut = true;
-					cancelActiveOpenaiRun();
-				},
-			});
-		} catch (error) {
-			if (error instanceof AgentRunTimeoutError) {
-				error.trace = error.trace ?? takeLastOpenaiRunTrace() ?? getPartialTrace(error);
+	try {
+		if (options.timeoutMs && options.timeoutMs > 0) {
+			await options.onDeadlineStart?.();
+			try {
+				return await withRunTimeout(execute, options.timeoutMs, {
+					onTimeout: () => {
+						timedOut = true;
+						cancelActiveOpenaiRun();
+					},
+				});
+			} catch (error) {
+				if (error instanceof AgentRunTimeoutError) {
+					error.trace = error.trace ?? takeLastOpenaiRunTrace() ?? getPartialTrace(error);
+				}
+				throw error;
 			}
-			throw error;
 		}
+		return await execute();
+	} finally {
+		await runHome?.cleanup();
 	}
-
-	return execute();
 }
 
 /** Classifier-only Codex path — read-only sandbox, last assistant text. */

@@ -36,20 +36,18 @@ describe("mcp-config validation", () => {
 		expect(mcpScenario?.rubric.mustCallTool).toContain("echo:mcp echo ok");
 	});
 
-	it("loads the live mcp suite defaults", async () => {
+	it("loads a live tour MCP scenario", async () => {
 		const suitePath = fileURLToPath(
-			new URL("../../../../agent-suites/mcp/scenarios.json", import.meta.url),
+			new URL("../../../../agent-suites/tour/scenarios.json", import.meta.url),
 		);
 		const suite = await loadSuiteFile(suitePath);
-		expect(suite.defaults?.mcpServers?.echo).toMatchObject({
+		const scenario = suite.scenarios.find((item) => item.name === "uses the issue service");
+		expect(scenario?.mcpServers?.tasks).toMatchObject({
 			type: "stdio",
 			command: "node",
 		});
-		expect(suite.scenarios.map((scenario) => scenario.name)).toEqual([
-			"echoes through MCP",
-			"reads a note through MCP",
-		]);
-		expect(suite.scenarios.every((scenario) => scenario.workspace)).toBe(true);
+		expect(scenario?.rubric.mustCallTool).toContain("get_task:TASK-104");
+		expect(suite.defaults?.workspace).toBe("agent-suites/fixtures/task-list");
 	});
 });
 

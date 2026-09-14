@@ -433,6 +433,52 @@ describe("expectTrace", () => {
 		).toHaveLength(0);
 	});
 
+	it("accepts required tool calls from left to right", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [
+				{ name: "search_tasks", args: { text: "release" } },
+				{ name: "read_file", args: { path: "note.md" } },
+				{ name: "get_task", args: { id: "TASK-104" } },
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(
+			assertRubric(trace, {
+				mustCallToolsInOrder: ["search_tasks:release", "get_task:TASK-104"],
+			}),
+		).toHaveLength(0);
+	});
+
+	it("uses one call for each repeated ordered requirement", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [{ name: "get_task", args: { id: "TASK-104" } }],
+			shellCommands: [],
+			artifacts: {},
+		};
+		const failures = assertRubric(trace, {
+			mustCallToolsInOrder: ["get_task", "get_task"],
+		});
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.message).toContain('"get_task"');
+	});
+
+	it("names the first ordered tool call that is missing", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			toolCalls: [{ name: "get_task" }, { name: "search_tasks" }],
+			shellCommands: [],
+			artifacts: {},
+		};
+		const failures = assertRubric(trace, {
+			mustCallToolsInOrder: ["search_tasks", "get_task"],
+		});
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.message).toContain('"get_task"');
+	});
+
 	it("does not treat an MCP tool result as must evidence", () => {
 		const trace: AgentTrace = {
 			messages: [{ role: "assistant", content: "done" }],

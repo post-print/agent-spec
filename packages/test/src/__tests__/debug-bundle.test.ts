@@ -164,6 +164,13 @@ describe("debug-bundle", () => {
 				name: "hello world",
 				prompt: "Say hi",
 				rubric: { must: ["hello"] },
+				compare: {
+					arms: [
+						{ id: "control", label: "control" },
+						{ id: "tool", label: "tool" },
+					],
+					gates: [{ metric: "tokens", winner: "tool", loser: "control" }],
+				},
 			};
 			const result: ScenarioResult = {
 				suite: "smoke",
@@ -198,6 +205,21 @@ describe("debug-bundle", () => {
 					toolCalls: [],
 					shellCommands: ["echo hi"],
 					artifacts: {},
+				},
+				compare: {
+					arms: [
+						{ id: "control", label: "control", passed: false, failures: [], durationMs: 2 },
+						{ id: "tool", label: "tool", passed: true, failures: [], durationMs: 1 },
+					],
+					gateResults: [
+						{
+							gate: { metric: "tokens", winner: "tool", loser: "control" },
+							passed: true,
+							left: 10,
+							right: 20,
+							message: "tool must beat control on tokens",
+						},
+					],
 				},
 			};
 
@@ -247,15 +269,20 @@ describe("debug-bundle", () => {
 
 			const scenarioJson = JSON.parse(await readFile(join(dir, "scenario.json"), "utf8")) as {
 				rubric: { must: string[] };
+				compare: { gates: unknown[] };
 			};
 			expect(scenarioJson.rubric.must).toEqual(["hello"]);
+			expect(scenarioJson.compare.gates).toHaveLength(1);
 
 			const resultJson = JSON.parse(await readFile(join(dir, "result.json"), "utf8")) as {
 				passed: boolean;
 				messageCount: number;
+				compare: { arms: unknown[]; gateResults: unknown[] };
 			};
 			expect(resultJson.passed).toBe(false);
 			expect(resultJson.messageCount).toBe(1);
+			expect(resultJson.compare.arms).toHaveLength(2);
+			expect(resultJson.compare.gateResults).toHaveLength(1);
 
 			const judge = JSON.parse(await readFile(join(dir, "judge-debug.json"), "utf8")) as Array<{
 				infraError?: string;

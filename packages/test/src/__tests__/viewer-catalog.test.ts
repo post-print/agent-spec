@@ -36,61 +36,29 @@ describe("loadViewerCatalog", () => {
 		expect(mcp).not.toHaveProperty("mcpServers");
 	});
 
-	it("lists in-repo smoke hosts and judge compare arms", async () => {
+	it("lists the confidence suite and tour compare arms", async () => {
 		const catalog = await loadViewerCatalog({
 			cwd: repoRoot,
 			suitesDir: join(repoRoot, "agent-suites"),
 		});
 
-		const smoke = catalog.suites.find((suite) => suite.name === "smoke");
-		expect(smoke?.hosts).toEqual(["cursor", "claude", "openai"]);
-		expect(smoke?.scenarios[0]?.name).toBe("hello");
-		expect(smoke?.scenarios[0]?.prompt).toBe(
-			"Reply with the exact sentence: smoke ok. Do not use tools.",
-		);
+		const confidence = catalog.suites.find((suite) => suite.name === "confidence");
+		expect(confidence?.hosts).toEqual(["cursor", "claude", "openai"]);
+		expect(confidence?.scenarios).toHaveLength(6);
 
-		const judge = catalog.suites.find((suite) => suite.name === "judge");
-		const compare = judge?.scenarios.find(
-			(scenario) => scenario.name === "compares two workspace arms",
+		const tour = catalog.suites.find((suite) => suite.name === "tour");
+		const compare = tour?.scenarios.find(
+			(scenario) => scenario.name === "compares three MCP workflows",
 		);
 		expect(compare?.description).toBe(
-			"Checks that two sealed workspaces reply with different one-word tokens.",
+			"The scenario measures an old summary, a search path, and a direct detail path.",
 		);
-		expect(compare?.compare).toEqual([
-			{
-				id: "a",
-				label: "alpha",
-				description: "Reads word.txt from the alpha workspace.",
-			},
-			{
-				id: "b",
-				label: "beta",
-				description: "Reads word.txt from the beta workspace.",
-			},
+		expect(compare?.compare?.map((arm) => arm.id)).toEqual([
+			"summary-only",
+			"search-detail",
+			"direct-detail",
 		]);
-
-		const skill = judge?.scenarios.find(
-			(scenario) => scenario.name === "skill arm is cheaper and more faithful",
-		);
-		expect(skill?.compare?.[1]).toEqual({
-			id: "b",
-			label: "with skill",
-			description: "Uses the brief-ship skill. The agent must stay on the note.",
-		});
-		expect(skill?.cheaper).toEqual([{ winner: "b", loser: "a" }]);
-
-		const depth = catalog.suites.find((suite) => suite.name === "depth");
-		const injected = depth?.scenarios.find((scenario) => scenario.name === "uses injected context");
-		expect(injected?.contextSources).toEqual(["brief.md"]);
-
-		const tools = catalog.suites.find((suite) => suite.name === "tools");
-		const write = tools?.scenarios.find((scenario) => scenario.name === "writes a marker file");
-		expect(write?.rubric).toEqual({
-			mustCallTool: ["Write:agent-test-write-ok-9c2e"],
-		});
-		expect(skill?.prompt).toBe(
-			"Read every markdown file in this workspace. Write a detailed shipping plan with background, risks, and next steps. Do not use Shell. Do not read files outside this workspace.",
-		);
+		expect(compare?.gates).toHaveLength(4);
 	});
 
 	it("expands a compare scenario onto one job per host and arm", async () => {
@@ -99,38 +67,40 @@ describe("loadViewerCatalog", () => {
 			suitesDir: join(repoRoot, "agent-suites"),
 		});
 		const jobs = expandViewerJobs(catalog, {
-			suite: "judge",
-			scenario: "compares two workspace arms",
+			suite: "tour",
+			scenario: "measures the value of a helpful tool",
 			hosts: ["cursor", "claude"],
 		});
+		const prompt =
+			"Find the current due date for TASK-104. Use the fastest authoritative source. If no task index tool exists, read records/TASK-101.md, records/TASK-102.md, records/TASK-103.md, and records/TASK-104.md separately. Do not use a wildcard. Reply with the date in YYYY-MM-DD format only.";
 		expect(jobs).toEqual([
 			{
-				suite: "judge",
-				scenario: "compares two workspace arms",
+				suite: "tour",
+				scenario: "measures the value of a helpful tool",
 				host: "cursor",
 				arm: "a",
-				prompt: "Read word.txt. Reply with only that word. Do not add other words.",
+				prompt,
 			},
 			{
-				suite: "judge",
-				scenario: "compares two workspace arms",
+				suite: "tour",
+				scenario: "measures the value of a helpful tool",
 				host: "cursor",
 				arm: "b",
-				prompt: "Read word.txt. Reply with only that word. Do not add other words.",
+				prompt,
 			},
 			{
-				suite: "judge",
-				scenario: "compares two workspace arms",
+				suite: "tour",
+				scenario: "measures the value of a helpful tool",
 				host: "claude",
 				arm: "a",
-				prompt: "Read word.txt. Reply with only that word. Do not add other words.",
+				prompt,
 			},
 			{
-				suite: "judge",
-				scenario: "compares two workspace arms",
+				suite: "tour",
+				scenario: "measures the value of a helpful tool",
 				host: "claude",
 				arm: "b",
-				prompt: "Read word.txt. Reply with only that word. Do not add other words.",
+				prompt,
 			},
 		]);
 	});

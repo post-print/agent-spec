@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/auth-mode.ts,packages/harness/src/cursor-auth.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
+<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/auth-mode.ts,packages/harness/src/cursor-auth.ts,packages/harness/src/openai-run.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
 
 A **host** is the coding-agent runtime that executes a scenario. Builtin slugs are `cursor`, `claude`, and `openai`. A consumer repo can register another slug.
 
@@ -28,7 +28,7 @@ Resolution order: `--auth-mode`, then `runAgent({ authMode })`, then `CURSOR_AUT
 
 Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`.
 
-OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. Subscription mode uses the Codex CLI login and strips stale API keys from the child env.
+OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the child gets a temp home with only the Codex login file. Subscription mode uses that login and strips stale API keys from the child env.
 
 Optional model pins:
 

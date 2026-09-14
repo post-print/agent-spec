@@ -1,4 +1,7 @@
 import { describe, expect, it, jest, mock } from "bun:test";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { AgentRunTimeoutError } from "../run-guards.js";
 
@@ -10,6 +13,35 @@ mock.module("@cursor/sdk", () => ({
 		create: agentCreate,
 	},
 }));
+
+describe("runCursorAgent working directory", () => {
+	it("keeps shell work in the selected workspace", async () => {
+		const prior = process.cwd();
+		const workspace = await mkdtemp(join(tmpdir(), "cursor-run-cwd-"));
+		let observed: string | undefined;
+		agentCreate.mockResolvedValue({
+			send: agentSend,
+			[Symbol.asyncDispose]: async () => {},
+		});
+		agentSend.mockImplementation(async () => {
+			observed = process.cwd();
+			return {
+				stream: async function* () {},
+				wait: async () => ({ status: "finished" }),
+			};
+		});
+		try {
+			const { runCursorAgent } = await import("../cursor-run.js");
+			await runCursorAgent({ cwd: workspace, prompt: "Test the workspace.", apiKey: "test-key" });
+			expect(observed).toBe(await realpath(workspace));
+			expect(process.cwd()).toBe(prior);
+		} finally {
+			process.chdir(prior);
+			await rm(workspace, { recursive: true, force: true });
+			jest.clearAllMocks();
+		}
+	});
+});
 
 describe("runCursorAgent onDeadlineStart", () => {
 	it("fires after Agent.create and before the harness deadline arms", async () => {

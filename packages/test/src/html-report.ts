@@ -136,6 +136,8 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	toHaveAllowedCommands: FORBIDDEN_COMMAND,
 	mustCallTool: MISSING_TOOL,
 	toHaveCalledTool: MISSING_TOOL,
+	mustCallToolsInOrder: MISSING_TOOL,
+	toHaveCalledToolsInOrder: MISSING_TOOL,
 	mustNotCallTool: FORBIDDEN_TOOL,
 	toHaveNotCalledTool: FORBIDDEN_TOOL,
 	mustInvokeSkill: MISSING_SKILL,
@@ -162,14 +164,7 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	},
 	recordTrace: { label: "Recording failed", hint: "Saving the trace to disk failed." },
 	judge: { label: "Judge", hint: "The LLM judge flagged this scenario." },
-	faster: {
-		label: "Fewer turns",
-		hint: "The named arm must use fewer agent turns.",
-	},
-	cheaper: {
-		label: "Cheaper arm",
-		hint: "The named arm must use fewer tokens.",
-	},
+	compareGate: { label: "Comparison gate", hint: "A declared comparison condition did not pass." },
 };
 
 function humanizeMatcher(matcher: string): { label: string; hint?: string } {
@@ -601,6 +596,10 @@ function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]):
 	const bTools = armToolCount(right);
 	const toolDelta = aTools !== undefined && bTools !== undefined ? bTools - aTools : undefined;
 	const totalDelta = tokenDelta(left, right, "total");
+	const durationDelta =
+		left.durationMs !== undefined && right.durationMs !== undefined
+			? right.durationMs - left.durationMs
+			: undefined;
 	return `
   <div class="compare-table-wrap">
     <table class="compare-table">
@@ -613,11 +612,13 @@ function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]):
         </tr>
       </thead>
       <tbody>
+		${renderCompareMetricRow("Outcome", left.passed === undefined ? "n/a" : left.passed ? "pass" : "fail", right.passed === undefined ? "n/a" : right.passed ? "pass" : "fail", undefined, "n/a")}
         ${renderCompareMetricRow("Turns", formatArmTurns(left), formatArmTurns(right), turnDelta, formatSigned(turnDelta))}
         ${renderCompareMetricRow("Tokens", formatArmTokens(left, "total"), formatArmTokens(right, "total"), totalDelta, formatSigned(totalDelta))}
         ${renderCompareMetricRow("In", formatArmTokens(left, "input"), formatArmTokens(right, "input"), tokenDelta(left, right, "input"), formatSigned(tokenDelta(left, right, "input")))}
         ${renderCompareMetricRow("Out", formatArmTokens(left, "output"), formatArmTokens(right, "output"), tokenDelta(left, right, "output"), formatSigned(tokenDelta(left, right, "output")))}
         ${renderCompareMetricRow("Tools", aTools === undefined ? "n/a" : formatInteger(aTools), bTools === undefined ? "n/a" : formatInteger(bTools), toolDelta, formatSigned(toolDelta))}
+		${renderCompareMetricRow("Duration", left.durationMs === undefined ? "n/a" : formatDuration(left.durationMs), right.durationMs === undefined ? "n/a" : formatDuration(right.durationMs), durationDelta, formatSigned(durationDelta))}
       </tbody>
     </table>
   </div>`;
@@ -634,6 +635,10 @@ function renderNamedCompareMetrics(arms: CompareArmResult[]): string {
         </tr>
       </thead>
       <tbody>
+		${renderNamedCompareMetricRow(
+			"Outcome",
+			arms.map((arm) => (arm.passed === undefined ? "n/a" : arm.passed ? "pass" : "fail")),
+		)}
         ${renderNamedCompareMetricRow(
 					"Turns",
 					arms.map((arm) => formatArmTurns(arm)),
@@ -657,6 +662,10 @@ function renderNamedCompareMetrics(arms: CompareArmResult[]): string {
 						return tools === undefined ? "n/a" : formatInteger(tools);
 					}),
 				)}
+		${renderNamedCompareMetricRow(
+			"Duration",
+			arms.map((arm) => (arm.durationMs === undefined ? "n/a" : formatDuration(arm.durationMs))),
+		)}
       </tbody>
     </table>
   </div>`;
@@ -688,8 +697,9 @@ function renderCompareMetrics(result: ScenarioResult): string {
 				turns: compareArmTurns(arm),
 				tokens: compareArmTokens(arm),
 				tools: arm.trace ? arm.trace.toolCalls.length : undefined,
+				durationMs: arm.durationMs,
 			})),
-			{ faster: compare.faster, cheaper: compare.cheaper },
+			compare.gateResults,
 		),
 	);
 	return `
@@ -724,6 +734,13 @@ function renderArmMetrics(arm: CompareArmResult): string {
 	return `<p class="compare-arm-metrics">${escapeHtml(parts.join(" · "))}</p>`;
 }
 
+function renderArmFailures(arm: CompareArmResult): string {
+	if (!arm.failures?.length) return "";
+	return `<ul class="failures compare-arm-failures">${arm.failures
+		.map((failure) => `<li>${escapeHtml(failure.message)}</li>`)
+		.join("")}</ul>`;
+}
+
 function compareTabGroupId(result: ScenarioResult, host?: string): string {
 	return `ct-${result.suite}-${result.scenario}-${host ?? "host"}`
 		.toLowerCase()
@@ -744,6 +761,7 @@ function renderArmColumn(arm: CompareArmResult, index: number): string {
     <h3>${escapeHtml(arm.label)}</h3>
     ${description}
     ${renderArmMetrics(arm)}
+	${renderArmFailures(arm)}
   </header>
   ${renderChat(arm.trace, arm.prompt)}
 </article>`;

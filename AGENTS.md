@@ -56,7 +56,7 @@ Host-agent proof after host login:
 bun run test
 ```
 
-`bun run test` runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. That is the consumer confidence gate. `bun run test:smoke` is the short Cursor proof. `bun run test:tools`, `bun run test:mcp`, `bun run test:judge`, and `bun run test:depth` stay on Cursor. Pass `--host cursor` to pin the full suite set to one host.
+`bun run test` runs the six-scenario Cursor confidence gate. `bun run test:tour` and `bun run test:reference` run the showcase suites. `bun run test:matrix` and `bun run test:reliability` are manual. `bun run test:sdk:consumer` needs no host credentials.
 
 ## Validation split
 
@@ -67,7 +67,7 @@ bun run test
 | TypeScript under `packages/` (scoped) | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed |
 | TypeScript under `packages/` (full) | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions) |
 | Viewer e2e (Playwright) | `bunx playwright install chromium` then `bun run test:e2e` |
-| Host-agent suite | `bun run test` (smoke, tools, mcp, judge, depth × Cursor, Claude, Codex). Slice: `bun run test:smoke` or `--host cursor`. |
+| Host-agent suite | `bun run test` for Cursor confidence. Run `test:matrix` and `test:reliability` manually. |
 
 `validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Hash review proof lives in `.skeleton/review-lock.json`. After a complete re-read, attest explicit paths only:
 

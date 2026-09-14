@@ -421,6 +421,18 @@ describe("capture", () => {
 		expect(assistantPrefixBeforeTools(fail)).toBe("Reading…");
 	});
 
+	it("uses the full assistant reply when no tool was called", () => {
+		const trace: AgentTrace = {
+			messages: [{ role: "assistant", content: "Routing: Low — one direct reply." }],
+			toolCalls: [],
+			shellCommands: [],
+			artifacts: {},
+			assistantTextBeforeTools: "",
+		};
+		expect(assistantPrefixBeforeTools(trace)).toBe("Routing: Low — one direct reply.");
+		expect(handsOnTierBeforeTools(trace, "low")).toBe(true);
+	});
+
 	it("requires ## Routing in assistant prefix before tool calls", () => {
 		const pass: AgentTrace = {
 			messages: [

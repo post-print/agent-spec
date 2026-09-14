@@ -47,7 +47,7 @@ import {
 import {
 	applyCompareArm,
 	applySidecarCompareDurations,
-	assertCompareMetrics,
+	assertCompareGates,
 	attachCompareStoryResults,
 	buildCompareResult,
 	compareArmDescription,
@@ -56,11 +56,11 @@ import {
 	compareArmTurns,
 	compareResultArms,
 	compareStoryFields,
+	evaluateCompareGates,
 	plainDescription,
 	prefixCompareFailures,
 	requireCompareArm,
 	resolveCompareArms,
-	resolveCompareMetricPairs,
 } from "./compare-scenario.js";
 import { collectDebugEnvironment, getDebugBundleDir, writeDebugBundle } from "./debug-bundle.js";
 import { discoverSuites } from "./discover-suites.js";
@@ -347,7 +347,10 @@ export function scenarioNeedsJudge(
 		return false;
 	}
 	if (scenario.compare) {
-		return collectCompareJudgeCriteria(scenario.rubric).length > 0;
+		return (
+			collectCompareJudgeCriteria(scenario.rubric).length > 0 ||
+			(scenario.compare.judgeMetrics?.length ?? 0) > 0
+		);
 	}
 	return collectJudgeCriteria(scenario.rubric).length > 0;
 }
@@ -780,7 +783,52 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					);
 					scenarioTrace = compareResultArms(compareResult)[0]?.trace ?? scenarioTrace;
 				}
-				if (failures.length === 0 && options.judge !== false) {
+				if (compareResult && options.judge !== false && scenario.compare?.judgeMetrics?.length) {
+					for (const arm of compareResult.arms) {
+						if (!arm.trace) continue;
+						try {
+							const judged = await runJudgeRubric(
+								arm.trace,
+								{ judge: scenario.compare.judgeMetrics },
+								options.cwd,
+								judgeHost,
+							);
+							arm.trace = judged.trace;
+							arm.judgeVerdicts = toJudgeVerdictResults(
+								judged.trace,
+								scenario.compare.judgeMetrics,
+								judged.verdicts,
+							);
+							arm.failures = [...(arm.failures ?? []), ...judged.failures];
+							failures.push(
+								...prefixCompareFailures(
+									arm.label,
+									judged.failures.filter((failure) => failure.category !== "rubric_miss"),
+								),
+							);
+						} catch (error) {
+							failures.push(
+								assertionFailure(
+									"judge",
+									error instanceof Error ? error.message : "failed to judge compare arm",
+									"judge_infra",
+								),
+							);
+						}
+					}
+				}
+				if (compareResult) {
+					compareResult.gateResults = evaluateCompareGates(compareResult.gates, compareResult);
+					if (failures.every((failure) => failure.category === "rubric_miss")) {
+						failures.push(...assertCompareGates(compareResult.gates, compareResult));
+					}
+				}
+				if (
+					(options.judge !== false && failures.length === 0) ||
+					(options.judge !== false &&
+						scenario.compare &&
+						failures.every((failure) => failure.category === "rubric_miss"))
+				) {
 					const compareTraces = compareResult ? compareResultArms(compareResult) : [];
 					if (
 						scenario.compare &&
@@ -1800,10 +1848,15 @@ async function runCompareAgentTestOnce(
 		armRuns.push({ id: entry.id, label, scenario: armScenario, result });
 	}
 
+	const experimentMode = (scenario.compare?.gates?.length ?? 0) > 0;
 	const failures: AssertionFailure[] = armRuns.flatMap((arm) =>
-		prefixCompareFailures(arm.label, arm.result.failures),
+		prefixCompareFailures(
+			arm.label,
+			experimentMode
+				? arm.result.failures.filter((failure) => failure.category !== "rubric_miss")
+				: arm.result.failures,
+		),
 	);
-	const armIds = resolvedArms.map((entry) => entry.id);
 	const compareResult = buildCompareResult(
 		armRuns.map((arm) => ({
 			id: arm.id,
@@ -1812,14 +1865,40 @@ async function runCompareAgentTestOnce(
 			prompt: arm.scenario.prompt,
 			trace: arm.result.trace,
 			durationMs: arm.result.durationMs,
+			passed: !arm.result.failures.some((failure) => failure.category === "rubric_miss"),
+			failures: arm.result.failures,
 		})),
-		{
-			faster: resolveCompareMetricPairs(scenario.compare?.faster, armIds),
-			cheaper: resolveCompareMetricPairs(scenario.compare?.cheaper, armIds),
-		},
+		scenario.compare?.gates,
 	);
-	if (scenario.compare) {
-		failures.push(...assertCompareMetrics(scenario.compare, compareResult));
+	if (judge && !isChildProcess() && scenario.compare?.judgeMetrics?.length) {
+		for (const arm of compareResult.arms) {
+			if (!arm.trace) continue;
+			const judged = await runJudgeRubric(
+				arm.trace,
+				{ judge: scenario.compare.judgeMetrics },
+				cwd,
+				host,
+			);
+			arm.trace = judged.trace;
+			arm.judgeVerdicts = toJudgeVerdictResults(
+				judged.trace,
+				scenario.compare.judgeMetrics,
+				judged.verdicts,
+			);
+			arm.failures = [...(arm.failures ?? []), ...judged.failures];
+			failures.push(
+				...prefixCompareFailures(
+					arm.label,
+					judged.failures.filter((failure) => failure.category !== "rubric_miss"),
+				),
+			);
+		}
+	}
+	if (!isChildProcess()) {
+		compareResult.gateResults = evaluateCompareGates(compareResult.gates, compareResult);
+		if (failures.every((failure) => failure.category === "rubric_miss")) {
+			failures.push(...assertCompareGates(compareResult.gates, compareResult));
+		}
 	}
 
 	const deferJudgeToParent = isChildProcess();
@@ -1829,7 +1908,7 @@ async function runCompareAgentTestOnce(
 	if (
 		judge &&
 		!deferJudgeToParent &&
-		failures.length === 0 &&
+		failures.every((failure) => failure.category === "rubric_miss") &&
 		compareArms.length > 0 &&
 		compareArms.every((arm) => arm.trace)
 	) {
@@ -1936,7 +2015,6 @@ async function loadCompareResultFromStaging(
 	scenario: AgentScenario,
 ): Promise<ScenarioCompareResult> {
 	const resolved = resolveCompareArms(scenario.compare);
-	const armIds = resolved.map((entry) => entry.id);
 	const arms = [];
 	for (const entry of resolved) {
 		const armScenario = applyCompareArm(scenario, entry.id);
@@ -1954,12 +2032,11 @@ async function loadCompareResultFromStaging(
 			description: compareArmDescription(entry.arm),
 			prompt: armScenario.prompt,
 			trace,
+			passed: trace ? assertRubric(trace, armScenario.rubric).length === 0 : undefined,
+			failures: trace ? assertRubric(trace, armScenario.rubric) : undefined,
 		});
 	}
-	return buildCompareResult(arms, {
-		faster: resolveCompareMetricPairs(scenario.compare?.faster, armIds),
-		cheaper: resolveCompareMetricPairs(scenario.compare?.cheaper, armIds),
-	});
+	return buildCompareResult(arms, scenario.compare?.gates);
 }
 
 async function runCompareJudgeRubric(

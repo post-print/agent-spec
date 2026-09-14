@@ -235,6 +235,28 @@ export class TraceAssertion {
 		return this;
 	}
 
+	toHaveCalledToolsInOrder(specs: string[]): this {
+		let nextCall = 0;
+		for (const spec of specs) {
+			let matched = false;
+			while (nextCall < this.trace.toolCalls.length) {
+				const call = this.trace.toolCalls[nextCall++];
+				if (call && toolSpecMatches([call], spec)) {
+					matched = true;
+					break;
+				}
+			}
+			if (!matched) {
+				this.push(
+					"toHaveCalledToolsInOrder",
+					`expected tool call matching "${spec}" after the prior required call`,
+				);
+				break;
+			}
+		}
+		return this;
+	}
+
 	toHaveNotCalledTool(spec: string): this {
 		if (toolSpecMatches(this.trace.toolCalls, spec)) {
 			this.push("toHaveNotCalledTool", `forbidden tool call matching "${spec}"`);
@@ -581,6 +603,7 @@ export function assertRubric(
 	for (const tool of rubric.mustCallTool ?? []) {
 		assertion.toHaveCalledTool(tool);
 	}
+	assertion.toHaveCalledToolsInOrder(rubric.mustCallToolsInOrder ?? []);
 	for (const tool of rubric.mustNotCallTool ?? []) {
 		assertion.toHaveNotCalledTool(tool);
 	}

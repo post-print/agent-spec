@@ -133,6 +133,24 @@ describe("createSealedWorkspace", () => {
 });
 
 describe("toolPathsOutsideWorkspace", () => {
+	it("ignores Cursor files that hold large tool output", () => {
+		const escaped = toolPathsOutsideWorkspace(
+			{
+				messages: [],
+				toolCalls: [
+					{
+						name: "Read",
+						args: { path: "/tmp/cursor-home/.cursor/projects/workspace/agent-tools/output.txt" },
+					},
+				],
+				shellCommands: [],
+				artifacts: {},
+			},
+			"/tmp/sealed-workspace",
+		);
+		expect(escaped).toEqual([]);
+	});
+
 	it("flags absolute and parent-escape paths", () => {
 		const workspace = "/tmp/agent-seal/run-1";
 		const escaped = toolPathsOutsideWorkspace(
@@ -149,6 +167,27 @@ describe("toolPathsOutsideWorkspace", () => {
 			workspace,
 		);
 		expect(escaped).toEqual(["/etc/passwd", "../secret.md"]);
+	});
+
+	it("flags an outside path inside a shell command", () => {
+		const escaped = toolPathsOutsideWorkspace(
+			{
+				messages: [],
+				toolCalls: [
+					{
+						name: "Shell",
+						args: {
+							command: '/bin/zsh -lc "pwd && cat /Users/example/.agents/skills/private/SKILL.md"',
+							cwd: "/tmp/agent-seal/run-1",
+						},
+					},
+				],
+				shellCommands: [],
+				artifacts: {},
+			},
+			"/tmp/agent-seal/run-1",
+		);
+		expect(escaped).toEqual(["/Users/example/.agents/skills/private/SKILL.md"]);
 	});
 
 	it("does not flag a read through the real path of a symlink workspace", async () => {
