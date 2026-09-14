@@ -9,7 +9,12 @@ import type {
 	AgentUsage,
 } from "@post-print/agent-harness";
 
-import { compareResultArms, describeCompareOutcome } from "./compare-scenario.js";
+import {
+	compareArmTurns,
+	compareResultArms,
+	describeCompareOutcome,
+	formatCompareTurns,
+} from "./compare-scenario.js";
 import { summarizeReports } from "./suite-summary.js";
 import type {
 	CompareArmResult,
@@ -149,8 +154,8 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	recordTrace: { label: "Recording failed", hint: "Saving the trace to disk failed." },
 	judge: { label: "Judge", hint: "The LLM judge flagged this scenario." },
 	faster: {
-		label: "Faster arm",
-		hint: "The named arm must finish in less time.",
+		label: "Fewer turns",
+		hint: "The named arm must use fewer agent turns.",
 	},
 	cheaper: {
 		label: "Cheaper arm",
@@ -487,17 +492,6 @@ function formatSigned(value: number | undefined): string {
 	return formatInteger(value);
 }
 
-function formatSignedDuration(deltaMs: number | undefined): string {
-	if (deltaMs === undefined) {
-		return "n/a";
-	}
-	if (deltaMs === 0) {
-		return formatDuration(0);
-	}
-	const sign = deltaMs > 0 ? "+" : "-";
-	return `${sign}${formatDuration(Math.abs(deltaMs))}`;
-}
-
 function deltaClass(value: number | undefined): string {
 	if (value === undefined || value === 0) {
 		return "delta-flat";
@@ -505,17 +499,13 @@ function deltaClass(value: number | undefined): string {
 	return value > 0 ? "delta-up" : "delta-down";
 }
 
-function armDurationMs(arm: CompareArmResult): number | undefined {
-	return typeof arm.durationMs === "number" ? arm.durationMs : undefined;
-}
-
 function armToolCount(arm: CompareArmResult): number | undefined {
 	return arm.trace ? arm.trace.toolCalls.length : undefined;
 }
 
-function formatArmDuration(arm: CompareArmResult): string {
-	const ms = armDurationMs(arm);
-	return ms === undefined ? "n/a" : formatDuration(ms);
+function formatArmTurns(arm: CompareArmResult): string {
+	const turns = compareArmTurns(arm);
+	return turns === undefined ? "n/a" : formatCompareTurns(turns);
 }
 
 function formatArmTokens(arm: CompareArmResult, key: "total" | "input" | "output"): string {
@@ -584,9 +574,9 @@ function renderNamedCompareMetricRow(label: string, cells: string[]): string {
 
 function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]): string {
 	const [left, right] = arms;
-	const aMs = armDurationMs(left);
-	const bMs = armDurationMs(right);
-	const durationDelta = aMs !== undefined && bMs !== undefined ? bMs - aMs : undefined;
+	const aTurns = compareArmTurns(left);
+	const bTurns = compareArmTurns(right);
+	const turnDelta = aTurns !== undefined && bTurns !== undefined ? bTurns - aTurns : undefined;
 	const aTools = armToolCount(left);
 	const bTools = armToolCount(right);
 	const toolDelta = aTools !== undefined && bTools !== undefined ? bTools - aTools : undefined;
@@ -603,7 +593,7 @@ function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]):
         </tr>
       </thead>
       <tbody>
-        ${renderCompareMetricRow("Duration", formatArmDuration(left), formatArmDuration(right), durationDelta, formatSignedDuration(durationDelta))}
+        ${renderCompareMetricRow("Turns", formatArmTurns(left), formatArmTurns(right), turnDelta, formatSigned(turnDelta))}
         ${renderCompareMetricRow("Tokens", formatArmTokens(left, "total"), formatArmTokens(right, "total"), totalDelta, formatSigned(totalDelta))}
         ${renderCompareMetricRow("In", formatArmTokens(left, "input"), formatArmTokens(right, "input"), tokenDelta(left, right, "input"), formatSigned(tokenDelta(left, right, "input")))}
         ${renderCompareMetricRow("Out", formatArmTokens(left, "output"), formatArmTokens(right, "output"), tokenDelta(left, right, "output"), formatSigned(tokenDelta(left, right, "output")))}
@@ -625,8 +615,8 @@ function renderNamedCompareMetrics(arms: CompareArmResult[]): string {
       </thead>
       <tbody>
         ${renderNamedCompareMetricRow(
-					"Duration",
-					arms.map((arm) => formatArmDuration(arm)),
+					"Turns",
+					arms.map((arm) => formatArmTurns(arm)),
 				)}
         ${renderNamedCompareMetricRow(
 					"Tokens",
@@ -668,8 +658,8 @@ function renderCompareMetrics(result: ScenarioResult): string {
 			: "";
 	const twoArm = arms.length === 2 && arms[0] && arms[1];
 	const lede = twoArm
-		? `${arms[0].label} vs ${arms[1].label}. Δ is B minus A. A lower time and a lower token count is better.`
-		: `${arms.map((arm) => arm.label).join(", ")}. A lower time and a lower token count is better. Named pairs do not pick one winner.`;
+		? `${arms[0].label} vs ${arms[1].label}. Δ is B minus A. A lower turn count and a lower token count is better.`
+		: `${arms.map((arm) => arm.label).join(", ")}. A lower turn count and a lower token count is better. Named pairs do not pick one winner.`;
 	return `
 <section class="compare">
   <header class="compare-header">
@@ -683,9 +673,9 @@ function renderCompareMetrics(result: ScenarioResult): string {
 
 function renderArmMetrics(arm: CompareArmResult): string {
 	const parts: string[] = [];
-	const ms = armDurationMs(arm);
-	if (ms !== undefined) {
-		parts.push(formatDuration(ms));
+	const turns = compareArmTurns(arm);
+	if (turns !== undefined) {
+		parts.push(formatCompareTurns(turns));
 	}
 	const tokens = formatArmTokens(arm, "total");
 	if (tokens !== "n/a") {
@@ -1222,7 +1212,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     <h2 id="guide-heading">How to read this report</h2>
     <ol>
       <li>The verdict is pass or fail. Tokens are cost, not the score.</li>
-      <li>Open a scenario for the criteria and the result. A compare scenario shows each arm, then time, tokens, and tools.</li>
+      <li>Open a scenario for the criteria and the result. A compare scenario shows each arm, then turns, tokens, and tools.</li>
       <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
       <li>In is prompt and context. Out is generated text.</li>
     </ol>

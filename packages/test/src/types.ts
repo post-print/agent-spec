@@ -102,8 +102,9 @@ export interface ScenarioCompare {
 	/** Named arms. Each row needs `id`, `description`, and a workspace override when the trees differ. */
 	arms?: CompareArm[];
 	/**
-	 * Two-arm form: named arm must have a shorter duration than the other arm.
+	 * Two-arm form: named arm must use fewer agent turns than the other arm.
 	 * Named-arm form: winner-versus-loser pairs.
+	 * An agent turn is one assistant message on the trace.
 	 */
 	faster?: CompareMetricGate;
 	/**

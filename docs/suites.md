@@ -94,7 +94,9 @@ Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm.
 
 The live verdict lists each arm. Shared rubric checks appear under every arm. Extra arm checks stay on that arm. Faster and cheaper gates sit in a compare section. Each check shows pass or fail.
 
-For two arms, `compare.faster` and `compare.cheaper` name the arm that must win. The win is a strict less-than on duration or total tokens.
+For two arms, `compare.faster` and `compare.cheaper` name the arm that must win. The win is a strict less-than on agent turns or total tokens.
+
+An agent turn is one assistant message on the trace. The harness joins stream tokens into that message, then starts a new turn after tools.
 
 When `compare.arms` has more than two arms, name winner-versus-loser pairs. A 2x2 must not require one arm to beat every other arm. Do not invent a four-way winner.
 

@@ -330,10 +330,10 @@ function buildCompareMetricSection(
 		const loser = labelForArm(compare.arms, pair.loser);
 		const measured = outcomes.find(
 			(line) =>
-				line.includes(`${winner} is faster than ${loser}`) ||
-				line.includes(`${loser} is faster than ${winner}`),
+				line.includes(`${winner} uses fewer turns than ${loser}`) ||
+				line.includes(`${loser} uses fewer turns than ${winner}`),
 		);
-		const text = measured ?? `${winner} is faster than ${loser}`;
+		const text = measured ?? `${winner} uses fewer turns than ${loser}`;
 		claimed.add(text);
 		checks.push({
 			text,
@@ -424,7 +424,7 @@ export function describeRubricChecks(
 		}
 		for (const pair of normalized.faster ?? []) {
 			lines.push(
-				`${labelForArm(normalized.arms, pair.winner)} is faster than ${labelForArm(normalized.arms, pair.loser)}`,
+				`${labelForArm(normalized.arms, pair.winner)} uses fewer turns than ${labelForArm(normalized.arms, pair.loser)}`,
 			);
 		}
 		for (const pair of normalized.cheaper ?? []) {

@@ -7,6 +7,7 @@ import {
 	buildCompareResult,
 	compareArmDescription,
 	compareArmLabel,
+	compareArmTurns,
 	compareResultArms,
 	compareStoryFields,
 	describeCompareOutcome,
@@ -112,12 +113,26 @@ describe("compare-scenario", () => {
 	});
 
 	it("scores cheaper and faster when the named arm wins", () => {
-		const pair = pairResult({ aMs: 2000, bMs: 800, aTokens: 400, bTokens: 100 });
+		const pair = pairResult({
+			aMs: 2000,
+			bMs: 800,
+			aTokens: 400,
+			bTokens: 100,
+			aTurns: 5,
+			bTurns: 2,
+		});
 		expect(assertCompareMetrics({ faster: "b", cheaper: "b" }, pair)).toEqual([]);
 	});
 
 	it("fails cheaper and faster when the named arm does not win", () => {
-		const pair = pairResult({ aMs: 800, bMs: 2000, aTokens: 100, bTokens: 400 });
+		const pair = pairResult({
+			aMs: 800,
+			bMs: 2000,
+			aTokens: 100,
+			bTokens: 400,
+			aTurns: 2,
+			bTurns: 5,
+		});
 		const failures = assertCompareMetrics({ faster: "b", cheaper: "b" }, pair);
 		expect(failures.map((failure) => failure.matcher)).toEqual(["faster", "cheaper"]);
 	});
@@ -129,26 +144,69 @@ describe("compare-scenario", () => {
 		expect(failures[0]?.message).toContain("did not report tokens");
 	});
 
-	it("describes which arm is faster, cheaper, and lighter on tools", () => {
-		const pair = pairResult({ aMs: 1200, bMs: 800, aTokens: 400, bTokens: 100 });
+	it("fails faster when a turn count is missing", () => {
+		const pair = pairResult({
+			aMs: 800,
+			bMs: 200,
+			aTokens: 100,
+			bTokens: 50,
+			aTurns: 3,
+			bTurns: 1,
+		});
+		expect(pair.a).toBeDefined();
+		if (pair.a) {
+			pair.a.trace = undefined;
+		}
+		const failures = assertCompareMetrics({ faster: "a" }, pair);
+		expect(failures[0]?.matcher).toBe("faster");
+		expect(failures[0]?.message).toContain("did not report turns");
+	});
+
+	it("counts assistant messages and ignores user messages", () => {
+		const pair = pairResult({ aMs: 1, bMs: 1, aTurns: 0 });
 		pair.a.trace = {
-			messages: [],
+			messages: [
+				{ role: "user", content: "start" },
+				{ role: "assistant", content: "first" },
+				{ role: "assistant", content: "second" },
+			],
+			toolCalls: [],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(compareArmTurns(pair.a)).toBe(2);
+	});
+
+	it("describes which arm uses fewer turns, tokens, and tools", () => {
+		const pair = pairResult({
+			aMs: 1200,
+			bMs: 800,
+			aTokens: 400,
+			bTokens: 100,
+			aTurns: 2,
+			bTurns: 1,
+		});
+		pair.a.trace = {
+			messages: [
+				{ role: "assistant", content: "alpha-1" },
+				{ role: "assistant", content: "alpha-2" },
+			],
 			toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
 			shellCommands: [],
 			artifacts: {},
 			usage: { totalTokens: 400 },
 		};
 		expect(describeCompareOutcome(pair)).toEqual([
-			"beta is faster than alpha (800ms vs 1.2s)",
+			"beta uses fewer turns than alpha (1 vs 2)",
 			"beta uses fewer tokens than alpha (100 vs 400)",
 			"beta makes fewer tool calls than alpha (0 vs 1)",
 		]);
 	});
 
-	it("describes a tie on duration", () => {
-		const pair = pairResult({ aMs: 800, bMs: 800, aTokens: 50, bTokens: 50 });
+	it("describes a tie on turns", () => {
+		const pair = pairResult({ aMs: 800, bMs: 800, aTokens: 50, bTokens: 50, aTurns: 2, bTurns: 2 });
 		expect(describeCompareOutcome(pair)).toEqual([
-			"both arms took 800ms",
+			"both arms use 2 turns",
 			"both arms use 50 tokens",
 			"both arms make 0 tool calls",
 		]);
@@ -389,14 +447,19 @@ function armResult(options: {
 	durationMs: number;
 	tokens?: number;
 	tools?: number;
+	turns?: number;
 }): CompareArmResult {
+	const turns = options.turns ?? 1;
 	return {
 		id: options.id,
 		label: options.label,
 		prompt: options.id,
 		durationMs: options.durationMs,
 		trace: {
-			messages: [],
+			messages: Array.from({ length: turns }, (_, index) => ({
+				role: "assistant" as const,
+				content: `${options.id}-turn-${index + 1}`,
+			})),
 			toolCalls: Array.from({ length: options.tools ?? 0 }, () => ({
 				name: "Read",
 				args: { path: "word.txt" },
@@ -413,10 +476,24 @@ function pairResult(options: {
 	bMs: number;
 	aTokens?: number;
 	bTokens?: number;
+	aTurns?: number;
+	bTurns?: number;
 }): ScenarioCompareResult {
 	return buildCompareResult([
-		armResult({ id: "a", label: "alpha", durationMs: options.aMs, tokens: options.aTokens }),
-		armResult({ id: "b", label: "beta", durationMs: options.bMs, tokens: options.bTokens }),
+		armResult({
+			id: "a",
+			label: "alpha",
+			durationMs: options.aMs,
+			tokens: options.aTokens,
+			turns: options.aTurns,
+		}),
+		armResult({
+			id: "b",
+			label: "beta",
+			durationMs: options.bMs,
+			tokens: options.bTokens,
+			turns: options.bTurns,
+		}),
 	]);
 }
 

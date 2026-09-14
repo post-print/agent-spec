@@ -189,6 +189,18 @@ export function compareArmTokens(arm: CompareArmResult): number | undefined {
 	return typeof total === "number" ? total : undefined;
 }
 
+/** Assistant messages on the trace. One message is one agent turn after stream coalesce. */
+export function compareArmTurns(arm: CompareArmResult): number | undefined {
+	if (!arm.trace) {
+		return undefined;
+	}
+	return arm.trace.messages.filter((message) => message.role === "assistant").length;
+}
+
+export function formatCompareTurns(turns: number): string {
+	return turns === 1 ? "1 turn" : `${turns} turns`;
+}
+
 /** Apply one compare arm onto the shared scenario. Drops `compare` so the arm is a normal run. */
 export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): AgentScenario {
 	const { compare, ...rest } = scenario;
@@ -262,13 +274,6 @@ export function prefixCompareFailures(
 	}));
 }
 
-function formatCompareDuration(ms: number): string {
-	if (ms < 1000) {
-		return `${Math.round(ms)}ms`;
-	}
-	return `${(ms / 1000).toFixed(1)}s`;
-}
-
 function armToolCount(arm: CompareArmResult): number | undefined {
 	return arm.trace ? arm.trace.toolCalls.length : undefined;
 }
@@ -277,22 +282,19 @@ function armById(arms: CompareArmResult[], id: CompareArmId): CompareArmResult |
 	return arms.find((arm) => arm.id === id);
 }
 
-function describePairDuration(
-	winner: CompareArmResult,
-	loser: CompareArmResult,
-): string | undefined {
-	const winnerMs = winner.durationMs;
-	const loserMs = loser.durationMs;
-	if (typeof winnerMs !== "number" || typeof loserMs !== "number") {
+function describePairTurns(winner: CompareArmResult, loser: CompareArmResult): string | undefined {
+	const winnerTurns = compareArmTurns(winner);
+	const loserTurns = compareArmTurns(loser);
+	if (typeof winnerTurns !== "number" || typeof loserTurns !== "number") {
 		return undefined;
 	}
-	if (winnerMs === loserMs) {
-		return `${winner.label} and ${loser.label} took ${formatCompareDuration(winnerMs)}`;
+	if (winnerTurns === loserTurns) {
+		return `${winner.label} and ${loser.label} use ${formatCompareTurns(winnerTurns)}`;
 	}
-	if (winnerMs < loserMs) {
-		return `${winner.label} is faster than ${loser.label} (${formatCompareDuration(winnerMs)} vs ${formatCompareDuration(loserMs)})`;
+	if (winnerTurns < loserTurns) {
+		return `${winner.label} uses fewer turns than ${loser.label} (${winnerTurns} vs ${loserTurns})`;
 	}
-	return `${loser.label} is faster than ${winner.label} (${formatCompareDuration(loserMs)} vs ${formatCompareDuration(winnerMs)})`;
+	return `${loser.label} uses fewer turns than ${winner.label} (${loserTurns} vs ${winnerTurns})`;
 }
 
 function describePairTokens(winner: CompareArmResult, loser: CompareArmResult): string | undefined {
@@ -312,12 +314,16 @@ function describePairTokens(winner: CompareArmResult, loser: CompareArmResult): 
 
 function describeTwoArmOutcome(left: CompareArmResult, right: CompareArmResult): string[] {
 	const lines: string[] = [];
-	const duration = describePairDuration(left, right);
-	if (duration) {
-		if (left.durationMs === right.durationMs) {
-			lines.push(`both arms took ${formatCompareDuration(left.durationMs ?? 0)}`);
+	const aTurns = compareArmTurns(left);
+	const bTurns = compareArmTurns(right);
+	if (typeof aTurns === "number" && typeof bTurns === "number") {
+		if (aTurns === bTurns) {
+			lines.push(`both arms use ${formatCompareTurns(aTurns)}`);
 		} else {
-			lines.push(duration);
+			const turns = describePairTurns(left, right);
+			if (turns) {
+				lines.push(turns);
+			}
 		}
 	}
 
@@ -371,7 +377,7 @@ export function describeCompareOutcome(compare: ScenarioCompareResult): string[]
 		if (!winner || !loser) {
 			continue;
 		}
-		const line = describePairDuration(winner, loser);
+		const line = describePairTurns(winner, loser);
 		if (line) {
 			lines.push(line);
 		}
@@ -426,6 +432,7 @@ function assertMetricPair(
 	read: (arm: CompareArmResult) => number | undefined,
 	verb: string,
 	unit: string,
+	reported: string,
 ): AssertionFailure[] {
 	const winner = byId.get(pair.winner);
 	const loser = byId.get(pair.loser);
@@ -444,7 +451,7 @@ function assertMetricPair(
 		return [
 			assertionFailure(
 				matcher,
-				`${winner.label} must ${verb} ${loser.label}, but one arm did not report ${matcher === "faster" ? "duration" : "tokens"}`,
+				`${winner.label} must ${verb} ${loser.label}, but one arm did not report ${reported}`,
 				"rubric_miss",
 			),
 		];
@@ -474,12 +481,28 @@ export function assertCompareMetrics(
 	const failures: AssertionFailure[] = [];
 	for (const pair of resolveCompareMetricPairs(spec.faster, armIds)) {
 		failures.push(
-			...assertMetricPair("faster", pair, byId, (arm) => arm.durationMs, "be faster than", "ms"),
+			...assertMetricPair(
+				"faster",
+				pair,
+				byId,
+				compareArmTurns,
+				"use fewer turns than",
+				"",
+				"turns",
+			),
 		);
 	}
 	for (const pair of resolveCompareMetricPairs(spec.cheaper, armIds)) {
 		failures.push(
-			...assertMetricPair("cheaper", pair, byId, compareArmTokens, "use fewer tokens than", ""),
+			...assertMetricPair(
+				"cheaper",
+				pair,
+				byId,
+				compareArmTokens,
+				"use fewer tokens than",
+				"",
+				"tokens",
+			),
 		);
 	}
 	return failures;

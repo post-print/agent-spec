@@ -173,7 +173,10 @@ describe("html-report", () => {
 								prompt: "Read word.txt.",
 								durationMs: 1200,
 								trace: {
-									messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
+									messages: [
+										{ role: "assistant", content: "alpha-compare-a7c1" },
+										{ role: "assistant", content: "alpha follow-up" },
+									],
 									toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
 									shellCommands: [],
 									artifacts: {},
@@ -212,8 +215,8 @@ describe("html-report", () => {
 		expect(html).toContain("alpha-compare-a7c1");
 		expect(html).toContain("beta-compare-b3e9");
 		expect(html).toContain("Comparison");
-		expect(html).toContain("beta is faster than alpha");
-		expect(html).toContain("1.2s");
+		expect(html).toContain("beta uses fewer turns than alpha");
+		expect(html).toContain("Turns");
 		expect(html).toContain("1,200");
 		expect(html).toContain("900");
 		expect(html).toContain("-300");

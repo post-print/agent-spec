@@ -101,10 +101,11 @@ describe("buildScenarioStory", () => {
 			compare: {
 				aLabel: "alpha",
 				bLabel: "beta",
-				aDurationMs: 1200,
-				bDurationMs: 800,
 				aTrace: {
-					messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
+					messages: [
+						{ role: "assistant", content: "alpha-compare-a7c1" },
+						{ role: "assistant", content: "alpha follow-up" },
+					],
 					toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
 					shellCommands: [],
 					artifacts: {},
@@ -123,7 +124,7 @@ describe("buildScenarioStory", () => {
 		expect(story.criteria.some((line) => line.includes("judge answers"))).toBe(true);
 		expect(story.result.some((line) => line.startsWith("alpha:"))).toBe(true);
 		expect(story.result.some((line) => line.startsWith("beta:"))).toBe(true);
-		expect(story.result).toContain("beta is faster than alpha (800ms vs 1.2s)");
+		expect(story.result).toContain("beta uses fewer turns than alpha (1 vs 2)");
 		expect(story.result).toContain("beta uses fewer tokens than alpha (100 vs 400)");
 		expect(story.result).toContain("beta makes fewer tool calls than alpha (0 vs 1)");
 	});
@@ -141,7 +142,7 @@ describe("buildScenarioStory", () => {
 			},
 		});
 		expect(story.criteria).toContain("compare alpha vs beta");
-		expect(story.criteria).toContain("alpha is faster than beta");
+		expect(story.criteria).toContain("alpha uses fewer turns than beta");
 		expect(story.criteria).toContain("beta uses fewer tokens than alpha");
 		expect(story.criteria.some((line) => line.includes("judge"))).toBe(false);
 	});
@@ -271,20 +272,40 @@ describe("buildScenarioStory", () => {
 			failures: [
 				{
 					matcher: "faster",
-					message: "cli-lanes must be faster than audit-all (10200ms vs 7300ms)",
+					message: "cli-lanes must use fewer turns than audit-all (5 vs 3)",
 				},
 			],
 			compare: {
 				aLabel: "cli-lanes",
-				aDurationMs: 10_200,
+				aTrace: {
+					messages: [
+						{ role: "assistant", content: "t1" },
+						{ role: "assistant", content: "t2" },
+						{ role: "assistant", content: "t3" },
+						{ role: "assistant", content: "t4" },
+						{ role: "assistant", content: "t5" },
+					],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+				},
 				bLabel: "audit-all",
-				bDurationMs: 7300,
+				bTrace: {
+					messages: [
+						{ role: "assistant", content: "u1" },
+						{ role: "assistant", content: "u2" },
+						{ role: "assistant", content: "u3" },
+					],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+				},
 				faster: "a",
 			},
 		});
 		const compare = story.sections?.find((section) => section.title === "compare");
 		expect(compare?.checks).toContainEqual({
-			text: "audit-all is faster than cli-lanes (7.3s vs 10.2s)",
+			text: "audit-all uses fewer turns than cli-lanes (3 vs 5)",
 			status: "fail",
 		});
 	});

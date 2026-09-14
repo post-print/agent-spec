@@ -18,6 +18,7 @@ export {
 	compareArmDescription,
 	compareArmLabel,
 	compareArmTokens,
+	compareArmTurns,
 	compareResultArms,
 	compareStoryFields,
 	describeCompareOutcome,
