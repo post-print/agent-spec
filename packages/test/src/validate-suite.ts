@@ -11,9 +11,16 @@ import {
 	skillPathsFromSetting,
 } from "@post-print/agent-harness";
 
-import { applyCompareArm } from "./compare-scenario.js";
+import { applyCompareArm, parseCompareArmId, resolveCompareArms } from "./compare-scenario.js";
 import { loadSuiteFile } from "./load-suite.js";
-import type { AgentScenario, AgentSuiteFile, CompareArm, ScenarioRubric } from "./types.js";
+import type {
+	AgentScenario,
+	AgentSuiteFile,
+	CompareArm,
+	CompareMetricPair,
+	ScenarioCompare,
+	ScenarioRubric,
+} from "./types.js";
 
 const REPLAY_DEPRECATION =
 	"Replay-based testing is deprecated and no longer supported; use Cursor, Claude, or OpenAI.";
@@ -363,49 +370,203 @@ function validateCompare(
 			issues,
 			suitePath,
 			"compare",
-			"compare must be an object with a and b",
+			"compare must be an object with a and b, or arms",
 			scenario.name,
 		);
 		return;
 	}
-	if (typeof scenario.compare.a !== "object" || scenario.compare.a === null) {
-		pushIssue(issues, suitePath, "compare.a", "compare.a must be an object", scenario.name);
-	} else {
-		validateCompareArmFields(issues, suitePath, scenario.name, "compare.a", scenario.compare.a);
+	const compare = scenario.compare;
+	const hasLegacyArms = compare.a !== undefined || compare.b !== undefined;
+	const hasNamedArms = compare.arms !== undefined;
+	if (hasLegacyArms && hasNamedArms) {
+		pushIssue(
+			issues,
+			suitePath,
+			"compare",
+			"compare must use a and b, or arms, not both",
+			scenario.name,
+		);
+		return;
 	}
-	if (typeof scenario.compare.b !== "object" || scenario.compare.b === null) {
-		pushIssue(issues, suitePath, "compare.b", "compare.b must be an object", scenario.name);
+	if (hasNamedArms) {
+		validateNamedCompareArms(issues, suitePath, scenario.name, compare);
 	} else {
-		validateCompareArmFields(issues, suitePath, scenario.name, "compare.b", scenario.compare.b);
+		if (typeof compare.a !== "object" || compare.a === null) {
+			pushIssue(issues, suitePath, "compare.a", "compare.a must be an object", scenario.name);
+		} else {
+			validateCompareArmFields(issues, suitePath, scenario.name, "compare.a", compare.a);
+		}
+		if (typeof compare.b !== "object" || compare.b === null) {
+			pushIssue(issues, suitePath, "compare.b", "compare.b must be an object", scenario.name);
+		} else {
+			validateCompareArmFields(issues, suitePath, scenario.name, "compare.b", compare.b);
+		}
 	}
-	validateCompareArmPick(
+	const armIds = resolveCompareArms(compare)
+		.map((entry) => entry.id)
+		.filter(Boolean);
+	validateCompareMetricGate(
 		issues,
 		suitePath,
 		scenario.name,
 		"compare.faster",
-		scenario.compare.faster,
+		compare.faster,
+		armIds,
 	);
-	validateCompareArmPick(
+	validateCompareMetricGate(
 		issues,
 		suitePath,
 		scenario.name,
 		"compare.cheaper",
-		scenario.compare.cheaper,
+		compare.cheaper,
+		armIds,
 	);
 }
 
-function validateCompareArmPick(
+function validateNamedCompareArms(
+	issues: SuiteValidationIssue[],
+	suitePath: string,
+	scenarioName: string,
+	compare: ScenarioCompare,
+): void {
+	if (!Array.isArray(compare.arms) || compare.arms.length < 2) {
+		pushIssue(
+			issues,
+			suitePath,
+			"compare.arms",
+			"compare.arms must be an array of two or more arms",
+			scenarioName,
+		);
+		return;
+	}
+	const seen = new Set<string>();
+	for (const [index, arm] of compare.arms.entries()) {
+		const fieldPrefix = `compare.arms[${index}]`;
+		if (typeof arm !== "object" || arm === null) {
+			pushIssue(issues, suitePath, fieldPrefix, "arm must be an object", scenarioName);
+			continue;
+		}
+		const id = parseCompareArmId(arm.id);
+		if (!id) {
+			pushIssue(
+				issues,
+				suitePath,
+				`${fieldPrefix}.id`,
+				"id must be a lowercase slug such as skel-clean",
+				scenarioName,
+			);
+		} else if (seen.has(id)) {
+			pushIssue(issues, suitePath, `${fieldPrefix}.id`, `duplicate arm id ${id}`, scenarioName);
+		} else {
+			seen.add(id);
+		}
+		validateCompareArmFields(issues, suitePath, scenarioName, fieldPrefix, arm);
+	}
+}
+
+function validateCompareMetricGate(
 	issues: SuiteValidationIssue[],
 	suitePath: string,
 	scenarioName: string,
 	field: string,
 	value: unknown,
+	armIds: string[],
 ): void {
 	if (value === undefined) {
 		return;
 	}
-	if (value !== "a" && value !== "b") {
-		pushIssue(issues, suitePath, field, `${field} must be "a" or "b"`, scenarioName);
+	if (typeof value === "string") {
+		if (armIds.length !== 2) {
+			pushIssue(
+				issues,
+				suitePath,
+				field,
+				`${field} must be an array of { winner, loser } pairs when compare has more than two arms`,
+				scenarioName,
+			);
+			return;
+		}
+		if (!armIds.includes(value)) {
+			pushIssue(
+				issues,
+				suitePath,
+				field,
+				`${field} must be ${armIds.map((id) => JSON.stringify(id)).join(" or ")}`,
+				scenarioName,
+			);
+		}
+		return;
+	}
+	if (!Array.isArray(value) || value.length === 0) {
+		pushIssue(
+			issues,
+			suitePath,
+			field,
+			armIds.length === 2
+				? `${field} must be ${armIds.map((id) => JSON.stringify(id)).join(" or ")} or an array of { winner, loser } pairs`
+				: `${field} must be an array of { winner, loser } pairs`,
+			scenarioName,
+		);
+		return;
+	}
+	const seen = new Set<string>();
+	for (const [index, pair] of value.entries()) {
+		if (typeof pair !== "object" || pair === null) {
+			pushIssue(
+				issues,
+				suitePath,
+				`${field}[${index}]`,
+				"pair must be { winner, loser }",
+				scenarioName,
+			);
+			continue;
+		}
+		const typed = pair as CompareMetricPair;
+		validateMetricPairEnd(
+			issues,
+			suitePath,
+			scenarioName,
+			`${field}[${index}].winner`,
+			typed.winner,
+			armIds,
+		);
+		validateMetricPairEnd(
+			issues,
+			suitePath,
+			scenarioName,
+			`${field}[${index}].loser`,
+			typed.loser,
+			armIds,
+		);
+		if (typeof typed.winner === "string" && typed.winner === typed.loser) {
+			pushIssue(
+				issues,
+				suitePath,
+				`${field}[${index}]`,
+				"winner and loser must be different arms",
+				scenarioName,
+			);
+		}
+		if (typeof typed.winner === "string" && typeof typed.loser === "string") {
+			const key = `${typed.winner}>${typed.loser}`;
+			if (seen.has(key)) {
+				pushIssue(issues, suitePath, `${field}[${index}]`, "duplicate pair", scenarioName);
+			}
+			seen.add(key);
+		}
+	}
+}
+
+function validateMetricPairEnd(
+	issues: SuiteValidationIssue[],
+	suitePath: string,
+	scenarioName: string,
+	field: string,
+	value: unknown,
+	armIds: string[],
+): void {
+	if (typeof value !== "string" || !armIds.includes(value)) {
+		pushIssue(issues, suitePath, field, `must be one of ${armIds.join(", ")}`, scenarioName);
 	}
 }
 
@@ -558,16 +719,10 @@ export async function validateSuitePaths(
 		if (options?.validatePaths && repoRoot) {
 			for (const scenario of suite.scenarios) {
 				const workspaceChecks = scenario.compare
-					? [
-							{
-								field: "compare.a.workspace",
-								rel: resolveScenarioWorkspaceRel(suite, applyCompareArm(scenario, "a")),
-							},
-							{
-								field: "compare.b.workspace",
-								rel: resolveScenarioWorkspaceRel(suite, applyCompareArm(scenario, "b")),
-							},
-						]
+					? resolveCompareArms(scenario.compare).map((entry) => ({
+							field: `compare.${entry.id}.workspace`,
+							rel: resolveScenarioWorkspaceRel(suite, applyCompareArm(scenario, entry.id)),
+						}))
 					: [{ field: "workspace", rel: resolveScenarioWorkspaceRel(suite, scenario) }];
 				for (const check of workspaceChecks) {
 					const workspaceRel = check.rel;
@@ -597,16 +752,10 @@ export async function validateSuitePaths(
 					}
 				}
 				const skillTargets = scenario.compare
-					? ([
-							{
-								field: "compare.a.skills",
-								scenario: applyCompareArm(scenario, "a"),
-							},
-							{
-								field: "compare.b.skills",
-								scenario: applyCompareArm(scenario, "b"),
-							},
-						] as const)
+					? resolveCompareArms(scenario.compare).map((entry) => ({
+							field: `compare.${entry.id}.skills`,
+							scenario: applyCompareArm(scenario, entry.id),
+						}))
 					: [{ field: "skills", scenario }];
 				for (const target of skillTargets) {
 					const skills = target.scenario.skills ?? suite.defaults?.skills;

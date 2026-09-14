@@ -1,9 +1,15 @@
 import type { AgentTrace } from "@post-print/agent-harness";
 
-import { describeCompareOutcome } from "./compare-scenario.js";
+import {
+	buildCompareResult,
+	type CompareStoryArm,
+	type CompareStoryFields,
+	describeCompareOutcome,
+	resolveCompareMetricPairs,
+} from "./compare-scenario.js";
 import type {
 	AssertionFailure,
-	CompareArmId,
+	CompareMetricGate,
 	JudgeVerdictResult,
 	ScenarioRubric,
 	ScenarioStory,
@@ -53,19 +59,92 @@ function countLabel(count: number, singular: string, plural: string): string {
 	return count === 1 ? `1 ${singular}` : `${count} ${plural}`;
 }
 
+export type StoryCompareInput = Partial<CompareStoryFields> & {
+	aLabel?: string;
+	bLabel?: string;
+	aDescription?: string;
+	bDescription?: string;
+	faster?: CompareMetricGate;
+	cheaper?: CompareMetricGate;
+	aRubric?: ScenarioRubric;
+	bRubric?: ScenarioRubric;
+	aTrace?: AgentTrace;
+	bTrace?: AgentTrace;
+	aDurationMs?: number;
+	bDurationMs?: number;
+};
+
+function compareHeading(labels: string[]): string {
+	if (labels.length === 2 && labels[0] && labels[1]) {
+		return `compare ${labels[0]} vs ${labels[1]}`;
+	}
+	if (labels.length <= 1) {
+		return labels[0] ? `compare ${labels[0]}` : "compare arms";
+	}
+	const last = labels[labels.length - 1];
+	return `compare ${labels.slice(0, -1).join(", ")}, and ${last}`;
+}
+
+function labelForArm(arms: CompareStoryArm[], id: string): string {
+	return arms.find((arm) => arm.id === id)?.label ?? id;
+}
+
+function normalizeStoryCompare(compare: StoryCompareInput): CompareStoryFields {
+	if (compare.arms && compare.arms.length > 0) {
+		const armIds = compare.arms.map((arm) => arm.id);
+		return {
+			arms: compare.arms,
+			faster: Array.isArray(compare.faster)
+				? compare.faster
+				: resolveCompareMetricPairs(compare.faster, armIds),
+			cheaper: Array.isArray(compare.cheaper)
+				? compare.cheaper
+				: resolveCompareMetricPairs(compare.cheaper, armIds),
+			aLabel: compare.aLabel ?? compare.arms[0]?.label ?? "control",
+			bLabel: compare.bLabel ?? compare.arms[1]?.label ?? "experimental",
+			aDescription: compare.aDescription ?? compare.arms[0]?.description,
+			bDescription: compare.bDescription ?? compare.arms[1]?.description,
+			aRubric: compare.aRubric ?? compare.arms[0]?.rubric,
+			bRubric: compare.bRubric ?? compare.arms[1]?.rubric,
+		};
+	}
+	const aLabel = compare.aLabel ?? "control";
+	const bLabel = compare.bLabel ?? "experimental";
+	const arms: CompareStoryArm[] = [
+		{
+			id: "a",
+			label: aLabel,
+			description: compare.aDescription,
+			rubric: compare.aRubric,
+			trace: compare.aTrace,
+			durationMs: compare.aDurationMs,
+		},
+		{
+			id: "b",
+			label: bLabel,
+			description: compare.bDescription,
+			rubric: compare.bRubric,
+			trace: compare.bTrace,
+			durationMs: compare.bDurationMs,
+		},
+	];
+	return {
+		arms,
+		faster: resolveCompareMetricPairs(compare.faster, ["a", "b"]),
+		cheaper: resolveCompareMetricPairs(compare.cheaper, ["a", "b"]),
+		aLabel,
+		bLabel,
+		aDescription: compare.aDescription,
+		bDescription: compare.bDescription,
+		aRubric: compare.aRubric,
+		bRubric: compare.bRubric,
+	};
+}
+
 /** Rubric checks in one short line each. */
 export function describeRubricChecks(
 	rubric?: ScenarioRubric,
-	compare?: {
-		aLabel: string;
-		bLabel: string;
-		aDescription?: string;
-		bDescription?: string;
-		faster?: CompareArmId;
-		cheaper?: CompareArmId;
-		aRubric?: ScenarioRubric;
-		bRubric?: ScenarioRubric;
-	},
+	compare?: StoryCompareInput,
 ): string[] {
 	if (!rubric) {
 		return ["no rubric recorded"];
@@ -108,40 +187,36 @@ export function describeRubricChecks(
 		lines.push(`announce review depth ${rubric.reviewDepth}`);
 	}
 	if (compare) {
-		lines.push(`compare ${compare.aLabel} vs ${compare.bLabel}`);
-		if (compare.aDescription) {
-			lines.push(`${compare.aLabel}: ${compare.aDescription}`);
-		}
-		if (compare.bDescription) {
-			lines.push(`${compare.bLabel}: ${compare.bDescription}`);
-		}
-		if (compare.faster) {
-			const winner = compare.faster === "a" ? compare.aLabel : compare.bLabel;
-			const loser = compare.faster === "a" ? compare.bLabel : compare.aLabel;
-			lines.push(`${winner} is faster than ${loser}`);
-		}
-		if (compare.cheaper) {
-			const winner = compare.cheaper === "a" ? compare.aLabel : compare.bLabel;
-			const loser = compare.cheaper === "a" ? compare.bLabel : compare.aLabel;
-			lines.push(`${winner} uses fewer tokens than ${loser}`);
-		}
-		for (const line of describeRubricChecks(compare.aRubric)) {
-			if (line === "no rubric checks" || line === "no rubric recorded") {
-				continue;
+		const normalized = normalizeStoryCompare(compare);
+		lines.push(compareHeading(normalized.arms.map((arm) => arm.label)));
+		for (const arm of normalized.arms) {
+			if (arm.description) {
+				lines.push(`${arm.label}: ${arm.description}`);
 			}
-			lines.push(`${compare.aLabel}: ${line}`);
 		}
-		for (const line of describeRubricChecks(compare.bRubric)) {
-			if (line === "no rubric checks" || line === "no rubric recorded") {
-				continue;
+		for (const pair of normalized.faster ?? []) {
+			lines.push(
+				`${labelForArm(normalized.arms, pair.winner)} is faster than ${labelForArm(normalized.arms, pair.loser)}`,
+			);
+		}
+		for (const pair of normalized.cheaper ?? []) {
+			lines.push(
+				`${labelForArm(normalized.arms, pair.winner)} uses fewer tokens than ${labelForArm(normalized.arms, pair.loser)}`,
+			);
+		}
+		for (const arm of normalized.arms) {
+			for (const line of describeRubricChecks(arm.rubric)) {
+				if (line === "no rubric checks" || line === "no rubric recorded") {
+					continue;
+				}
+				lines.push(`${arm.label}: ${line}`);
 			}
-			lines.push(`${compare.bLabel}: ${line}`);
 		}
 	}
 	if (rubric.judge && rubric.judge.length > 0) {
 		lines.push(
 			compare
-				? `judge answers ${countLabel(rubric.judge.length, "question", "questions")} on both arms`
+				? `judge answers ${countLabel(rubric.judge.length, "question", "questions")} on ${normalizeStoryCompare(compare).arms.length === 2 ? "both arms" : "every arm"}`
 				: `judge answers ${countLabel(rubric.judge.length, "question", "questions")}`,
 		);
 	}
@@ -237,47 +312,28 @@ export function buildScenarioStory(options: {
 	skipped?: boolean;
 	failures: AssertionFailure[];
 	judgeVerdicts?: JudgeVerdictResult[];
-	compare?: {
-		aLabel: string;
-		bLabel: string;
-		aDescription?: string;
-		bDescription?: string;
-		faster?: CompareArmId;
-		cheaper?: CompareArmId;
-		aRubric?: ScenarioRubric;
-		bRubric?: ScenarioRubric;
-		aTrace?: AgentTrace;
-		bTrace?: AgentTrace;
-		aDurationMs?: number;
-		bDurationMs?: number;
-	};
+	compare?: StoryCompareInput;
 }): ScenarioStory {
+	const compare = options.compare ? normalizeStoryCompare(options.compare) : undefined;
 	const result = options.skipped
 		? ["scenario skipped"]
-		: options.compare
+		: compare
 			? [
-					...describeTraceHappened(options.compare.aTrace).map(
-						(line) => `${options.compare?.aLabel}: ${line}`,
+					...compare.arms.flatMap((arm) =>
+						describeTraceHappened(arm.trace).map((line) => `${arm.label}: ${line}`),
 					),
-					...describeTraceHappened(options.compare.bTrace).map(
-						(line) => `${options.compare?.bLabel}: ${line}`,
+					...describeCompareOutcome(
+						buildCompareResult(
+							compare.arms.map((arm) => ({
+								id: arm.id,
+								label: arm.label,
+								prompt: "",
+								trace: arm.trace,
+								durationMs: arm.durationMs,
+							})),
+							{ faster: compare.faster, cheaper: compare.cheaper },
+						),
 					),
-					...describeCompareOutcome({
-						a: {
-							id: "a",
-							label: options.compare.aLabel,
-							prompt: "",
-							trace: options.compare.aTrace,
-							durationMs: options.compare.aDurationMs,
-						},
-						b: {
-							id: "b",
-							label: options.compare.bLabel,
-							prompt: "",
-							trace: options.compare.bTrace,
-							durationMs: options.compare.bDurationMs,
-						},
-					}),
 				]
 			: describeTraceHappened(options.trace);
 	return {

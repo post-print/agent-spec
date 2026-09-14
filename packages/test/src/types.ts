@@ -50,11 +50,26 @@ export interface ScenarioRubric {
 	judge?: JudgeRubricItem[];
 }
 
-export type CompareArmId = "a" | "b";
+/** Arm id. Two-arm form uses `a` and `b`. Named arms use a lowercase slug. */
+export type CompareArmId = string;
+
+/** Named winner-versus-loser pair for a metric gate. */
+export interface CompareMetricPair {
+	winner: CompareArmId;
+	loser: CompareArmId;
+}
+
+/**
+ * Two-arm form names the winner. Named-arm form lists winner-versus-loser pairs.
+ * A 2x2 must not require one arm to beat every other arm.
+ */
+export type CompareMetricGate = CompareArmId | CompareMetricPair[];
 
 /** Overrides for one side of a compare scenario. Omitted fields inherit the scenario. */
 export interface CompareArm {
-	/** Display name. Omitted labels are control (a) and experimental (b). */
+	/** Required on `compare.arms`. Implicit `a` / `b` in the two-arm form. */
+	id?: CompareArmId;
+	/** Display name. Omitted labels are control (a), experimental (b), or the arm id. */
 	label?: string;
 	/** Required. Says what this arm tests. */
 	description?: string;
@@ -76,17 +91,26 @@ export interface CompareArm {
 }
 
 /**
- * Two live arms in one scenario.
+ * Two or more live arms in one scenario.
+ * Keep `a` and `b` for the two-arm form. Use `arms` when the scenario has more than two workspaces.
  * `faster` and `cheaper` are optional metric gates.
- * `rubric.judge` is optional and scores both transcripts.
+ * `rubric.judge` is optional and scores every arm transcript.
  */
 export interface ScenarioCompare {
-	a: CompareArm;
-	b: CompareArm;
-	/** Named arm must have a shorter duration. */
-	faster?: CompareArmId;
-	/** Named arm must use fewer total tokens. */
-	cheaper?: CompareArmId;
+	a?: CompareArm;
+	b?: CompareArm;
+	/** Named arms. Each row needs `id`, `description`, and a workspace override when the trees differ. */
+	arms?: CompareArm[];
+	/**
+	 * Two-arm form: named arm must have a shorter duration than the other arm.
+	 * Named-arm form: winner-versus-loser pairs.
+	 */
+	faster?: CompareMetricGate;
+	/**
+	 * Two-arm form: named arm must use fewer total tokens than the other arm.
+	 * Named-arm form: winner-versus-loser pairs.
+	 */
+	cheaper?: CompareMetricGate;
 }
 
 export interface CompareArmResult {
@@ -100,15 +124,23 @@ export interface CompareArmResult {
 }
 
 export interface ScenarioCompareResult {
-	a: CompareArmResult;
-	b: CompareArmResult;
+	/** Every arm in author order. */
+	arms: CompareArmResult[];
+	/** Present when an arm id is `a`. */
+	a?: CompareArmResult;
+	/** Present when an arm id is `b`. */
+	b?: CompareArmResult;
+	/** Resolved faster pairs after load. */
+	faster?: CompareMetricPair[];
+	/** Resolved cheaper pairs after load. */
+	cheaper?: CompareMetricPair[];
 }
 
 export interface AgentScenario {
 	name: string;
 	/** Plain-language note. Says what this scenario tests. */
 	description?: string;
-	/** Run two arms. Optional metric gates and an optional pairwise judge. */
+	/** Run two or more arms. Optional metric gates and an optional shared judge. */
 	compare?: ScenarioCompare;
 	prompt: string;
 	host?: AgentHost;
@@ -238,7 +270,7 @@ export interface ScenarioResult {
 	description?: string;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
-	/** Both arms when this scenario is a compare run. */
+	/** Compare arms when this scenario is a compare run. */
 	compare?: ScenarioCompareResult;
 	/** Plain-language summary of the check, the agent run, and the verdict. */
 	story?: ScenarioStory;

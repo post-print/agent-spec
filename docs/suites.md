@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: JSON suite and scenario authoring -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
 <!-- review-deps: paths=packages/test/src/types.ts,packages/test/src/compare-scenario.ts,packages/test/src/validate-suite.ts,agent-suites/**/scenarios.json -->
 
@@ -40,7 +40,7 @@ agent-suites/
 | `name` | Scenario id. |
 | `description` | Optional plain-language note. It says what the scenario tests. |
 | `prompt` | User prompt sent to the host. |
-| `compare` | Two live arms. See Compare below. |
+| `compare` | Two or more live arms. See Compare below. |
 | `host` | Pin this scenario to one host. A matrix run skips it on the other hosts. |
 | `profile` | Context profile: `shared`, `cursor`, `claude`, or `skeleton`. |
 | `workspace` | Caller-relative folder that becomes the sealed repo. Omit or `"."` copies HEAD. |
@@ -84,11 +84,17 @@ The judge sees assistant text, tool args, and tool results. `--no-judge` skips j
 
 ## Compare
 
-Set `compare.a` and `compare.b`. Each arm must have a `description`. That note says what the arm tests. Each arm can override prompt, host, workspace, skills, context, MCP, seed, `allowUserSkills`, and extra rubric checks. If you omit `label`, arm a is named control. Arm b is named experimental.
+A compare scenario runs two or more live arms. Each arm must have a `description`. That note says what the arm tests. Each arm can override prompt, host, workspace, skills, context, MCP, seed, `allowUserSkills`, and extra rubric checks.
 
-Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. Pairwise `rubric.judge` stays on the scenario.
+Use `compare.a` and `compare.b` for two arms. If you omit `label`, arm a is named control. Arm b is named experimental.
 
-`compare.faster` and `compare.cheaper` name the arm that must win. The win is a strict less-than on duration or total tokens.
+Use `compare.arms` when the scenario has more than two workspaces. Each named arm needs `id`, `description`, and a workspace when the trees differ. The id is a lowercase slug such as `skel-clean`.
+
+Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. `rubric.judge` stays on the scenario. The judge sees every arm transcript. It does not pick one winner.
+
+For two arms, `compare.faster` and `compare.cheaper` name the arm that must win. The win is a strict less-than on duration or total tokens.
+
+When `compare.arms` has more than two arms, name winner-versus-loser pairs. A 2x2 must not require one arm to beat every other arm. Do not invent a four-way winner.
 
 ```json
 {
@@ -108,7 +114,48 @@ Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm.
 }
 ```
 
-Use two workspaces when one arm has a skill and the other does not. Put `mustInvokeSkill` on the skill arm only. In-repo examples live under `agent-suites/judge`.
+```json
+{
+  "name": "docs quality cost",
+  "description": "Checks that a skill arm uses fewer tokens than the matched no-skill arm.",
+  "prompt": "Answer from the catalog.",
+  "compare": {
+    "arms": [
+      {
+        "id": "skel-clean",
+        "label": "skeleton clean",
+        "description": "Uses the skeleton skill on a clean catalog.",
+        "workspace": "workspaces/skel-clean"
+      },
+      {
+        "id": "none-clean",
+        "label": "no skill clean",
+        "description": "No skill on a clean catalog.",
+        "workspace": "workspaces/none-clean"
+      },
+      {
+        "id": "skel-messy",
+        "label": "skeleton messy",
+        "description": "Uses the skeleton skill on a messy catalog.",
+        "workspace": "workspaces/skel-messy"
+      },
+      {
+        "id": "none-messy",
+        "label": "no skill messy",
+        "description": "No skill on a messy catalog.",
+        "workspace": "workspaces/none-messy"
+      }
+    ],
+    "cheaper": [
+      { "winner": "skel-clean", "loser": "none-clean" },
+      { "winner": "skel-messy", "loser": "none-messy" }
+    ]
+  },
+  "rubric": { "mustReadPath": ["README.txt"] }
+}
+```
+
+Use separate workspaces when one arm has a skill and the other does not. Put `mustInvokeSkill` on the skill arm only. In-repo examples live under `agent-suites/judge`.
 
 ## MCP servers
 

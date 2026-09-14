@@ -324,6 +324,135 @@ describe("validate-suite", () => {
 		).toEqual([]);
 	});
 
+	it("accepts named arms with cheaper pairs", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "docs quality cost",
+						prompt: "Answer from the catalog.",
+						compare: {
+							arms: [
+								{
+									id: "skel-clean",
+									description: "Uses the skeleton skill on a clean catalog.",
+									workspace: "workspaces/skel-clean",
+								},
+								{
+									id: "none-clean",
+									description: "No skill on a clean catalog.",
+									workspace: "workspaces/none-clean",
+								},
+								{
+									id: "skel-messy",
+									description: "Uses the skeleton skill on a messy catalog.",
+									workspace: "workspaces/skel-messy",
+								},
+								{
+									id: "none-messy",
+									description: "No skill on a messy catalog.",
+									workspace: "workspaces/none-messy",
+								},
+							],
+							cheaper: [
+								{ winner: "skel-clean", loser: "none-clean" },
+								{ winner: "skel-messy", loser: "none-messy" },
+							],
+						},
+						rubric: {},
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects a single cheaper winner when compare has more than two arms", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "docs quality cost",
+					prompt: "test",
+					compare: {
+						arms: [
+							{ id: "skel-clean", description: "Skill on a clean catalog." },
+							{ id: "none-clean", description: "No skill on a clean catalog." },
+							{ id: "skel-messy", description: "Skill on a messy catalog." },
+							{ id: "none-messy", description: "No skill on a messy catalog." },
+						],
+						cheaper: "skel-clean",
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.cheaper")).toBe(true);
+	});
+
+	it("rejects mixing compare.a with compare.arms", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						a: { description: "Asks for a long summary." },
+						b: { description: "Asks for one sentence." },
+						arms: [
+							{ id: "skel-clean", description: "Skill on a clean catalog." },
+							{ id: "none-clean", description: "No skill on a clean catalog." },
+						],
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare")).toBe(true);
+	});
+
+	it("rejects a named arm without an id", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						arms: [
+							{ description: "Skill on a clean catalog." },
+							{ id: "none-clean", description: "No skill on a clean catalog." },
+						],
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.arms[0].id")).toBe(true);
+	});
+
+	it("rejects a cheaper pair with an unknown arm", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						arms: [
+							{ id: "skel-clean", description: "Skill on a clean catalog." },
+							{ id: "none-clean", description: "No skill on a clean catalog." },
+						],
+						cheaper: [{ winner: "skel-clean", loser: "missing" }],
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.cheaper[0].loser")).toBe(true);
+	});
+
 	it("rejects judge questions on an arm rubric", () => {
 		const issues = validateSuiteFile("/tmp/scenarios.json", {
 			name: "bad",

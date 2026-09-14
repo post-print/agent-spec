@@ -56,7 +56,7 @@ export function getStagingTracePath(
 	stagingSessionId: string,
 	suiteName: string,
 	scenarioName: string,
-	arm?: "a" | "b",
+	arm?: string,
 ): string {
 	const suffix = arm ? `.${arm}` : "";
 	return join(
@@ -118,8 +118,9 @@ export interface LiveScenarioResultSidecar {
 	failures: AssertionFailure[];
 	durationMs: number;
 	compare?: {
-		a: LiveCompareArmSidecar;
-		b: LiveCompareArmSidecar;
+		a?: LiveCompareArmSidecar;
+		b?: LiveCompareArmSidecar;
+		arms?: Record<string, LiveCompareArmSidecar>;
 	};
 }
 
@@ -132,7 +133,7 @@ export function resolveRecordingPath(
 	suiteName: string,
 	scenarioName: string,
 	stagingSessionId: string | undefined,
-	arm?: "a" | "b",
+	arm?: string,
 ): string | undefined {
 	if (!stagingSessionId) {
 		return undefined;

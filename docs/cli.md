@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent-test CLI flags and check versus live -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
 <!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json -->
 

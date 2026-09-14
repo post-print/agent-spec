@@ -158,6 +158,57 @@ describe("judgeCompareTraces", () => {
 		expect(prompt).toContain("beta-compare-b3e9");
 		expect(prompt).toContain("Did the two arms reply with different words?");
 	});
+
+	it("sends every named arm transcript without asking for one winner", async () => {
+		let prompt = "";
+		const { judgeCompareTraces } = await import("../judge.js");
+		const emptyTrace = {
+			messages: [] as { role: "assistant"; content: string }[],
+			toolCalls: [],
+			shellCommands: [],
+			artifacts: {},
+		};
+		const result = await judgeCompareTraces(
+			{
+				arms: [
+					{
+						label: "skeleton clean",
+						trace: { ...emptyTrace, messages: [{ role: "assistant", content: "skel-clean-ok" }] },
+					},
+					{
+						label: "no skill clean",
+						trace: { ...emptyTrace, messages: [{ role: "assistant", content: "none-clean-ok" }] },
+					},
+					{
+						label: "skeleton messy",
+						trace: { ...emptyTrace, messages: [{ role: "assistant", content: "skel-messy-ok" }] },
+					},
+					{
+						label: "no skill messy",
+						trace: { ...emptyTrace, messages: [{ role: "assistant", content: "none-messy-ok" }] },
+					},
+				],
+			},
+			[{ id: "shared", question: "Did each arm answer from the catalog?" }],
+			{
+				cwd: process.cwd(),
+				host: "openai",
+				apiKey: "openai-test-key",
+				classify: async (options) => {
+					prompt = options.prompt;
+					return {
+						status: "completed",
+						text: '{"verdict":"yes","evidence":["skel-clean-ok"],"rationale":"all arms answered"}',
+					};
+				},
+			},
+		);
+		expect(result.skipped).toBe(false);
+		expect(prompt).toContain("Arm skeleton clean:");
+		expect(prompt).toContain("Arm no skill messy:");
+		expect(prompt).toContain("Do not pick a single winner unless the criterion asks for one.");
+		expect(prompt).not.toContain("Arm A (");
+	});
 });
 
 describe("skillInvokeJudgeCriteria", () => {

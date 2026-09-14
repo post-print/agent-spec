@@ -187,7 +187,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 
 	if (argv[2] === "compare") {
 		throw new Error(
-			"The compare subcommand is removed. Add compare.a and compare.b on one scenario. Set compare.faster or compare.cheaper when one arm must win on time or tokens. Add rubric.judge only when you want a pairwise judge.",
+			"The compare subcommand is removed. Add compare.a and compare.b, or compare.arms, on one scenario. Set compare.faster or compare.cheaper when named arms must win on time or tokens. Add rubric.judge only when you want a shared judge.",
 		);
 	}
 
@@ -328,7 +328,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			case "--out-dir":
 			case "--compare-out":
 				throw new Error(
-					`${flag} is removed. Add compare.a and compare.b on one scenario. Set compare.faster or compare.cheaper when one arm must win on time or tokens. Add rubric.judge only when you want a pairwise judge.`,
+					`${flag} is removed. Add compare.a and compare.b, or compare.arms, on one scenario. Set compare.faster or compare.cheaper when named arms must win on time or tokens. Add rubric.judge only when you want a shared judge.`,
 				);
 			case "--report-out":
 				reportOut = read();

@@ -165,34 +165,38 @@ describe("html-report", () => {
 					prompt: "Read word.txt.",
 					description: "Checks that two workspaces reply with different words.",
 					compare: {
-						a: {
-							id: "a",
-							label: "alpha",
-							description: "Reads the alpha workspace word.",
-							prompt: "Read word.txt.",
-							durationMs: 1200,
-							trace: {
-								messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
-								toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
-								shellCommands: [],
-								artifacts: {},
-								usage: { totalTokens: 1200, inputTokens: 800, outputTokens: 400 },
+						arms: [
+							{
+								id: "a",
+								label: "alpha",
+								description: "Reads the alpha workspace word.",
+								prompt: "Read word.txt.",
+								durationMs: 1200,
+								trace: {
+									messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
+									toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
+									shellCommands: [],
+									artifacts: {},
+									usage: { totalTokens: 1200, inputTokens: 800, outputTokens: 400 },
+								},
 							},
-						},
-						b: {
-							id: "b",
-							label: "beta",
-							description: "Reads the beta workspace word.",
-							prompt: "Read word.txt.",
-							durationMs: 800,
-							trace: {
-								messages: [{ role: "assistant", content: "beta-compare-b3e9" }],
-								toolCalls: [],
-								shellCommands: [],
-								artifacts: {},
-								usage: { totalTokens: 900, inputTokens: 600, outputTokens: 300 },
+							{
+								id: "b",
+								label: "beta",
+								description: "Reads the beta workspace word.",
+								prompt: "Read word.txt.",
+								durationMs: 800,
+								trace: {
+									messages: [{ role: "assistant", content: "beta-compare-b3e9" }],
+									toolCalls: [],
+									shellCommands: [],
+									artifacts: {},
+									usage: { totalTokens: 900, inputTokens: 600, outputTokens: 300 },
+								},
 							},
-						},
+						],
+						a: undefined,
+						b: undefined,
 					},
 				}),
 			]),
@@ -221,6 +225,88 @@ describe("html-report", () => {
 		expect(cmpIdx).toBeGreaterThan(bIdx);
 		expect(html).toContain("compare-scenario");
 		expect(html).toContain('compare-scenario" open>');
+	});
+
+	it("renders named compare arms without a four-way delta", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					prompt: "Answer from the catalog.",
+					description: "Checks matched skill versus no-skill pairs.",
+					compare: {
+						arms: [
+							{
+								id: "skel-clean",
+								label: "skeleton clean",
+								description: "Skill on a clean catalog.",
+								prompt: "Answer from the catalog.",
+								durationMs: 800,
+								trace: {
+									messages: [{ role: "assistant", content: "skel-clean-ok" }],
+									toolCalls: [],
+									shellCommands: [],
+									artifacts: {},
+									usage: { totalTokens: 80 },
+								},
+							},
+							{
+								id: "none-clean",
+								label: "no skill clean",
+								description: "No skill on a clean catalog.",
+								prompt: "Answer from the catalog.",
+								durationMs: 1200,
+								trace: {
+									messages: [{ role: "assistant", content: "none-clean-ok" }],
+									toolCalls: [],
+									shellCommands: [],
+									artifacts: {},
+									usage: { totalTokens: 200 },
+								},
+							},
+							{
+								id: "skel-messy",
+								label: "skeleton messy",
+								description: "Skill on a messy catalog.",
+								prompt: "Answer from the catalog.",
+								durationMs: 900,
+								trace: {
+									messages: [{ role: "assistant", content: "skel-messy-ok" }],
+									toolCalls: [],
+									shellCommands: [],
+									artifacts: {},
+									usage: { totalTokens: 90 },
+								},
+							},
+							{
+								id: "none-messy",
+								label: "no skill messy",
+								description: "No skill on a messy catalog.",
+								prompt: "Answer from the catalog.",
+								durationMs: 1500,
+								trace: {
+									messages: [{ role: "assistant", content: "none-messy-ok" }],
+									toolCalls: [],
+									shellCommands: [],
+									artifacts: {},
+									usage: { totalTokens: 220 },
+								},
+							},
+						],
+						cheaper: [
+							{ winner: "skel-clean", loser: "none-clean" },
+							{ winner: "skel-messy", loser: "none-messy" },
+						],
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("skeleton clean");
+		expect(html).toContain("no skill messy");
+		expect(html).toContain("skel-clean-ok");
+		expect(html).toContain("none-messy-ok");
+		expect(html).toContain("Arm skel-clean");
+		expect(html).not.toContain("Δ is B minus A");
+		expect(html).not.toContain("four-way");
 	});
 
 	it("renders criteria and result from the scenario story", () => {

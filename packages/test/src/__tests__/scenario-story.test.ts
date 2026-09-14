@@ -146,6 +146,40 @@ describe("buildScenarioStory", () => {
 		expect(story.criteria.some((line) => line.includes("judge"))).toBe(false);
 	});
 
+	it("lists named arms and cheaper pairs in the criteria", () => {
+		const story = buildScenarioStory({
+			rubric: {},
+			passed: true,
+			failures: [],
+			compare: {
+				arms: [
+					{ id: "skel-clean", label: "skeleton clean", description: "Skill on a clean catalog." },
+					{
+						id: "none-clean",
+						label: "no skill clean",
+						description: "No skill on a clean catalog.",
+					},
+					{ id: "skel-messy", label: "skeleton messy", description: "Skill on a messy catalog." },
+					{
+						id: "none-messy",
+						label: "no skill messy",
+						description: "No skill on a messy catalog.",
+					},
+				],
+				cheaper: [
+					{ winner: "skel-clean", loser: "none-clean" },
+					{ winner: "skel-messy", loser: "none-messy" },
+				],
+			},
+		});
+		expect(story.criteria).toContain(
+			"compare skeleton clean, no skill clean, skeleton messy, and no skill messy",
+		);
+		expect(story.criteria).toContain("skeleton clean uses fewer tokens than no skill clean");
+		expect(story.criteria).toContain("skeleton messy uses fewer tokens than no skill messy");
+		expect(story.criteria).toContain("skeleton clean: Skill on a clean catalog.");
+	});
+
 	it("lists per-arm rubric checks on a skill compare", () => {
 		const story = buildScenarioStory({
 			rubric: { mustReadPath: ["note.md"] },

@@ -631,6 +631,27 @@ export function buildCompareJudgePrompt(options: {
 	].join("\n");
 }
 
+export function buildMultiArmCompareJudgePrompt(options: {
+	arms: Array<{ label: string; transcript: string }>;
+	question: string;
+}): string {
+	const armBlocks = options.arms.flatMap((arm) => [`Arm ${arm.label}:`, arm.transcript, ""]);
+	return [
+		"You are a test harness classifier. Do not use tools. Do not edit files.",
+		"Decide whether the transcripts satisfy the criterion using only transcript evidence.",
+		"Each arm is one agent run of the same test.",
+		"Do not pick a single winner unless the criterion asks for one.",
+		"The transcripts include assistant text, tool names, tool args, and tool results.",
+		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
+		"Reply with one JSON object only — no markdown fences, no text before or after:",
+		'{"verdict":"yes"|"no","evidence":["verbatim quote from a transcript"],"rationale":"one sentence"}',
+		'Use verdict "yes" only when evidence clearly supports the criterion.',
+		"",
+		...armBlocks,
+		`Criterion: ${options.question}`,
+	].join("\n");
+}
+
 function formatJudgeInfraError(result: {
 	status: string;
 	rawStatus?: string;
@@ -820,9 +841,30 @@ export interface CompareJudgePair {
 	b: AgentTrace;
 }
 
-/** Score criteria against two arm transcripts. */
+export interface CompareJudgeArm {
+	label: string;
+	trace: AgentTrace;
+}
+
+export type CompareJudgeInput = CompareJudgePair | { arms: CompareJudgeArm[] };
+
+function compareJudgeArms(input: CompareJudgeInput): CompareJudgeArm[] {
+	if ("arms" in input) {
+		return input.arms;
+	}
+	return [
+		{ label: input.aLabel, trace: input.a },
+		{ label: input.bLabel, trace: input.b },
+	];
+}
+
+function isCompareJudgePair(input: CompareJudgeInput): input is CompareJudgePair {
+	return "a" in input && "b" in input;
+}
+
+/** Score criteria against every arm transcript. */
 export async function judgeCompareTraces(
-	pair: CompareJudgePair,
+	input: CompareJudgeInput,
 	criteria: JudgeCriterion[],
 	options: JudgeTraceOptions,
 ): Promise<JudgeTraceResult> {
@@ -840,20 +882,43 @@ export async function judgeCompareTraces(
 		};
 	}
 
-	const aTranscript = formatTraceForJudge(pair.a);
-	const bTranscript = formatTraceForJudge(pair.b);
+	const pair = isCompareJudgePair(input)
+		? input
+		: input.arms.length === 2 && input.arms[0] && input.arms[1]
+			? {
+					aLabel: input.arms[0].label,
+					a: input.arms[0].trace,
+					bLabel: input.arms[1].label,
+					b: input.arms[1].trace,
+				}
+			: undefined;
+	if (pair) {
+		const aTranscript = formatTraceForJudge(pair.a);
+		const bTranscript = formatTraceForJudge(pair.b);
+		return judgeCriteria(
+			criteria,
+			(question) =>
+				buildCompareJudgePrompt({
+					aLabel: pair.aLabel,
+					aTranscript,
+					bLabel: pair.bLabel,
+					bTranscript,
+					question,
+				}),
+			options,
+			{ transcriptChars: aTranscript.length + bTranscript.length },
+		);
+	}
+
+	const arms = compareJudgeArms(input).map((arm) => ({
+		label: arm.label,
+		transcript: formatTraceForJudge(arm.trace),
+	}));
 	return judgeCriteria(
 		criteria,
-		(question) =>
-			buildCompareJudgePrompt({
-				aLabel: pair.aLabel,
-				aTranscript,
-				bLabel: pair.bLabel,
-				bTranscript,
-				question,
-			}),
+		(question) => buildMultiArmCompareJudgePrompt({ arms, question }),
 		options,
-		{ transcriptChars: aTranscript.length + bTranscript.length },
+		{ transcriptChars: arms.reduce((sum, arm) => sum + arm.transcript.length, 0) },
 	);
 }
 

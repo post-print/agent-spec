@@ -113,6 +113,9 @@ export {
 } from "./host-registry.js";
 export {
 	buildCompareJudgePrompt,
+	buildMultiArmCompareJudgePrompt,
+	type CompareJudgeArm,
+	type CompareJudgeInput,
 	type CompareJudgePair,
 	formatTraceForJudge,
 	type JudgeCriterion,

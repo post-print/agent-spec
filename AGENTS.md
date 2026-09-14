@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent cold-start in this repo -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
 <!-- review-deps: paths=package.json,skeleton.toml,.github/workflows/test.yml -->
 
@@ -77,7 +77,7 @@ skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewe
 
 - `packages/harness` — host-agnostic agent runtime (Cursor, Claude, OpenAI Codex)
 - `packages/test` — direct-agent scenario runner + `agent-test` CLI; JSON suites are an input adapter
-- `agent-suites/` — in-repo host-agent suites. Each scenario uses a dedicated workspace. A `compare` scenario runs two arms. Optional metric rules pick a winner. An arm can add extra rubric checks. A pairwise judge runs only when `rubric.judge` is set. Host-global user skills stay out unless `allowUserSkills` is true. Default CLI `--suites-dir`
+- `agent-suites/` — in-repo host-agent suites. Each scenario uses a dedicated workspace. A `compare` scenario runs two or more arms. Optional metric rules name winner-versus-loser pairs. An arm can add extra rubric checks. A shared judge runs only when `rubric.judge` is set. Host-global user skills stay out unless `allowUserSkills` is true. Default CLI `--suites-dir`
 - `skeleton.toml` — Skeleton scan perimeter, review proof, and coverage
 - `.agents/skills/` — project skills (Cursor/Codex); `.claude/skills/` mirrors for Claude Code
 - Team skills from [csark0812/toolbox](https://github.com/csark0812/toolbox); lockfile: `skills-lock.json`

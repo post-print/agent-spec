@@ -4,15 +4,20 @@ import {
 	applyCompareArm,
 	applySidecarCompareDurations,
 	assertCompareMetrics,
+	buildCompareResult,
 	compareArmDescription,
 	compareArmLabel,
+	compareResultArms,
 	compareStoryFields,
 	describeCompareOutcome,
 	mergeArmRubric,
+	parseCompareArmId,
 	plainDescription,
 	prefixCompareFailures,
+	resolveCompareArms,
+	resolveCompareMetricPairs,
 } from "../compare-scenario.js";
-import type { AgentScenario, ScenarioCompareResult } from "../types.js";
+import type { AgentScenario, CompareArmResult, ScenarioCompareResult } from "../types.js";
 
 const base: AgentScenario = {
 	name: "pair",
@@ -70,7 +75,7 @@ describe("compare-scenario", () => {
 		expect(b.prompt).toBe("arm b prompt");
 	});
 
-	it("merges arm rubric arrays and keeps the pairwise judge", () => {
+	it("merges arm rubric arrays and keeps the shared judge", () => {
 		const merged = mergeArmRubric(
 			{ must: ["shared"], judge: ["Did B stay closer to the note?"] },
 			{ mustInvokeSkill: ["brief-ship"], must: ["SHIP: token"] },
@@ -154,10 +159,254 @@ describe("compare-scenario", () => {
 		const merged = applySidecarCompareDurations(pair, {
 			compare: { a: { durationMs: 40 }, b: { durationMs: 12 } },
 		});
-		expect(merged.a.durationMs).toBe(40);
-		expect(merged.b.durationMs).toBe(12);
+		expect(merged.a?.durationMs).toBe(40);
+		expect(merged.b?.durationMs).toBe(12);
+	});
+
+	it("resolves the two-arm form as a and b", () => {
+		expect(resolveCompareArms(base.compare)).toEqual([
+			{ id: "a", arm: { label: "alpha", workspace: "workspaces/a" } },
+			{ id: "b", arm: { label: "beta", prompt: "arm b prompt" } },
+		]);
+	});
+
+	it("resolves named arms in author order", () => {
+		const arms = resolveCompareArms({
+			arms: [
+				{ id: "skel-clean", label: "skeleton clean", description: "Skill on a clean catalog." },
+				{ id: "none-clean", label: "no skill clean", description: "No skill on a clean catalog." },
+				{ id: "skel-messy", description: "Skill on a messy catalog." },
+				{ id: "none-messy", description: "No skill on a messy catalog." },
+			],
+		});
+		expect(arms.map((entry) => entry.id)).toEqual([
+			"skel-clean",
+			"none-clean",
+			"skel-messy",
+			"none-messy",
+		]);
+	});
+
+	it("parses a named arm slug", () => {
+		expect(parseCompareArmId("a")).toBe("a");
+		expect(parseCompareArmId("skel-clean")).toBe("skel-clean");
+		expect(parseCompareArmId("None Clean")).toBeUndefined();
+		expect(parseCompareArmId("")).toBeUndefined();
+	});
+
+	it("uses the arm id when a named arm has no label", () => {
+		expect(compareArmLabel({ description: "Skill on a messy catalog." }, "skel-messy")).toBe(
+			"skel-messy",
+		);
+	});
+
+	it("turns a two-arm winner name into the other-arm pair", () => {
+		expect(resolveCompareMetricPairs("b", ["a", "b"])).toEqual([{ winner: "b", loser: "a" }]);
+		expect(resolveCompareMetricPairs("skel-clean", ["skel-clean", "none-clean"])).toEqual([
+			{ winner: "skel-clean", loser: "none-clean" },
+		]);
+	});
+
+	it("keeps named winner-versus-loser pairs", () => {
+		expect(
+			resolveCompareMetricPairs(
+				[
+					{ winner: "skel-clean", loser: "none-clean" },
+					{ winner: "skel-messy", loser: "none-messy" },
+				],
+				["skel-clean", "none-clean", "skel-messy", "none-messy"],
+			),
+		).toEqual([
+			{ winner: "skel-clean", loser: "none-clean" },
+			{ winner: "skel-messy", loser: "none-messy" },
+		]);
+	});
+
+	it("applies a named arm by id", () => {
+		const scenario: AgentScenario = {
+			...base,
+			compare: {
+				arms: [
+					{ id: "skel-clean", workspace: "workspaces/skel-clean" },
+					{ id: "none-clean", workspace: "workspaces/none-clean" },
+				],
+			},
+		};
+		const arm = applyCompareArm(scenario, "skel-clean");
+		expect(arm.compare).toBeUndefined();
+		expect(arm.workspace).toBe("workspaces/skel-clean");
+	});
+
+	it("scores named cheaper pairs without a four-way winner", () => {
+		const result = fourArmResult({
+			skelCleanTokens: 80,
+			noneCleanTokens: 200,
+			skelMessyTokens: 90,
+			noneMessyTokens: 220,
+		});
+		expect(
+			assertCompareMetrics(
+				{
+					cheaper: [
+						{ winner: "skel-clean", loser: "none-clean" },
+						{ winner: "skel-messy", loser: "none-messy" },
+					],
+				},
+				result,
+			),
+		).toEqual([]);
+	});
+
+	it("fails only the named pair that loses", () => {
+		const result = fourArmResult({
+			skelCleanTokens: 80,
+			noneCleanTokens: 200,
+			skelMessyTokens: 300,
+			noneMessyTokens: 220,
+		});
+		const failures = assertCompareMetrics(
+			{
+				cheaper: [
+					{ winner: "skel-clean", loser: "none-clean" },
+					{ winner: "skel-messy", loser: "none-messy" },
+				],
+			},
+			result,
+		);
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.matcher).toBe("cheaper");
+		expect(failures[0]?.message).toContain("skel-messy");
+		expect(failures[0]?.message).toContain("none-messy");
+		expect(failures[0]?.message).not.toContain("four-way");
+	});
+
+	it("describes named pairs and does not pick a four-way winner", () => {
+		const result = fourArmResult({
+			skelCleanMs: 800,
+			noneCleanMs: 1200,
+			skelMessyMs: 900,
+			noneMessyMs: 1500,
+			skelCleanTokens: 80,
+			noneCleanTokens: 200,
+			skelMessyTokens: 90,
+			noneMessyTokens: 220,
+		});
+		result.cheaper = [
+			{ winner: "skel-clean", loser: "none-clean" },
+			{ winner: "skel-messy", loser: "none-messy" },
+		];
+		const lines = describeCompareOutcome(result);
+		expect(lines.some((line) => line.includes("skel-clean") && line.includes("none-clean"))).toBe(
+			true,
+		);
+		expect(lines.some((line) => line.includes("skel-messy") && line.includes("none-messy"))).toBe(
+			true,
+		);
+		expect(lines.some((line) => /wins|winner of all|four-way/i.test(line))).toBe(false);
+	});
+
+	it("passes named-arm descriptions into story fields", () => {
+		const fields = compareStoryFields({
+			...base,
+			compare: {
+				arms: [
+					{
+						id: "skel-clean",
+						label: "skeleton clean",
+						description: "Skill on a clean catalog.",
+					},
+					{
+						id: "none-clean",
+						label: "no skill clean",
+						description: "No skill on a clean catalog.",
+					},
+					{
+						id: "skel-messy",
+						label: "skeleton messy",
+						description: "Skill on a messy catalog.",
+					},
+					{
+						id: "none-messy",
+						label: "no skill messy",
+						description: "No skill on a messy catalog.",
+					},
+				],
+				cheaper: [
+					{ winner: "skel-clean", loser: "none-clean" },
+					{ winner: "skel-messy", loser: "none-messy" },
+				],
+			},
+		});
+		expect(fields.arms.map((arm) => arm.id)).toEqual([
+			"skel-clean",
+			"none-clean",
+			"skel-messy",
+			"none-messy",
+		]);
+		expect(fields.cheaper).toEqual([
+			{ winner: "skel-clean", loser: "none-clean" },
+			{ winner: "skel-messy", loser: "none-messy" },
+		]);
+	});
+
+	it("applies sidecar durations by arm id", () => {
+		const result = fourArmResult({
+			skelCleanMs: 1,
+			noneCleanMs: 1,
+			skelMessyMs: 1,
+			noneMessyMs: 1,
+			skelCleanTokens: 1,
+			noneCleanTokens: 1,
+			skelMessyTokens: 1,
+			noneMessyTokens: 1,
+		});
+		const merged = applySidecarCompareDurations(result, {
+			compare: {
+				arms: {
+					"skel-clean": { durationMs: 40 },
+					"none-clean": { durationMs: 90 },
+				},
+			},
+		});
+		expect(merged.arms.find((arm) => arm.id === "skel-clean")?.durationMs).toBe(40);
+		expect(merged.arms.find((arm) => arm.id === "none-clean")?.durationMs).toBe(90);
+	});
+
+	it("builds a result with a and b aliases for the two-arm form", () => {
+		const result = buildCompareResult([
+			armResult({ id: "a", label: "alpha", durationMs: 10, tokens: 4 }),
+			armResult({ id: "b", label: "beta", durationMs: 8, tokens: 2 }),
+		]);
+		expect(compareResultArms(result).map((arm) => arm.id)).toEqual(["a", "b"]);
+		expect(result.a?.label).toBe("alpha");
+		expect(result.b?.label).toBe("beta");
 	});
 });
+
+function armResult(options: {
+	id: string;
+	label: string;
+	durationMs: number;
+	tokens?: number;
+	tools?: number;
+}): CompareArmResult {
+	return {
+		id: options.id,
+		label: options.label,
+		prompt: options.id,
+		durationMs: options.durationMs,
+		trace: {
+			messages: [],
+			toolCalls: Array.from({ length: options.tools ?? 0 }, () => ({
+				name: "Read",
+				args: { path: "word.txt" },
+			})),
+			shellCommands: [],
+			artifacts: {},
+			usage: options.tokens === undefined ? undefined : { totalTokens: options.tokens },
+		},
+	};
+}
 
 function pairResult(options: {
 	aMs: number;
@@ -165,32 +414,46 @@ function pairResult(options: {
 	aTokens?: number;
 	bTokens?: number;
 }): ScenarioCompareResult {
-	return {
-		a: {
-			id: "a",
-			label: "alpha",
-			prompt: "a",
-			durationMs: options.aMs,
-			trace: {
-				messages: [],
-				toolCalls: [],
-				shellCommands: [],
-				artifacts: {},
-				usage: options.aTokens === undefined ? undefined : { totalTokens: options.aTokens },
-			},
-		},
-		b: {
-			id: "b",
-			label: "beta",
-			prompt: "b",
-			durationMs: options.bMs,
-			trace: {
-				messages: [],
-				toolCalls: [],
-				shellCommands: [],
-				artifacts: {},
-				usage: options.bTokens === undefined ? undefined : { totalTokens: options.bTokens },
-			},
-		},
-	};
+	return buildCompareResult([
+		armResult({ id: "a", label: "alpha", durationMs: options.aMs, tokens: options.aTokens }),
+		armResult({ id: "b", label: "beta", durationMs: options.bMs, tokens: options.bTokens }),
+	]);
+}
+
+function fourArmResult(options: {
+	skelCleanMs?: number;
+	noneCleanMs?: number;
+	skelMessyMs?: number;
+	noneMessyMs?: number;
+	skelCleanTokens?: number;
+	noneCleanTokens?: number;
+	skelMessyTokens?: number;
+	noneMessyTokens?: number;
+}): ScenarioCompareResult {
+	return buildCompareResult([
+		armResult({
+			id: "skel-clean",
+			label: "skel-clean",
+			durationMs: options.skelCleanMs ?? 800,
+			tokens: options.skelCleanTokens,
+		}),
+		armResult({
+			id: "none-clean",
+			label: "none-clean",
+			durationMs: options.noneCleanMs ?? 1200,
+			tokens: options.noneCleanTokens,
+		}),
+		armResult({
+			id: "skel-messy",
+			label: "skel-messy",
+			durationMs: options.skelMessyMs ?? 900,
+			tokens: options.skelMessyTokens,
+		}),
+		armResult({
+			id: "none-messy",
+			label: "none-messy",
+			durationMs: options.noneMessyMs ?? 1500,
+			tokens: options.noneMessyTokens,
+		}),
+	]);
 }

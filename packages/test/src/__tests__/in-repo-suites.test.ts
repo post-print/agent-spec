@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-
+import { applyCompareArm, resolveCompareArms } from "../compare-scenario.js";
 import { discoverSuites } from "../discover-suites.js";
 import { loadSuiteFile } from "../load-suite.js";
 import {
@@ -27,16 +27,11 @@ describe("in-repo suites", () => {
 			expect(suite.defaults?.allowUserSkills).toBe(false);
 			for (const scenario of suite.scenarios) {
 				if (scenario.compare) {
-					expect(
-						resolveScenarioWorkspaceRel(suite, {
-							workspace: scenario.compare.a.workspace ?? scenario.workspace,
-						}),
-					).toBeDefined();
-					expect(
-						resolveScenarioWorkspaceRel(suite, {
-							workspace: scenario.compare.b.workspace ?? scenario.workspace,
-						}),
-					).toBeDefined();
+					for (const entry of resolveCompareArms(scenario.compare)) {
+						expect(
+							resolveScenarioWorkspaceRel(suite, applyCompareArm(scenario, entry.id)),
+						).toBeDefined();
+					}
 				} else {
 					expect(resolveScenarioWorkspaceRel(suite, scenario)).toBeDefined();
 				}

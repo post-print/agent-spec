@@ -9,7 +9,7 @@ import type {
 	AgentUsage,
 } from "@post-print/agent-harness";
 
-import { describeCompareOutcome } from "./compare-scenario.js";
+import { compareResultArms, describeCompareOutcome } from "./compare-scenario.js";
 import { summarizeReports } from "./suite-summary.js";
 import type { CompareArmResult, ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
 
@@ -568,49 +568,109 @@ function renderCompareMetricRow(
 </tr>`;
 }
 
-function renderCompareMetrics(result: ScenarioResult): string {
-	const compare = result.compare;
-	if (!compare) {
-		return "";
-	}
-	const aMs = armDurationMs(compare.a);
-	const bMs = armDurationMs(compare.b);
+function renderNamedCompareMetricRow(label: string, cells: string[]): string {
+	return `<tr>
+  <th scope="row">${escapeHtml(label)}</th>
+  ${cells.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}
+</tr>`;
+}
+
+function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]): string {
+	const [left, right] = arms;
+	const aMs = armDurationMs(left);
+	const bMs = armDurationMs(right);
 	const durationDelta = aMs !== undefined && bMs !== undefined ? bMs - aMs : undefined;
-	const aTools = armToolCount(compare.a);
-	const bTools = armToolCount(compare.b);
+	const aTools = armToolCount(left);
+	const bTools = armToolCount(right);
 	const toolDelta = aTools !== undefined && bTools !== undefined ? bTools - aTools : undefined;
-	const totalDelta = tokenDelta(compare.a, compare.b, "total");
-	const callouts = describeCompareOutcome(compare);
-	const calloutList =
-		callouts.length > 0
-			? `<ul class="compare-callouts">${callouts.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
-			: "";
+	const totalDelta = tokenDelta(left, right, "total");
 	return `
-<section class="compare">
-  <header class="compare-header">
-    <h3>Comparison</h3>
-    <p class="muted">${escapeHtml(compare.a.label)} vs ${escapeHtml(compare.b.label)}. Δ is B minus A. A lower time and a lower token count is better.</p>
-  </header>
-  ${calloutList}
   <div class="compare-table-wrap">
     <table class="compare-table">
       <thead>
         <tr>
           <th>Metric</th>
-          <th>${escapeHtml(compare.a.label)}</th>
-          <th>${escapeHtml(compare.b.label)}</th>
+          <th>${escapeHtml(left.label)}</th>
+          <th>${escapeHtml(right.label)}</th>
           <th>Δ</th>
         </tr>
       </thead>
       <tbody>
-        ${renderCompareMetricRow("Duration", formatArmDuration(compare.a), formatArmDuration(compare.b), durationDelta, formatSignedDuration(durationDelta))}
-        ${renderCompareMetricRow("Tokens", formatArmTokens(compare.a, "total"), formatArmTokens(compare.b, "total"), totalDelta, formatSigned(totalDelta))}
-        ${renderCompareMetricRow("In", formatArmTokens(compare.a, "input"), formatArmTokens(compare.b, "input"), tokenDelta(compare.a, compare.b, "input"), formatSigned(tokenDelta(compare.a, compare.b, "input")))}
-        ${renderCompareMetricRow("Out", formatArmTokens(compare.a, "output"), formatArmTokens(compare.b, "output"), tokenDelta(compare.a, compare.b, "output"), formatSigned(tokenDelta(compare.a, compare.b, "output")))}
+        ${renderCompareMetricRow("Duration", formatArmDuration(left), formatArmDuration(right), durationDelta, formatSignedDuration(durationDelta))}
+        ${renderCompareMetricRow("Tokens", formatArmTokens(left, "total"), formatArmTokens(right, "total"), totalDelta, formatSigned(totalDelta))}
+        ${renderCompareMetricRow("In", formatArmTokens(left, "input"), formatArmTokens(right, "input"), tokenDelta(left, right, "input"), formatSigned(tokenDelta(left, right, "input")))}
+        ${renderCompareMetricRow("Out", formatArmTokens(left, "output"), formatArmTokens(right, "output"), tokenDelta(left, right, "output"), formatSigned(tokenDelta(left, right, "output")))}
         ${renderCompareMetricRow("Tools", aTools === undefined ? "n/a" : formatInteger(aTools), bTools === undefined ? "n/a" : formatInteger(bTools), toolDelta, formatSigned(toolDelta))}
       </tbody>
     </table>
-  </div>
+  </div>`;
+}
+
+function renderNamedCompareMetrics(arms: CompareArmResult[]): string {
+	return `
+  <div class="compare-table-wrap">
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          ${arms.map((arm) => `<th>${escapeHtml(arm.label)}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${renderNamedCompareMetricRow(
+					"Duration",
+					arms.map((arm) => formatArmDuration(arm)),
+				)}
+        ${renderNamedCompareMetricRow(
+					"Tokens",
+					arms.map((arm) => formatArmTokens(arm, "total")),
+				)}
+        ${renderNamedCompareMetricRow(
+					"In",
+					arms.map((arm) => formatArmTokens(arm, "input")),
+				)}
+        ${renderNamedCompareMetricRow(
+					"Out",
+					arms.map((arm) => formatArmTokens(arm, "output")),
+				)}
+        ${renderNamedCompareMetricRow(
+					"Tools",
+					arms.map((arm) => {
+						const tools = armToolCount(arm);
+						return tools === undefined ? "n/a" : formatInteger(tools);
+					}),
+				)}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function renderCompareMetrics(result: ScenarioResult): string {
+	const compare = result.compare;
+	if (!compare) {
+		return "";
+	}
+	const arms = compareResultArms(compare);
+	if (arms.length === 0) {
+		return "";
+	}
+	const callouts = describeCompareOutcome(compare);
+	const calloutList =
+		callouts.length > 0
+			? `<ul class="compare-callouts">${callouts.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+			: "";
+	const twoArm = arms.length === 2 && arms[0] && arms[1];
+	const lede = twoArm
+		? `${arms[0].label} vs ${arms[1].label}. Δ is B minus A. A lower time and a lower token count is better.`
+		: `${arms.map((arm) => arm.label).join(", ")}. A lower time and a lower token count is better. Named pairs do not pick one winner.`;
+	return `
+<section class="compare">
+  <header class="compare-header">
+    <h3>Comparison</h3>
+    <p class="muted">${escapeHtml(lede)}</p>
+  </header>
+  ${calloutList}
+  ${twoArm ? renderTwoArmCompareMetrics([arms[0], arms[1]]) : renderNamedCompareMetrics(arms)}
 </section>`;
 }
 
@@ -634,14 +694,16 @@ function renderArmMetrics(arm: CompareArmResult): string {
 	return `<p class="compare-arm-metrics">${escapeHtml(parts.join(" · "))}</p>`;
 }
 
-function renderArmColumn(arm: CompareArmResult, side: "a" | "b"): string {
+function renderArmColumn(arm: CompareArmResult, index: number): string {
 	const description = arm.description
 		? `<p class="compare-arm-description">${escapeHtml(arm.description)}</p>`
 		: "";
+	const sideClass = arm.id === "a" || arm.id === "b" ? ` compare-arm-${arm.id}` : "";
+	const kicker = arm.id === "a" ? "Arm A" : arm.id === "b" ? "Arm B" : `Arm ${arm.id}`;
 	return `
-<article class="compare-arm compare-arm-${side}">
+<article class="compare-arm${sideClass}" style="--arm-accent: var(--arm-${index % 4});">
   <header class="compare-arm-header">
-    <p class="compare-arm-kicker">${side === "a" ? "Arm A" : "Arm B"}</p>
+    <p class="compare-arm-kicker">${escapeHtml(kicker)}</p>
     <h3>${escapeHtml(arm.label)}</h3>
     ${description}
     ${renderArmMetrics(arm)}
@@ -658,11 +720,11 @@ function renderCompareConversations(result: ScenarioResult): string {
     ${renderChat(result.trace, result.prompt)}
   </section>`;
 	}
+	const arms = compareResultArms(compare);
 	return `
 <div class="compare-layout">
-  <div class="compare-arms">
-    ${renderArmColumn(compare.a, "a")}
-    ${renderArmColumn(compare.b, "b")}
+  <div class="compare-arms" data-arm-count="${arms.length}">
+    ${arms.map((arm, index) => renderArmColumn(arm, index)).join("")}
   </div>
   ${renderCompareMetrics(result)}
 </div>`;
@@ -766,6 +828,10 @@ function sharedReportCss(): string {
     --tool-bubble: oklch(0.26 0.04 80);
     --arm-a: oklch(0.72 0.12 250);
     --arm-b: oklch(0.78 0.14 75);
+    --arm-0: var(--arm-a);
+    --arm-1: var(--arm-b);
+    --arm-2: oklch(0.76 0.13 145);
+    --arm-3: oklch(0.74 0.12 20);
   }
   @layer reset {
     * { box-sizing: border-box; }
@@ -975,6 +1041,10 @@ function sharedReportCss(): string {
     gap: 0.85rem;
     align-items: stretch;
   }
+  .compare-arms[data-arm-count="3"],
+  .compare-arms[data-arm-count="4"] {
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  }
   .compare-arm {
     min-width: 0;
     display: grid;
@@ -985,6 +1055,7 @@ function sharedReportCss(): string {
     border-radius: 10px;
     padding: 0.75rem 0.8rem 0.85rem;
     border-block-start-width: 3px;
+    border-block-start-color: var(--arm-accent, var(--arm-a));
   }
   .compare-arm-a { border-block-start-color: var(--arm-a); }
   .compare-arm-b { border-block-start-color: var(--arm-b); }
@@ -996,6 +1067,7 @@ function sharedReportCss(): string {
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
+  .compare-arm .compare-arm-kicker { color: var(--arm-accent, var(--muted)); }
   .compare-arm-a .compare-arm-kicker { color: var(--arm-a); }
   .compare-arm-b .compare-arm-kicker { color: var(--arm-b); }
   .compare-arm-header h3 { color: var(--text); font-size: 0.95rem; }
@@ -1094,7 +1166,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     <h2 id="guide-heading">How to read this report</h2>
     <ol>
       <li>The verdict is pass or fail. Tokens are cost, not the score.</li>
-      <li>Open a scenario for the criteria and the result. A compare scenario shows the two arms side by side, then a comparison of time, tokens, and tools.</li>
+      <li>Open a scenario for the criteria and the result. A compare scenario shows each arm, then time, tokens, and tools.</li>
       <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
       <li>In is prompt and context. Out is generated text.</li>
     </ol>
