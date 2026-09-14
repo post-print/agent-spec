@@ -95,28 +95,38 @@ describe("ensureCursorSdkLoginForLive", () => {
 			called += 1;
 			return {};
 		};
-		await ensureCursorSdkLoginForLive({
-			hosts: ["cursor"],
-			authMode: "subscription",
-			tty: true,
-			hasLoginFile: () => true,
-			loginCursor: login,
-		});
-		await ensureCursorSdkLoginForLive({
-			hosts: ["cursor"],
-			authMode: "subscription",
-			tty: false,
-			hasLoginFile: () => false,
-			loginCursor: login,
-		});
-		await ensureCursorSdkLoginForLive({
-			hosts: ["cursor"],
-			authMode: "api-key",
-			tty: true,
-			hasLoginFile: () => false,
-			loginCursor: login,
-		});
-		expect(called).toBe(0);
+		const priorKey = process.env.CURSOR_API_KEY;
+		delete process.env.CURSOR_API_KEY;
+		try {
+			await ensureCursorSdkLoginForLive({
+				hosts: ["cursor"],
+				authMode: "subscription",
+				tty: true,
+				hasLoginFile: () => true,
+				loginCursor: login,
+			});
+			await ensureCursorSdkLoginForLive({
+				hosts: ["cursor"],
+				authMode: "subscription",
+				tty: false,
+				hasLoginFile: () => false,
+				loginCursor: login,
+			});
+			await ensureCursorSdkLoginForLive({
+				hosts: ["cursor"],
+				authMode: "api-key",
+				tty: true,
+				hasLoginFile: () => false,
+				loginCursor: login,
+			});
+			expect(called).toBe(0);
+		} finally {
+			if (priorKey === undefined) {
+				delete process.env.CURSOR_API_KEY;
+			} else {
+				process.env.CURSOR_API_KEY = priorKey;
+			}
+		}
 	});
 });
 

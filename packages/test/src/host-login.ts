@@ -3,11 +3,12 @@ import { createInterface } from "node:readline/promises";
 
 import type { AgentHost, HostAuthMode } from "@post-print/agent-harness";
 import {
+	CURSOR_AUTH_MODE_ENV,
 	CURSOR_SDK_LOGIN_HINT,
 	hasCursorSdkAuthFile,
 	isInvalidCursorUserApiKey,
 	loginCursorSdk,
-	resolveCursorAuthMode,
+	resolveHostAuthMode,
 	resolveOpenaiBin,
 } from "@post-print/agent-harness";
 
@@ -76,7 +77,11 @@ export async function ensureCursorSdkLoginForLive(options: {
 	if (!options.hosts.includes("cursor")) {
 		return;
 	}
-	const authMode = resolveCursorAuthMode(undefined, undefined, options.authMode);
+	const authMode = resolveHostAuthMode({
+		envName: CURSOR_AUTH_MODE_ENV,
+		raw: process.env[CURSOR_AUTH_MODE_ENV],
+		explicit: options.authMode,
+	});
 	if (authMode === "api-key") {
 		return;
 	}
