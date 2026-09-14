@@ -103,6 +103,18 @@ export class TraceAssertion {
 		].join("\n");
 	}
 
+	/** mustNot ignores tool results so a required Read of a source file does not fail. */
+	private mustNotHaystack(): string {
+		return [
+			this.messageText(),
+			this.trace.prBody ?? "",
+			this.trace.gitDiff ?? "",
+			...this.trace.shellCommands,
+			...Object.values(this.trace.artifacts),
+			...this.trace.toolCalls.flatMap((call) => [call.name, JSON.stringify(call.args ?? {})]),
+		].join("\n");
+	}
+
 	private patternHaystack(): string {
 		return collapseTraceWhitespace(this.assertionHaystack());
 	}
@@ -338,7 +350,7 @@ export class TraceAssertion {
 	}
 
 	mustNotInclude(text: string): this {
-		const haystack = this.assertionHaystack();
+		const haystack = this.mustNotHaystack();
 		if (containsForbiddenPhrase(haystack, text)) {
 			this.push(
 				"mustNotInclude",

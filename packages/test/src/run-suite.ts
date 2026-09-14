@@ -25,8 +25,10 @@ import {
 	loadContext,
 	loadUnifiedDiffPaths,
 	mergeMcpServers,
+	parseScenarioWorkspace,
 	partitionSeedCollateralLeaks,
 	porcelainPathsFromLines,
+	resolveAllowUserSkills,
 	resolveHarnessArtifactIgnoreRoots,
 	restoreWorkingTreePaths,
 	runAgent,
@@ -51,7 +53,7 @@ import {
 } from "./live-isolation.js";
 import { resolveLiveTimeoutMs } from "./live-timeout.js";
 import { loadSuiteFile } from "./load-suite.js";
-import { mcpStdioScriptPaths } from "./mcp-config.js";
+import { bindMcpServersToCaller, mcpStdioScriptPaths } from "./mcp-config.js";
 import {
 	formatDuration,
 	logLive,
@@ -560,7 +562,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	if (shouldPrintSuiteChrome()) {
 		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal)}`);
 		if (isolateLive) {
-			logProgress(`  ${theme.isolationNote()}`);
+			logProgress(`    ${theme.isolationNote()}`);
 		}
 	}
 
@@ -580,6 +582,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				results.push({
 					suite: suite.name,
 					scenario: scenario.name,
+					prompt: scenario.prompt,
 					passed: true,
 					failures: [],
 					skipped: true,
@@ -713,6 +716,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				suite: suite.name,
 				scenario: scenario.name,
 				compareId: scenario.compareId,
+				prompt: scenario.prompt,
 				passed,
 				failures,
 				durationMs,
@@ -833,6 +837,18 @@ function overlayRelPath(cwd: string, path: string): string | undefined {
 	return undefined;
 }
 
+function resolveRunWorkspace(
+	defaultWorkspace?: string,
+	scenarioWorkspace?: string,
+): string | undefined {
+	const raw = scenarioWorkspace !== undefined ? scenarioWorkspace : defaultWorkspace;
+	const parsed = parseScenarioWorkspace(raw);
+	if (!parsed.ok) {
+		throw new Error(parsed.message);
+	}
+	return parsed.rel;
+}
+
 function mergeContextSources(
 	defaults?: string[],
 	scenarioSources?: string[],
@@ -903,6 +919,8 @@ async function runAgentTestBody(options: RunAgentTestOptions): Promise<ScenarioR
 			options.defaults?.skills,
 			options.defaults?.contextSources,
 			options.defaults?.mcpServers,
+			options.defaults?.workspace,
+			options.defaults?.allowUserSkills,
 			options.judge ?? true,
 			options.worktree ?? true,
 			options.stagingSessionId,
@@ -976,6 +994,8 @@ async function runAgentTestOnce(
 	defaultSkills?: SkillContextSetting,
 	defaultContextSources?: string[],
 	defaultMcpServers?: Record<string, McpServerConfig>,
+	defaultWorkspace?: string,
+	defaultAllowUserSkills?: boolean,
 	judge?: boolean,
 	worktree?: boolean,
 	stagingSessionId?: string,
@@ -1003,6 +1023,7 @@ async function runAgentTestOnce(
 		return {
 			suite: suiteName,
 			scenario: scenario.name,
+			prompt: scenario.prompt,
 			passed: true,
 			failures: [],
 			skipped: true,
@@ -1020,7 +1041,12 @@ async function runAgentTestOnce(
 	const profile = scenario.profile ?? defaultProfile ?? defaultProfileForHost(host);
 	const skills = scenario.skills ?? defaultSkills;
 	const contextSources = mergeContextSources(defaultContextSources, scenario.contextSources);
-	const mcpServers = mergeMcpServers(defaultMcpServers, scenario.mcpServers);
+	const workspaceRel = resolveRunWorkspace(defaultWorkspace, scenario.workspace);
+	const fixtureWorkspace = workspaceRel !== undefined;
+	const allowUserSkills = resolveAllowUserSkills(scenario.allowUserSkills, defaultAllowUserSkills);
+	const mcpServers = fixtureWorkspace
+		? bindMcpServersToCaller(mergeMcpServers(defaultMcpServers, scenario.mcpServers), cwd)
+		: mergeMcpServers(defaultMcpServers, scenario.mcpServers);
 	const liveTimeoutMs = resolveLiveTimeoutMs(timeoutMs);
 	const failOnUserInput = !allowUserInput;
 
@@ -1041,10 +1067,13 @@ async function runAgentTestOnce(
 		}
 		worktreeHandle = await createSealedWorkspace({
 			callerCwd: cwd,
-			overlayPaths: defaultSealedOverlayPaths(
-				liveOverlayExtras(cwd, suitesDir, contextSources, mcpServers),
-				skillPathsFromSetting(skills),
-			),
+			workspace: workspaceRel,
+			overlayPaths: fixtureWorkspace
+				? undefined
+				: defaultSealedOverlayPaths(
+						liveOverlayExtras(cwd, suitesDir, contextSources, mcpServers),
+						skillPathsFromSetting(skills),
+					),
 		});
 		activeWorktreeCleanup = worktreeHandle.cleanup;
 		if (scenario.seedPatch) {
@@ -1056,7 +1085,7 @@ async function runAgentTestOnce(
 	} else {
 		logPhase(theme.phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)")));
 	}
-	const runCwd = worktreeHandle?.path ?? cwd;
+	const runCwd = worktreeHandle?.path ?? (workspaceRel ? resolve(cwd, workspaceRel) : cwd);
 
 	try {
 		const context = await loadContext({
@@ -1082,6 +1111,7 @@ async function runAgentTestOnce(
 				prompt: scenario.prompt,
 				outputContract,
 				mcpServers,
+				allowUserSkills,
 				timeoutMs: liveTimeoutMs,
 				failOnUserInput,
 				maxConversationTurns: resolveMaxConversationTurns(),
@@ -1290,6 +1320,7 @@ async function runAgentTestOnce(
 			suite: suiteName,
 			scenario: scenario.name,
 			compareId: scenario.compareId,
+			prompt: scenario.prompt,
 			passed,
 			failures,
 			durationMs,

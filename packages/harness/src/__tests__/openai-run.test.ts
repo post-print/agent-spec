@@ -23,6 +23,15 @@ describe("buildOpenaiExecArgs", () => {
 		expect(args.at(-1)).toBe("Say hello.");
 	});
 
+	it("omits --ignore-user-config when user skills are allowed", () => {
+		const args = buildOpenaiExecArgs({
+			prompt: "Say hello.",
+			cwd: "/tmp/agent-harness-seal-test",
+			allowUserSkills: true,
+		});
+		expect(args).not.toContain("--ignore-user-config");
+	});
+
 	it("uses a read-only sandbox for classifiers", () => {
 		const args = buildOpenaiExecArgs({
 			prompt: "yes or no",

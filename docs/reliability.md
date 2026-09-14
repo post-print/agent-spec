@@ -13,7 +13,7 @@
 | Direct agent runs | At least 95% completion without infrastructure-only failure over 20 credentialed runs |
 | Seed patches | 100% apply cleanly through `--check` |
 | Configuration | Zero silent misconfigurations through `--check` |
-| Isolation | Zero tool paths outside the sealed temp workspace |
+| Isolation | Zero tool paths outside the sealed temp workspace. Host-global user skills stay out unless `allowUserSkills` is true |
 
 ## Verification commands
 
@@ -22,7 +22,7 @@
 # Host not ready does not fail this command.
 node packages/test/dist/cli.js --check --suites-dir agent-suites
 
-# Consumer confidence gate. Smoke, tools, mcp, and judge on Cursor, Claude, and Codex.
+# Consumer confidence gate. Smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex.
 bun run test
 
 # One host
@@ -31,6 +31,7 @@ bun run test:smoke
 bun run test:tools
 bun run test:mcp
 bun run test:judge
+bun run test:depth
 
 # Offline comparison of existing reports
 node packages/test/dist/cli.js compare --a a.suite-report.json --b b.suite-report.json --out-dir "$TMPDIR/compare"

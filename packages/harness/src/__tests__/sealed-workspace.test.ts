@@ -8,6 +8,8 @@ import { promisify } from "node:util";
 import {
 	createSealedWorkspace,
 	defaultSealedOverlayPaths,
+	isCallerHeadWorkspace,
+	parseScenarioWorkspace,
 	toolPathsOutsideWorkspace,
 } from "../sealed-workspace.js";
 import { loadSkillContext } from "../skills-context.js";
@@ -31,6 +33,30 @@ async function initRepo(): Promise<string> {
 	await writeFile(join(repo, "AGENTS.md"), "# uncommitted overlay\n", "utf8");
 	return repo;
 }
+
+describe("parseScenarioWorkspace", () => {
+	it("treats omit, empty, and dot as caller HEAD", () => {
+		expect(parseScenarioWorkspace(undefined)).toEqual({ ok: true, rel: undefined });
+		expect(parseScenarioWorkspace("")).toEqual({ ok: true, rel: undefined });
+		expect(parseScenarioWorkspace(".")).toEqual({ ok: true, rel: undefined });
+		expect(parseScenarioWorkspace("./")).toEqual({ ok: true, rel: undefined });
+		expect(isCallerHeadWorkspace(undefined)).toBe(true);
+		expect(isCallerHeadWorkspace("agent-suites/depth/workspaces/seed")).toBe(false);
+	});
+
+	it("accepts a repo-relative folder", () => {
+		expect(parseScenarioWorkspace("./agent-suites/depth/workspaces/seed")).toEqual({
+			ok: true,
+			rel: "agent-suites/depth/workspaces/seed",
+		});
+	});
+
+	it("rejects absolute paths and parent segments", () => {
+		expect(parseScenarioWorkspace("/tmp/fixture").ok).toBe(false);
+		expect(parseScenarioWorkspace("agent-suites/../packages").ok).toBe(false);
+		expect(parseScenarioWorkspace(1).ok).toBe(false);
+	});
+});
 
 describe("createSealedWorkspace", () => {
 	it("copies HEAD files and overlays caller context", async () => {
@@ -74,6 +100,32 @@ describe("createSealedWorkspace", () => {
 			expect(await readFile(join(sealed.path, ".agents/skills/grill/SKILL.md"), "utf8")).toContain(
 				"Grill",
 			);
+		} finally {
+			await sealed.cleanup();
+		}
+	});
+
+	it("copies a workspace folder without parent HEAD files", async () => {
+		const repo = await initRepo();
+		await mkdir(join(repo, "agent-suites/depth/workspaces/seed"), { recursive: true });
+		await writeFile(
+			join(repo, "agent-suites/depth/workspaces/seed/seeded.txt"),
+			"fixture only\n",
+			"utf8",
+		);
+		const sealed = await createSealedWorkspace({
+			callerCwd: repo,
+			workspace: "agent-suites/depth/workspaces/seed",
+			overlayPaths: defaultSealedOverlayPaths(),
+		});
+		try {
+			expect(await readFile(join(sealed.path, "seeded.txt"), "utf8")).toContain("fixture only");
+			await expect(readFile(join(sealed.path, "src/app.ts"), "utf8")).rejects.toThrow();
+			await expect(readFile(join(sealed.path, "AGENTS.md"), "utf8")).rejects.toThrow();
+			const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+				cwd: sealed.path,
+			});
+			expect(realpathSync(stdout.trim())).toBe(realpathSync(sealed.path));
 		} finally {
 			await sealed.cleanup();
 		}

@@ -1,0 +1,6 @@
+diff --git a/seeded.txt b/seeded.txt
+--- a/seeded.txt
++++ b/seeded.txt
+@@ -1 +1 @@
+-agent-test-depth-seed-before
++agent-test-depth-seed-4e91

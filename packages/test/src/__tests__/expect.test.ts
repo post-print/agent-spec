@@ -62,6 +62,32 @@ describe("expectTrace", () => {
 		expect(failures).toHaveLength(0);
 	});
 
+	it("does not treat a Read tool result as mustNot evidence", () => {
+		const trace: AgentTrace = {
+			messages: [
+				{
+					role: "assistant",
+					content: "agent-test-judge-fact-2e7b is the only shipped token.",
+				},
+			],
+			toolCalls: [
+				{
+					name: "Read",
+					args: { path: "note.md" },
+					result: "Confirmed fact: agent-test-judge-fact-2e7b\nRumor: agent-test-judge-rumor-9aa1",
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(
+			assertRubric(trace, {
+				must: ["agent-test-judge-fact-2e7b"],
+				mustNot: ["agent-test-judge-rumor-9aa1"],
+			}),
+		).toHaveLength(0);
+	});
+
 	it("checks mustNot across shell commands", () => {
 		const trace: AgentTrace = {
 			...sampleTrace,

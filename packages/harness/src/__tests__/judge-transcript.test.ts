@@ -23,6 +23,24 @@ describe("formatTraceForJudge", () => {
 		expect(text).toContain("mcp echo ok");
 		expect(text).toContain("result:");
 	});
+
+	it("interleaves messages and tools by seq", () => {
+		const text = formatTraceForJudge({
+			messages: [{ role: "assistant", content: "FOLLOWED_SKILL_REPLY", seq: 2 }],
+			toolCalls: [
+				{
+					name: "Read",
+					args: { path: ".agents/skills/agent-test-depth/SKILL.md" },
+					result: "skill body",
+					seq: 1,
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		});
+		expect(text.indexOf("Read")).toBeGreaterThan(-1);
+		expect(text.indexOf("Read")).toBeLessThan(text.indexOf("FOLLOWED_SKILL_REPLY"));
+	});
 });
 
 describe("judgeTrace host auth", () => {
@@ -104,5 +122,6 @@ describe("skillInvokeJudgeCriteria", () => {
 		expect(criteria[0]?.id).toBe("invoke-skill:probe");
 		expect(criteria[0]?.question).toContain("probe");
 		expect(criteria[0]?.question).toContain("Naming the skill");
+		expect(criteria[0]?.question).toContain("confirmatory SKILL.md read");
 	});
 });

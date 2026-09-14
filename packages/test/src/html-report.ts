@@ -14,7 +14,7 @@ import {
 	type ScenarioCompareDelta,
 	type SuiteCompareReport,
 } from "./compare.js";
-import { formatTokenCount, summarizeReports } from "./suite-summary.js";
+import { summarizeReports } from "./suite-summary.js";
 import type { ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
 
 export interface HtmlReportMeta {
@@ -40,11 +40,21 @@ function escapeHtml(value: string): string {
 		.replaceAll("'", "&#39;");
 }
 
+const INTEGER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const DECIMAL_FORMAT = new Intl.NumberFormat("en-US", {
+	minimumFractionDigits: 1,
+	maximumFractionDigits: 1,
+});
+
+function formatInteger(value: number): string {
+	return INTEGER_FORMAT.format(Math.round(value));
+}
+
 function formatDuration(ms: number): string {
 	if (ms < 1000) {
-		return `${Math.round(ms)}ms`;
+		return `${formatInteger(ms)}ms`;
 	}
-	return `${(ms / 1000).toFixed(1)}s`;
+	return `${DECIMAL_FORMAT.format(ms / 1000)}s`;
 }
 
 function statusLabel(result: ScenarioResult): string {
@@ -232,8 +242,28 @@ function buildOrderedTimeline(trace: AgentTrace): TimelineItem[] | undefined {
 	return items.sort((a, b) => a.seq - b.seq);
 }
 
-function renderChat(trace: AgentTrace | undefined): string {
+function promptAlreadyInTrace(trace: AgentTrace | undefined, prompt: string): boolean {
+	return (
+		trace?.messages.some(
+			(message) => message.role === "user" && message.content.trim() === prompt,
+		) ?? false
+	);
+}
+
+function renderPromptBubble(prompt: string | undefined, trace: AgentTrace | undefined): string {
+	const text = prompt?.trim();
+	if (!text || promptAlreadyInTrace(trace, text)) {
+		return "";
+	}
+	return renderMessageBubble({ role: "user", content: text });
+}
+
+function renderChat(trace: AgentTrace | undefined, prompt?: string): string {
+	const promptBubble = renderPromptBubble(prompt, trace);
 	if (!trace) {
+		if (promptBubble) {
+			return `<div class="chat">${promptBubble}</div>`;
+		}
 		return `<p class="empty">No transcript recorded for this scenario.</p>`;
 	}
 
@@ -242,18 +272,26 @@ function renderChat(trace: AgentTrace | undefined): string {
 
 	if (timeline) {
 		parts.push(`<div class="chat">`);
+		if (promptBubble) {
+			parts.push(promptBubble);
+		}
 		for (const item of timeline) {
 			parts.push(
 				item.kind === "message" ? renderMessageBubble(item.message) : renderToolCallCard(item.call),
 			);
 		}
 		parts.push(`</div>`);
-	} else if (trace.messages.length > 0 || trace.toolCalls.length > 0) {
-		parts.push(
-			`<p class="empty note">Emission order wasn't recorded for this trace — messages and tool calls are shown in separate groups below.</p>`,
-		);
-		if (trace.messages.length > 0) {
+	} else if (trace.messages.length > 0 || trace.toolCalls.length > 0 || promptBubble) {
+		if (!timeline && (trace.messages.length > 0 || trace.toolCalls.length > 0)) {
+			parts.push(
+				`<p class="empty note">Emission order wasn't recorded for this trace — messages and tool calls are shown in separate groups below.</p>`,
+			);
+		}
+		if (promptBubble || trace.messages.length > 0) {
 			parts.push(`<div class="chat">`);
+			if (promptBubble) {
+				parts.push(promptBubble);
+			}
 			for (const message of trace.messages) {
 				parts.push(renderMessageBubble(message));
 			}
@@ -336,14 +374,14 @@ function formatTokensBadge(result: ScenarioResult): string | undefined {
 		return undefined;
 	}
 	if (typeof usage.totalTokens === "number") {
-		return `${formatTokenCount(usage.totalTokens)} tokens`;
+		return `${formatInteger(usage.totalTokens)} tokens`;
 	}
 	const parts: string[] = [];
 	if (typeof usage.inputTokens === "number") {
-		parts.push(`in ${usage.inputTokens}`);
+		parts.push(`in ${formatInteger(usage.inputTokens)}`);
 	}
 	if (typeof usage.outputTokens === "number") {
-		parts.push(`out ${usage.outputTokens}`);
+		parts.push(`out ${formatInteger(usage.outputTokens)}`);
 	}
 	return parts.length > 0 ? parts.join(" · ") : undefined;
 }
@@ -367,7 +405,7 @@ function renderUsageDetail(usage: AgentUsage | undefined): string {
 	const items = present
 		.map(
 			([label, value]) =>
-				`<div class="meta-item"><span class="meta-key">${escapeHtml(label)}</span><span class="meta-val">${value}</span></div>`,
+				`<div class="meta-item"><span class="meta-key">${escapeHtml(label)}</span><span class="meta-val">${formatInteger(value ?? 0)}</span></div>`,
 		)
 		.join("");
 	return `<section class="scenario-meta"><h3>Token usage</h3><div class="meta-grid">${items}</div></section>`;
@@ -380,13 +418,13 @@ function renderTraceMeta(result: ScenarioResult): string {
 	}
 	const skills = trace.skillsInvoked?.length ? trace.skillsInvoked.join(", ") : "(none)";
 	const items: Array<[string, string]> = [
-		["Messages", String(trace.messages.length)],
-		["Tool calls", String(trace.toolCalls.length)],
+		["Messages", formatInteger(trace.messages.length)],
+		["Tool calls", formatInteger(trace.toolCalls.length)],
 		["Skills invoked", skills],
 		["Routing tier", trace.routing?.tier ?? "(none)"],
 	];
 	if (result.attempts !== undefined && result.attempts > 1) {
-		items.push(["Attempts", String(result.attempts)]);
+		items.push(["Attempts", formatInteger(result.attempts)]);
 	}
 	const html = items
 		.map(
@@ -405,26 +443,26 @@ function renderCostSection(usage: UsageStats | undefined): string {
 	if (!usage || usage.sumTotalTokens === undefined) {
 		return "";
 	}
-	const items = [costItem("Total", "Cost of this run", formatTokenCount(usage.sumTotalTokens))];
+	const items = [costItem("Total", "Cost of this run", formatInteger(usage.sumTotalTokens))];
 	if (usage.sumInputTokens !== undefined) {
 		items.push(
-			costItem("In", "Prompt and context the host sent", formatTokenCount(usage.sumInputTokens)),
+			costItem("In", "Prompt and context the host sent", formatInteger(usage.sumInputTokens)),
 		);
 	}
 	if (usage.sumOutputTokens !== undefined) {
-		items.push(costItem("Out", "Text the agent wrote", formatTokenCount(usage.sumOutputTokens)));
+		items.push(costItem("Out", "Text the agent wrote", formatInteger(usage.sumOutputTokens)));
 	}
 	if (usage.scenariosWithUsage > 1 && usage.p50TotalTokens !== undefined) {
 		items.push(
 			costItem(
 				"Typical",
 				"Middle scenario. Half cost less than this.",
-				formatTokenCount(usage.p50TotalTokens),
+				formatInteger(usage.p50TotalTokens),
 			),
 		);
 	}
 	if (usage.scenariosWithUsage > 1 && usage.maxTotalTokens !== undefined) {
-		items.push(costItem("Largest", "Heaviest scenario", formatTokenCount(usage.maxTotalTokens)));
+		items.push(costItem("Largest", "Heaviest scenario", formatInteger(usage.maxTotalTokens)));
 	}
 	return `<section class="cost" aria-labelledby="cost-heading">
   <h2 id="cost-heading">Token cost</h2>
@@ -438,9 +476,12 @@ function formatSigned(value: number | undefined): string {
 		return "n/a";
 	}
 	if (value > 0) {
-		return `+${value}`;
+		return `+${formatInteger(value)}`;
 	}
-	return String(value);
+	if (value < 0) {
+		return `-${formatInteger(Math.abs(value))}`;
+	}
+	return formatInteger(value);
 }
 
 function passCell(passed: boolean, skipped?: boolean): string {
@@ -506,7 +547,7 @@ export function renderCompareHtmlSection(report: SuiteCompareReport): string {
 <section class="compare">
   <header class="compare-header">
     <h2>A/B compare</h2>
-    <p class="muted">${escapeHtml(report.aLabel)} → ${escapeHtml(report.bLabel)} · ${report.summary.pairedCount} paired · regressions ${report.summary.passRegressions} · improvements ${report.summary.passImprovements}</p>
+    <p class="muted">${escapeHtml(report.aLabel)} → ${escapeHtml(report.bLabel)} · ${formatInteger(report.summary.pairedCount)} paired · regressions ${formatInteger(report.summary.passRegressions)} · improvements ${formatInteger(report.summary.passImprovements)}</p>
   </header>
   <div class="compare-summary meta-grid">
     <div class="meta-item"><span class="meta-key">Mean Δ durationMs</span><span class="meta-val">${escapeHtml(formatSigned(report.summary.meanDurationDeltaMs !== undefined ? Math.round(report.summary.meanDurationDeltaMs) : undefined))}</span></div>
@@ -559,9 +600,9 @@ export function renderCompareHtmlReport(
   </header>
   <div class="summary">
     <div class="stats">
-      <span class="stat"><strong>${report.summary.pairedCount}</strong> paired</span>
-      <span class="stat stat-fail"><strong>${report.summary.passRegressions}</strong> regressions</span>
-      <span class="stat stat-pass"><strong>${report.summary.passImprovements}</strong> improvements</span>
+      <span class="stat"><strong>${formatInteger(report.summary.pairedCount)}</strong> paired</span>
+      <span class="stat stat-fail"><strong>${formatInteger(report.summary.passRegressions)}</strong> regressions</span>
+      <span class="stat stat-pass"><strong>${formatInteger(report.summary.passImprovements)}</strong> improvements</span>
     </div>
     <dl>
       <dt>Generated</dt><dd>${escapeHtml(generatedAt.toISOString())}</dd>
@@ -590,9 +631,8 @@ function renderStory(result: ScenarioResult): string {
 		return "";
 	}
 	return `<div class="story">
-    ${renderStoryList("Tested", story.tested)}
-    ${renderStoryList("Happened", story.happened)}
-    ${renderStoryList("Outcome", story.outcome)}
+    ${renderStoryList("Criteria", story.criteria)}
+    ${renderStoryList("Result", [...story.result, ...story.verdict])}
   </div>`;
 }
 
@@ -629,7 +669,7 @@ function renderScenario(result: ScenarioResult): string {
   ${metaRow}
   <section class="conversation">
     <h3>Conversation</h3>
-    ${renderChat(result.trace)}
+    ${renderChat(result.trace, result.prompt)}
   </section>
   </div>
 </details>`;
@@ -644,7 +684,7 @@ function renderSuite(report: SuiteRunReport): string {
       <h2>${escapeHtml(report.suite)}</h2>
       <span class="host">${escapeHtml(report.host)}</span>
     </div>
-    <p class="suite-counts"><span>${report.passed} passed</span><span>${report.failed} failed</span><span>${report.skipped} skipped</span></p>
+    <p class="suite-counts"><span>${formatInteger(report.passed)} passed</span><span>${formatInteger(report.failed)} failed</span><span>${formatInteger(report.skipped)} skipped</span></p>
   </header>
   ${scenarios}
 </section>`;
@@ -730,7 +770,7 @@ function sharedReportCss(): string {
     .stat-pass strong { color: var(--pass); }
     .stat-fail strong { color: var(--fail); }
     .stat-skip strong { color: var(--skip); }
-    .guide summary { cursor: pointer; font-weight: 650; }
+    .guide h2 { font-size: 0.95rem; }
     .guide ol { margin: 0.65rem 0 0; padding-inline-start: 1.2rem; display: grid; gap: 0.35rem; color: var(--muted); font-size: 0.88rem; }
     .cost-lede { color: var(--muted); font-size: 0.85rem; }
     .cost-item { display: grid; gap: 0.15rem; }
@@ -951,25 +991,25 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
   <header class="report-header">
     <p class="brand">agent-test</p>
     <h1>Run report</h1>
-    <p class="lede">${escapeHtml(String(host))} · ${reports.length} ${suiteWord}${meta.suitesDir ? ` · ${escapeHtml(meta.suitesDir)}` : ""}</p>
+    <p class="lede">${escapeHtml(String(host))} · ${formatInteger(reports.length)} ${suiteWord}${meta.suitesDir ? ` · ${escapeHtml(meta.suitesDir)}` : ""}</p>
   </header>
   <section class="summary" aria-label="Run verdict">
     <div class="stats">
-      <span class="stat stat-pass"><strong>${totalPassed}</strong><span>passed</span></span>
-      <span class="stat stat-fail"><strong>${totalFailed}</strong><span>failed</span></span>
-      <span class="stat stat-skip"><strong>${totalSkipped}</strong><span>skipped</span></span>
+      <span class="stat stat-pass"><strong>${formatInteger(totalPassed)}</strong><span>passed</span></span>
+      <span class="stat stat-fail"><strong>${formatInteger(totalFailed)}</strong><span>failed</span></span>
+      <span class="stat stat-skip"><strong>${formatInteger(totalSkipped)}</strong><span>skipped</span></span>
     </div>
     <p class="when">Generated ${escapeHtml(generatedAt.toISOString())}</p>
   </section>
-  <details class="guide">
-    <summary>How to read this report</summary>
+  <section class="guide" aria-labelledby="guide-heading">
+    <h2 id="guide-heading">How to read this report</h2>
     <ol>
       <li>The verdict is pass or fail. Tokens are cost, not the score.</li>
-      <li>Open a scenario for what we tested, what the agent did, and the outcome.</li>
+      <li>Open a scenario for the criteria and the result.</li>
       <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
       <li>In is prompt and context. Out is generated text.</li>
     </ol>
-  </details>
+  </section>
   ${renderCostSection(runUsage)}
   ${compareSection}
   ${suitesHtml}

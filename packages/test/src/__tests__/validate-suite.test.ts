@@ -103,6 +103,53 @@ describe("validate-suite", () => {
 		).toEqual([]);
 	});
 
+	it("rejects a workspace with parent segments", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "case",
+					prompt: "test",
+					workspace: "agent-suites/../packages",
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "workspace")).toBe(true);
+	});
+
+	it("rejects a non-boolean allowUserSkills value", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "case",
+					prompt: "test",
+					allowUserSkills: "yes" as unknown as boolean,
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "allowUserSkills")).toBe(true);
+	});
+
+	it("accepts a repo-relative workspace", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				defaults: { workspace: "." },
+				scenarios: [
+					{
+						name: "case",
+						prompt: "test",
+						workspace: "agent-suites/depth/workspaces/seed",
+						rubric: {},
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
 	it("rejects a bare catalog walk", () => {
 		const suite: AgentSuiteFile = {
 			name: "bad",

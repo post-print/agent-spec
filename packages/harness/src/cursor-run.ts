@@ -15,6 +15,7 @@ import {
 	withRunTimeout,
 } from "./run-guards.js";
 import type { AgentTrace, AgentUsage, LiveAgentEvent } from "./types.js";
+import { cursorSettingSources } from "./user-skills.js";
 
 /** Minimal Cursor SDK run surface for cancel + wait cleanup. */
 interface CancellableSdkRun {
@@ -111,6 +112,8 @@ export interface CursorRunOptions {
 	onDeadlineStart?: () => void | Promise<void>;
 	/** Fires as the SDK streams assistant text and tool calls. */
 	onAgentEvent?: (event: LiveAgentEvent) => void;
+	/** Load `~/.cursor` user skills and settings. Default false. */
+	allowUserSkills?: boolean;
 }
 
 export interface JudgeClassifierOptions {
@@ -233,7 +236,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 			model: { id: modelId },
 			local: {
 				cwd: options.cwd,
-				settingSources: ["project"] as Array<"project" | "user" | "plugins">,
+				settingSources: cursorSettingSources(options.allowUserSkills === true),
 			},
 			...(mcpServers ? { mcpServers } : {}),
 			...(authMode === "api-key" && apiKey ? { apiKey } : {}),

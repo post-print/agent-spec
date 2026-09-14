@@ -2,7 +2,19 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import chalk from "chalk";
 
-const RATIONALE_WRAP_COLS = 72;
+import type { ScenarioStory } from "./types.js";
+
+const FALLBACK_COLUMNS = 80;
+const MIN_WRAP_COLS = 40;
+const STORY_GUTTER = "    ";
+const STORY_LABEL_WIDTH = 12;
+const STORY_INDENT = STORY_GUTTER.length + STORY_LABEL_WIDTH;
+
+/** Word-wrap width for a line that already has `indent` visible columns. */
+export function wrapColumnWidth(indent: number, columns = process.stdout.columns): number {
+	const cols = typeof columns === "number" && columns > 0 ? columns : FALLBACK_COLUMNS;
+	return Math.max(MIN_WRAP_COLS, cols - indent);
+}
 
 /** OSC 8 hyperlink: ESC ] 8 ; ; URL BEL text ESC ] 8 ; ; BEL */
 const OSC8_OPEN = "\u001b]8;;";
@@ -47,7 +59,7 @@ export function truncatePath(path: string): string {
 }
 
 /** Word-wrap text at `cols` without breaking words when possible. */
-export function wrapText(text: string, cols = RATIONALE_WRAP_COLS): string[] {
+export function wrapText(text: string, cols = wrapColumnWidth(0)): string[] {
 	const words = text.trim().split(/\s+/).filter(Boolean);
 	if (words.length === 0) {
 		return [];
@@ -93,12 +105,8 @@ export interface ScenarioVerdictOptions {
 	rubricFailures?: RubricFailureDisplay[];
 	/** Primary failure category for the FAIL line. */
 	failureCategory?: string;
-	/** Tested / happened / outcome lines. */
-	story?: {
-		tested: string[];
-		happened: string[];
-		outcome: string[];
-	};
+	/** Criteria and result lines. */
+	story?: ScenarioStory;
 	/** Show evidence and full failure detail (--debug / AGENT_TEST_VERBOSE). */
 	debug?: boolean;
 	debugBundleDir?: string;
@@ -202,7 +210,7 @@ export const theme = {
 	},
 
 	scenarioTitle(index: number, total: number, name: string, host: string): string {
-		return `${chalk.bold(`[${index}/${total}]`)} ${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}`;
+		return `\n${chalk.bold(`[${index}/${total}]`)} ${chalk.bold.white(name)}  ${chalk.dim(`(${host})`)}`;
 	},
 
 	scenarioLabel(name: string, host?: string): string {
@@ -210,12 +218,12 @@ export const theme = {
 	},
 
 	phaseTree(_prefix: "├─" | "└─" | "│   ", message: string): string {
-		return `  ${message}`;
+		return `    ${message}`;
 	},
 
 	hostLog(level: string, service: string, detail: string): string {
 		const levelColor = level === "error" ? chalk.red : level === "warn" ? chalk.yellow : chalk.dim;
-		return `  ${chalk.dim("host")}  ${levelColor(level.toUpperCase())}  ${chalk.dim(service)}  ${chalk.dim(detail)}`;
+		return `    ${chalk.dim("host")}  ${levelColor(level.toUpperCase())}  ${chalk.dim(service)}  ${chalk.dim(detail)}`;
 	},
 
 	path(p: string): string {
@@ -285,15 +293,15 @@ export const theme = {
 	},
 
 	bannerDetail(message: string): string {
-		return `  ${chalk.dim(message)}`;
+		return `    ${chalk.dim(message)}`;
 	},
 
 	bannerSession(path: string): string {
-		return `  ${chalk.dim("session")}  ${chalk.cyan(truncatePath(path))}`;
+		return `    ${chalk.dim("session")}  ${chalk.cyan(truncatePath(path))}`;
 	},
 
 	bannerHints(hints: string[]): string {
-		return `  ${chalk.dim(hints.join("  ·  "))}`;
+		return `    ${chalk.dim(hints.join("  ·  "))}`;
 	},
 
 	runSummary(text: string): string {
@@ -318,7 +326,7 @@ export const theme = {
 	},
 
 	failedScenarioName(name: string): string {
-		return `  ${chalk.red("✗")} ${name}`;
+		return `    ${chalk.red("✗")} ${name}`;
 	},
 
 	verboseFailure(matcher: string, message: string, evidence?: string, category?: string): string {
@@ -358,48 +366,62 @@ export const theme = {
 			? formatFailureCategory(options.failureCategory)
 			: undefined;
 		const category = primaryCategory ? `${chalk.yellow(primaryCategory)}  ` : "";
-		const lines: string[] = ["", `  ${mark} ${status}  ${category}${duration}${tokens}`];
+		const lines: string[] = ["", `    ${mark} ${status}  ${category}${duration}${tokens}`, ""];
 
 		if (options.story) {
-			lines.push(...storyLines("tested", options.story.tested));
-			lines.push(...storyLines("happened", options.story.happened));
-			lines.push(
-				...storyLines(
-					"outcome",
-					visibleOutcome(options.story.outcome, options.passed),
-					options.passed,
-				),
-			);
+			const criteria = storyLines("criteria", options.story.criteria);
+			const result = storyLines("result", options.story.result);
+			const verdict = storyLines("result", options.story.verdict, options.passed, {
+				continueLabel: result.length > 0,
+			});
+			lines.push(...criteria);
+			if (criteria.length > 0 && (result.length > 0 || verdict.length > 0)) {
+				lines.push("");
+			}
+			lines.push(...result);
+			if (result.length > 0 && verdict.length > 0) {
+				lines.push("");
+			}
+			lines.push(...verdict);
+			lines.push("");
 			if (options.debug) {
+				const evidenceCols = wrapColumnWidth(STORY_INDENT);
 				for (const failure of options.rubricFailures ?? []) {
 					if (!failure.evidence) {
 						continue;
 					}
-					for (const wrapped of wrapText(failure.evidence)) {
-						lines.push(`             ${chalk.dim(wrapped)}`);
+					for (const wrapped of wrapText(failure.evidence, evidenceCols)) {
+						lines.push(`${STORY_GUTTER}${" ".repeat(STORY_LABEL_WIDTH)}${chalk.dim(wrapped)}`);
 					}
 				}
 			}
 		} else {
+			const bodyCols = wrapColumnWidth(STORY_INDENT);
 			for (const verdict of options.judgeVerdicts ?? []) {
 				const color = verdict.pass ? chalk.green : chalk.red;
-				lines.push(`    ${chalk.dim("judge")}    ${chalk.dim(verdict.question)}`);
-				for (const wrapped of wrapText(verdict.rationale)) {
-					lines.push(`             ${color(wrapped)}`);
+				lines.push(
+					`${STORY_GUTTER}${chalk.dim("judge".padEnd(STORY_LABEL_WIDTH))}${chalk.dim(verdict.question)}`,
+				);
+				for (const wrapped of wrapText(verdict.rationale, bodyCols)) {
+					lines.push(`${STORY_GUTTER}${" ".repeat(STORY_LABEL_WIDTH)}${color(wrapped)}`);
 				}
+				lines.push("");
 			}
 
 			for (const failure of options.rubricFailures ?? []) {
-				const failureCategory = chalk.yellow(formatFailureCategory(failure.category) ?? "rubric");
-				lines.push(`    ${failureCategory}    ${chalk.dim(failure.matcher)}`);
-				for (const wrapped of wrapText(failure.message)) {
-					lines.push(`             ${chalk.yellow(wrapped)}`);
+				const categoryLabel = formatFailureCategory(failure.category) ?? "rubric";
+				lines.push(
+					`${STORY_GUTTER}${chalk.yellow(categoryLabel.padEnd(STORY_LABEL_WIDTH))}${chalk.dim(failure.matcher)}`,
+				);
+				for (const wrapped of wrapText(failure.message, bodyCols)) {
+					lines.push(`${STORY_GUTTER}${" ".repeat(STORY_LABEL_WIDTH)}${chalk.yellow(wrapped)}`);
 				}
 				if (options.debug && failure.evidence) {
-					for (const wrapped of wrapText(failure.evidence)) {
-						lines.push(`             ${chalk.dim(wrapped)}`);
+					for (const wrapped of wrapText(failure.evidence, bodyCols)) {
+						lines.push(`${STORY_GUTTER}${" ".repeat(STORY_LABEL_WIDTH)}${chalk.dim(wrapped)}`);
 					}
 				}
+				lines.push("");
 			}
 		}
 
@@ -413,34 +435,33 @@ export const theme = {
 	},
 };
 
-function visibleOutcome(values: string[], passed: boolean): string[] {
-	if (!passed) {
-		return values;
-	}
-	return values.filter((value) => value !== "all checks passed" && value !== "skipped");
-}
-
 function storyLines(
-	label: "tested" | "happened" | "outcome",
+	label: "criteria" | "result",
 	values: string[],
 	passed?: boolean,
+	options?: { continueLabel?: boolean },
 ): string[] {
 	if (values.length === 0) {
 		return [];
 	}
 	const lines: string[] = [];
+	const hang = " ".repeat(STORY_LABEL_WIDTH);
+	const cols = wrapColumnWidth(STORY_INDENT);
+	const continueLabel = options?.continueLabel === true;
 	for (const [index, value] of values.entries()) {
-		const wrapped = wrapText(value);
+		if (index > 0 && passed !== undefined) {
+			lines.push("");
+		}
+		const wrapped = wrapText(value, cols);
 		const body = wrapped.length > 0 ? wrapped : [value];
 		for (const [wrapIndex, part] of body.entries()) {
-			const prefix = index === 0 && wrapIndex === 0 ? chalk.dim(label.padEnd(10)) : "          ";
+			const prefix =
+				index === 0 && wrapIndex === 0 && !continueLabel
+					? chalk.dim(label.padEnd(STORY_LABEL_WIDTH))
+					: hang;
 			const color =
-				label === "outcome" && passed === false
-					? chalk.yellow
-					: label === "outcome" && passed === true
-						? chalk.green
-						: (text: string) => text;
-			lines.push(`    ${prefix}${color(part)}`);
+				passed === false ? chalk.yellow : passed === true ? chalk.green : (text: string) => text;
+			lines.push(`${STORY_GUTTER}${prefix}${color(part)}`);
 		}
 	}
 	return lines;

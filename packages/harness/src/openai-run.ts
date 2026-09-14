@@ -23,6 +23,7 @@ import {
 	withRunTimeout,
 } from "./run-guards.js";
 import type { AgentTrace, LiveAgentEvent } from "./types.js";
+import { openaiUserConfigArgs } from "./user-skills.js";
 
 export type OpenaiAuthMode = HostAuthMode;
 
@@ -58,6 +59,8 @@ export interface OpenaiRunOptions {
 	sandbox?: "workspace-write" | "read-only";
 	/** Inline MCP servers for this `codex exec` via `-c mcp_servers.<name>=…`. */
 	mcpServers?: Record<string, McpServerConfig>;
+	/** Load `~/.codex` user config and skills. Default false. */
+	allowUserSkills?: boolean;
 }
 
 export interface OpenaiRunResult {
@@ -249,6 +252,7 @@ export function buildOpenaiExecArgs(options: {
 	model?: string;
 	sandbox?: "workspace-write" | "read-only";
 	mcpServers?: Record<string, McpServerConfig>;
+	allowUserSkills?: boolean;
 }): string[] {
 	const sandbox = options.sandbox ?? "workspace-write";
 	const args = [
@@ -258,9 +262,9 @@ export function buildOpenaiExecArgs(options: {
 		sandbox,
 		"--cd",
 		options.cwd,
-		// Do not load ~/.codex/config.toml. Auth still uses CODEX_HOME.
+		// Deny keeps ~/.codex/config.toml out. Auth still uses CODEX_HOME.
 		// A user model pin (for example gpt-5.6-luna) can fail older Codex CLIs.
-		"--ignore-user-config",
+		...openaiUserConfigArgs(options.allowUserSkills === true),
 		// Headless default is never. Set it explicitly so a leftover config
 		// cannot prompt, and so we do not need --approve-for-me (Codex >= 0.147).
 		"-c",
@@ -371,6 +375,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		model: options.model,
 		sandbox: options.sandbox,
 		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
+		allowUserSkills: options.allowUserSkills === true,
 	});
 
 	const execute = async (): Promise<OpenaiRunResult> => {

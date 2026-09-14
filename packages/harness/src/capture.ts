@@ -63,11 +63,12 @@ export function extractShellCommandsFromToolCalls(toolCalls: AgentToolCall[]): s
 			if (typeof raw !== "string") {
 				continue;
 			}
+			const trimmed = raw.trim();
+			if (trimmed.length > 0) {
+				commands.add(trimmed);
+			}
 			for (const cmd of extractShellCommands(raw)) {
 				commands.add(cmd);
-			}
-			if (raw.includes("validate:changed") || raw.startsWith("bun run")) {
-				commands.add(raw.trim());
 			}
 		}
 	}

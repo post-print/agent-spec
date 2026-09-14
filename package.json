@@ -18,6 +18,7 @@
 		"test:tools": "node packages/test/dist/cli.js --suites-dir agent-suites --suite tools --host cursor --fail-on=behavior",
 		"test:mcp": "node packages/test/dist/cli.js --suites-dir agent-suites --suite mcp --host cursor --fail-on=behavior",
 		"test:judge": "node packages/test/dist/cli.js --suites-dir agent-suites --suite judge --host cursor --fail-on=behavior",
+		"test:depth": "node packages/test/dist/cli.js --suites-dir agent-suites --suite depth --host cursor --fail-on=behavior",
 		"test:unit": "bun run --filter '*' test",
 		"test:sandbox-safe": "bun run --filter '*' test:sandbox-safe",
 		"test:coverage": "bun run --filter '*' test:coverage",

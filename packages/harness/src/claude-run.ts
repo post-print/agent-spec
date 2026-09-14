@@ -23,6 +23,7 @@ import {
 	withRunTimeout,
 } from "./run-guards.js";
 import type { AgentTrace, LiveAgentEvent } from "./types.js";
+import { claudeSessionFlags } from "./user-skills.js";
 
 const DEFAULT_ALLOWED_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,Agent";
 
@@ -46,6 +47,8 @@ export interface ClaudeRunOptions {
 	allowedTools?: string;
 	/** Auth mode; when omitted it is read from CLAUDE_AUTH_MODE (which is required). */
 	authMode?: ClaudeAuthMode;
+	/** Load `~/.claude` user skills and settings. Default false. */
+	allowUserSkills?: boolean;
 }
 
 export interface ClaudeRunResult {
@@ -292,11 +295,12 @@ function buildClaudeArgs(options: {
 	allowedTools: string;
 	mcpConfigPath?: string;
 	authMode: ClaudeAuthMode;
+	allowUserSkills?: boolean;
 }): string[] {
 	const args = [
 		"-p",
 		options.prompt,
-		...(options.authMode === "api-key" ? ["--bare"] : ["--strict-mcp-config"]),
+		...claudeSessionFlags(options.authMode, options.allowUserSkills === true),
 		"--output-format",
 		"stream-json",
 		"--verbose",
@@ -418,6 +422,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			allowedTools,
 			mcpConfigPath: mcpConfig?.path,
 			authMode,
+			allowUserSkills: options.allowUserSkills === true,
 		});
 
 		const execute = async (): Promise<ClaudeRunResult> => {

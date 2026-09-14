@@ -5,19 +5,22 @@
 	"defaults": {
 		"host": "cursor",
 		"profile": "cursor",
-		"skills": "none"
+		"skills": "none",
+		"allowUserSkills": false
 	},
 	"scenarios": [
 		{
 			"name": "reads a fixture file",
-			"prompt": "Read agent-suites/tools/fixtures/needle.txt. Reply with the exact file contents. Do not use extra tools after the read.",
+			"workspace": "agent-suites/tools/workspaces/read",
+			"prompt": "Read needle.txt. Reply with the exact file contents. Do not use extra tools after the read.",
 			"rubric": {
-				"mustReadPath": ["agent-suites/tools/fixtures/needle.txt"],
+				"mustReadPath": ["needle.txt"],
 				"must": ["agent-test-tool-needle-7f3a"]
 			}
 		},
 		{
 			"name": "writes a marker file",
+			"workspace": "agent-suites/tools/workspaces/write",
 			"prompt": "Create agent-test-write-out.txt at the workspace root. The file must contain exactly one line: agent-test-write-ok-9c2e. Then stop.",
 			"rubric": {
 				"mustCallTool": ["Write"],

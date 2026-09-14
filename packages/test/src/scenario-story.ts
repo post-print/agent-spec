@@ -175,6 +175,12 @@ export function describeOutcome(options: {
 	return options.failures.map(describeFailure);
 }
 
+const REDUNDANT_VERDICT = new Set(["all checks passed", "skipped"]);
+
+function storyVerdict(happened: string[], outcome: string[]): string[] {
+	return outcome.filter((line) => !REDUNDANT_VERDICT.has(line) && !happened.includes(line));
+}
+
 export function buildScenarioStory(options: {
 	rubric?: ScenarioRubric;
 	trace?: AgentTrace;
@@ -183,9 +189,10 @@ export function buildScenarioStory(options: {
 	failures: AssertionFailure[];
 	judgeVerdicts?: JudgeVerdictResult[];
 }): ScenarioStory {
+	const result = options.skipped ? ["scenario skipped"] : describeTraceHappened(options.trace);
 	return {
-		tested: describeRubricChecks(options.rubric),
-		happened: options.skipped ? ["scenario skipped"] : describeTraceHappened(options.trace),
-		outcome: describeOutcome(options),
+		criteria: describeRubricChecks(options.rubric),
+		result,
+		verdict: storyVerdict(result, describeOutcome(options)),
 	};
 }

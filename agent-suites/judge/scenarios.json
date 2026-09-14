@@ -5,11 +5,13 @@
 	"defaults": {
 		"host": "cursor",
 		"profile": "cursor",
-		"skills": "none"
+		"skills": "none",
+		"allowUserSkills": false
 	},
 	"scenarios": [
 		{
 			"name": "judge accepts an exact reply",
+			"workspace": "agent-suites/judge/workspaces/exact-reply",
 			"prompt": "Reply with the text judge ok and nothing else. Do not use tools.",
 			"rubric": {
 				"must": ["judge ok"],
@@ -18,6 +20,41 @@
 					{
 						"id": "exact-reply",
 						"question": "Did the agent reply with judge ok, allowing a trailing period, and avoid tools?"
+					}
+				]
+			}
+		},
+		{
+			"name": "summarizes without invention",
+			"workspace": "agent-suites/judge/workspaces/no-invention",
+			"prompt": "Read note.md. Write one sentence on the confirmed facts only. Do not use rumor lines.",
+			"rubric": {
+				"mustReadPath": ["note.md"],
+				"must": ["agent-test-judge-fact-2e7b"],
+				"mustNot": ["agent-test-judge-rumor-9aa1"],
+				"judge": [
+					{
+						"id": "no-invention",
+						"question": "Did the summary use only confirmed facts from the note, with no invented or rumor claims?"
+					}
+				]
+			}
+		},
+		{
+			"name": "resolves a vague prompt from the note",
+			"workspace": "agent-suites/judge/workspaces/disambiguate",
+			"prompt": "What should we ship? Reply in one sentence.",
+			"rubric": {
+				"mustReadPath": ["note.md"],
+				"must": ["agent-test-judge-lite-c4f0"],
+				"judge": [
+					{
+						"id": "chose-note-option",
+						"question": "Did the agent recommend the option the note chose, not the rejected option and not a third invented plan?"
+					},
+					{
+						"id": "used-note-reason",
+						"question": "Did the agent use the note’s reason, not an invented reason?"
 					}
 				]
 			}

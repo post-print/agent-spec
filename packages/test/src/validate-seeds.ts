@@ -1,10 +1,11 @@
 import { resolve } from "node:path";
 
-import { createScenarioWorktree } from "@post-print/agent-harness";
+import { createScenarioWorktree, createSealedWorkspace } from "@post-print/agent-harness";
 
 import { discoverSuites } from "./discover-suites.js";
 import { loadSuiteFile } from "./load-suite.js";
 import { seedScenarioWorktree } from "./scenario-seed.js";
+import { resolveScenarioWorkspaceRel } from "./validate-suite.js";
 
 export interface SeedValidationIssue {
 	suite: string;
@@ -49,6 +50,7 @@ export async function validateSeedPatches(options: {
 			try {
 				await validateOneSeed(options.cwd, suite.name, scenario.name, scenario.seedPatch, {
 					stageOnly: scenario.seedStageOnly,
+					workspace: resolveScenarioWorkspaceRel(suite, scenario),
 				});
 			} catch (error) {
 				issues.push({
@@ -69,20 +71,32 @@ async function validateOneSeed(
 	suiteName: string,
 	scenarioName: string,
 	seedPatch: string,
-	options: { stageOnly?: boolean },
+	options: { stageOnly?: boolean; workspace?: string },
 ): Promise<void> {
-	let worktreeHandle: Awaited<ReturnType<typeof createScenarioWorktree>> | undefined;
+	let cleanup: (() => Promise<void>) | undefined;
+	let applyPath: string;
 	try {
-		worktreeHandle = await createScenarioWorktree(
-			repoRoot,
-			`seed-validate-${suiteName}-${scenarioName}`,
-		);
-		await seedScenarioWorktree(repoRoot, worktreeHandle.path, seedPatch, {
+		if (options.workspace) {
+			const sealed = await createSealedWorkspace({
+				callerCwd: repoRoot,
+				workspace: options.workspace,
+			});
+			cleanup = sealed.cleanup;
+			applyPath = sealed.path;
+		} else {
+			const worktree = await createScenarioWorktree(
+				repoRoot,
+				`seed-validate-${suiteName}-${scenarioName}`,
+			);
+			cleanup = worktree.cleanup;
+			applyPath = worktree.path;
+		}
+		await seedScenarioWorktree(repoRoot, applyPath, seedPatch, {
 			stageOnly: options.stageOnly,
 		});
 	} finally {
-		if (worktreeHandle) {
-			await worktreeHandle.cleanup().catch(() => undefined);
+		if (cleanup) {
+			await cleanup().catch(() => undefined);
 		}
 	}
 }

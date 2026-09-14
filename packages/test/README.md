@@ -38,12 +38,13 @@ npx agent-test --suites-dir agent-suites --suite smoke
 npx agent-test --suites-dir agent-suites --suite tools
 npx agent-test --suites-dir agent-suites --suite mcp
 npx agent-test --suites-dir agent-suites --suite judge
+npx agent-test --suites-dir agent-suites --suite depth
 npx agent-test --check --suites-dir agent-suites
 ```
 
 In-repo suites list `hosts: ["cursor", "claude", "openai"]`. `npx agent-test --suites-dir agent-suites` and `bun run test` run every suite on each host. That is the consumer confidence gate. Pass `--host cursor` to pin one adapter.
 
-`smoke` is the short host proof. `tools` checks Read and Write. `mcp` checks echo invoke and a lookup read. `judge` starts a second host call that scores the reply. `bun run test:smoke` stays on Cursor.
+`smoke` is the short host proof. `tools` checks Read and Write. `mcp` checks echo invoke and a lookup read. `judge` starts a second host call that scores the reply. `depth` checks workspace roots, seed patches, injected context, mustRun, and skill invoke. `bun run test:smoke` stays on Cursor.
 
 `scenario.host` pins that scenario to one host. A matrix run skips it on the other hosts.
 
@@ -104,7 +105,11 @@ npx agent-test compare --a clean.suite-report.json --b changed.suite-report.json
 
 ## Isolation and diagnostics
 
-Each scenario copies HEAD plus caller context into a temp folder. The folder gets its own `.git`. The runner fails the scenario when tool paths leave that folder. A leftover caller-tree check still restores leaked caller edits.
+In-repo suites set `workspace` on every scenario. The runner copies that folder into a temp repo. Omit `workspace`, or set `"."`, to copy HEAD plus caller context instead. The folder gets its own `.git`. The runner fails the scenario when tool paths leave that folder. A leftover caller-tree check still restores leaked caller edits.
+
+Host-global user skills stay out of the run by default. Those trees live under `~/.cursor/skills`, `~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`. A custom `workspace` is a fixture. Keep `allowUserSkills` false for that case. Set `allowUserSkills` to true on the scenario or suite defaults when the test needs the machine skill set. The `skills` field only overlays repo-relative folders into the sealed workspace.
+
+`contextSources` and `skills` are relative to the workspace root when `workspace` is a subfolder. A bare `contextSources` name is a file in that root. `seedPatch` stays a caller-repo path. Its hunks are relative to that workspace.
 
 `--debug` retains an evidence bundle under `$TMPDIR/agent-spec/sessions/<id>/` by default. Use `--debug-dir` to override the parent directory.
 
@@ -116,7 +121,7 @@ A TTY run prints `agent started`, then updates an `agent` clock every 0.1s. Tool
 
 ## MCP servers
 
-Scenarios can attach inline stdio or HTTP/SSE MCP servers through suite defaults or scenario overrides. Ambient project/user MCP configuration is not loaded.
+Scenarios can attach inline stdio or HTTP/SSE MCP servers through suite defaults or scenario overrides. Ambient project/user MCP configuration is not loaded. When `workspace` is a subfolder, stdio MCP cwd is the caller repo. Script args stay caller-relative.
 
 ## In-repo package checks
 
@@ -128,4 +133,4 @@ node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --sui
 node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 ```
 
-Host-agent acceptance is `bun run test`. That command runs smoke, tools, mcp, and judge on Cursor, Claude, and Codex. `bun run test:smoke`, `bun run test:tools`, `bun run test:mcp`, and `bun run test:judge` stay on Cursor. A key-gated GitHub Actions job runs the same suites on Cursor when `CURSOR_API_KEY` is present.
+Host-agent acceptance is `bun run test`. That command runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. `bun run test:smoke`, `bun run test:tools`, `bun run test:mcp`, `bun run test:judge`, and `bun run test:depth` stay on Cursor. A key-gated GitHub Actions job runs the same suites on Cursor when `CURSOR_API_KEY` is present.

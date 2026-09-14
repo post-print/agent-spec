@@ -36,6 +36,18 @@ describe("capture", () => {
 		expect(cmds.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
 	});
 
+	it("keeps a raw node command for mustRun", () => {
+		const cmds = extractShellCommandsFromToolCalls([
+			{
+				name: "shell",
+				args: {
+					command: "node -e \"console.log('agent-test-depth-run-8b2c')\"",
+				},
+			},
+		]);
+		expect(cmds.some((cmd) => cmd.includes("agent-test-depth-run-8b2c"))).toBe(true);
+	});
+
 	it("extracts invoked skills from Read tool paths", () => {
 		const skills = extractSkillsInvokedFromToolCalls([
 			{

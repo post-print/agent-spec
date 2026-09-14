@@ -159,6 +159,30 @@ describe("runCursorAgent usage", () => {
 		jest.clearAllMocks();
 	});
 
+	it("adds the user setting source when user skills are allowed", async () => {
+		agentCreate.mockResolvedValue({
+			send: agentSend,
+			[Symbol.asyncDispose]: async () => {},
+		});
+		agentSend.mockResolvedValue({
+			stream: async function* () {},
+			wait: async () => ({ status: "finished", usage: { inputTokens: 1, outputTokens: 1 } }),
+		});
+		const { runCursorAgent } = await import("../cursor-run.js");
+		await runCursorAgent({
+			cwd: process.cwd(),
+			prompt: "test",
+			apiKey: "test-key",
+			allowUserSkills: true,
+		});
+		expect(agentCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				local: { cwd: process.cwd(), settingSources: ["project", "user"] },
+			}),
+		);
+		jest.clearAllMocks();
+	});
+
 	it("omits apiKey when CURSOR_AUTH_MODE=subscription", async () => {
 		agentCreate.mockResolvedValue({
 			send: agentSend,

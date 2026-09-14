@@ -74,26 +74,58 @@ function truncateJudgeText(text: string, max = JUDGE_TOOL_RESULT_MAX_CHARS): str
 	return `${text.slice(0, max)}…`;
 }
 
-function formatToolCallsForJudge(trace: AgentTrace): string {
-	if (trace.toolCalls.length === 0) {
-		return "";
-	}
-	const lines = ["Tool calls:"];
-	for (const [index, call] of trace.toolCalls.entries()) {
-		const args = JSON.stringify(call.args ?? {});
-		lines.push(`${index + 1}. ${call.name} ${truncateJudgeText(args, 2_000)}`);
-		if (call.result) {
-			lines.push(`   result: ${truncateJudgeText(call.result)}`);
-		}
+function formatOneToolCallForJudge(call: AgentTrace["toolCalls"][number], index: number): string {
+	const args = JSON.stringify(call.args ?? {});
+	const lines = [`${index + 1}. ${call.name} ${truncateJudgeText(args, 2_000)}`];
+	if (call.result) {
+		lines.push(`   result: ${truncateJudgeText(call.result)}`);
 	}
 	return lines.join("\n");
 }
 
+function formatToolCallsForJudge(trace: AgentTrace): string {
+	if (trace.toolCalls.length === 0) {
+		return "";
+	}
+	return [
+		"Tool calls:",
+		...trace.toolCalls.map((call, index) => formatOneToolCallForJudge(call, index)),
+	].join("\n");
+}
+
+function formatTraceChronologically(trace: AgentTrace): string {
+	const blocks: Array<{ seq: number; tie: number; text: string }> = [];
+	let tie = 0;
+	for (const message of trace.messages) {
+		blocks.push({
+			seq: message.seq ?? Number.MAX_SAFE_INTEGER,
+			tie: tie++,
+			text: `${message.role}:\n${message.content}`,
+		});
+	}
+	for (const [index, call] of trace.toolCalls.entries()) {
+		blocks.push({
+			seq: call.seq ?? Number.MAX_SAFE_INTEGER,
+			tie: tie++,
+			text: `Tool calls:\n${formatOneToolCallForJudge(call, index)}`,
+		});
+	}
+	blocks.sort((a, b) => a.seq - b.seq || a.tie - b.tie);
+	return blocks.map((block) => block.text).join("\n\n---\n\n");
+}
+
 /** Full live transcript for a judge, including tool names, args, and results. */
 export function formatTraceForJudge(trace: AgentTrace): string {
+	const hasSeq =
+		trace.messages.some((message) => message.seq !== undefined) ||
+		trace.toolCalls.some((call) => call.seq !== undefined);
+	const body = hasSeq
+		? formatTraceChronologically(trace)
+		: [...trace.messages.map((m) => `${m.role}:\n${m.content}`), formatToolCallsForJudge(trace)]
+				.filter(Boolean)
+				.join("\n\n---\n\n");
 	return [
-		...trace.messages.map((m) => `${m.role}:\n${m.content}`),
-		formatToolCallsForJudge(trace),
+		body,
 		trace.prBody ?? "",
 		trace.gitDiff ? `Git diff:\n${trace.gitDiff}` : "",
 		trace.shellCommands.length > 0 ? `Shell commands:\n${trace.shellCommands.join("\n")}` : "",
@@ -110,6 +142,8 @@ export function skillInvokeJudgeCriteria(skillNames: string[]): JudgeCriterion[]
 			`Did the agent actually follow the "${name}" skill?`,
 			"Use tool calls, file reads, and later actions as evidence.",
 			"Naming the skill or using similar words is not enough.",
+			"A host skill load counts as obtaining the skill body.",
+			"Do not fail only because a confirmatory SKILL.md read happens after the reply.",
 		].join(" "),
 	}));
 }

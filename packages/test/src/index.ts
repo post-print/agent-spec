@@ -1,5 +1,5 @@
 export type { HostAdapter } from "@post-print/agent-harness";
-export { registerHostAdapter } from "@post-print/agent-harness";
+export { registerHostAdapter, resolveAllowUserSkills } from "@post-print/agent-harness";
 export {
 	type CheckOptions,
 	type CheckReport,
@@ -142,6 +142,7 @@ export {
 } from "./validate-seeds.js";
 export {
 	formatValidationReport,
+	resolveScenarioWorkspaceRel,
 	type SuiteValidationReport,
 	validateSuiteFile,
 	validateSuitePaths,

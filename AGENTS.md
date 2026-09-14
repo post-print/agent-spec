@@ -37,7 +37,7 @@ Host-agent proof after export of the host keys:
 bun run test
 ```
 
-`bun run test` runs smoke, tools, mcp, and judge on Cursor, Claude, and Codex. That is the consumer confidence gate. `bun run test:smoke` is the short Cursor proof. `bun run test:tools`, `bun run test:mcp`, and `bun run test:judge` stay on Cursor. Pass `--host cursor` to pin the full suite set to one host.
+`bun run test` runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. That is the consumer confidence gate. `bun run test:smoke` is the short Cursor proof. `bun run test:tools`, `bun run test:mcp`, `bun run test:judge`, and `bun run test:depth` stay on Cursor. Pass `--host cursor` to pin the full suite set to one host.
 
 ## Validation split
 
@@ -47,12 +47,12 @@ bun run test
 | Synced toolbox skills (`.agents/skills/`, `.claude/skills/`) | skipped — lint in [csark0812/toolbox](https://github.com/csark0812/toolbox); override via `.skeleton/customize/<slug>.md` |
 | TypeScript under `packages/` (scoped) | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed |
 | TypeScript under `packages/` (full) | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions) |
-| Host-agent suite | `bun run test` (smoke, tools, mcp, judge × Cursor, Claude, Codex). Slice: `bun run test:smoke` or `--host cursor`. |
+| Host-agent suite | `bun run test` (smoke, tools, mcp, judge, depth × Cursor, Claude, Codex). Slice: `bun run test:smoke` or `--host cursor`. |
 
 ## Layout
 
 - `packages/harness` — host-agnostic agent runtime (Cursor, Claude, OpenAI Codex)
 - `packages/test` — direct-agent scenario runner + `agent-test` CLI; JSON suites are an input adapter
-- `agent-suites/` — in-repo host-agent suites. Default CLI `--suites-dir`
+- `agent-suites/` — in-repo host-agent suites. Each scenario uses a dedicated workspace. Host-global user skills stay out unless `allowUserSkills` is true. Default CLI `--suites-dir`
 - `.agents/skills/` — project skills (Cursor/Codex); `.claude/skills/` mirrors for Claude Code
 - Team skills from [csark0812/toolbox](https://github.com/csark0812/toolbox); lockfile: `skills-lock.json`

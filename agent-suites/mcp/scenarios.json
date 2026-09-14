@@ -6,6 +6,7 @@
 		"host": "cursor",
 		"profile": "cursor",
 		"skills": "none",
+		"allowUserSkills": false,
 		"mcpServers": {
 			"echo": {
 				"type": "stdio",
@@ -17,6 +18,7 @@
 	"scenarios": [
 		{
 			"name": "echoes through MCP",
+			"workspace": "agent-suites/mcp/workspaces/echo",
 			"prompt": "Call the echo MCP tool with text \"agent-test-mcp-echo-ok-1a7c\". Reply with the exact tool result. Do not use Shell or Bash.",
 			"rubric": {
 				"mustCallTool": ["echo:agent-test-mcp-echo-ok-1a7c"],
@@ -26,6 +28,7 @@
 		},
 		{
 			"name": "reads a note through MCP",
+			"workspace": "agent-suites/mcp/workspaces/lookup",
 			"prompt": "Call the lookup MCP tool with id \"alpha\". Reply with the exact note text. Do not guess. Do not use Shell or Bash.",
 			"rubric": {
 				"mustCallTool": ["lookup:alpha"],

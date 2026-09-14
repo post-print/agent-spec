@@ -178,6 +178,9 @@ export {
 export {
 	createSealedWorkspace,
 	defaultSealedOverlayPaths,
+	isCallerHeadWorkspace,
+	type ParsedScenarioWorkspace,
+	parseScenarioWorkspace,
 	SEALED_WORKSPACE_DIR_PREFIX,
 	type SealedWorkspace,
 	toolPathsOutsideWorkspace,
@@ -227,6 +230,13 @@ export {
 	createJudgeUserSimulator,
 	type JudgeUserSimulatorOptions,
 } from "./user-simulator.js";
+export {
+	type CursorSettingSource,
+	claudeSessionFlags,
+	cursorSettingSources,
+	openaiUserConfigArgs,
+	resolveAllowUserSkills,
+} from "./user-skills.js";
 export {
 	captureWorkingTreeStatus,
 	filterWorkingTreeLeaks,

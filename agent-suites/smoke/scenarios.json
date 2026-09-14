@@ -5,11 +5,13 @@
 	"defaults": {
 		"host": "cursor",
 		"profile": "cursor",
-		"skills": "none"
+		"skills": "none",
+		"allowUserSkills": false
 	},
 	"scenarios": [
 		{
 			"name": "hello",
+			"workspace": "agent-suites/smoke/workspaces/hello",
 			"prompt": "Reply with the exact sentence: smoke ok. Do not use tools.",
 			"rubric": {
 				"must": ["smoke ok"],
@@ -18,6 +20,7 @@
 		},
 		{
 			"name": "reads a project skill file",
+			"workspace": "agent-suites/smoke/workspaces/skill",
 			"prompt": "Read .agents/skills/skeleton/SKILL.md. Quote the first heading. Then stop.",
 			"rubric": {
 				"mustReadPath": [".agents/skills/skeleton/SKILL.md"]

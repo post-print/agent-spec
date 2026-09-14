@@ -22,6 +22,7 @@ export interface ScenarioRubric {
 	handsOnRouting?: boolean;
 	/** Substring in assistant text, commands, artifacts, or tool args and results. */
 	must?: string[];
+	/** Substring that must not appear in assistant text, commands, artifacts, or tool args. Tool results are ignored. */
 	mustNot?: string[];
 	mustRun?: string[];
 	/**
@@ -62,6 +63,16 @@ export interface AgentScenario {
 	contextSources?: string[];
 	/** Inline MCP servers for live Cursor (merged over suite defaults by server name). */
 	mcpServers?: Record<string, McpServerConfig>;
+	/**
+	 * Caller-relative folder that becomes the sealed repo.
+	 * Omit or `"."` copies caller HEAD. A subfolder copies only that tree.
+	 */
+	workspace?: string;
+	/**
+	 * Load host-global user skills from the developer machine.
+	 * Default false. Keep false for a custom `workspace` fixture.
+	 */
+	allowUserSkills?: boolean;
 	/** Live-only: apply patch + commit in worktree so pr-mode branch diff exists. */
 	seedPatch?: string;
 	/** Live-only: with seedPatch, stage changes without committing (staged review mode). */
@@ -84,6 +95,16 @@ export interface AgentSuiteDefaults {
 	contextSources?: string[];
 	/** Inline MCP servers for direct agent runs. */
 	mcpServers?: Record<string, McpServerConfig>;
+	/**
+	 * Caller-relative folder that becomes the sealed repo.
+	 * Scenario `workspace` wins when both are set.
+	 */
+	workspace?: string;
+	/**
+	 * Load host-global user skills from the developer machine.
+	 * Default false. Scenario `allowUserSkills` wins when both are set.
+	 */
+	allowUserSkills?: boolean;
 }
 
 export interface AgentSuiteFile {
@@ -130,11 +151,12 @@ export interface JudgeVerdictResult {
 	usage?: AgentUsage;
 }
 
-/** CLI and HTML summary of what a scenario checked and what the agent did. */
+/** CLI and HTML summary of rubric checks and what the run produced. */
 export interface ScenarioStory {
-	tested: string[];
-	happened: string[];
-	outcome: string[];
+	criteria: string[];
+	result: string[];
+	/** Failures and judge notes. Shown under Result. */
+	verdict: string[];
 }
 
 export interface ScenarioResult {
@@ -156,6 +178,8 @@ export interface ScenarioResult {
 	agentUsage?: AgentUsage;
 	/** Denormalized judge usage (sum of criteria). */
 	judgeUsage?: AgentUsage;
+	/** Scenario prompt sent to the host (for HTML conversation). */
+	prompt?: string;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
 	/** Plain-language summary of the check, the agent run, and the verdict. */

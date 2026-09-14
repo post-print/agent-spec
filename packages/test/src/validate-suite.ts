@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
@@ -6,6 +6,7 @@ import {
 	isHostSlug,
 	isKnownAgentHost,
 	isRepoRelativeSkillPath,
+	parseScenarioWorkspace,
 	skillManifestRelPath,
 	skillPathsFromSetting,
 } from "@post-print/agent-harness";
@@ -216,6 +217,21 @@ function validateScenario(
 			scenario.name,
 		);
 	}
+	if (scenario.workspace !== undefined) {
+		const parsed = parseScenarioWorkspace(scenario.workspace);
+		if (!parsed.ok) {
+			pushIssue(issues, suitePath, "workspace", parsed.message, scenario.name);
+		}
+	}
+	if (scenario.allowUserSkills !== undefined && typeof scenario.allowUserSkills !== "boolean") {
+		pushIssue(
+			issues,
+			suitePath,
+			"allowUserSkills",
+			`allowUserSkills must be a boolean, got ${JSON.stringify(scenario.allowUserSkills)}`,
+			scenario.name,
+		);
+	}
 	if (scenario.seedStageOnly && !scenario.seedPatch) {
 		pushIssue(
 			issues,
@@ -293,12 +309,26 @@ function validateDefaults(
 			"contextSources must be an array of strings",
 		);
 	}
+	if (defaults.workspace !== undefined) {
+		const parsed = parseScenarioWorkspace(defaults.workspace);
+		if (!parsed.ok) {
+			pushIssue(issues, suitePath, "defaults.workspace", parsed.message);
+		}
+	}
 	if (defaults.skills !== undefined && !isValidSkillSetting(defaults.skills)) {
 		pushIssue(
 			issues,
 			suitePath,
 			"defaults.skills",
 			`skills must be "none" or repo-relative SKILL.md / skill-folder paths, got ${JSON.stringify(defaults.skills)}`,
+		);
+	}
+	if (defaults.allowUserSkills !== undefined && typeof defaults.allowUserSkills !== "boolean") {
+		pushIssue(
+			issues,
+			suitePath,
+			"defaults.allowUserSkills",
+			`allowUserSkills must be a boolean, got ${JSON.stringify(defaults.allowUserSkills)}`,
 		);
 	}
 }
@@ -362,6 +392,30 @@ export async function validateSuitePaths(
 
 		if (options?.validatePaths && repoRoot) {
 			for (const scenario of suite.scenarios) {
+				const workspaceRel = resolveScenarioWorkspaceRel(suite, scenario);
+				if (workspaceRel) {
+					const workspacePath = resolve(repoRoot, workspaceRel);
+					try {
+						const info = await stat(workspacePath);
+						if (!info.isDirectory()) {
+							pushIssue(
+								issues,
+								suitePath,
+								"workspace",
+								`workspace must be a directory: ${workspaceRel}`,
+								scenario.name,
+							);
+						}
+					} catch {
+						pushIssue(
+							issues,
+							suitePath,
+							"workspace",
+							`workspace not found: ${workspaceRel}`,
+							scenario.name,
+						);
+					}
+				}
 				for (const scriptPath of mcpScriptPaths(suite, scenario)) {
 					try {
 						await access(resolve(repoRoot, scriptPath));
@@ -393,8 +447,9 @@ export async function validateSuitePaths(
 				if (skills !== undefined && isValidSkillSetting(skills)) {
 					for (const rel of skillPathsFromSetting(skills)) {
 						const manifest = skillManifestRelPath(rel);
+						const skillRoot = workspaceRel ? resolve(repoRoot, workspaceRel) : repoRoot;
 						try {
-							await access(resolve(repoRoot, manifest));
+							await access(resolve(skillRoot, manifest));
 						} catch {
 							pushIssue(
 								issues,
@@ -430,4 +485,14 @@ export function formatValidationReport(report: SuiteValidationReport): string {
 		`Validation failed (${report.issues.length} issue(s)):`,
 		...lines.map((l) => `  - ${l}`),
 	].join("\n");
+}
+
+/** Scenario workspace wins over suite defaults. Caller HEAD when omit or `"."`. */
+export function resolveScenarioWorkspaceRel(
+	suite: Pick<AgentSuiteFile, "defaults">,
+	scenario: Pick<AgentScenario, "workspace">,
+): string | undefined {
+	const raw = scenario.workspace !== undefined ? scenario.workspace : suite.defaults?.workspace;
+	const parsed = parseScenarioWorkspace(raw);
+	return parsed.ok ? parsed.rel : undefined;
 }

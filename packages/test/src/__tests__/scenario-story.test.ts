@@ -55,7 +55,7 @@ describe("describeTraceHappened", () => {
 });
 
 describe("buildScenarioStory", () => {
-	it("marks a pass with tested, happened, and outcome", () => {
+	it("marks a pass with criteria and result", () => {
 		const story = buildScenarioStory({
 			rubric: { must: ["smoke ok"], mustNotCallTool: ["Shell"] },
 			trace: {
@@ -67,12 +67,12 @@ describe("buildScenarioStory", () => {
 			passed: true,
 			failures: [],
 		});
-		expect(story.tested).toContain('reply includes "smoke ok"');
-		expect(story.happened).toContain("no tools");
-		expect(story.outcome).toEqual(["all checks passed"]);
+		expect(story.criteria).toContain('reply includes "smoke ok"');
+		expect(story.result).toContain("no tools");
+		expect(story.verdict).toEqual([]);
 	});
 
-	it("puts a worktree leak in the outcome", () => {
+	it("puts a worktree leak in the result verdict", () => {
 		const story = buildScenarioStory({
 			rubric: { mustReadPath: ["SKILL.md"] },
 			trace: {
@@ -90,10 +90,10 @@ describe("buildScenarioStory", () => {
 				},
 			],
 		});
-		expect(story.tested).toEqual(["read SKILL.md"]);
-		expect(story.happened).toEqual(["Read …/tmp/seal/SKILL.md"]);
-		expect(story.outcome[0]).toContain("worktree leak");
-		expect(story.outcome[0]).toContain("…/tmp/seal/SKILL.md");
-		expect(story.outcome[0]).not.toContain("/private/tmp/seal/SKILL.md");
+		expect(story.criteria).toEqual(["read SKILL.md"]);
+		expect(story.result).toEqual(["Read …/tmp/seal/SKILL.md"]);
+		expect(story.verdict[0]).toContain("worktree leak");
+		expect(story.verdict[0]).toContain("…/tmp/seal/SKILL.md");
+		expect(story.verdict[0]).not.toContain("/private/tmp/seal/SKILL.md");
 	});
 });

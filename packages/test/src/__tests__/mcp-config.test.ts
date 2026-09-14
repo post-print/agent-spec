@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { fileURLToPath } from "node:url";
 
 import { loadSuiteFile } from "../load-suite.js";
-import { isMcpServerConfig, isMcpServersMap } from "../mcp-config.js";
+import { bindMcpServersToCaller, isMcpServerConfig, isMcpServersMap } from "../mcp-config.js";
 
 describe("mcp-config validation", () => {
 	it("accepts stdio and http server configs", () => {
@@ -49,5 +49,55 @@ describe("mcp-config validation", () => {
 			"echoes through MCP",
 			"reads a note through MCP",
 		]);
+		expect(suite.scenarios.every((scenario) => scenario.workspace)).toBe(true);
+	});
+});
+
+describe("bindMcpServersToCaller", () => {
+	it("pins stdio cwd to the caller repo", () => {
+		const bound = bindMcpServersToCaller(
+			{
+				echo: {
+					type: "stdio",
+					command: "node",
+					args: ["packages/test/fixtures/mcp-echo/server.mjs"],
+				},
+			},
+			"/repo",
+		);
+		expect(bound?.echo).toMatchObject({
+			command: "node",
+			cwd: "/repo",
+		});
+	});
+
+	it("keeps an absolute stdio cwd", () => {
+		const bound = bindMcpServersToCaller(
+			{
+				echo: { type: "stdio", command: "node", cwd: "/other" },
+			},
+			"/repo",
+		);
+		expect(bound?.echo).toMatchObject({ cwd: "/other" });
+	});
+
+	it("joins a relative stdio cwd to the caller repo", () => {
+		const bound = bindMcpServersToCaller(
+			{
+				echo: { type: "stdio", command: "node", cwd: "packages/test" },
+			},
+			"/repo",
+		);
+		expect(bound?.echo).toMatchObject({ cwd: "/repo/packages/test" });
+	});
+
+	it("leaves HTTP servers unchanged", () => {
+		const docs = { type: "http" as const, url: "https://example.com/mcp" };
+		const bound = bindMcpServersToCaller({ docs }, "/repo");
+		expect(bound?.docs).toEqual(docs);
+	});
+
+	it("returns undefined when no servers are set", () => {
+		expect(bindMcpServersToCaller(undefined, "/repo")).toBeUndefined();
 	});
 });

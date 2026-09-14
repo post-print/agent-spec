@@ -456,6 +456,8 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 				compareId: scenario.compareId,
 				prompt: scenario.prompt,
 				rubric: scenario.rubric,
+				workspace: scenario.workspace,
+				allowUserSkills: scenario.allowUserSkills,
 				seedPatch: scenario.seedPatch,
 				seedStageOnly: scenario.seedStageOnly,
 				host: scenario.host,

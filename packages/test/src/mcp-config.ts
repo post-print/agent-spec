@@ -1,3 +1,5 @@
+import { isAbsolute, join } from "node:path";
+
 import type { McpServerConfig } from "@post-print/agent-harness";
 
 /** Validate a suite/scenario mcpServers map (shape only; env expansion happens at run time). */
@@ -101,4 +103,33 @@ export function mcpStdioScriptPaths(
 		}
 	}
 	return paths;
+}
+
+/**
+ * Pin stdio MCP cwd to the caller repo so script args like
+ * `packages/test/fixtures/mcp-echo/server.mjs` still resolve when the agent
+ * cwd is a fixture workspace.
+ */
+export function bindMcpServersToCaller(
+	servers: Record<string, McpServerConfig> | undefined,
+	callerCwd: string,
+): Record<string, McpServerConfig> | undefined {
+	if (!servers) {
+		return undefined;
+	}
+	const bound: Record<string, McpServerConfig> = {};
+	for (const [name, config] of Object.entries(servers)) {
+		if (!("command" in config) || !config.command) {
+			bound[name] = config;
+			continue;
+		}
+		const serverCwd =
+			config.cwd === undefined || config.cwd.trim().length === 0
+				? callerCwd
+				: isAbsolute(config.cwd)
+					? config.cwd
+					: join(callerCwd, config.cwd);
+		bound[name] = { ...config, cwd: serverCwd };
+	}
+	return bound;
 }

@@ -8,6 +8,7 @@ import {
 	formatHyperlink,
 	theme,
 	truncatePath,
+	wrapColumnWidth,
 	wrapText,
 } from "../theme.js";
 
@@ -123,6 +124,17 @@ describe("wrapText", () => {
 	});
 });
 
+describe("wrapColumnWidth", () => {
+	it("subtracts the story indent from the terminal width", () => {
+		expect(wrapColumnWidth(16, 80)).toBe(64);
+		expect(wrapColumnWidth(16, 120)).toBe(104);
+	});
+
+	it("keeps a minimum wrap width on a narrow terminal", () => {
+		expect(wrapColumnWidth(16, 20)).toBe(40);
+	});
+});
+
 describe("theme.scenarioVerdict", () => {
 	const priorLevel = chalk.level;
 
@@ -190,7 +202,7 @@ describe("theme.scenarioVerdict", () => {
 		expect(joined).toContain("Agent invoked grill unexpectedly.");
 	});
 
-	it("renders tested, happened, and outcome on a pass", () => {
+	it("renders criteria and result on a pass", () => {
 		chalk.level = 0;
 		const lines = theme.scenarioVerdict({
 			passed: true,
@@ -199,22 +211,24 @@ describe("theme.scenarioVerdict", () => {
 			name: "hello",
 			durationMs: 6800,
 			story: {
-				tested: ['reply includes "smoke ok"', "no Shell call"],
-				happened: ['agent replied "smoke ok"', "no tools"],
-				outcome: ["all checks passed"],
+				criteria: ['reply includes "smoke ok"', "no Shell call"],
+				result: ['agent replied "smoke ok"', "no tools"],
+				verdict: [],
 			},
 		});
 		const joined = lines.join("\n");
 		expect(joined).toContain("PASS");
-		expect(joined).toContain("tested");
+		expect(joined).toContain("criteria");
 		expect(joined).toContain('reply includes "smoke ok"');
-		expect(joined).toContain("happened");
+		expect(joined).toContain("result");
 		expect(joined).toContain("no tools");
+		expect(joined).not.toContain("tested");
+		expect(joined).not.toContain("happened");
 		expect(joined).not.toContain("outcome");
 		expect(joined).not.toContain("all checks passed");
 	});
 
-	it("shows outcome on a fail story and humanizes the category", () => {
+	it("shows the fail verdict under result and humanizes the category", () => {
 		chalk.level = 0;
 		const lines = theme.scenarioVerdict({
 			passed: false,
@@ -222,17 +236,40 @@ describe("theme.scenarioVerdict", () => {
 			durationMs: 14_900,
 			failureCategory: "worktree_leak",
 			story: {
-				tested: ["read SKILL.md"],
-				happened: ["Read .agents/skills/skeleton/SKILL.md"],
-				outcome: ["worktree leak — agent used a path outside the sealed workspace"],
+				criteria: ["read SKILL.md"],
+				result: ["Read .agents/skills/skeleton/SKILL.md"],
+				verdict: ["worktree leak — agent used a path outside the sealed workspace"],
 			},
 		});
 		const joined = lines.join("\n");
 		expect(joined).toContain("FAIL");
 		expect(joined).toContain("worktree leak");
-		expect(joined).toContain("outcome");
+		expect(joined).toContain("result");
 		expect(joined).toContain("agent used a path outside the sealed workspace");
+		expect(joined).not.toContain("outcome");
 		expect(joined).not.toContain("worktree_leak");
+	});
+
+	it("leaves a blank line between verdict items", () => {
+		chalk.level = 0;
+		const lines = theme.scenarioVerdict({
+			passed: true,
+			name: "resolves a vague prompt from the note",
+			durationMs: 12_000,
+			story: {
+				criteria: ["judge answers 2 questions"],
+				result: ["agent replied lite"],
+				verdict: [
+					"judge: The agent recommends shipping lite, matching the note decision and rejecting pro.",
+					"judge: The agent’s stated reason matches the note’s one-week rollout reason.",
+				],
+			},
+		});
+		const joined = lines.join("\n");
+		expect(joined).toContain("criteria");
+		expect(joined).toContain("result");
+		expect(joined).not.toContain("outcome");
+		expect(joined).toMatch(/shipping lite[\s\S]*\n\n\s+judge: The agent/);
 	});
 
 	it("includes ANSI colors when chalk.level > 0", () => {
@@ -274,7 +311,7 @@ describe("theme.hostLog", () => {
 	it("indents a compact host line", () => {
 		chalk.level = 0;
 		expect(theme.hostLog("info", "skills", "load completed · 124ms")).toBe(
-			"  host  INFO  skills  load completed · 124ms",
+			"    host  INFO  skills  load completed · 124ms",
 		);
 	});
 });

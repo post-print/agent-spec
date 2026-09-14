@@ -50,7 +50,7 @@ Host-agent suite (host key or CLI/SDK login; incurs provider usage):
 bun run test
 ```
 
-`bun run test` runs smoke, tools, mcp, and judge on Cursor, Claude, and Codex. Pin one host with `bun run test -- --host cursor`. `bun run test:smoke` is the short Cursor proof.
+`bun run test` runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. Pin one host with `bun run test -- --host cursor`. `bun run test:smoke` is the short Cursor proof.
 
 Reliability targets: [docs/reliability.md](docs/reliability.md).
 

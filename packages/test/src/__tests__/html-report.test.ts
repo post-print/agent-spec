@@ -102,32 +102,79 @@ describe("html-report", () => {
 				}),
 			]),
 		]);
-		expect(html).toContain("1.2k tokens");
+		expect(html).toContain("1,234 tokens");
+		expect(html).toContain(">1,234<");
 		expect(html).toContain("Typical");
 		expect(html).toContain("Largest");
 		expect(html).toContain("Token cost");
 		expect(html).toContain("How to read this report");
+		expect(html).toContain('<section class="guide"');
+		expect(html).not.toContain('<details class="guide"');
 		expect(html).toContain("Cache read");
 		expect(html).toContain("Skills invoked");
 		expect(html).toContain("skeleton");
 		expect(html).toContain("medium");
+		expect(html).not.toContain("1.2k tokens");
 	});
 
-	it("renders tested, happened, and outcome from the scenario story", () => {
+	it("prepends the original prompt when the trace omits the user turn", () => {
 		const html = renderHtmlReport([
 			makeReport([
 				makeResult({
-					story: {
-						tested: ['reply includes "smoke ok"'],
-						happened: ['agent replied "smoke ok"', "no tools"],
-						outcome: ["all checks passed"],
+					prompt: "Reply with the word smoke <ok>",
+					trace: {
+						messages: [{ role: "assistant", content: "smoke ok" }],
+						toolCalls: [],
+						shellCommands: [],
+						artifacts: {},
 					},
 				}),
 			]),
 		]);
-		expect(html).toContain("Tested");
-		expect(html).toContain("Happened");
-		expect(html).toContain("Outcome");
+		const promptIdx = html.indexOf("Reply with the word smoke &lt;ok&gt;");
+		const replyIdx = html.indexOf("smoke ok");
+		expect(promptIdx).toBeGreaterThan(-1);
+		expect(replyIdx).toBeGreaterThan(promptIdx);
+		expect(html).toContain('bubble-label">User');
+	});
+
+	it("does not duplicate a user turn that already matches the prompt", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					prompt: "Say hi <script>",
+					trace: {
+						messages: [
+							{ role: "user", content: "Say hi <script>" },
+							{ role: "assistant", content: "Hello" },
+						],
+						toolCalls: [],
+						shellCommands: [],
+						artifacts: {},
+					},
+				}),
+			]),
+		]);
+		expect(html.split("Say hi &lt;script&gt;").length - 1).toBe(1);
+	});
+
+	it("renders criteria and result from the scenario story", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					story: {
+						criteria: ['reply includes "smoke ok"'],
+						result: ['agent replied "smoke ok"', "no tools"],
+						verdict: ["all checks passed"],
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("Criteria");
+		expect(html).toContain("Result");
+		expect(html).not.toContain("Tested");
+		expect(html).not.toContain("Happened");
+		expect(html).not.toContain("Outcome");
 		expect(html).toContain("reply includes &quot;smoke ok&quot;");
 		expect(html).toContain("no tools");
 		expect(html).toContain("all checks passed");

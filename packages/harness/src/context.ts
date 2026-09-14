@@ -162,8 +162,9 @@ export interface LoadContextOptions {
 	/** none | catalog (index) | full (catalog + all SKILL.md bodies). */
 	skills?: SkillContextSetting;
 	/**
-	 * Additive repo-relative paths loaded after the profile sources.
-	 * Bare basenames resolve under `.skeleton/customize/` (alwaysInclude style).
+	 * Additive cwd-relative paths loaded after the profile sources.
+	 * Bare names stay in the workspace root. Skeleton `alwaysInclude`
+	 * still remaps through `resolveContextSourcePath`.
 	 */
 	contextSources?: string[];
 }
@@ -213,7 +214,11 @@ export async function loadContext(options: LoadContextOptions): Promise<LoadedCo
 		if (typeof raw !== "string" || raw.trim().length === 0) {
 			continue;
 		}
-		await pushSource(resolveContextSourcePath(raw.trim()));
+		const rel = raw.trim().replace(/^\.\//, "").replace(/\\/g, "/");
+		if (rel.length === 0) {
+			continue;
+		}
+		await pushSource(rel);
 	}
 
 	const skillContext = await loadSkillContext(options.cwd, options.skills);

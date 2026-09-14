@@ -57,6 +57,12 @@ jobs:
       - name: Node can check the in-repo smoke suite
         run: node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 
+      - name: Node can check the in-repo depth suite
+        run: node packages/test/dist/cli.js --check --suites-dir agent-suites --suite depth
+
+      - name: Node can check the in-repo judge suite
+        run: node packages/test/dist/cli.js --check --suites-dir agent-suites --suite judge
+
   host:
     if: ${{ secrets.CURSOR_API_KEY != '' }}
     runs-on: ubuntu-latest

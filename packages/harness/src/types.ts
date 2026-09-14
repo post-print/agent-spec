@@ -121,6 +121,11 @@ export interface RunAgentOptions {
 	onDeadlineStart?: () => void | Promise<void>;
 	/** Fires as the host streams assistant text and tool calls. */
 	onAgentEvent?: (event: LiveAgentEvent) => void;
+	/**
+	 * Load host-global user skills (`~/.cursor/skills`, `~/.claude/skills`,
+	 * `~/.codex/skills`, `~/.agents/skills`). Default false.
+	 */
+	allowUserSkills?: boolean;
 	env?: Record<string, string>;
 }
 

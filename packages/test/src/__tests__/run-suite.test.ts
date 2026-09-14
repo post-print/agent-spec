@@ -263,6 +263,7 @@ describe("runSuite isolateLive", () => {
 			passed: true,
 			skipped: true,
 			failures: [],
+			prompt: "p",
 		});
 	});
 
