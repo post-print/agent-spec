@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json -->
+<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json,packages/test/src/worker-pool.ts,packages/test/src/viewer/**/*.ts -->
 
 `agent-test` launches a host agent and scores the transcript. Every live run runs `--check` first.
 
@@ -20,6 +20,7 @@ npx agent-test --help
 | --- | --- | --- |
 | Login | `npx agent-test login` | No |
 | Check | `npx agent-test --check --suites-dir agent-suites` | No |
+| Viewer | `npx agent-test viewer --suites-dir agent-suites` | After you click Run |
 | Live | `npx agent-test --suites-dir agent-suites` | Yes |
 
 `login` stores a Cursor SDK login in `~/.cursor/sdk/auth.json`. It does not print the key. Pass `--host openai` to run `codex login`. For Claude, run the Claude Code CLI login.
@@ -46,6 +47,24 @@ A positional suite name is the same as `--suite`.
 
 In-repo suites list `hosts: ["cursor", "claude", "openai"]`. A run without `--host` expands once per listed host. Pass `--host cursor` to pin one adapter.
 
+## Suite viewer
+
+`agent-test viewer` opens a localhost page. The page lists every suite and scenario before a run.
+
+```bash
+npx agent-test viewer --suites-dir agent-suites
+```
+
+The server binds `127.0.0.1` only. Cursor is selected by default. The matrix still lists every suite host.
+
+Run buttons start a live host agent. Compare arms of one cell run together. Hosts run one after another unless you tick Run hosts together. `--workers` sets how many agents run at once. The viewer default is 4. The range is 1-32.
+
+`--port` sets the listen port. `0` picks a free port.
+
+`--compare-arm` is for isolated children. The viewer sets it when it starts one compare arm.
+
+A missing host login fails that host cell. The catalog still loads.
+
 ## Scoring
 
 | Flag | Effect |
@@ -56,6 +75,7 @@ In-repo suites list `hosts: ["cursor", "claude", "openai"]`. A run without `--ho
 | `--timeout-ms <n>` | Agent deadline in milliseconds. Default `600000`, or `AGENT_TEST_TIMEOUT_MS`. |
 | `--no-timeout` | Disable the deadline. |
 | `--scenario-retries <n>` | Announce-stop retries. Default `AGENT_TEST_SCENARIO_RETRIES` or `1`. |
+| `--workers <n>` | How many live agents run at once. Viewer default is 4. CLI default is 1. Range is 1-32. |
 
 `--fail-on=behavior` ignores `judge_infra` and `agent_runtime`. In-repo scripts use that mode. Categories live in [reliability.md](reliability.md).
 
@@ -92,6 +112,7 @@ The CLI does not load `.env`. Export variables in the shell. Copy `.env.example`
 | `AGENT_TEST_TIMEOUT_MS` | `600000` | Agent deadline. |
 | `AGENT_TEST_LIVE_RETRIES` | `3` | Judge infrastructure attempts. |
 | `AGENT_TEST_SCENARIO_RETRIES` | `1` | Announce-stop retries. |
+| `AGENT_TEST_WORKERS` | Unset | Same as `--workers` when set. |
 | `AGENT_TEST_SCENARIO_SETTLE_MS` | Adaptive | Delay between isolated child runs. |
 | `AGENT_TEST_MAX_TURNS` | `6` | User-agent plus test-agent turns. |
 | `AGENT_TEST_ALLOW_IN_PLACE` | Unset | Required for `--no-worktree`. |

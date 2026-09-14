@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts -->
+<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts -->
 
 A **sealed workspace** is a temp git repo that the host must not leave. The runner fails the scenario when a tool path leaves that folder. A leftover caller-tree check still restores leaked caller edits.
 
@@ -58,6 +58,8 @@ Isolated children inherit `--host`, `--adapter`, and `--auth-mode` from the pare
 Host SDK INFO lines stay hidden. Set `AGENT_TEST_HOST_LOGS=1` or `--debug` to print them.
 
 A TTY run prints `agent started`, then updates an `agent` clock every 0.1s. Tool names and a short reply preview print as the host streams them. The HTML report line is a localhost link.
+
+`agent-test viewer` can attach a pipe on fd 3. Isolated children write one JSON event per line. The viewer page shows the chat as the host streams it.
 
 ## Isolation target
 

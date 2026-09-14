@@ -71,11 +71,13 @@ export function getStagingAgentStartPath(
 	stagingSessionId: string,
 	suiteName: string,
 	scenarioName: string,
+	arm?: string,
 ): string {
+	const suffix = arm ? `.${arm}` : "";
 	return join(
 		getLiveStagingSessionRoot(stagingSessionId),
 		suiteName,
-		`${stagingScenarioBasename(scenarioName)}.agent-start`,
+		`${stagingScenarioBasename(scenarioName)}${suffix}.agent-start`,
 	);
 }
 
@@ -101,11 +103,13 @@ export function getStagingResultPath(
 	stagingSessionId: string,
 	suiteName: string,
 	scenarioName: string,
+	arm?: string,
 ): string {
+	const suffix = arm ? `.${arm}` : "";
 	return join(
 		getLiveStagingSessionRoot(stagingSessionId),
 		suiteName,
-		`${stagingScenarioBasename(scenarioName)}.result.json`,
+		`${stagingScenarioBasename(scenarioName)}${suffix}.result.json`,
 	);
 }
 

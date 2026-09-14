@@ -21,6 +21,14 @@ describe("describeRubricChecks", () => {
 			"read .agents/skills/skeleton/SKILL.md",
 		]);
 	});
+
+	it("describes a command allowlist", () => {
+		expect(
+			describeRubricChecks({
+				allowedCommands: ["npm install @csark0812/skeleton", "skeleton init"],
+			}),
+		).toEqual(["shell commands stay on the allowlist"]);
+	});
 });
 
 describe("describeTraceHappened", () => {

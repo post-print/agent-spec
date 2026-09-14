@@ -175,6 +175,13 @@ function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
 			needle: command,
 		});
 	}
+	if (rubric.allowedCommands !== undefined) {
+		specs.push({
+			text: "shell commands stay on the allowlist",
+			matcher: "toHaveAllowedCommands",
+			needle: "allowlist",
+		});
+	}
 	for (const tool of rubric.mustCallTool ?? []) {
 		specs.push({ text: `call ${tool}`, matcher: "toHaveCalledTool", needle: tool });
 	}

@@ -37,6 +37,7 @@ JSON is an authoring adapter, not a stored answer. This repository keeps host-ag
 ```bash
 npx agent-test login
 npx agent-test --check --suites-dir agent-suites
+npx agent-test viewer --suites-dir agent-suites --workers 2
 npx agent-test --suites-dir agent-suites --host cursor --suite smoke
 npx agent-test --suites-dir agent-suites --host cursor --auth-mode api-key
 ```

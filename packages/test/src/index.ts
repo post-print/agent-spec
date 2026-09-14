@@ -10,6 +10,11 @@ export {
 	runCheck,
 } from "./check.js";
 export {
+	disallowedShellSegments,
+	shellCommandAllowed,
+	splitShellSegments,
+} from "./command-allowlist.js";
+export {
 	applyCompareArm,
 	applySidecarCompareDurations,
 	assertCompareMetrics,
@@ -26,6 +31,7 @@ export {
 	parseCompareArmId,
 	plainDescription,
 	prefixCompareFailures,
+	requireCompareArm,
 	resolveCompareArms,
 	resolveCompareMetricPairs,
 } from "./compare-scenario.js";
@@ -54,6 +60,7 @@ export {
 export {
 	type HtmlReportMeta,
 	renderHtmlReport,
+	reportCss,
 	writeHtmlReport,
 } from "./html-report.js";
 export { defineConfig, loadHostAdapters } from "./load-adapters.js";
@@ -164,3 +171,22 @@ export {
 	validateSuiteFile,
 	validateSuitePaths,
 } from "./validate-suite.js";
+export {
+	expandViewerJobs,
+	loadViewerCatalog,
+	type ViewerCatalog,
+	type ViewerCatalogArm,
+	type ViewerCatalogScenario,
+	type ViewerCatalogSuite,
+	type ViewerJob,
+	type ViewerRunRequest,
+} from "./viewer/catalog.js";
+export { encodeViewerEvent, parseViewerEvent, type ViewerEvent } from "./viewer/events.js";
+export { listenViewer } from "./viewer/server.js";
+export {
+	DEFAULT_CLI_WORKERS,
+	DEFAULT_VIEWER_WORKERS,
+	MAX_WORKERS,
+	parseWorkerCount,
+	runWorkerPool,
+} from "./worker-pool.js";

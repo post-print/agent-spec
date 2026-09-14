@@ -56,6 +56,7 @@ import {
 	compareStoryFields,
 	plainDescription,
 	prefixCompareFailures,
+	requireCompareArm,
 	resolveCompareArms,
 	resolveCompareMetricPairs,
 } from "./compare-scenario.js";
@@ -125,6 +126,9 @@ import type {
 	SuiteRunReport,
 } from "./types.js";
 import { validateSuiteFile } from "./validate-suite.js";
+import { emitViewerEvent } from "./viewer/emit.js";
+import type { ViewerEventEnvelope } from "./viewer/events.js";
+import { DEFAULT_CLI_WORKERS, runWorkerPool } from "./worker-pool.js";
 
 const require = createRequire(import.meta.url);
 const packageVersion = (require("../package.json") as { version: string }).version;
@@ -257,6 +261,10 @@ export interface RunSuiteOptions {
 	adapterModules?: string[];
 	/** Host billing mode. Default is subscription when omitted. */
 	authMode?: HostAuthMode;
+	/** Isolated child: run one compare arm only. */
+	compareArm?: CompareArmId;
+	/** Parallel isolated live children. Default 1. */
+	workers?: number;
 }
 
 export interface RunAgentTestOptions {
@@ -282,6 +290,8 @@ export interface RunAgentTestOptions {
 	scenarioTotal?: number;
 	/** Host billing mode. Default is subscription when omitted. */
 	authMode?: HostAuthMode;
+	/** Isolated child: run one compare arm only. */
+	compareArm?: CompareArmId;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -621,7 +631,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 	const displayTotal = parentCounters?.total ?? filteredTotal;
 	const isolateLive =
 		liveScenarioIsolationEnabled() && !options.scenarioFilter && filteredTotal > 1;
-	let previousIsolatedExitCode: number | undefined;
+	const workers = Math.max(1, options.workers ?? DEFAULT_CLI_WORKERS);
 
 	if (shouldPrintSuiteChrome()) {
 		logProgress(`\n${theme.suiteHeader(suite.name, defaultHost, displayTotal)}`);
@@ -630,309 +640,327 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 		}
 	}
 
-	for (let index = 0; index < scenarios.length; index++) {
-		const scenario = scenarios[index];
-		if (!scenario) {
-			continue;
-		}
-
-		const scenarioIndex = parentCounters?.index ?? index + 1;
-		const scenarioTotal = displayTotal;
-
-		if (isolateLive) {
-			if (scenario.skip) {
-				const skipLabel = `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`;
-				logProgress(theme.skipped(skipLabel));
-				logScenarioDescription(scenario.description);
-				results.push({
-					suite: suite.name,
-					scenario: scenario.name,
-					description: plainDescription(scenario.description),
-					prompt: scenario.prompt,
-					passed: true,
-					failures: [],
-					skipped: true,
-					durationMs: 0,
-					story: buildScenarioStory({
-						rubric: scenario.rubric,
-						passed: true,
-						skipped: true,
-						failures: [],
-					}),
-				});
-				continue;
-			}
-
-			const started = performance.now();
-			const debug = isDebugEnabled(options);
-			const maxAttempts = !isChildProcess()
-				? resolveScenarioRetryMaxAttempts(options.scenarioRetries)
-				: 1;
-			let attempts = 0;
-			let failures: AssertionFailure[] = [];
-			let scenarioTrace: AgentTrace | undefined;
-			let previousAttemptExitCode = previousIsolatedExitCode;
-			let childSidecar: LiveScenarioResultSidecar | undefined;
-
-			while (true) {
-				attempts++;
-				const spawned = await spawnLiveScenario({
-					cwd: options.cwd,
-					suiteName: suite.name,
-					scenarioName: scenario.name,
-					suitesDir: options.suitesDir ?? "agent-suites",
-					rubricsDir: options.rubricsDir,
-					suiteFilter: options.suiteFilter ?? suite.name,
-					stagingSessionId: options.stagingSessionId,
-					keepRecordings: options.keepRecordings,
-					worktree: options.worktree,
-					judge: options.judge,
-					host: defaultHost,
-					adapterModules: options.adapterModules,
-					scenarioIndex: index + 1,
-					scenarioTotal: filteredTotal,
-					timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
-					noTimeout: options.timeoutMs === 0,
-					allowUserInput: options.allowUserInput,
-					debug: options.debug,
-					debugDir: options.debugDir,
-					previousExitCode: previousAttemptExitCode,
-					authMode: options.authMode ?? getProcessAuthMode(),
-				});
-				previousAttemptExitCode = spawned.exitCode;
-				previousIsolatedExitCode = spawned.exitCode;
-				failures = [];
-				scenarioTrace = undefined;
-				childSidecar =
-					options.stagingSessionId !== undefined
-						? await loadStagingResult(
-								getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
-							)
-						: undefined;
-
-				if (spawned.exitCode !== 0) {
-					failures.push(
-						...failuresForLiveSubprocessExit(spawned.exitCode, childSidecar, spawned.stderr),
-					);
+	if (isolateLive) {
+		const isolateSlots: ScenarioResult[] = new Array(scenarios.length);
+		await runWorkerPool(
+			scenarios.map((scenario, index) => ({ scenario, index })),
+			workers,
+			async ({ scenario, index }) => {
+				if (!scenario) {
+					return;
 				}
-				if (options.stagingSessionId) {
-					if (scenario.compare) {
-						const firstArm = resolveCompareArms(scenario.compare)[0];
-						if (firstArm) {
+				const scenarioIndex = parentCounters?.index ?? index + 1;
+				const scenarioTotal = displayTotal;
+				if (scenario.skip) {
+					const skipLabel = `[${scenarioIndex}/${scenarioTotal}] ${scenario.name}`;
+					logProgress(theme.skipped(skipLabel));
+					logScenarioDescription(scenario.description);
+					isolateSlots[index] = {
+						suite: suite.name,
+						scenario: scenario.name,
+						description: plainDescription(scenario.description),
+						prompt: scenario.prompt,
+						passed: true,
+						failures: [],
+						skipped: true,
+						durationMs: 0,
+						story: buildScenarioStory({
+							rubric: scenario.rubric,
+							passed: true,
+							skipped: true,
+							failures: [],
+						}),
+					};
+					return;
+				}
+
+				const started = performance.now();
+				const debug = isDebugEnabled(options);
+				const maxAttempts = !isChildProcess()
+					? resolveScenarioRetryMaxAttempts(options.scenarioRetries)
+					: 1;
+				let attempts = 0;
+				let failures: AssertionFailure[] = [];
+				let scenarioTrace: AgentTrace | undefined;
+				let previousAttemptExitCode: number | undefined;
+				let childSidecar: LiveScenarioResultSidecar | undefined;
+
+				while (true) {
+					attempts++;
+					const spawned = await spawnLiveScenario({
+						cwd: options.cwd,
+						suiteName: suite.name,
+						scenarioName: scenario.name,
+						suitesDir: options.suitesDir ?? "agent-suites",
+						rubricsDir: options.rubricsDir,
+						suiteFilter: options.suiteFilter ?? suite.name,
+						stagingSessionId: options.stagingSessionId,
+						keepRecordings: options.keepRecordings,
+						worktree: options.worktree,
+						judge: options.judge,
+						host: defaultHost,
+						adapterModules: options.adapterModules,
+						scenarioIndex: index + 1,
+						scenarioTotal: filteredTotal,
+						timeoutMs: resolveLiveTimeoutMs(options.timeoutMs),
+						noTimeout: options.timeoutMs === 0,
+						allowUserInput: options.allowUserInput,
+						debug: options.debug,
+						debugDir: options.debugDir,
+						previousExitCode: previousAttemptExitCode,
+						authMode: options.authMode ?? getProcessAuthMode(),
+					});
+					previousAttemptExitCode = spawned.exitCode;
+					failures = [];
+					scenarioTrace = undefined;
+					childSidecar =
+						options.stagingSessionId !== undefined
+							? await loadStagingResult(
+									getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
+								)
+							: undefined;
+
+					if (spawned.exitCode !== 0) {
+						failures.push(
+							...failuresForLiveSubprocessExit(spawned.exitCode, childSidecar, spawned.stderr),
+						);
+					}
+					if (options.stagingSessionId) {
+						if (scenario.compare) {
+							const firstArm = resolveCompareArms(scenario.compare)[0];
+							if (firstArm) {
+								try {
+									scenarioTrace = await loadStagingTrace(
+										getStagingTracePath(
+											options.stagingSessionId,
+											suite.name,
+											scenario.name,
+											firstArm.id,
+										),
+									);
+								} catch {
+									// Trace may be missing when the child crashed before recording.
+								}
+							}
+						} else {
+							const tracePath = getStagingTracePath(
+								options.stagingSessionId,
+								suite.name,
+								scenario.name,
+							);
 							try {
-								scenarioTrace = await loadStagingTrace(
-									getStagingTracePath(
-										options.stagingSessionId,
-										suite.name,
-										scenario.name,
-										firstArm.id,
-									),
-								);
+								scenarioTrace = await loadStagingTrace(tracePath);
 							} catch {
 								// Trace may be missing when the child crashed before recording.
 							}
 						}
-					} else {
-						const tracePath = getStagingTracePath(
-							options.stagingSessionId,
-							suite.name,
-							scenario.name,
-						);
-						try {
-							scenarioTrace = await loadStagingTrace(tracePath);
-						} catch {
-							// Trace may be missing when the child crashed before recording.
+					}
+
+					const canRetry =
+						failures.length > 0 &&
+						attempts < maxAttempts &&
+						shouldRetryAnnounceStopFlake(failures, scenarioTrace);
+					if (canRetry) {
+						logPhase(theme.phase("retry", `${attempts}/${maxAttempts - 1}`));
+						continue;
+					}
+					break;
+				}
+
+				let judgeVerdicts: JudgeVerdictResult[] | undefined;
+				let compareResult: ScenarioCompareResult | undefined;
+				const judgeHost = options.host ?? scenario.host ?? suite.defaults?.host ?? "cursor";
+				if (scenario.compare && options.stagingSessionId) {
+					compareResult = applySidecarCompareDurations(
+						await loadCompareResultFromStaging(options.stagingSessionId, suite.name, scenario),
+						childSidecar,
+					);
+					scenarioTrace = compareResultArms(compareResult)[0]?.trace ?? scenarioTrace;
+				}
+				if (failures.length === 0 && options.judge !== false) {
+					const compareTraces = compareResult ? compareResultArms(compareResult) : [];
+					if (
+						scenario.compare &&
+						compareResult &&
+						compareTraces.length > 0 &&
+						compareTraces.every((arm) => arm.trace)
+					) {
+						const criteria = collectCompareJudgeCriteria(scenario.rubric);
+						if (criteria.length > 0) {
+							releaseLiveMemory();
+							logPhase(theme.judgePhase(criteria.length), { last: true });
+							try {
+								const judged = await runCompareJudgeRubric(
+									compareResult,
+									scenario.rubric,
+									options.cwd,
+									judgeHost,
+								);
+								failures.push(...judged.failures);
+								const firstTrace = compareTraces[0]?.trace;
+								judgeVerdicts = toJudgeVerdictResults(
+									{
+										...(firstTrace ?? {
+											messages: [],
+											toolCalls: [],
+											shellCommands: [],
+											artifacts: {},
+										}),
+										judgeVerdicts: judged.verdicts,
+									},
+									criteria,
+									judged.verdicts,
+								);
+							} catch (error) {
+								failures.push(
+									assertionFailure(
+										"judge",
+										error instanceof Error ? error.message : "failed to judge compare traces",
+										"judge_infra",
+									),
+								);
+							}
+						}
+					} else if (scenarioTrace && !scenario.compare) {
+						const criteria = collectJudgeCriteria(scenario.rubric);
+						if (criteria.length > 0) {
+							releaseLiveMemory();
+							logPhase(theme.judgePhase(criteria.length), { last: true });
+							try {
+								const judged = await runJudgeRubric(
+									scenarioTrace,
+									scenario.rubric,
+									options.cwd,
+									judgeHost,
+								);
+								failures.push(...judged.failures);
+								scenarioTrace = judged.trace;
+								judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
+							} catch (error) {
+								failures.push(
+									assertionFailure(
+										"judge",
+										error instanceof Error
+											? error.message
+											: "failed to load staging trace for judge",
+										"judge_infra",
+									),
+								);
+							}
 						}
 					}
 				}
 
-				const canRetry =
-					failures.length > 0 &&
-					attempts < maxAttempts &&
-					shouldRetryAnnounceStopFlake(failures, scenarioTrace);
-				if (canRetry) {
-					logPhase(theme.phase("retry", `${attempts}/${maxAttempts - 1}`));
-					continue;
-				}
-				break;
-			}
-
-			let judgeVerdicts: JudgeVerdictResult[] | undefined;
-			let compareResult: ScenarioCompareResult | undefined;
-			const judgeHost = options.host ?? scenario.host ?? suite.defaults?.host ?? "cursor";
-			if (scenario.compare && options.stagingSessionId) {
-				compareResult = applySidecarCompareDurations(
-					await loadCompareResultFromStaging(options.stagingSessionId, suite.name, scenario),
-					childSidecar,
-				);
-				scenarioTrace = compareResultArms(compareResult)[0]?.trace ?? scenarioTrace;
-			}
-			if (failures.length === 0 && options.judge !== false) {
-				const compareTraces = compareResult ? compareResultArms(compareResult) : [];
-				if (
-					scenario.compare &&
-					compareResult &&
-					compareTraces.length > 0 &&
-					compareTraces.every((arm) => arm.trace)
-				) {
-					const criteria = collectCompareJudgeCriteria(scenario.rubric);
-					if (criteria.length > 0) {
-						releaseLiveMemory();
-						logPhase(theme.judgePhase(criteria.length), { last: true });
-						try {
-							const judged = await runCompareJudgeRubric(
-								compareResult,
-								scenario.rubric,
-								options.cwd,
-								judgeHost,
-							);
-							failures.push(...judged.failures);
-							const firstTrace = compareTraces[0]?.trace;
-							judgeVerdicts = toJudgeVerdictResults(
-								{
-									...(firstTrace ?? {
-										messages: [],
-										toolCalls: [],
-										shellCommands: [],
-										artifacts: {},
-									}),
-									judgeVerdicts: judged.verdicts,
-								},
-								criteria,
-								judged.verdicts,
-							);
-						} catch (error) {
-							failures.push(
-								assertionFailure(
-									"judge",
-									error instanceof Error ? error.message : "failed to judge compare traces",
-									"judge_infra",
-								),
-							);
-						}
-					}
-				} else if (scenarioTrace && !scenario.compare) {
-					const criteria = collectJudgeCriteria(scenario.rubric);
-					if (criteria.length > 0) {
-						releaseLiveMemory();
-						logPhase(theme.judgePhase(criteria.length), { last: true });
-						try {
-							const judged = await runJudgeRubric(
-								scenarioTrace,
-								scenario.rubric,
-								options.cwd,
-								judgeHost,
-							);
-							failures.push(...judged.failures);
-							scenarioTrace = judged.trace;
-							judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
-						} catch (error) {
-							failures.push(
-								assertionFailure(
-									"judge",
-									error instanceof Error ? error.message : "failed to load staging trace for judge",
-									"judge_infra",
-								),
-							);
-						}
-					}
-				}
-			}
-
-			const durationMs = Math.round(performance.now() - started);
-			const passed = failures.length === 0;
-			const usageFields = buildScenarioResultUsage({
-				agentUsage: compareResult
-					? sumUsageParts(compareResultArms(compareResult).map((arm) => arm.trace?.usage))
-					: scenarioTrace?.usage,
-				judgeVerdicts,
-			});
-			const story = buildScenarioStory({
-				rubric: scenario.rubric,
-				trace: scenarioTrace,
-				passed,
-				failures,
-				judgeVerdicts,
-				compare: compareResult
-					? attachCompareStoryResults(compareStoryFields(scenario), compareResult)
-					: undefined,
-			});
-			const scenarioResult: ScenarioResult = {
-				suite: suite.name,
-				scenario: scenario.name,
-				description: plainDescription(scenario.description),
-				prompt: scenario.prompt,
-				passed,
-				failures,
-				durationMs,
-				attempts,
-				judgeVerdicts,
-				trace: scenarioTrace,
-				compare: compareResult,
-				story,
-				...usageFields,
-			};
-			const debugBundleDir = await maybeWriteDebugBundle({
-				debug,
-				cwd: options.cwd,
-				suitesDir: options.suitesDir ?? "agent-suites",
-				rubricsDir: options.rubricsDir,
-				stagingSessionId: options.stagingSessionId,
-				debugDir: options.debugDir,
-				suiteName: suite.name,
-				scenario,
-				host: defaultHost,
-				result: scenarioResult,
-				trace: scenarioTrace,
-				timeoutMs: options.timeoutMs,
-				worktree: options.worktree,
-				judge: options.judge,
-				allowUserInput: options.allowUserInput,
-				keepRecordings: options.keepRecordings,
-				authMode: options.authMode ?? getProcessAuthMode(),
-			});
-			scenarioResult.debugBundleDir = debugBundleDir;
-			emitScenarioVerdict({
-				passed,
-				index: index + 1,
-				total: filteredTotal,
-				name: scenario.name,
-				durationMs,
-				totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, scenarioTrace?.usage),
-				judgeVerdicts,
-				failures,
-				story,
-				debug,
-				debugBundleDir,
-			});
-			results.push(scenarioResult);
-			releaseLiveMemory();
-			continue;
-		}
-
-		results.push(
-			await runAgentTest({
-				cwd: options.cwd,
-				suiteName: suite.name,
-				scenario,
-				defaults: suite.defaults,
-				host: options.host,
-				judge: options.judge,
-				worktree: options.worktree,
-				stagingSessionId: options.stagingSessionId,
-				scenarioIndex,
-				scenarioTotal,
-				timeoutMs: options.timeoutMs,
-				allowUserInput: options.allowUserInput,
-				debug: options.debug,
-				debugDir: options.debugDir,
-				suitesDir: options.suitesDir,
-				keepRecordings: options.keepRecordings,
-				rubricsDir: options.rubricsDir,
-				scenarioRetries: isChildProcess() ? 0 : options.scenarioRetries,
-			}),
+				const durationMs = Math.round(performance.now() - started);
+				const passed = failures.length === 0;
+				const usageFields = buildScenarioResultUsage({
+					agentUsage: compareResult
+						? sumUsageParts(compareResultArms(compareResult).map((arm) => arm.trace?.usage))
+						: scenarioTrace?.usage,
+					judgeVerdicts,
+				});
+				const story = buildScenarioStory({
+					rubric: scenario.rubric,
+					trace: scenarioTrace,
+					passed,
+					failures,
+					judgeVerdicts,
+					compare: compareResult
+						? attachCompareStoryResults(compareStoryFields(scenario), compareResult)
+						: undefined,
+				});
+				const scenarioResult: ScenarioResult = {
+					suite: suite.name,
+					scenario: scenario.name,
+					description: plainDescription(scenario.description),
+					prompt: scenario.prompt,
+					passed,
+					failures,
+					durationMs,
+					attempts,
+					judgeVerdicts,
+					trace: scenarioTrace,
+					compare: compareResult,
+					story,
+					...usageFields,
+				};
+				const debugBundleDir = await maybeWriteDebugBundle({
+					debug,
+					cwd: options.cwd,
+					suitesDir: options.suitesDir ?? "agent-suites",
+					rubricsDir: options.rubricsDir,
+					stagingSessionId: options.stagingSessionId,
+					debugDir: options.debugDir,
+					suiteName: suite.name,
+					scenario,
+					host: defaultHost,
+					result: scenarioResult,
+					trace: scenarioTrace,
+					timeoutMs: options.timeoutMs,
+					worktree: options.worktree,
+					judge: options.judge,
+					allowUserInput: options.allowUserInput,
+					keepRecordings: options.keepRecordings,
+					authMode: options.authMode ?? getProcessAuthMode(),
+				});
+				scenarioResult.debugBundleDir = debugBundleDir;
+				emitScenarioVerdict({
+					passed,
+					index: index + 1,
+					total: filteredTotal,
+					name: scenario.name,
+					durationMs,
+					totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, scenarioTrace?.usage),
+					judgeVerdicts,
+					failures,
+					story,
+					debug,
+					debugBundleDir,
+				});
+				isolateSlots[index] = scenarioResult;
+				releaseLiveMemory();
+				return;
+			},
 		);
-		releaseLiveMemory();
+		for (const result of isolateSlots) {
+			if (result) {
+				results.push(result);
+			}
+		}
+	} else {
+		for (let index = 0; index < scenarios.length; index++) {
+			const scenario = scenarios[index];
+			if (!scenario) {
+				continue;
+			}
+
+			const scenarioIndex = parentCounters?.index ?? index + 1;
+			const scenarioTotal = displayTotal;
+			results.push(
+				await runAgentTest({
+					cwd: options.cwd,
+					suiteName: suite.name,
+					scenario,
+					defaults: suite.defaults,
+					host: options.host,
+					judge: options.judge,
+					worktree: options.worktree,
+					stagingSessionId: options.stagingSessionId,
+					scenarioIndex,
+					scenarioTotal,
+					timeoutMs: options.timeoutMs,
+					allowUserInput: options.allowUserInput,
+					debug: options.debug,
+					debugDir: options.debugDir,
+					suitesDir: options.suitesDir,
+					keepRecordings: options.keepRecordings,
+					rubricsDir: options.rubricsDir,
+					scenarioRetries: isChildProcess() ? 0 : options.scenarioRetries,
+					compareArm: options.compareArm,
+				}),
+			);
+			releaseLiveMemory();
+		}
 	}
 
 	return {
@@ -1087,7 +1115,7 @@ async function runAgentTestBody(options: RunAgentTestOptions): Promise<ScenarioR
 			options.suitesDir ?? "agent-suites",
 			options.keepRecordings,
 			options.rubricsDir,
-			{ suppressEmit: maxAttempts > 1 },
+			{ suppressEmit: maxAttempts > 1, compareArm: options.compareArm },
 		);
 		const canRetry =
 			!result.skipped &&
@@ -1222,6 +1250,10 @@ async function runAgentTestOnce(
 		);
 	}
 
+	if (runOptions?.compareArm && scenario.compare) {
+		scenario = requireCompareArm(scenario, runOptions.compareArm);
+	}
+
 	const host = scenario.host ?? defaultHost;
 	const profile = scenario.profile ?? defaultProfile ?? defaultProfileForHost(host);
 	const skills = scenario.skills ?? defaultSkills;
@@ -1286,8 +1318,21 @@ async function runAgentTestOnce(
 		const outputContract = outputContractForRubric(scenario.rubric);
 		const agentStartMarkerPath =
 			isChildProcess() && stagingSessionId
-				? getStagingAgentStartPath(stagingSessionId, suiteName, scenario.name)
+				? getStagingAgentStartPath(
+						stagingSessionId,
+						suiteName,
+						scenario.name,
+						runOptions?.compareArm,
+					)
 				: undefined;
+		const viewerEnvelope: ViewerEventEnvelope = {
+			suite: suiteName,
+			scenario: scenario.name,
+			host,
+			...(runOptions?.compareArm ? { arm: runOptions.compareArm } : {}),
+		};
+		emitViewerEvent({ type: "cell_started", ...viewerEnvelope });
+		emitViewerEvent({ type: "prompt", text: scenario.prompt, ...viewerEnvelope });
 		logPhase(theme.phase("agent", theme.phaseDim("started")));
 		const agentStarted = performance.now();
 		let livePreview: string | undefined;
@@ -1310,11 +1355,18 @@ async function runAgentTestOnce(
 					: undefined,
 				onAgentEvent: (event: LiveAgentEvent) => {
 					if (event.type === "tool") {
+						emitViewerEvent({
+							type: "tool",
+							name: event.name,
+							args: event.args,
+							...viewerEnvelope,
+						});
 						logLive(theme.liveTool(event.name, pathFromArgs(event.args)));
 						livePreview = undefined;
 						refreshHeartbeat();
 						return;
 					}
+					emitViewerEvent({ type: "text", text: event.text, ...viewerEnvelope });
 					// Clock tick paints the preview. Do not rewrite here — a long
 					// line wraps and `\r` cannot clear the leftover row.
 					livePreview = quoteExcerpt(event.text);
@@ -1485,11 +1537,14 @@ async function runAgentTestOnce(
 		const durationMs = Math.round(performance.now() - started);
 
 		if (isChildProcess() && stagingSessionId && runOptions?.writeSidecar !== false) {
-			await writeStagingResult(getStagingResultPath(stagingSessionId, suiteName, scenario.name), {
-				passed: failures.length === 0,
-				failures,
-				durationMs,
-			});
+			await writeStagingResult(
+				getStagingResultPath(stagingSessionId, suiteName, scenario.name, runOptions?.compareArm),
+				{
+					passed: failures.length === 0,
+					failures,
+					durationMs,
+				},
+			);
 		}
 
 		if (worktreeHandle) {
@@ -1527,6 +1582,28 @@ async function runAgentTestOnce(
 				judgeVerdicts,
 			}),
 		};
+		emitViewerEvent({
+			type: "cell_finished",
+			...viewerEnvelope,
+			passed,
+			durationMs,
+			failures: failures.map((failure) => ({
+				matcher: failure.matcher,
+				message: failure.message,
+			})),
+		});
+		if (judgeVerdicts && judgeVerdicts.length > 0) {
+			emitViewerEvent({
+				type: "judge",
+				...viewerEnvelope,
+				verdicts: judgeVerdicts.map((verdict) => ({
+					id: verdict.id,
+					question: verdict.question,
+					pass: verdict.pass,
+					rationale: verdict.rationale,
+				})),
+			});
+		}
 		if (!suppressEmit) {
 			const debugBundleDir = await maybeWriteDebugBundle({
 				debug,
@@ -1969,6 +2046,8 @@ export async function runAllSuites(options: {
 	rubricsDir?: string;
 	adapterModules?: string[];
 	authMode?: HostAuthMode;
+	compareArm?: CompareArmId;
+	workers?: number;
 }): Promise<SuiteRunReport[]> {
 	const previousAuthMode = getProcessAuthMode();
 	if (options.authMode !== undefined) {
@@ -2002,6 +2081,8 @@ async function runAllSuitesBody(options: {
 	rubricsDir?: string;
 	adapterModules?: string[];
 	authMode?: HostAuthMode;
+	compareArm?: CompareArmId;
+	workers?: number;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
@@ -2043,6 +2124,8 @@ async function runAllSuitesBody(options: {
 					rubricsDir: options.rubricsDir,
 					adapterModules: options.adapterModules,
 					authMode: options.authMode ?? getProcessAuthMode(),
+					compareArm: options.compareArm,
+					workers: options.workers,
 				}),
 			);
 		}

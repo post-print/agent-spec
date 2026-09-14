@@ -26,6 +26,12 @@ export interface ScenarioRubric {
 	mustNot?: string[];
 	mustRun?: string[];
 	/**
+	 * When set, every shell statement must include one listed fragment.
+	 * Combined commands split on `&&`, `||`, `;`, `|`, and newlines.
+	 * An empty list forbids every shell command.
+	 */
+	allowedCommands?: string[];
+	/**
 	 * Tool name substring, or `name:fragment` where fragment must appear in
 	 * JSON args or the tool result. Matches built-in and MCP tool calls.
 	 */

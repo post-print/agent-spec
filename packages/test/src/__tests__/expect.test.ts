@@ -140,6 +140,56 @@ describe("expectTrace", () => {
 		expect(failures[0]?.evidence).toContain("shellCommands=");
 	});
 
+	it("passes allowedCommands when every shell segment matches the list", () => {
+		const trace: AgentTrace = {
+			...sampleTrace,
+			messages: [],
+			shellCommands: [
+				"npm install @csark0812/skeleton",
+				"npx skeleton init && skeleton audit self",
+			],
+		};
+		expect(
+			assertRubric(trace, {
+				allowedCommands: [
+					"npm install @csark0812/skeleton",
+					"skeleton init",
+					"skeleton audit self",
+				],
+			}),
+		).toHaveLength(0);
+	});
+
+	it("fails allowedCommands for eslint and a parent-repo install", () => {
+		const trace: AgentTrace = {
+			...sampleTrace,
+			messages: [],
+			shellCommands: [
+				"npm install @csark0812/skeleton && eslint .",
+				"cd /Users/me/Repositories/skeleton && npm install",
+			],
+		};
+		const failures = assertRubric(trace, {
+			allowedCommands: ["npm install @csark0812/skeleton", "skeleton init"],
+		});
+		expect(failures).toHaveLength(2);
+		expect(failures[0]?.matcher).toBe("toHaveAllowedCommands");
+		expect(failures[0]?.category).toBe("rubric_miss");
+		expect(failures[0]?.message).toContain("eslint .");
+		expect(failures[1]?.message).toContain("cd /Users/me/Repositories/skeleton");
+	});
+
+	it("fails an empty allowlist when any shell command ran", () => {
+		const failures = assertRubric(sampleTrace, { allowedCommands: [] });
+		expect(failures).toHaveLength(1);
+		expect(failures[0]?.matcher).toBe("toHaveAllowedCommands");
+		expect(failures[0]?.evidence).toContain("bun run validate:changed");
+	});
+
+	it("skips allowedCommands when the key is omitted", () => {
+		expect(assertRubric(sampleTrace, { must: ["Review synthesis"] })).toHaveLength(0);
+	});
+
 	it("passes hands-on tier inferred from one-line announce", () => {
 		const trace: AgentTrace = {
 			messages: [

@@ -16,6 +16,7 @@ const RUBRIC_ARRAY_KEYS = [
 	"must",
 	"mustNot",
 	"mustRun",
+	"allowedCommands",
 	"mustCallTool",
 	"mustNotCallTool",
 	"mustReadPath",
@@ -199,6 +200,15 @@ export function compareArmTurns(arm: CompareArmResult): number | undefined {
 
 export function formatCompareTurns(turns: number): string {
 	return turns === 1 ? "1 turn" : `${turns} turns`;
+}
+
+/** Apply one compare arm, or throw when the arm id is missing. */
+export function requireCompareArm(scenario: AgentScenario, side: CompareArmId): AgentScenario {
+	const resolved = resolveCompareArms(scenario.compare);
+	if (!resolved.some((entry) => entry.id === side)) {
+		throw new Error(`Scenario ${scenario.name} has no compare arm ${side}`);
+	}
+	return applyCompareArm(scenario, side);
 }
 
 /** Apply one compare arm onto the shared scenario. Drops `compare` so the arm is a normal run. */

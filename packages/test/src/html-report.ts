@@ -83,6 +83,10 @@ const MISSING_COMMAND = {
 	label: "Missing command",
 	hint: "An expected command never ran.",
 };
+const FORBIDDEN_COMMAND = {
+	label: "Forbidden command",
+	hint: "A shell command ran that is not on the allowedCommands list.",
+};
 const MISSING_TOOL = {
 	label: "Missing tool call",
 	hint: "An expected tool was never invoked.",
@@ -125,6 +129,8 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	mustNotInclude: FORBIDDEN_BEHAVIOR,
 	mustRun: MISSING_COMMAND,
 	toHaveRunCommand: MISSING_COMMAND,
+	allowedCommands: FORBIDDEN_COMMAND,
+	toHaveAllowedCommands: FORBIDDEN_COMMAND,
 	mustCallTool: MISSING_TOOL,
 	toHaveCalledTool: MISSING_TOOL,
 	mustNotCallTool: FORBIDDEN_TOOL,
@@ -842,6 +848,10 @@ function renderSuite(report: SuiteRunReport): string {
   </header>
   ${scenarios}
 </section>`;
+}
+
+export function reportCss(): string {
+	return sharedReportCss();
 }
 
 function sharedReportCss(): string {

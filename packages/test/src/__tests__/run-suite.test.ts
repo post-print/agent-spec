@@ -621,6 +621,46 @@ describe("runSuite isolateLive", () => {
 		}
 	});
 
+	it("runs isolated scenarios in parallel when workers is 2", async () => {
+		delete process.env.AGENT_TEST_CHILD;
+		delete process.env.AGENT_TEST_NO_ISOLATE;
+
+		const dir = await mkdtemp(join(tmpdir(), "agent-test-workers-"));
+		const suitePath = join(dir, "scenarios.json");
+		await writeFile(
+			suitePath,
+			JSON.stringify({
+				name: "isolate-workers",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{ name: "one", prompt: "p", rubric: {} },
+					{ name: "two", prompt: "p", rubric: {} },
+				],
+			}),
+		);
+
+		let current = 0;
+		let peak = 0;
+		jest.spyOn(liveIsolation, "spawnLiveScenario").mockImplementation(async () => {
+			current += 1;
+			peak = Math.max(peak, current);
+			await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+			current -= 1;
+			return spawnResult(0);
+		});
+
+		const report = await runSuite({
+			cwd: dir,
+			suitePath,
+			stagingSessionId: "sess-workers",
+			judge: false,
+			workers: 2,
+		});
+
+		expect(report.results).toHaveLength(2);
+		expect(peak).toBe(2);
+	});
+
 	it("writes debug bundles for passed scenarios when debug is enabled", async () => {
 		delete process.env.AGENT_TEST_CHILD;
 		delete process.env.AGENT_TEST_NO_ISOLATE;

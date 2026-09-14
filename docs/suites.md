@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=packages/test/src/types.ts,packages/test/src/compare-scenario.ts,packages/test/src/validate-suite.ts,agent-suites/**/scenarios.json -->
+<!-- review-deps: paths=packages/test/src/types.ts,packages/test/src/compare-scenario.ts,packages/test/src/validate-suite.ts,packages/test/src/command-allowlist.ts,packages/test/src/expect.ts,agent-suites/**/scenarios.json -->
 
 A **suite** is `agent-suites/<name>/scenarios.json`. A **scenario** is one prompt plus a rubric. JSON loads into `runAgentTest`. It is not a stored answer.
 
@@ -68,6 +68,7 @@ Deterministic matchers read the transcript. Each row states which parts of the t
 | `must` | Each string appears in assistant reply text. Tool results, commands, and artifacts do not count. |
 | `mustNot` | None of the strings appear in text, commands, artifacts, or tool args. Tool results are ignored. |
 | `mustRun` | Each string appears in a shell command. |
+| `allowedCommands` | Every shell statement includes one listed fragment. Combined commands split on `&&`, `||`, `;`, `|`, and newlines. An empty list forbids every shell command. Omit the key for no allowlist. |
 | `mustCallTool` | A tool name substring matches. `name:fragment` also requires the fragment in JSON args or the tool result. |
 | `mustNotCallTool` | No matching tool call. |
 | `mustReadPath` | A Read-family arg or a Shell/Bash path access contains the substring. |
@@ -81,6 +82,8 @@ Deterministic matchers read the transcript. Each row states which parts of the t
 | `reviewDepth` | Optional `quick` / `standard` / `thorough` / `full`. |
 
 The judge sees assistant text, tool args, and tool results. `--no-judge` skips judge questions and the `mustInvokeSkill` follow-up. Deterministic matchers still run.
+
+Set `allowedCommands` when Shell is allowed, but only some commands are legal. The scorer splits combined lines. `npm install @pkg && eslint .` fails if `eslint` is not on the list. The host can still run the command. The scenario then fails.
 
 ## Compare
 

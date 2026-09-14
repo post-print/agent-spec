@@ -125,6 +125,18 @@ describe("live-isolation", () => {
 		expect(args).not.toContain("--timeout-ms");
 	});
 
+	it("forwards --compare-arm to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "judge",
+			scenarioName: "compares two workspace arms",
+			suitesDir: "agent-suites",
+			compareArm: "a",
+		});
+		expect(args).toContain("--compare-arm");
+		expect(args).toContain("a");
+	});
+
 	it("forwards --auth-mode to the child CLI", () => {
 		const { args } = buildLiveScenarioCommand({
 			cwd: "/repo",

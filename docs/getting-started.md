@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=.env.example,package.json,packages/test/package.json,packages/test/src/validate-suite.ts -->
+<!-- review-deps: paths=.env.example,package.json,packages/test/package.json,packages/test/src/validate-suite.ts,packages/test/src/types.ts -->
 
 Install `@post-print/agent-test`. Write one JSON suite. Check it. Then launch a host agent.
 
@@ -105,13 +105,13 @@ const result = await runAgentTest({
 });
 ```
 
-The default host is Cursor. Isolation, judging, timeout, and announce-stop retry stay on unless you turn them off.
+The default host is Cursor. Isolation, judging, timeout, and announce-stop retry stay on unless you turn them off. Set `rubric.allowedCommands` when only some shell commands are legal. Pass `--workers` to run more than one live agent at a time.
 
 ## Next
 
 | Task | Paper |
 | --- | --- |
-| Flags and check versus live | [cli.md](cli.md) |
+| Flags, viewer, and check versus live | [cli.md](cli.md) |
 | Rubric, compare, workspace, MCP | [suites.md](suites.md) |
 | Auth and custom hosts | [hosts.md](hosts.md) |
 | Sealed workspace and debug bundles | [isolation.md](isolation.md) |

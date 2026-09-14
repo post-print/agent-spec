@@ -3,6 +3,43 @@ import type { AgentSuiteFile } from "../types.js";
 import { validateSuiteFile } from "../validate-suite.js";
 
 describe("validate-suite", () => {
+	it("rejects a non-array allowedCommands list", () => {
+		const suite: AgentSuiteFile = {
+			name: "bad",
+			scenarios: [
+				{
+					name: "case",
+					prompt: "test",
+					rubric: { allowedCommands: "npm install" as unknown as string[] },
+				},
+			],
+		};
+		const issues = validateSuiteFile("/tmp/scenarios.json", suite);
+		expect(issues.some((issue) => issue.field === "rubric.allowedCommands")).toBe(true);
+	});
+
+	it("accepts an allowedCommands list", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "adopt",
+						prompt: "Install and initialize @csark0812/skeleton in this repo.",
+						rubric: {
+							allowedCommands: [
+								"npm install @csark0812/skeleton",
+								"skeleton init",
+								"skeleton audit self",
+							],
+							mustRun: ["@csark0812/skeleton", "skeleton init", "skeleton audit self"],
+						},
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
 	it("rejects invalid tier enum", () => {
 		const suite: AgentSuiteFile = {
 			name: "bad",

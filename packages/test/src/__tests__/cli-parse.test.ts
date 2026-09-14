@@ -195,9 +195,59 @@ describe("parseCliArgs debug flags", () => {
 		);
 	});
 
+	it("parses the viewer subcommand", () => {
+		const args = parseCliArgs([
+			"node",
+			"cli.js",
+			"viewer",
+			"--suites-dir",
+			"agent-suites",
+			"--port",
+			"0",
+		]);
+		expect(args.viewer).toBe(true);
+		expect(args.suitesDir).toBe("agent-suites");
+		expect(args.viewerPort).toBe(0);
+		expect(parseCliArgs(["node", "cli.js"]).viewer).toBe(false);
+	});
+
+	it("parses --compare-arm for isolated children", () => {
+		expect(parseCliArgs(["node", "cli.js", "--compare-arm", "a"]).compareArm).toBe("a");
+		expect(() => parseCliArgs(["node", "cli.js", "--compare-arm", "A"])).toThrow(
+			/--compare-arm must be a lowercase slug/,
+		);
+	});
+
+	it("parses --workers and AGENT_TEST_WORKERS", () => {
+		const prior = process.env.AGENT_TEST_WORKERS;
+		delete process.env.AGENT_TEST_WORKERS;
+		expect(parseCliArgs(["node", "cli.js"]).workers).toBeUndefined();
+		expect(parseCliArgs(["node", "cli.js", "--workers", "2"]).workers).toBe(2);
+		expect(parseCliArgs(["node", "cli.js", "--workers=3"]).workers).toBe(3);
+		process.env.AGENT_TEST_WORKERS = "4";
+		expect(parseCliArgs(["node", "cli.js"]).workers).toBe(4);
+		expect(parseCliArgs(["node", "cli.js", "--workers", "1"]).workers).toBe(1);
+		expect(() => parseCliArgs(["node", "cli.js", "--workers", "0"])).toThrow(
+			/--workers must be an integer 1-32/,
+		);
+		expect(() => parseCliArgs(["node", "cli.js", "--workers", "33"])).toThrow(
+			/--workers must be an integer 1-32/,
+		);
+		if (prior === undefined) {
+			delete process.env.AGENT_TEST_WORKERS;
+		} else {
+			process.env.AGENT_TEST_WORKERS = prior;
+		}
+	});
+
+	it("lists --workers in help", () => {
+		expect(formatHelp()).toContain("--workers");
+	});
+
 	it("lists login in help", () => {
 		expect(formatHelp()).toContain("agent-test login");
 		expect(formatHelp()).toContain("Cursor SDK login");
+		expect(formatHelp()).toContain("agent-test viewer");
 	});
 
 	it("rejects leftover compare flags", () => {

@@ -21,6 +21,7 @@ import {
 	runCheck,
 } from "./check.js";
 import { isCliMain } from "./cli-entry.js";
+import { parseCompareArmId } from "./compare-scenario.js";
 import { missingAgentAuth } from "./doctor.js";
 import { installHostLogFilter } from "./host-log.js";
 import {
@@ -48,7 +49,10 @@ import {
 	summarizeReports,
 } from "./suite-summary.js";
 import { configureCliColor, theme } from "./theme.js";
+import type { CompareArmId } from "./types.js";
+import { startViewerCli } from "./viewer/cli.js";
 import { suppressNoisyRuntimeWarnings } from "./warnings.js";
+import { parseWorkerCount } from "./worker-pool.js";
 
 suppressNoisyRuntimeWarnings();
 configureCliColor();
@@ -93,6 +97,14 @@ export interface ParsedCliArgs {
 	authMode?: HostAuthMode;
 	/** `agent-test login` — store host CLI or Cursor SDK credentials. */
 	login: boolean;
+	/** `agent-test viewer` — localhost catalog and live chat UI. */
+	viewer: boolean;
+	/** Isolated child: run one compare arm only. */
+	compareArm?: CompareArmId;
+	/** Viewer listen port. `0` picks a free port. */
+	viewerPort?: number;
+	/** How many live agents run at once. Viewer default is 4. CLI default is 1. */
+	workers?: number;
 }
 
 function splitArgvFlag(token: string): { flag: string; inline?: string } | undefined {
@@ -145,11 +157,13 @@ export function formatHelp(): string {
 	return [
 		"agent-test [options] [suite]",
 		"agent-test login [--host cursor|claude|openai]",
+		"agent-test viewer [--suites-dir agent-suites]",
 		"",
 		"Launch a host agent and score the transcript.",
 		"A run checks the suite and host first.",
 		"",
 		"  login                           Store a Cursor SDK login. Codex uses `codex login`.",
+		"  viewer                          Open a localhost catalog. Run buttons start live agents.",
 		"  --check                         Check the suite and host. Do not launch an agent.",
 		"  --help, -h                      Print this help.",
 		"",
@@ -162,12 +176,15 @@ export function formatHelp(): string {
 		"  --suites-dir <path>             Suite root (default: agent-suites)",
 		"  --suite <name>                  Run one suite",
 		"  --scenario <name>               Run one scenario",
+		"  --compare-arm <id>              Isolated child: run one compare arm",
+		"  --port <n>                      Viewer listen port. Default is a free port.",
 		"  --no-judge                      Skip the judge",
 		"  --fail-on all|behavior|infra-only",
 		"  --allow-user-input              Let a user agent answer AskQuestion tools",
 		"  --timeout-ms <n>                Agent deadline",
 		"  --no-timeout                    Disable the deadline",
 		"  --scenario-retries <n>          Announce-stop retries",
+		"  --workers <n>                   Parallel live agents (1-32). Viewer default 4. CLI default 1.",
 		"  --debug                         Keep recordings and write a debug bundle",
 		"  --debug-dir <path>              Debug session parent directory",
 		"  --report-out <path>             HTML report file or directory",
@@ -208,6 +225,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let failOn: FailOnMode = "all";
 	let scenarioRetries: number | undefined;
 	let authMode: HostAuthMode | undefined;
+	let compareArm: CompareArmId | undefined;
+	let viewerPort: number | undefined;
+	let workers: number | undefined;
 
 	if (argv[2] === "compare") {
 		throw new Error(
@@ -216,7 +236,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	}
 
 	const login = argv[2] === "login";
-	const startIndex = login ? 3 : 2;
+	const viewer = argv[2] === "viewer";
+	const startIndex = login || viewer ? 3 : 2;
 
 	const checkMode = {
 		check: false,
@@ -298,6 +319,22 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 			case "--scenario":
 				scenarioFilter = read();
 				break;
+			case "--compare-arm": {
+				const value = parseCompareArmId(read());
+				if (!value) {
+					throw new Error("--compare-arm must be a lowercase slug");
+				}
+				compareArm = value;
+				break;
+			}
+			case "--port": {
+				const parsedPort = Number(read());
+				if (!Number.isInteger(parsedPort) || parsedPort < 0 || parsedPort > 65535) {
+					throw new Error("--port must be an integer 0-65535");
+				}
+				viewerPort = parsedPort;
+				break;
+			}
 			case "--staging-session-id":
 				stagingSessionId = read();
 				break;
@@ -352,6 +389,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 				scenarioRetries = parsedRetries;
 				break;
 			}
+			case "--workers":
+				workers = parseWorkerCount(read());
+				break;
 			case "--compare-pairs":
 			case "--a":
 			case "--b":
@@ -393,6 +433,13 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	judge = judge ?? true;
 	worktree = worktree ?? true;
 
+	if (workers === undefined) {
+		const fromEnv = process.env.AGENT_TEST_WORKERS?.trim();
+		if (fromEnv) {
+			workers = parseWorkerCount(fromEnv, "AGENT_TEST_WORKERS");
+		}
+	}
+
 	if (debug) {
 		keepRecordings = true;
 		process.env.AGENT_TEST_DEBUG = "1";
@@ -431,6 +478,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		scenarioRetries,
 		authMode,
 		login,
+		viewer,
+		compareArm,
+		viewerPort,
+		workers,
 	};
 }
 
@@ -519,6 +570,15 @@ async function main(): Promise<number> {
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : error);
 		return 1;
+	}
+
+	if (args.viewer) {
+		try {
+			return await startViewerCli(args);
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : error);
+			return 1;
+		}
 	}
 
 	if (args.check || args.doctor || args.validateOnly || args.validateSeeds) {

@@ -363,6 +363,27 @@ describe("html-report", () => {
 		expect(html).not.toContain("Tested");
 	});
 
+	it("renders a forbidden-command allowlist failure", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					passed: false,
+					failures: [
+						{
+							matcher: "toHaveAllowedCommands",
+							message: 'forbidden command "eslint ." is not on the allowlist',
+							category: "rubric_miss",
+							evidence: 'command="eslint ."',
+						},
+					],
+				}),
+			]),
+		]);
+		expect(html).toContain("Forbidden command");
+		expect(html).toContain("allowedCommands");
+		expect(html).toContain("eslint .");
+	});
+
 	it("renders grounding matcher labels and failure evidence", () => {
 		const html = renderHtmlReport([
 			makeReport([

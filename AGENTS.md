@@ -18,7 +18,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 | Branch | Paper |
 | --- | --- |
 | Getting started (install, first suite, first live run) | [docs/getting-started.md](docs/getting-started.md) |
-| CLI flags, check versus live | [docs/cli.md](docs/cli.md) |
+| CLI flags, viewer, check versus live | [docs/cli.md](docs/cli.md) |
 | Suites, rubric, compare, MCP | [docs/suites.md](docs/suites.md) |
 | Hosts, auth, custom adapters | [docs/hosts.md](docs/hosts.md) |
 | Isolation, sealed workspace, debug | [docs/isolation.md](docs/isolation.md) |
@@ -41,6 +41,7 @@ bun run test:sandbox-safe
 bun run audit:self
 node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
 node packages/test/dist/cli.js --check --suites-dir agent-suites
+node packages/test/dist/cli.js viewer --suites-dir agent-suites
 ```
 
 Full unpaid gate (`bun run check` = lint + typecheck + unit tests + build) needs unrestricted Cursor sandbox permissions (`all`) because some fixtures run `git init` or write `.cursor/` trees under tmp. Prefer `bun run test:sandbox-safe` under the default sandbox (skips those fixtures). Do not treat sandbox `git`/`hooks`/`.cursor` failures as a broken repo.

@@ -9,6 +9,7 @@ import {
 	type SkillContextMode,
 } from "@post-print/agent-harness";
 
+import { disallowedShellSegments } from "./command-allowlist.js";
 import { assertionFailure } from "./failures.js";
 import type { AssertionFailure, ScenarioRubric } from "./types.js";
 
@@ -198,6 +199,26 @@ export class TraceAssertion {
 				listed.length > 0
 					? `shellCommands=[${listed.map((c) => JSON.stringify(c)).join(", ")}]${more}`
 					: "shellCommands=[]",
+			);
+		}
+		return this;
+	}
+
+	/** When set, every shell statement must match one allowlist fragment. */
+	toHaveAllowedCommands(allowlist: string[] | undefined): this {
+		if (allowlist === undefined) {
+			return this;
+		}
+		for (const command of this.trace.shellCommands) {
+			const bad = disallowedShellSegments(command, allowlist);
+			if (bad.length === 0) {
+				continue;
+			}
+			const shown = allowlist.length === 0 ? command : (bad[0] ?? command);
+			this.push(
+				"toHaveAllowedCommands",
+				`forbidden command "${shown}" is not on the allowlist`,
+				`command=${JSON.stringify(command)}`,
 			);
 		}
 		return this;
@@ -556,6 +577,7 @@ export function assertRubric(
 	for (const cmd of rubric.mustRun ?? []) {
 		assertion.toHaveRunCommand(cmd);
 	}
+	assertion.toHaveAllowedCommands(rubric.allowedCommands);
 	for (const tool of rubric.mustCallTool ?? []) {
 		assertion.toHaveCalledTool(tool);
 	}

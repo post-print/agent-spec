@@ -15,6 +15,7 @@ import {
 	parseCompareArmId,
 	plainDescription,
 	prefixCompareFailures,
+	requireCompareArm,
 	resolveCompareArms,
 	resolveCompareMetricPairs,
 } from "../compare-scenario.js";
@@ -76,6 +77,13 @@ describe("compare-scenario", () => {
 		expect(b.prompt).toBe("arm b prompt");
 	});
 
+	it("requires a known compare arm id", () => {
+		expect(requireCompareArm(base, "b").prompt).toBe("arm b prompt");
+		expect(() => requireCompareArm(base, "missing")).toThrow(
+			"Scenario pair has no compare arm missing",
+		);
+	});
+
 	it("merges arm rubric arrays and keeps the shared judge", () => {
 		const merged = mergeArmRubric(
 			{ must: ["shared"], judge: ["Did B stay closer to the note?"] },
@@ -83,7 +91,16 @@ describe("compare-scenario", () => {
 		);
 		expect(merged.must).toEqual(["shared", "SHIP: token"]);
 		expect(merged.mustInvokeSkill).toEqual(["brief-ship"]);
+		expect(merged.allowedCommands).toBeUndefined();
 		expect(merged.judge).toEqual(["Did B stay closer to the note?"]);
+	});
+
+	it("appends arm allowedCommands onto the scenario allowlist", () => {
+		const merged = mergeArmRubric(
+			{ allowedCommands: ["npm install @csark0812/skeleton"] },
+			{ allowedCommands: ["skeleton init"] },
+		);
+		expect(merged.allowedCommands).toEqual(["npm install @csark0812/skeleton", "skeleton init"]);
 	});
 
 	it("applies the merged arm rubric", () => {

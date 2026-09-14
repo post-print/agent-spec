@@ -13,7 +13,9 @@ import {
 	getStagingAgentStartPath,
 	readAgentStartMarker,
 } from "./record-trace.js";
-import type { AssertionFailure, FailureCategory } from "./types.js";
+import type { AssertionFailure, CompareArmId, FailureCategory } from "./types.js";
+import { VIEWER_EVENTS_FD, VIEWER_EVENTS_FD_ENV } from "./viewer/emit.js";
+import { parseViewerEvent, type ViewerEvent } from "./viewer/events.js";
 
 const activeChildren = new Set<ChildProcess>();
 
@@ -115,6 +117,10 @@ export interface SpawnLiveScenarioOptions {
 	debugDir?: string;
 	/** Host billing mode. Forwarded so the child does not fall back to env or default. */
 	authMode?: HostAuthMode;
+	/** Isolated single compare arm. */
+	compareArm?: CompareArmId;
+	/** Parent receives NDJSON viewer events from child fd 3. */
+	onViewerEvent?: (event: ViewerEvent) => void;
 }
 
 export interface LiveScenarioCommand {
@@ -167,6 +173,9 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	}
 	if (options.authMode) {
 		args.push("--auth-mode", options.authMode);
+	}
+	if (options.compareArm) {
+		args.push("--compare-arm", options.compareArm);
 	}
 	if (options.debug) {
 		args.push("--debug");
@@ -230,10 +239,14 @@ export async function spawnLiveScenario(
 ): Promise<SpawnLiveScenarioResult> {
 	const { command, args, execArgv } = buildLiveScenarioCommand(options);
 
+	const captureEvents = options.onViewerEvent !== undefined;
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		AGENT_TEST_CHILD: "1",
 	};
+	if (captureEvents) {
+		env[VIEWER_EVENTS_FD_ENV] = String(VIEWER_EVENTS_FD);
+	}
 	if (options.scenarioIndex !== undefined) {
 		env.AGENT_TEST_SCENARIO_INDEX = String(options.scenarioIndex);
 	}
@@ -249,8 +262,27 @@ export async function spawnLiveScenario(
 		const child = spawn(command, [...execArgv, ...args], {
 			cwd: options.cwd,
 			env,
-			stdio: ["inherit", "inherit", "pipe"],
+			stdio: captureEvents
+				? ["inherit", "inherit", "pipe", "pipe"]
+				: ["inherit", "inherit", "pipe"],
 		});
+		if (captureEvents) {
+			const eventStream = child.stdio[VIEWER_EVENTS_FD];
+			if (eventStream && typeof eventStream !== "number" && "on" in eventStream) {
+				let buffer = "";
+				eventStream.on("data", (chunk: Buffer | string) => {
+					buffer += String(chunk);
+					const lines = buffer.split("\n");
+					buffer = lines.pop() ?? "";
+					for (const line of lines) {
+						const event = parseViewerEvent(line);
+						if (event) {
+							options.onViewerEvent?.(event);
+						}
+					}
+				});
+			}
+		}
 		child.stderr?.on("data", (chunk: Buffer | string) => {
 			const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
 			stderrChunks.push(text);
@@ -300,6 +332,7 @@ export async function spawnLiveScenario(
 				options.stagingSessionId,
 				options.suiteName,
 				options.scenarioName,
+				options.compareArm,
 			);
 			void (async () => {
 				const agentStartMs = await waitForAgentStartMarker(
