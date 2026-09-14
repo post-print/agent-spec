@@ -205,6 +205,7 @@ describe("html-report", () => {
 			]),
 		]);
 		expect(html).toContain("compare-layout");
+		expect(html).not.toContain('role="tablist"');
 		expect(html).toContain("compare-arm-a");
 		expect(html).toContain("compare-arm-b");
 		expect(html).toContain("Arm A");
@@ -215,6 +216,8 @@ describe("html-report", () => {
 		expect(html).toContain("alpha-compare-a7c1");
 		expect(html).toContain("beta-compare-b3e9");
 		expect(html).toContain("Comparison");
+		expect(html).toContain("Winners");
+		expect(html).toContain("beta wins");
 		expect(html).toContain("beta uses fewer turns than alpha");
 		expect(html).toContain("Turns");
 		expect(html).toContain("1,200");
@@ -308,6 +311,11 @@ describe("html-report", () => {
 		expect(html).toContain("skel-clean-ok");
 		expect(html).toContain("none-messy-ok");
 		expect(html).toContain("Arm skel-clean");
+		expect(html).toContain("compare-tablist");
+		expect(html).toContain('for="ct-smoke-hello-cursor-skel-clean"');
+		expect(html).toContain("Winners");
+		expect(html).toContain("lowest is skeleton clean");
+		expect(html).toContain("skeleton clean must use fewer tokens than no skill clean");
 		expect(html).not.toContain("Δ is B minus A");
 		expect(html).not.toContain("four-way");
 	});
@@ -404,6 +412,26 @@ describe("html-report", () => {
 		expect(html).toContain("registry-first");
 		expect(html).toContain("Read toolCalls=[]");
 		expect(html).toContain("failure-evidence");
+	});
+
+	it("shortens sealed workspace paths in tool cards", () => {
+		const path = "/var/folders/f1/tmp/T/agent-harness-seal-abc/README.md";
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					trace: {
+						messages: [{ role: "assistant", content: "Do not write files. Do not use Shell." }],
+						toolCalls: [{ name: "Read", args: { path } }],
+						shellCommands: [],
+						artifacts: {},
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain(">README.md<");
+		expect(html).toContain(`title="${path}"`);
+		expect(html).toContain("word-spacing: normal");
+		expect(html).not.toContain(`>${path}<`);
 	});
 
 	it("interleaves messages and tool calls chronologically when seq is recorded", () => {

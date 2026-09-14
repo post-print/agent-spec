@@ -1,3 +1,5 @@
+import { resolvedTotalTokens } from "@post-print/agent-harness";
+
 import { assertionFailure } from "./failures.js";
 import type {
 	AgentScenario,
@@ -186,8 +188,7 @@ export function resolveCompareMetricPairs(
 }
 
 export function compareArmTokens(arm: CompareArmResult): number | undefined {
-	const total = arm.trace?.usage?.totalTokens;
-	return typeof total === "number" ? total : undefined;
+	return resolvedTotalTokens(arm.trace?.usage);
 }
 
 /** Assistant messages on the trace. One message is one agent turn after stream coalesce. */

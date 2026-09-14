@@ -1,6 +1,7 @@
 import {
 	type AgentUsage,
 	buildScenarioUsageBreakdown,
+	resolvedTotalTokens,
 	type ScenarioUsageBreakdown,
 	sumUsageParts,
 } from "@post-print/agent-harness";
@@ -34,6 +35,5 @@ export function totalTokensFromScenarioUsage(
 	usage?: ScenarioUsageBreakdown,
 	fallback?: AgentUsage,
 ): number | undefined {
-	const total = usage?.total?.totalTokens ?? fallback?.totalTokens;
-	return typeof total === "number" && Number.isFinite(total) ? total : undefined;
+	return resolvedTotalTokens(usage?.total) ?? resolvedTotalTokens(fallback);
 }

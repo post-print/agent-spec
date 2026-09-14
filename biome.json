@@ -9,7 +9,9 @@
 			"!**/dist",
 			"!**/node_modules",
 			"!**/*.tsbuildinfo",
-			"!**/coverage"
+			"!**/coverage",
+			"!**/test-results",
+			"!**/playwright-report"
 		]
 	},
 	"formatter": {
@@ -31,7 +33,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["**/*.test.ts", "**/__tests__/**"],
+			"includes": ["**/*.test.ts", "**/*.spec.ts", "**/__tests__/**", "**/e2e/**"],
 			"linter": {
 				"rules": {
 					"suspicious": {

@@ -2,11 +2,16 @@ import { resolve } from "node:path";
 
 import type { AgentHost } from "@post-print/agent-harness";
 
-import { compareArmDescription, compareArmLabel, resolveCompareArms } from "../compare-scenario.js";
+import {
+	compareArmDescription,
+	compareArmLabel,
+	resolveCompareArms,
+	resolveCompareMetricPairs,
+} from "../compare-scenario.js";
 import { discoverSuites } from "../discover-suites.js";
 import { resolveSuiteHosts } from "../hosts.js";
 import { loadSuiteFile } from "../load-suite.js";
-import type { ScenarioRubric } from "../types.js";
+import type { CompareMetricPair, ScenarioRubric } from "../types.js";
 
 export interface ViewerCatalogArm {
 	id: string;
@@ -23,6 +28,9 @@ export interface ViewerCatalogScenario {
 	host?: AgentHost;
 	rubric: ScenarioRubric;
 	compare?: ViewerCatalogArm[];
+	faster?: CompareMetricPair[];
+	cheaper?: CompareMetricPair[];
+	contextSources?: string[];
 }
 
 export interface ViewerCatalogSuite {
@@ -103,8 +111,24 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 				if (scenario.host) {
 					row.host = scenario.host;
 				}
+				const contextSources = [
+					...(suite.defaults?.contextSources ?? []),
+					...(scenario.contextSources ?? []),
+				].filter((value) => typeof value === "string" && value.trim().length > 0);
+				if (contextSources.length > 0) {
+					row.contextSources = contextSources;
+				}
 				if (arms.length > 0) {
 					row.compare = arms;
+					const armIds = arms.map((arm) => arm.id);
+					const faster = resolveCompareMetricPairs(scenario.compare?.faster, armIds);
+					const cheaper = resolveCompareMetricPairs(scenario.compare?.cheaper, armIds);
+					if (faster.length > 0) {
+						row.faster = faster;
+					}
+					if (cheaper.length > 0) {
+						row.cheaper = cheaper;
+					}
 				}
 				return row;
 			}),

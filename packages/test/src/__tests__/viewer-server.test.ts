@@ -60,6 +60,12 @@ describe("viewer server", () => {
 			expect(html).toContain("hello direct");
 			expect(html).toContain("Run starts a live host agent.");
 			expect(html).toContain('class="primary run-cell"');
+			expect(html).toContain('data-live-slot="smoke::hello direct"');
+			expect(html).toContain("live-status");
+			expect(html).toContain("compare-tablist");
+			expect(html).toContain("chat-running");
+			expect(html).toContain("source.close()");
+			expect(html).not.toContain('id="live-dock"');
 
 			const catalogJson = await fetch(new URL("/api/catalog", handle.url));
 			expect(catalogJson.status).toBe(200);

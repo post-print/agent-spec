@@ -4,6 +4,7 @@ import {
 	buildScenarioStory,
 	describeRubricChecks,
 	describeTraceHappened,
+	displayToolPath,
 } from "../scenario-story.js";
 
 describe("describeRubricChecks", () => {
@@ -59,6 +60,16 @@ describe("describeTraceHappened", () => {
 				artifacts: {},
 			}),
 		).toEqual(['agent replied "# Skeleton"', "Read .agents/skills/skeleton/SKILL.md"]);
+	});
+});
+
+describe("displayToolPath", () => {
+	it("strips the sealed workspace prefix", () => {
+		expect(displayToolPath("/var/folders/x/T/agent-harness-seal-abc/README.md")).toBe("README.md");
+		expect(displayToolPath("/var/folders/x/T/agent-harness-seal-abc/docs/note.md")).toBe(
+			"docs/note.md",
+		);
+		expect(displayToolPath("/var/folders/x/T/agent-harness-seal-abc")).toBe(".");
 	});
 });
 

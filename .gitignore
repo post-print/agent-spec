@@ -6,4 +6,6 @@ dist/
 coverage/
 _agent/
 .skeleton/catalog.md
+playwright-report/
+test-results/
 

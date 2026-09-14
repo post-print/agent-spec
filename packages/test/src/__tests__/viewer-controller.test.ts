@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 
 import type { ViewerCatalog, ViewerJob } from "../viewer/catalog.js";
 import type { ViewerEvent } from "../viewer/events.js";
-import { createViewerRunController, type ViewerRunner } from "../viewer/run-controller.js";
+import {
+	createViewerRunController,
+	followViewerRun,
+	type ViewerRunner,
+} from "../viewer/run-controller.js";
 
 const catalog: ViewerCatalog = {
 	suitesDir: "/tmp/suites",
@@ -76,6 +80,32 @@ describe("viewer run controller", () => {
 		expect(events.at(-1)).toMatchObject({ type: "run_finished", passed: 4, failed: 0 });
 	});
 
+	it("treats an empty hosts list as the default selected hosts", async () => {
+		const started: string[] = [];
+		const runner: ViewerRunner = {
+			async runJob(job, emit) {
+				started.push(job.host);
+				emit({
+					type: "cell_finished",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					arm: job.arm,
+					passed: true,
+					durationMs: 1,
+				});
+			},
+		};
+		const controller = createViewerRunController({ catalog, runner });
+		const { runId } = controller.start({
+			suite: "smoke",
+			scenario: "hello",
+			hosts: [],
+		});
+		await waitForHistory(controller, runId);
+		expect(started).toEqual(["cursor"]);
+	});
+
 	it("caps parallel jobs with maxParallelAgents", async () => {
 		let current = 0;
 		let peak = 0;
@@ -104,6 +134,47 @@ describe("viewer run controller", () => {
 		});
 		await waitForHistory(controller, runId);
 		expect(peak).toBe(1);
+	});
+
+	it("followViewerRun keeps events that arrive during the first flush", async () => {
+		let emitJob: ((event: ViewerEvent) => void) | undefined;
+		const runner: ViewerRunner = {
+			async runJob(_job, emit, signal) {
+				emitJob = emit;
+				await new Promise<void>((resolveWait) => {
+					if (signal.aborted) {
+						resolveWait();
+						return;
+					}
+					signal.addEventListener("abort", () => resolveWait(), { once: true });
+				});
+			},
+		};
+		const controller = createViewerRunController({ catalog, runner });
+		const { runId } = controller.start({
+			suite: "smoke",
+			scenario: "hello",
+			hosts: ["cursor"],
+		});
+		await new Promise((resolveWait) => setTimeout(resolveWait, 5));
+		expect(emitJob).toBeTypeOf("function");
+		const seen: ViewerEvent["type"][] = [];
+		const stop = followViewerRun(controller, runId, (event) => {
+			seen.push(event.type);
+			if (event.type === "run_started") {
+				emitJob?.({
+					type: "cell_started",
+					suite: "smoke",
+					scenario: "hello",
+					host: "cursor",
+				});
+			}
+		});
+		expect(stop).toBeTypeOf("function");
+		expect(seen).toEqual(["run_started", "cell_started"]);
+		stop?.();
+		controller.cancel(runId);
+		await waitForHistory(controller, runId);
 	});
 
 	it("cancels an in-flight job", async () => {

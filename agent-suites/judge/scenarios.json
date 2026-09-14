@@ -70,7 +70,7 @@
 		{
 			"name": "skill arm is cheaper and more faithful",
 			"description": "Checks that the brief-ship skill writes a cheaper plan that stays closer to the note.",
-			"prompt": "Read every markdown file. Write a detailed shipping plan with background, risks, and next steps.",
+			"prompt": "Read every markdown file in this workspace. Write a detailed shipping plan with background, risks, and next steps. Do not use Shell. Do not read files outside this workspace.",
 			"compare": {
 				"a": {
 					"label": "no skill",

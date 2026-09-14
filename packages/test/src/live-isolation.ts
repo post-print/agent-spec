@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import type { AgentHost, HostAuthMode } from "@post-print/agent-harness";
 import { assertionFailure } from "./failures.js";
 import {
@@ -29,14 +30,29 @@ function unregisterActiveChild(child: ChildProcess): void {
 
 /** Kill in-flight live scenario children (Ctrl+C / SIGINT / SIGTERM from parent). */
 export function killActiveLiveChildren(): void {
-	for (const child of activeChildren) {
+	const children = [...activeChildren];
+	for (const child of children) {
 		try {
 			child.kill("SIGTERM");
 		} catch {
 			// best-effort
 		}
 	}
-	activeChildren.clear();
+	if (children.length === 0) {
+		return;
+	}
+	setTimeout(() => {
+		for (const child of children) {
+			if (child.exitCode !== null || child.signalCode !== null) {
+				continue;
+			}
+			try {
+				child.kill("SIGKILL");
+			} catch {
+				// best-effort
+			}
+		}
+	}, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS);
 }
 
 function categoryFromLegacyFailure(failure: {
@@ -121,6 +137,8 @@ export interface SpawnLiveScenarioOptions {
 	compareArm?: CompareArmId;
 	/** Parent receives NDJSON viewer events from child fd 3. */
 	onViewerEvent?: (event: ViewerEvent) => void;
+	/** Viewer cancel / parent abort. Skip settle and stop this child. */
+	signal?: AbortSignal;
 }
 
 export interface LiveScenarioCommand {
@@ -283,10 +301,31 @@ export async function spawnLiveScenario(
 				});
 			}
 		}
+		let stderrLine = "";
 		child.stderr?.on("data", (chunk: Buffer | string) => {
 			const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
 			stderrChunks.push(text);
 			process.stderr.write(text);
+			if (!captureEvents || !options.host) {
+				return;
+			}
+			stderrLine += text;
+			const lines = stderrLine.split("\n");
+			stderrLine = lines.pop() ?? "";
+			for (const line of lines) {
+				const plain = stripVTControlCharacters(line).trim();
+				if (!plain) {
+					continue;
+				}
+				options.onViewerEvent?.({
+					type: "status",
+					text: plain.length > 400 ? `${plain.slice(0, 400)}…` : plain,
+					suite: options.suiteName,
+					scenario: options.scenarioName,
+					host: options.host,
+					...(options.compareArm ? { arm: options.compareArm } : {}),
+				});
+			}
 		});
 		registerActiveChild(child);
 		let childClosed = false;
@@ -303,12 +342,10 @@ export async function spawnLiveScenario(
 				sigkillId = undefined;
 			}
 		};
-		const killChildForTimeout = () => {
-			if (childClosed || killedForTimeout) {
+		const escalateToSigkill = () => {
+			if (sigkillId !== undefined) {
 				return;
 			}
-			killedForTimeout = true;
-			child.kill("SIGTERM");
 			sigkillId = setTimeout(() => {
 				if (childClosed) {
 					return;
@@ -316,6 +353,26 @@ export async function spawnLiveScenario(
 				child.kill("SIGKILL");
 			}, LIVE_SUBPROCESS_SIGKILL_ESCALATION_MS);
 		};
+		const killChildForCancel = () => {
+			if (childClosed) {
+				return;
+			}
+			child.kill("SIGTERM");
+			escalateToSigkill();
+		};
+		const killChildForTimeout = () => {
+			if (childClosed || killedForTimeout) {
+				return;
+			}
+			killedForTimeout = true;
+			child.kill("SIGTERM");
+			escalateToSigkill();
+		};
+		if (options.signal?.aborted) {
+			killChildForCancel();
+		} else {
+			options.signal?.addEventListener("abort", killChildForCancel, { once: true });
+		}
 		const armKillTimer = (delayMs: number) => {
 			if (childClosed) {
 				return;
@@ -376,6 +433,9 @@ export async function spawnLiveScenario(
 		});
 	});
 
+	if (options.signal?.aborted) {
+		return { exitCode, stderr: stderrChunks.join("") };
+	}
 	const settleMs = scenarioSettleMs(exitCode);
 	if (settleMs > 0) {
 		await sleep(settleMs);

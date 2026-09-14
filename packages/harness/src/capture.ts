@@ -301,6 +301,25 @@ export function normalizeAgentUsage(raw: unknown): AgentUsage | undefined {
 	return Object.keys(usage).length > 0 ? usage : undefined;
 }
 
+/** Prefer provider total. Else sum input and output when either field is present. */
+export function resolvedTotalTokens(usage?: AgentUsage): number | undefined {
+	if (!usage) {
+		return undefined;
+	}
+	if (typeof usage.totalTokens === "number" && Number.isFinite(usage.totalTokens)) {
+		return usage.totalTokens;
+	}
+	const input = usage.inputTokens;
+	const output = usage.outputTokens;
+	if (typeof input !== "number" && typeof output !== "number") {
+		return undefined;
+	}
+	return (
+		(typeof input === "number" && Number.isFinite(input) ? input : 0) +
+		(typeof output === "number" && Number.isFinite(output) ? output : 0)
+	);
+}
+
 /** Field-wise sum of usage snapshots (for multi-turn stream accumulation). */
 export function mergeAgentUsage(...parts: Array<AgentUsage | undefined>): AgentUsage | undefined {
 	const merged: AgentUsage = {};

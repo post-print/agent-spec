@@ -371,6 +371,29 @@ describe("expectTrace", () => {
 		expect(assertRubric(trace, { mustCallTool: ["Write"] })).toHaveLength(0);
 	});
 
+	it("scores Write contents on a Cursor edit call, not reply text", () => {
+		const trace: AgentTrace = {
+			messages: [
+				{
+					role: "assistant",
+					content: "Created agent-test-write-out.txt with the required line.",
+				},
+			],
+			toolCalls: [
+				{
+					name: "edit",
+					args: { path: "agent-test-write-out.txt", contents: "agent-test-write-ok-9c2e" },
+				},
+			],
+			shellCommands: [],
+			artifacts: {},
+		};
+		expect(assertRubric(trace, { mustCallTool: ["Write:agent-test-write-ok-9c2e"] })).toHaveLength(
+			0,
+		);
+		expect(assertRubric(trace, { must: ["agent-test-write-ok-9c2e"] })).toHaveLength(1);
+	});
+
 	it("matches an MCP tool name that lives in args", () => {
 		const trace: AgentTrace = {
 			messages: [],

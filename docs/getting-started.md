@@ -54,7 +54,7 @@ Create `agent-suites/smoke/scenarios.json`:
 
 Create `agent-suites/smoke/workspaces/hello/README.txt` with any short note. The runner copies that folder into a sealed temp repo.
 
-## 3. Check without a paid run
+## 3. Check without a live run
 
 ```bash
 npx agent-test --check --suites-dir agent-suites --suite smoke

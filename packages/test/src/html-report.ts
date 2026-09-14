@@ -10,11 +10,13 @@ import type {
 } from "@post-print/agent-harness";
 
 import {
+	compareArmTokens,
 	compareArmTurns,
 	compareResultArms,
 	describeCompareOutcome,
 	formatCompareTurns,
 } from "./compare-scenario.js";
+import { displayToolPath } from "./scenario-story.js";
 import { summarizeReports } from "./suite-summary.js";
 import type {
 	CompareArmResult,
@@ -24,6 +26,7 @@ import type {
 	SuiteRunReport,
 	UsageStats,
 } from "./types.js";
+import { renderViewerCompareBoard, summarizeViewerCompare } from "./viewer/compare-metrics.js";
 
 export interface HtmlReportMeta {
 	generatedAt?: Date;
@@ -200,11 +203,21 @@ function renderMessageBubble(message: AgentMessage): string {
 </div>`;
 }
 
+const PATH_ARG_KEYS = new Set(["path", "file_path", "filePath", "target_file", "uri", "cwd"]);
+
+function isPathArg(key: string, value: string): boolean {
+	return PATH_ARG_KEYS.has(key) || value.startsWith("/") || value.startsWith("file://");
+}
+
 /** Truncate long single-line arg values so a stray file body doesn't blow up the card. */
-function formatArgValue(value: unknown): string {
-	const text = typeof value === "string" ? value : JSON.stringify(value);
-	const oneLine = text.replaceAll("\n", " ↵ ");
-	return oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine;
+function formatArgValue(key: string, value: unknown): { text: string; title?: string } {
+	if (typeof value === "string" && isPathArg(key, value)) {
+		const text = displayToolPath(value);
+		return text === value ? { text } : { text, title: value };
+	}
+	const raw = typeof value === "string" ? value : JSON.stringify(value);
+	const oneLine = raw.replaceAll("\n", " ↵ ");
+	return { text: oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine };
 }
 
 function renderToolArgs(args: Record<string, unknown> | undefined): string {
@@ -213,10 +226,11 @@ function renderToolArgs(args: Record<string, unknown> | undefined): string {
 		return "";
 	}
 	const rows = entries
-		.map(
-			([key, value]) =>
-				`<div class="tool-arg"><span class="tool-arg-key">${escapeHtml(key)}</span><code>${escapeHtml(formatArgValue(value))}</code></div>`,
-		)
+		.map(([key, value]) => {
+			const formatted = formatArgValue(key, value);
+			const title = formatted.title ? ` title="${escapeHtml(formatted.title)}"` : "";
+			return `<div class="tool-arg"><span class="tool-arg-key">${escapeHtml(key)}</span><code${title}>${escapeHtml(formatted.text)}</code></div>`;
+		})
 		.join("");
 	return `<div class="tool-args">${rows}</div>`;
 }
@@ -666,12 +680,25 @@ function renderCompareMetrics(result: ScenarioResult): string {
 	const lede = twoArm
 		? `${arms[0].label} vs ${arms[1].label}. Δ is B minus A. A lower turn count and a lower token count is better.`
 		: `${arms.map((arm) => arm.label).join(", ")}. A lower turn count and a lower token count is better. Named pairs do not pick one winner.`;
+	const winners = renderViewerCompareBoard(
+		summarizeViewerCompare(
+			arms.map((arm) => ({
+				id: arm.id,
+				label: arm.label,
+				turns: compareArmTurns(arm),
+				tokens: compareArmTokens(arm),
+				tools: arm.trace ? arm.trace.toolCalls.length : undefined,
+			})),
+			{ faster: compare.faster, cheaper: compare.cheaper },
+		),
+	);
 	return `
 <section class="compare">
   <header class="compare-header">
     <h3>Comparison</h3>
     <p class="muted">${escapeHtml(lede)}</p>
   </header>
+  ${winners}
   ${calloutList}
   ${twoArm ? renderTwoArmCompareMetrics([arms[0], arms[1]]) : renderNamedCompareMetrics(arms)}
 </section>`;
@@ -697,6 +724,13 @@ function renderArmMetrics(arm: CompareArmResult): string {
 	return `<p class="compare-arm-metrics">${escapeHtml(parts.join(" · "))}</p>`;
 }
 
+function compareTabGroupId(result: ScenarioResult, host?: string): string {
+	return `ct-${result.suite}-${result.scenario}-${host ?? "host"}`
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+}
+
 function renderArmColumn(arm: CompareArmResult, index: number): string {
 	const description = arm.description
 		? `<p class="compare-arm-description">${escapeHtml(arm.description)}</p>`
@@ -704,7 +738,7 @@ function renderArmColumn(arm: CompareArmResult, index: number): string {
 	const sideClass = arm.id === "a" || arm.id === "b" ? ` compare-arm-${arm.id}` : "";
 	const kicker = arm.id === "a" ? "Arm A" : arm.id === "b" ? "Arm B" : `Arm ${arm.id}`;
 	return `
-<article class="compare-arm${sideClass}" style="--arm-accent: var(--arm-${index % 4});">
+<article class="compare-arm${sideClass}" data-arm-id="${escapeHtml(arm.id)}" style="--arm-accent: var(--arm-${index % 4});">
   <header class="compare-arm-header">
     <p class="compare-arm-kicker">${escapeHtml(kicker)}</p>
     <h3>${escapeHtml(arm.label)}</h3>
@@ -715,7 +749,7 @@ function renderArmColumn(arm: CompareArmResult, index: number): string {
 </article>`;
 }
 
-function renderCompareConversations(result: ScenarioResult): string {
+function renderCompareConversations(result: ScenarioResult, host?: string): string {
 	const compare = result.compare;
 	if (!compare) {
 		return `<section class="conversation">
@@ -724,8 +758,32 @@ function renderCompareConversations(result: ScenarioResult): string {
   </section>`;
 	}
 	const arms = compareResultArms(compare);
-	return `
+	if (arms.length <= 2) {
+		return `
 <div class="compare-layout">
+  <div class="compare-arms" data-arm-count="${arms.length}">
+    ${arms.map((arm, index) => renderArmColumn(arm, index)).join("")}
+  </div>
+  ${renderCompareMetrics(result)}
+</div>`;
+	}
+	const group = compareTabGroupId(result, host);
+	const tablist = arms
+		.map((arm, index) => {
+			const id = `${group}-${arm.id}`;
+			return `<input type="radio" class="compare-tab-input" name="${escapeHtml(group)}" id="${escapeHtml(id)}"${index === 0 ? " checked" : ""}>
+<label class="compare-tab" for="${escapeHtml(id)}">${escapeHtml(arm.label)}</label>`;
+		})
+		.join("");
+	const rules = arms
+		.map(
+			(arm) => `.${group}:has(#${group}-${arm.id}:checked) [data-arm-id="${arm.id}"]{display:grid}`,
+		)
+		.join("");
+	return `
+<style>${rules}</style>
+<div class="compare-layout compare-tabs ${escapeHtml(group)}">
+  <div class="compare-tablist" role="tablist">${tablist}</div>
   <div class="compare-arms" data-arm-count="${arms.length}">
     ${arms.map((arm, index) => renderArmColumn(arm, index)).join("")}
   </div>
@@ -792,7 +850,7 @@ function renderStory(result: ScenarioResult): string {
   </div>`;
 }
 
-function renderScenario(result: ScenarioResult): string {
+function renderScenario(result: ScenarioResult, host?: string): string {
 	const open = result.skipped ? "" : !result.passed || result.compare ? " open" : "";
 	const failures = result.story ? "" : renderFailures(result);
 	const judgeVerdicts = renderJudgeVerdicts(result);
@@ -830,13 +888,13 @@ function renderScenario(result: ScenarioResult): string {
   <div class="scenario-body">
   ${diagnostics}
   ${metaRow}
-  ${renderCompareConversations(result)}
+  ${renderCompareConversations(result, host)}
   </div>
 </details>`;
 }
 
 function renderSuite(report: SuiteRunReport): string {
-	const scenarios = report.results.map(renderScenario).join("\n");
+	const scenarios = report.results.map((result) => renderScenario(result, report.host)).join("\n");
 	return `
 <section class="suite">
   <header class="suite-header">
@@ -892,7 +950,7 @@ function sharedReportCss(): string {
       background: var(--bg);
       color: var(--text);
       line-height: 1.5;
-      word-spacing: 0.16em;
+      word-spacing: normal;
     }
     main { max-width: 68rem; margin-inline: auto; padding: 1.5rem 1.25rem 3rem; }
     main:has(.compare-layout) { max-width: 96rem; }
@@ -1035,51 +1093,91 @@ function sharedReportCss(): string {
   .question { margin: 0; font-size: 0.85rem; font-weight: 600; }
   .rationale { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--muted); }
 
-  .chat { display: flex; flex-direction: column; gap: 0.5rem; }
+  .chat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 46rem;
+    word-spacing: normal;
+    letter-spacing: normal;
+  }
   .chat-row { display: flex; }
   .chat-row.side-left { justify-content: flex-start; }
   .chat-row.side-right { justify-content: flex-end; }
   .chat-row.side-center { justify-content: center; }
-  .bubble { max-width: 78%; border-radius: 12px; padding: 0.5rem 0.7rem; border: 1px solid var(--border); }
-  .bubble-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.25rem; }
-  .bubble-text { white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+  .bubble {
+    max-width: min(40rem, 92%);
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--border);
+    word-spacing: normal;
+  }
+  .bubble-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+  .bubble-text {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: normal;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
   .bubble.role-user { background: var(--user-bubble); border-top-right-radius: 3px; }
   .bubble.role-assistant { background: var(--assistant-bubble); border-top-left-radius: 3px; }
-  .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.8rem; max-width: 90%; }
+  .bubble.role-context {
+    background: color-mix(in srgb, var(--skip) 14%, var(--panel-2));
+    max-width: min(44rem, 94%);
+  }
+  .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.88rem; max-width: min(42rem, 94%); }
 
   .tool-card {
-    max-width: 82%;
+    max-width: min(44rem, 100%);
     border-radius: 10px;
-    padding: 0.5rem 0.65rem;
+    padding: 0.65rem 0.75rem;
     border: 1px solid color-mix(in srgb, var(--tool) 35%, var(--border));
     background: var(--tool-bubble);
+    word-spacing: normal;
   }
   .tool-card-head {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     font-weight: 700;
     color: var(--tool);
   }
   .tool-icon { font-size: 0.85rem; }
   .tool-name { font-weight: 700; }
   .tool-args {
-    margin-top: 0.4rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    padding-top: 0.4rem;
+    margin-top: 0.45rem;
+    display: grid;
+    gap: 0.35rem;
+    padding-top: 0.45rem;
     border-top: 1px solid color-mix(in srgb, var(--tool) 20%, var(--border));
   }
-  .tool-arg { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.78rem; }
-  .tool-arg-key { color: var(--muted); flex-shrink: 0; }
+  .tool-arg {
+    display: grid;
+    grid-template-columns: 6.25rem minmax(0, 1fr);
+    gap: 0.4rem 0.65rem;
+    align-items: start;
+    font-size: 0.8rem;
+  }
+  .tool-arg-key { color: var(--muted); padding-top: 0.2rem; }
   .tool-arg code {
+    display: block;
     color: var(--text);
     background: #0b1017;
-    border-radius: 4px;
-    padding: 0.05rem 0.35rem;
+    border-radius: 6px;
+    padding: 0.28rem 0.45rem;
+    overflow-wrap: anywhere;
     word-break: break-word;
+    white-space: pre-wrap;
+    line-height: 1.4;
   }
 
   .shell-commands { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
@@ -1091,6 +1189,41 @@ function sharedReportCss(): string {
     display: grid;
     gap: 0.9rem;
   }
+  .compare-tablist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .compare-tab-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .compare-tab {
+    font: inherit;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    padding: 0.35rem 0.65rem;
+    cursor: pointer;
+  }
+  .compare-tab-input:checked + .compare-tab,
+  .compare-tab[aria-selected="true"] {
+    background: color-mix(in srgb, var(--pass) 16%, var(--panel-2));
+    border-color: color-mix(in srgb, var(--pass) 40%, var(--border));
+  }
+  .compare-tabs .compare-arms,
+  .compare-tabs .compare-arms[data-arm-count] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .compare-tabs .compare-arm { display: none; }
   .compare-arms {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1140,6 +1273,17 @@ function sharedReportCss(): string {
   }
   .compare-header { margin-bottom: 0.65rem; }
   .compare-header h3 { margin-bottom: 0.2rem; }
+  .compare-winners { margin: 0 0 0.75rem; }
+  .compare-winners h3 { margin-bottom: 0.35rem; }
+  .compare-winners ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+  }
+  .compare-winner-pass { color: var(--pass); }
+  .compare-winner-fail { color: var(--fail); }
   .compare-callouts {
     margin: 0 0 0.75rem;
     padding-left: 1.1rem;

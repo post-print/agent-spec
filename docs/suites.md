@@ -83,6 +83,8 @@ Deterministic matchers read the transcript. Each row states which parts of the t
 
 The judge sees assistant text, tool args, and tool results. `--no-judge` skips judge questions and the `mustInvokeSkill` follow-up. Deterministic matchers still run.
 
+Score a file write with `mustCallTool` `Write:<token>`. The token must appear in the tool args. Reply text does not count.
+
 Set `allowedCommands` when Shell is allowed, but only some commands are legal. The scorer splits combined lines. `npm install @pkg && eslint .` fails if `eslint` is not on the list. The host can still run the command. The scenario then fails.
 
 ## Compare
@@ -95,7 +97,7 @@ Use `compare.arms` when the scenario has more than two workspaces. Each named ar
 
 Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. `rubric.judge` stays on the scenario. The judge sees every arm transcript. It does not pick one winner.
 
-The live verdict lists each arm. Shared rubric checks appear under every arm. Extra arm checks stay on that arm. Faster and cheaper gates sit in a compare section. Each check shows pass or fail.
+The live verdict lists each arm. Shared rubric checks appear under every arm. Extra arm checks stay on that arm. Faster and cheaper gates sit in a compare section. Each check shows pass or fail. The HTML report and the viewer list a winner for turns, tokens, and tools. Named pairs still do not pick one overall winner. Two-arm chats sit side by side. Three or more arms use tabs to switch chats.
 
 For two arms, `compare.faster` and `compare.cheaper` name the arm that must win. The win is a strict less-than on agent turns or total tokens.
 
@@ -186,7 +188,7 @@ Attach stdio or HTTP/SSE servers on suite defaults or on a scenario. Ambient pro
 
 When `workspace` is a subfolder, stdio MCP cwd is the caller repo. Script args stay caller-relative.
 
-## Check before a paid run
+## Check before a live run
 
 ```bash
 npx agent-test --check --suites-dir agent-suites

@@ -48,7 +48,7 @@ First run: [docs/getting-started.md](../../docs/getting-started.md). Flags: [doc
 
 ## In-repo package checks
 
-Default CI does not launch a paid agent:
+Default CI does not launch a host agent:
 
 ```bash
 bun run build
@@ -57,3 +57,14 @@ node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 ```
 
 Host-agent acceptance is `bun run test`. That command runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. `bun run test:smoke`, `bun run test:tools`, `bun run test:mcp`, `bun run test:judge`, and `bun run test:depth` stay on Cursor. A key-gated GitHub Actions job runs the same suites on Cursor with `--auth-mode api-key` when `CURSOR_API_KEY` is present.
+
+## Viewer e2e
+
+Playwright drives the suite viewer and the HTML report preview.
+
+```bash
+bunx playwright install chromium
+bun run test:e2e
+```
+
+The suite uses a fake runner. It does not launch a host agent.

@@ -19,9 +19,10 @@
 		"typecheck": "bunx tsc --build",
 		"lint": "bunx biome check .",
 		"lint:fix": "bunx biome check . --write",
-		"test": "bun test",
-		"test:sandbox-safe": "bun test --path-ignore-patterns '**/{scenario-seed,validate-seeds,cursor-login-check}.test.ts'",
-		"test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov",
+		"test": "bun test src",
+		"test:sandbox-safe": "bun test src --path-ignore-patterns '**/{scenario-seed,validate-seeds,cursor-login-check}.test.ts'",
+		"test:coverage": "bun test src --coverage --coverage-reporter=text --coverage-reporter=lcov",
+		"test:e2e": "playwright test",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {
@@ -29,6 +30,7 @@
 		"chalk": "6"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.63.0",
 		"@types/node": "^26.1.1",
 		"typescript": "~7.0.2"
 	},

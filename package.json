@@ -22,6 +22,7 @@
 		"test:unit": "bun run --filter '*' test",
 		"test:sandbox-safe": "bun run --filter '*' test:sandbox-safe",
 		"test:coverage": "bun run --filter '*' test:coverage",
+		"test:e2e": "bun run --filter @post-print/agent-test test:e2e",
 		"typecheck": "bunx tsc --build",
 		"lint": "bunx biome check .",
 		"lint:fix": "bunx biome check . --write",

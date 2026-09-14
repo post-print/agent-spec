@@ -52,6 +52,8 @@ import {
 	buildCompareResult,
 	compareArmDescription,
 	compareArmLabel,
+	compareArmTokens,
+	compareArmTurns,
 	compareResultArms,
 	compareStoryFields,
 	plainDescription,
@@ -126,6 +128,7 @@ import type {
 	SuiteRunReport,
 } from "./types.js";
 import { validateSuiteFile } from "./validate-suite.js";
+import { viewerContextFiles } from "./viewer/context-files.js";
 import { emitViewerEvent } from "./viewer/emit.js";
 import type { ViewerEventEnvelope } from "./viewer/events.js";
 import { DEFAULT_CLI_WORKERS, runWorkerPool } from "./worker-pool.js";
@@ -1266,6 +1269,12 @@ async function runAgentTestOnce(
 		: mergeMcpServers(defaultMcpServers, scenario.mcpServers);
 	const liveTimeoutMs = resolveLiveTimeoutMs(timeoutMs);
 	const failOnUserInput = !allowUserInput;
+	const viewerEnvelope: ViewerEventEnvelope = {
+		suite: suiteName,
+		scenario: scenario.name,
+		host,
+		...(runOptions?.compareArm ? { arm: runOptions.compareArm } : {}),
+	};
 
 	if (runOptions?.compareArm) {
 		logPhase(theme.phase("arm", `${runOptions.compareArm.toUpperCase()} ${host}`));
@@ -1282,6 +1291,7 @@ async function runAgentTestOnce(
 	let callerHeadBefore: Awaited<ReturnType<typeof captureCallerHead>> | undefined;
 	const callerTreeBefore = useWorktree ? await captureWorkingTreeStatus(cwd) : undefined;
 	if (useWorktree) {
+		emitViewerEvent({ type: "status", text: "Creating sealed workspace.", ...viewerEnvelope });
 		if (scenario.seedPatch) {
 			callerHeadBefore = await captureCallerHead(cwd);
 			setCallerHeadRestore(cwd, callerHeadBefore);
@@ -1299,9 +1309,15 @@ async function runAgentTestOnce(
 		activeWorktreeCleanup = worktreeHandle.cleanup;
 		if (scenario.seedPatch) {
 			logPhase(theme.phase("seed", theme.basename(scenario.seedPatch)));
+			emitViewerEvent({
+				type: "status",
+				text: `Applying seed ${basename(scenario.seedPatch)}.`,
+				...viewerEnvelope,
+			});
 			await seedScenarioWorktree(cwd, worktreeHandle.path, scenario.seedPatch, {
 				stageOnly: scenario.seedStageOnly === true,
 			});
+			emitViewerEvent({ type: "status", text: "Seed applied.", ...viewerEnvelope });
 		}
 	} else {
 		logPhase(theme.phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)")));
@@ -1325,13 +1341,21 @@ async function runAgentTestOnce(
 						runOptions?.compareArm,
 					)
 				: undefined;
-		const viewerEnvelope: ViewerEventEnvelope = {
-			suite: suiteName,
-			scenario: scenario.name,
-			host,
-			...(runOptions?.compareArm ? { arm: runOptions.compareArm } : {}),
-		};
 		emitViewerEvent({ type: "cell_started", ...viewerEnvelope });
+		emitViewerEvent({ type: "status", text: "Starting host agent.", ...viewerEnvelope });
+		const contextFiles = viewerContextFiles(
+			context.preamble,
+			context.sources,
+			contextSources ?? [],
+		);
+		if (contextFiles.length > 0) {
+			emitViewerEvent({
+				type: "status",
+				text: contextFiles.map((file) => file.why).join(" "),
+				...viewerEnvelope,
+			});
+			emitViewerEvent({ type: "context", files: contextFiles, ...viewerEnvelope });
+		}
 		emitViewerEvent({ type: "prompt", text: scenario.prompt, ...viewerEnvelope });
 		logPhase(theme.phase("agent", theme.phaseDim("started")));
 		const agentStarted = performance.now();
@@ -1582,6 +1606,15 @@ async function runAgentTestOnce(
 				judgeVerdicts,
 			}),
 		};
+		const armMetrics = {
+			id: runOptions?.compareArm ?? "cell",
+			label: runOptions?.compareArm ?? "cell",
+			prompt: scenario.prompt,
+			trace,
+		};
+		const turns = compareArmTurns(armMetrics);
+		const tokens = compareArmTokens(armMetrics);
+		const tools = trace.toolCalls.length;
 		emitViewerEvent({
 			type: "cell_finished",
 			...viewerEnvelope,
@@ -1591,6 +1624,11 @@ async function runAgentTestOnce(
 				matcher: failure.matcher,
 				message: failure.message,
 			})),
+			metrics: {
+				...(turns !== undefined ? { turns } : {}),
+				...(tokens !== undefined ? { tokens } : {}),
+				tools,
+			},
 		});
 		if (judgeVerdicts && judgeVerdicts.length > 0) {
 			emitViewerEvent({

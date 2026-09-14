@@ -7,6 +7,7 @@ import { createLiveViewerRunner, type LiveViewerRunnerOptions } from "./live-run
 import { renderViewerPage } from "./page.js";
 import {
 	createViewerRunController,
+	followViewerRun,
 	type ViewerRunController,
 	type ViewerRunner,
 } from "./run-controller.js";
@@ -113,8 +114,7 @@ async function handleViewerRequest(
 }
 
 function streamEvents(res: ServerResponse, controller: ViewerRunController, runId: string): void {
-	const history = controller.history(runId);
-	if (!history) {
+	if (!controller.history(runId)) {
 		writeJson(res, 404, { error: "Run not found" });
 		return;
 	}
@@ -122,24 +122,32 @@ function streamEvents(res: ServerResponse, controller: ViewerRunController, runI
 		"content-type": "text/event-stream; charset=utf-8",
 		"cache-control": "no-store",
 		connection: "keep-alive",
+		"x-accel-buffering": "no",
 	});
 	const writeEvent = (event: ViewerEvent): boolean => {
 		res.write(`data: ${encodeViewerEvent(event)}\n\n`);
 		return event.type === "run_finished";
 	};
-	for (const event of history) {
-		if (writeEvent(event)) {
-			res.end();
+	let unsubscribe: (() => void) | undefined;
+	let ended = false;
+	const finish = (): void => {
+		if (ended) {
 			return;
 		}
-	}
-	const unsubscribe = controller.subscribe(runId, (event) => {
+		ended = true;
+		unsubscribe?.();
+		res.end();
+	};
+	unsubscribe = followViewerRun(controller, runId, (event) => {
 		if (writeEvent(event)) {
-			unsubscribe();
-			res.end();
+			finish();
 		}
 	});
-	reqOnClose(res, unsubscribe);
+	if (ended) {
+		unsubscribe?.();
+		return;
+	}
+	reqOnClose(res, finish);
 }
 
 function reqOnClose(res: ServerResponse, unsubscribe: () => void): void {

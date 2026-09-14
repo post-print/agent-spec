@@ -30,7 +30,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
 - Host-agent runs need host auth. Default is subscription after CLI login: `npx agent-test login` (Cursor SDK store), Claude Code login, or `codex login`. The Cursor app login does not count. Pass `--auth-mode api-key` (alias `--auth-method`) plus `CURSOR_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` / `CODEX_API_KEY` to bill an API key. Per-host `*_AUTH_MODE` env vars still work when the flag is omitted. Copy `.env.example`. The CLI does not auto-load `.env`.
 - The judge and the default user simulator use the same host family as the test agent. The judge runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns the judge off.
-- `bun run test:unit` and `bun run test:sandbox-safe` do not launch a paid agent. `bun run test` launches a real host agent and can incur provider usage.
+- `bun run test:unit` and `bun run test:sandbox-safe` do not launch a host agent. `bun run test` launches a real host agent and can incur provider usage.
 
 ## First hour
 
@@ -44,7 +44,7 @@ node packages/test/dist/cli.js --check --suites-dir agent-suites
 node packages/test/dist/cli.js viewer --suites-dir agent-suites
 ```
 
-Full unpaid gate (`bun run check` = lint + typecheck + unit tests + build) needs unrestricted Cursor sandbox permissions (`all`) because some fixtures run `git init` or write `.cursor/` trees under tmp. Prefer `bun run test:sandbox-safe` under the default sandbox (skips those fixtures). Do not treat sandbox `git`/`hooks`/`.cursor` failures as a broken repo.
+The full local check (`bun run check` = lint + typecheck + unit tests + build) needs unrestricted Cursor sandbox permissions (`all`) because some fixtures run `git init` or write `.cursor/` trees under tmp. Prefer `bun run test:sandbox-safe` under the default sandbox (skips those fixtures). Do not treat sandbox `git`/`hooks`/`.cursor` failures as a broken repo.
 
 `bun install` can warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox. That is safe to ignore or re-run with `all` permissions.
 
@@ -66,6 +66,7 @@ bun run test
 | Synced toolbox skills (`.agents/skills/`, `.claude/skills/`) | skipped — lint in [csark0812/toolbox](https://github.com/csark0812/toolbox) or the owning skill repo |
 | TypeScript under `packages/` (scoped) | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed |
 | TypeScript under `packages/` (full) | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions) |
+| Viewer e2e (Playwright) | `bunx playwright install chromium` then `bun run test:e2e` |
 | Host-agent suite | `bun run test` (smoke, tools, mcp, judge, depth × Cursor, Claude, Codex). Slice: `bun run test:smoke` or `--host cursor`. |
 
 `validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Hash review proof lives in `.skeleton/review-lock.json`. After a complete re-read, attest explicit paths only:

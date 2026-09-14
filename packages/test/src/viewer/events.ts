@@ -17,11 +17,22 @@ export interface ViewerJudgeVerdictEvent {
 	rationale: string;
 }
 
+export type ViewerContextReason = "contextSources" | "profile" | "skills";
+
+export interface ViewerContextFile {
+	path: string;
+	text: string;
+	reason: ViewerContextReason;
+	why: string;
+}
+
 export type ViewerEvent =
 	| { type: "run_started"; runId: string }
 	| { type: "run_finished"; runId: string; passed: number; failed: number; skipped: number }
 	| ({ type: "cell_started" } & ViewerEventEnvelope)
+	| ({ type: "status"; text: string } & ViewerEventEnvelope)
 	| ({ type: "prompt"; text: string } & ViewerEventEnvelope)
+	| ({ type: "context"; files: ViewerContextFile[] } & ViewerEventEnvelope)
 	| ({ type: "text"; text: string } & ViewerEventEnvelope)
 	| ({ type: "tool"; name: string; args?: Record<string, unknown> } & ViewerEventEnvelope)
 	| ({
@@ -30,6 +41,11 @@ export type ViewerEvent =
 			skipped?: boolean;
 			durationMs: number;
 			failures?: ViewerFailureEvent[];
+			metrics?: {
+				turns?: number;
+				tokens?: number;
+				tools?: number;
+			};
 	  } & ViewerEventEnvelope)
 	| ({ type: "judge"; verdicts: ViewerJudgeVerdictEvent[] } & ViewerEventEnvelope)
 	| ({ type: "error"; message: string } & Partial<ViewerEventEnvelope>);
@@ -38,7 +54,9 @@ const EVENT_TYPES = new Set<ViewerEvent["type"]>([
 	"run_started",
 	"run_finished",
 	"cell_started",
+	"status",
 	"prompt",
+	"context",
 	"text",
 	"tool",
 	"cell_finished",

@@ -7,6 +7,7 @@ import {
 	buildCompareResult,
 	compareArmDescription,
 	compareArmLabel,
+	compareArmTokens,
 	compareArmTurns,
 	compareResultArms,
 	compareStoryFields,
@@ -192,6 +193,22 @@ describe("compare-scenario", () => {
 			artifacts: {},
 		};
 		expect(compareArmTurns(pair.a)).toBe(2);
+	});
+
+	it("sums Codex input and output when totalTokens is missing", () => {
+		const pair = pairResult({ aMs: 10, bMs: 10, aTokens: 1, bTokens: 1 });
+		expect(pair.a).toBeDefined();
+		if (!pair.a) {
+			return;
+		}
+		pair.a.trace = {
+			messages: [],
+			toolCalls: [],
+			shellCommands: [],
+			artifacts: {},
+			usage: { inputTokens: 11, outputTokens: 4 },
+		};
+		expect(compareArmTokens(pair.a)).toBe(15);
 	});
 
 	it("describes which arm uses fewer turns, tokens, and tools", () => {

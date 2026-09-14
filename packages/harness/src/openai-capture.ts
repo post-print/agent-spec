@@ -3,6 +3,7 @@ import {
 	finalizeTraceAccumulator,
 	mergeAgentUsage,
 	normalizeAgentUsage,
+	resolvedTotalTokens,
 	serializeToolResult,
 	type TraceAccumulator,
 } from "./capture.js";
@@ -62,7 +63,26 @@ function normalizeOpenaiUsage(raw: unknown): AgentUsage | undefined {
 	if (typeof record.total_tokens === "number") {
 		snake.totalTokens = record.total_tokens;
 	}
-	return mergeAgentUsage(camel, Object.keys(snake).length > 0 ? snake : undefined);
+	if (typeof record.cached_input_tokens === "number") {
+		snake.cacheReadTokens = record.cached_input_tokens;
+	}
+	if (typeof record.cache_write_input_tokens === "number") {
+		snake.cacheWriteTokens = record.cache_write_input_tokens;
+	}
+	if (typeof record.reasoning_output_tokens === "number") {
+		snake.reasoningTokens = record.reasoning_output_tokens;
+	}
+	const merged = mergeAgentUsage(camel, Object.keys(snake).length > 0 ? snake : undefined);
+	if (!merged) {
+		return undefined;
+	}
+	if (merged.totalTokens === undefined) {
+		const derived = resolvedTotalTokens(merged);
+		if (derived !== undefined) {
+			merged.totalTokens = derived;
+		}
+	}
+	return merged;
 }
 
 export function parseOpenaiJsonlLine(line: string): OpenaiJsonlEvent | undefined {

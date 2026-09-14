@@ -14,6 +14,7 @@ import {
 	inferPrBodyFromText,
 	inferReviewDepthFromText,
 	inferRoutingFromText,
+	resolvedTotalTokens,
 	routingBlockBeforeTools,
 } from "../capture.js";
 import type { AgentTrace } from "../types.js";
@@ -99,6 +100,12 @@ describe("capture", () => {
 		expect(trace.toolCalls).toEqual([
 			{ name: "read", args: { path: ".claude/skills/grill/SKILL.md" }, seq: 1 },
 		]);
+	});
+
+	it("resolves a total from input and output when totalTokens is missing", () => {
+		expect(resolvedTotalTokens({ inputTokens: 11, outputTokens: 4 })).toBe(15);
+		expect(resolvedTotalTokens({ totalTokens: 20, inputTokens: 11, outputTokens: 4 })).toBe(20);
+		expect(resolvedTotalTokens({})).toBeUndefined();
 	});
 
 	it("accumulates usage events into trace.usage", () => {

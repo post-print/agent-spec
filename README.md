@@ -52,7 +52,7 @@ bun run build
 bun run test:sandbox-safe
 ```
 
-`bun run test:unit` does not launch a paid agent. Full unpaid gate: `bun run check` (needs unrestricted Cursor sandbox / `all` because some tests run `git init`). In-repo CLI checks after build:
+`bun run test:unit` does not launch a host agent. Full local check: `bun run check` (needs unrestricted Cursor sandbox / `all` because some tests run `git init`). In-repo CLI checks after build:
 
 ```bash
 node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
@@ -70,6 +70,15 @@ bun run test
 Reliability targets: [docs/reliability.md](docs/reliability.md).
 
 Scoped checks: `bun test <file>` and `bunx biome check <path>` (use `bunx biome`, not a global `biome`).
+
+Viewer e2e uses Playwright. Install Chromium once, then run the suite:
+
+```bash
+bunx playwright install chromium
+bun run test:e2e
+```
+
+The e2e suite uses a fake runner. It does not launch a host agent.
 
 ## Debug / troubleshoot
 

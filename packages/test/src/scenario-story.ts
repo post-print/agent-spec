@@ -37,8 +37,13 @@ export function quoteExcerpt(text: string): string {
 	return `"${compact.slice(0, EXCERPT_CHARS - 1)}…"`;
 }
 
-function displayToolPath(path: string): string {
-	const stripped = path.replace(/^file:\/\//, "");
+/** Short workspace path for chat cards and story lines. */
+export function displayToolPath(path: string): string {
+	const stripped = path.replace(/^file:\/\//, "").replace(/\/+$/, "");
+	const workspace = stripped.match(/\/agent-harness-seal-[^/]+(?:\/(.*))?$/);
+	if (workspace) {
+		return workspace[1] ? workspace[1] : ".";
+	}
 	const sealed = stripped.match(/\/(?:\.agents|\.claude|\.codex|AGENTS\.md|CLAUDE\.md)(?:\/|$)/);
 	if (sealed?.index !== undefined) {
 		return stripped.slice(sealed.index + 1);

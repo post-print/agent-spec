@@ -32,5 +32,30 @@ describe("openai-capture", () => {
 			trace.toolCalls.some((call) => call.args?.path === ".agents/skills/probe/SKILL.md"),
 		).toBe(true);
 		expect(trace.usage?.inputTokens).toBe(11);
+		expect(trace.usage?.outputTokens).toBe(4);
+		expect(trace.usage?.totalTokens).toBe(15);
+	});
+
+	it("maps Codex cache and reasoning fields and fills totalTokens", () => {
+		const acc = createOpenaiTraceAccumulator();
+		accumulateOpenaiEvent(acc, {
+			type: "turn.completed",
+			usage: {
+				input_tokens: 100,
+				cached_input_tokens: 80,
+				cache_write_input_tokens: 5,
+				output_tokens: 20,
+				reasoning_output_tokens: 7,
+			},
+		});
+		const trace = finalizeOpenaiTraceAccumulator(acc);
+		expect(trace.usage).toEqual({
+			inputTokens: 100,
+			outputTokens: 20,
+			totalTokens: 120,
+			cacheReadTokens: 80,
+			cacheWriteTokens: 5,
+			reasoningTokens: 7,
+		});
 	});
 });

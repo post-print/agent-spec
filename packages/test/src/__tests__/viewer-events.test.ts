@@ -19,6 +19,35 @@ describe("viewer events", () => {
 		expect(parseViewerEvent(line)).toEqual(event);
 	});
 
+	it("round-trips loaded context files", () => {
+		const event = {
+			type: "context" as const,
+			suite: "depth",
+			scenario: "uses injected context",
+			host: "cursor",
+			files: [
+				{
+					path: "brief.md",
+					text: "DEPTH_CONTEXT token: agent-test-depth-context-6d2a",
+					reason: "contextSources",
+					why: "The scenario lists brief.md in contextSources.",
+				},
+			],
+		};
+		expect(parseViewerEvent(encodeViewerEvent(event))).toEqual(event);
+	});
+
+	it("round-trips a setup status line", () => {
+		const event = {
+			type: "status" as const,
+			suite: "depth",
+			scenario: "uses injected context",
+			host: "cursor",
+			text: "Creating sealed workspace.",
+		};
+		expect(parseViewerEvent(encodeViewerEvent(event))).toEqual(event);
+	});
+
 	it("round-trips a compare-arm tool event", () => {
 		const event = {
 			type: "tool" as const,

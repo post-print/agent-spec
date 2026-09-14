@@ -77,6 +77,20 @@ describe("loadViewerCatalog", () => {
 			label: "with skill",
 			description: "Uses the brief-ship skill. The agent must stay on the note.",
 		});
+		expect(skill?.cheaper).toEqual([{ winner: "b", loser: "a" }]);
+
+		const depth = catalog.suites.find((suite) => suite.name === "depth");
+		const injected = depth?.scenarios.find((scenario) => scenario.name === "uses injected context");
+		expect(injected?.contextSources).toEqual(["brief.md"]);
+
+		const tools = catalog.suites.find((suite) => suite.name === "tools");
+		const write = tools?.scenarios.find((scenario) => scenario.name === "writes a marker file");
+		expect(write?.rubric).toEqual({
+			mustCallTool: ["Write:agent-test-write-ok-9c2e"],
+		});
+		expect(skill?.prompt).toBe(
+			"Read every markdown file in this workspace. Write a detailed shipping plan with background, risks, and next steps. Do not use Shell. Do not read files outside this workspace.",
+		);
 	});
 
 	it("expands a compare scenario onto one job per host and arm", async () => {

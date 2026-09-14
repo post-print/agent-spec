@@ -35,6 +35,35 @@ export interface ViewerRunController {
 	activeRunId(): string | undefined;
 }
 
+/**
+ * Subscribe first, then replay history with a cursor.
+ * Events that arrive during replay are not dropped or duplicated.
+ */
+export function followViewerRun(
+	controller: ViewerRunController,
+	runId: string,
+	onEvent: (event: ViewerEvent) => void,
+): (() => void) | undefined {
+	if (!controller.history(runId)) {
+		return undefined;
+	}
+	let index = 0;
+	const flush = (): void => {
+		const history = controller.history(runId);
+		if (!history) {
+			return;
+		}
+		while (index < history.length) {
+			const event = history[index];
+			index += 1;
+			onEvent(event);
+		}
+	};
+	const unsubscribe = controller.subscribe(runId, flush);
+	flush();
+	return unsubscribe;
+}
+
 export function createViewerRunController(options: {
 	catalog: ViewerCatalog;
 	runner: ViewerRunner;
@@ -84,7 +113,10 @@ export function createViewerRunController(options: {
 			emit(current, { type: "run_started", runId });
 			current.done = runJobBatches({
 				jobs,
-				hosts: request.hosts ?? options.catalog.defaultSelectedHosts,
+				hosts:
+					request.hosts && request.hosts.length > 0
+						? request.hosts
+						: options.catalog.defaultSelectedHosts,
 				parallelHosts: request.parallelHosts === true,
 				maxParallel,
 				signal: abort.signal,

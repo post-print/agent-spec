@@ -45,19 +45,149 @@ function viewerCss(): string {
   button.danger { border-color: color-mix(in srgb, var(--fail) 40%, var(--border)); color: var(--fail); }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   .warn { color: var(--skip); font-size: 0.8rem; }
-  .matrix { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  .matrix th, .matrix td { border: 1px solid var(--border); padding: 0.5rem 0.55rem; text-align: left; vertical-align: top; }
-  .matrix th { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .scenario-list { display: grid; gap: 0.75rem; }
+  .scenario-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.85rem 0.95rem;
+    display: grid;
+    gap: 0.7rem;
+  }
   .scenario-detail { display: grid; gap: 0.35rem; }
   .prompt-preview { color: var(--muted); font-size: 0.78rem; white-space: pre-wrap; }
   .rubric-line { font-size: 0.75rem; color: var(--muted); }
   .arm-note { font-size: 0.78rem; color: var(--muted); }
-  .cell-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .scenario-toolbar { display: flex; flex-wrap: wrap; gap: 0.55rem 0.85rem; align-items: center; }
+  .scenario-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+  .host-tablist { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .host-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .host-tab[aria-selected="true"] {
+    background: color-mix(in srgb, var(--pass) 16%, var(--panel-2));
+    border-color: color-mix(in srgb, var(--pass) 40%, var(--border));
+  }
+  .host-tab[data-status="running"],
+  .host-tab[data-status="cancelling"],
+  .host-tab[data-status="cancelled"] { color: var(--skip); }
+  .host-tab[data-status="passed"] { color: var(--pass); }
+  .host-tab[data-status="failed"] { color: var(--fail); }
+  .host-tab[data-status="skipped"], .host-tab[data-status="skip"] { color: var(--muted); }
+  .host-status { display: inline-flex; align-items: center; }
   .cell-status { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }
-  .live-dock { margin-top: 1.5rem; display: grid; gap: 0.85rem; }
-  .live-cell { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem; min-width: 0; }
+  .scenario-live { display: grid; gap: 0.75rem; }
+  .scenario-live[hidden], .host-panel[hidden], .host-empty[hidden] { display: none; }
+  .host-panels { display: grid; min-width: 0; }
+  .host-panel:not([hidden]) { min-height: 4rem; }
+  .host-empty { color: var(--muted); font-size: 0.85rem; margin: 0; }
+  .host-panel > .live-cell > h3 { display: none; }
+  .live-cell { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem; min-width: 0; }
+  .cell-result {
+    margin-top: 0.65rem;
+    border-left: 3px solid var(--border);
+    padding: 0.45rem 0.7rem;
+  }
+  .cell-result.status-passed { border-left-color: var(--pass); }
+  .cell-result.status-failed { border-left-color: var(--fail); }
+  .cell-result.status-skipped { border-left-color: var(--skip); }
+  .cell-result-verdict { font-weight: 650; margin: 0 0 0.25rem; }
+  .cell-result.status-passed .cell-result-verdict { color: var(--pass); }
+  .cell-result.status-failed .cell-result-verdict { color: var(--fail); }
+  .cell-result-metrics { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.35rem; }
+  .cell-result-failures, .cell-result-judges {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+  .cell-result-judges { margin-top: 0.45rem; }
+  .cell-result-failures li, .cell-result-judges li {
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .judge-pass { color: var(--pass); }
+  .judge-fail { color: var(--fail); }
   .live-cell h3 { margin-bottom: 0.45rem; }
+  .live-status {
+    list-style: none;
+    margin: 0 0 0.55rem;
+    padding: 0;
+    display: grid;
+    gap: 0.2rem;
+    max-height: 9rem;
+    overflow: auto;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .live-status li {
+    border-left: 2px solid var(--border);
+    padding: 0.12rem 0 0.12rem 0.5rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
   .run-banner { font-size: 0.85rem; color: var(--muted); }
+  .compare-tab[data-status="running"] { color: var(--skip); }
+  .compare-tab[data-status="passed"] { color: var(--pass); }
+  .compare-tab[data-status="failed"] { color: var(--fail); }
+  .compare-tab[data-status="skipped"] { color: var(--muted); }
+  .compare-tabs .compare-arms,
+  .compare-tabs .compare-arms[data-arm-count] { grid-template-columns: minmax(0, 1fr); }
+  .compare-tabs .live-cell[hidden] { display: none; }
+  .compare-tabs .live-cell > h3 { display: none; }
+  .chat-running-row[hidden] { display: none; }
+  .context-path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem;
+    margin: 0 0 0.25rem;
+  }
+  .context-why {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin: 0 0 0.45rem;
+  }
+  .chat-running {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 0.2rem 0.1rem;
+  }
+  .chat-progress {
+    display: inline-flex;
+    gap: 0.18rem;
+  }
+  .chat-progress span {
+    width: 0.32rem;
+    height: 0.32rem;
+    border-radius: 999px;
+    background: var(--skip);
+    animation: chat-progress 1s ease-in-out infinite;
+  }
+  .chat-progress span:nth-child(2) { animation-delay: 0.15s; }
+  .chat-progress span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes chat-progress {
+    0%, 80%, 100% { opacity: 0.2; }
+    40% { opacity: 1; }
+  }
+  .bubble.is-streaming .bubble-text::after {
+    content: "▍";
+    margin-left: 0.12rem;
+    color: var(--pass);
+    animation: chat-caret 1s step-end infinite;
+  }
+  @keyframes chat-caret {
+    50% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chat-progress span, .bubble.is-streaming .bubble-text::after { animation: none; }
+  }
 `;
 }
 
@@ -92,22 +222,60 @@ function rubricSummary(scenario: ViewerCatalogScenario): string {
 	if (rubric.judge) {
 		parts.push("judge");
 	}
+	if (scenario.contextSources?.length) {
+		parts.push(`contextSources ${scenario.contextSources.join(", ")}`);
+	}
 	return parts.join(" · ");
 }
 
-function renderScenarioRow(suite: ViewerCatalogSuite, scenario: ViewerCatalogScenario): string {
-	const hosts = suite.hosts
+function defaultScenarioHost(suite: ViewerCatalogSuite, scenario: ViewerCatalogScenario): string {
+	if (scenario.host && suite.hosts.includes(scenario.host)) {
+		return scenario.host;
+	}
+	if (suite.hosts.includes("cursor")) {
+		return "cursor";
+	}
+	return suite.hosts[0] ?? "cursor";
+}
+
+function hostIsSkipped(scenario: ViewerCatalogScenario, host: string): boolean {
+	return Boolean(scenario.skip || (scenario.host && scenario.host !== host));
+}
+
+function renderHostChrome(
+	suite: ViewerCatalogSuite,
+	scenario: ViewerCatalogScenario,
+	selectedHost: string,
+): string {
+	if (suite.hosts.length <= 1) {
+		const host = suite.hosts[0] ?? selectedHost;
+		const skipped = hostIsSkipped(scenario, host);
+		return `<div class="host-status" data-cell="${escapeHtml(`${suite.name}::${scenario.name}::${host}`)}">
+        <span class="cell-status muted">${skipped ? "skip" : "idle"}</span>
+      </div>`;
+	}
+	const tabs = suite.hosts
 		.map((host) => {
-			const pinned = scenario.host && scenario.host !== host;
-			const skipped = scenario.skip || pinned;
-			return `<td data-cell="${escapeHtml(`${suite.name}::${scenario.name}::${host}`)}">
-        <div class="cell-actions">
-          <button class="primary run-cell" data-suite="${escapeHtml(suite.name)}" data-scenario="${escapeHtml(scenario.name)}" data-host="${escapeHtml(host)}"${skipped ? " disabled" : ""}>Run</button>
-          <span class="cell-status muted">${skipped ? "skip" : "idle"}</span>
-        </div>
-      </td>`;
+			const skipped = hostIsSkipped(scenario, host);
+			const selected = host === selectedHost;
+			return `<button type="button" class="host-tab" role="tab" aria-label="${escapeHtml(host)}" data-cell="${escapeHtml(`${suite.name}::${scenario.name}::${host}`)}" data-host="${escapeHtml(host)}" aria-selected="${selected ? "true" : "false"}"${skipped ? " disabled" : ""}>${escapeHtml(host)} <span class="cell-status muted" aria-hidden="true">${skipped ? "skip" : "idle"}</span></button>`;
 		})
 		.join("");
+	return `<div class="host-tablist" role="tablist">${tabs}</div>`;
+}
+
+function renderHostPanels(suite: ViewerCatalogSuite, selectedHost: string): string {
+	return suite.hosts
+		.map((host) => {
+			const selected = host === selectedHost;
+			return `<div class="host-panel" data-host-panel="${escapeHtml(host)}" role="tabpanel"${selected ? "" : " hidden"}><p class="host-empty">No run yet.</p></div>`;
+		})
+		.join("");
+}
+
+function renderScenarioCard(suite: ViewerCatalogSuite, scenario: ViewerCatalogScenario): string {
+	const selectedHost = defaultScenarioHost(suite, scenario);
+	const runDisabled = hostIsSkipped(scenario, selectedHost);
 	const compare = scenario.compare
 		? scenario.compare
 				.map(
@@ -116,24 +284,30 @@ function renderScenarioRow(suite: ViewerCatalogSuite, scenario: ViewerCatalogSce
 				)
 				.join("")
 		: "";
-	return `<tr>
-    <th scope="row">
-      <div class="scenario-detail">
-        <strong>${escapeHtml(scenario.name)}</strong>
-        ${scenario.description ? `<p class="scenario-lede">${escapeHtml(scenario.description)}</p>` : ""}
-        <p class="prompt-preview">${escapeHtml(scenario.prompt)}</p>
-        <p class="rubric-line">${escapeHtml(rubricSummary(scenario))}</p>
-        ${compare}
-        <button class="run-row" data-suite="${escapeHtml(suite.name)}" data-scenario="${escapeHtml(scenario.name)}">Run row</button>
+	const key = escapeHtml(`${suite.name}::${scenario.name}`);
+	return `<article class="scenario-card" data-scenario-card="${key}">
+    <div class="scenario-detail">
+      <strong>${escapeHtml(scenario.name)}</strong>
+      ${scenario.description ? `<p class="scenario-lede">${escapeHtml(scenario.description)}</p>` : ""}
+      <p class="prompt-preview">${escapeHtml(scenario.prompt)}</p>
+      <p class="rubric-line">${escapeHtml(rubricSummary(scenario))}</p>
+      ${compare}
+    </div>
+    <div class="scenario-toolbar">
+      ${renderHostChrome(suite, scenario, selectedHost)}
+      <div class="scenario-actions">
+        <button class="primary run-cell" data-suite="${escapeHtml(suite.name)}" data-scenario="${escapeHtml(scenario.name)}" data-host="${escapeHtml(selectedHost)}"${runDisabled ? " disabled" : ""}>Run</button>
+        <button class="run-row" data-suite="${escapeHtml(suite.name)}" data-scenario="${escapeHtml(scenario.name)}"${scenario.skip ? " disabled" : ""}>Run selected hosts</button>
       </div>
-    </th>
-    ${hosts}
-  </tr>`;
+    </div>
+    <div class="scenario-live" hidden data-live-row="${key}" data-live-slot="${key}">
+      <div class="host-panels">${renderHostPanels(suite, selectedHost)}</div>
+    </div>
+  </article>`;
 }
 
 function renderSuiteSection(suite: ViewerCatalogSuite): string {
-	const columns = suite.hosts.map((host) => `<th>${escapeHtml(host)}</th>`).join("");
-	const rows = suite.scenarios.map((scenario) => renderScenarioRow(suite, scenario)).join("");
+	const cards = suite.scenarios.map((scenario) => renderScenarioCard(suite, scenario)).join("");
 	return `
 <section class="suite" data-suite="${escapeHtml(suite.name)}">
   <header class="suite-header">
@@ -143,10 +317,7 @@ function renderSuiteSection(suite: ViewerCatalogSuite): string {
     </div>
     <button class="run-suite" data-suite="${escapeHtml(suite.name)}">Run suite</button>
   </header>
-  <table class="matrix">
-    <thead><tr><th>Scenario</th>${columns}</tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
+  <div class="scenario-list">${cards}</div>
 </section>`;
 }
 
@@ -156,6 +327,7 @@ function clientScript(): string {
   var catalog = JSON.parse(document.getElementById("catalog-data").textContent);
   var source = null;
   var runId = null;
+  var cancelRequested = false;
 
   function selectedHosts() {
     return Array.prototype.map.call(document.querySelectorAll("[data-host-toggle]:checked"), function (box) {
@@ -179,39 +351,382 @@ function clientScript(): string {
     return "live-" + cellKey(event).replace(/[^a-z0-9]+/gi, "-");
   }
 
-  function ensurePane(event) {
-    var id = paneId(event);
-    var existing = document.getElementById(id);
-    if (existing) {
-      return existing.querySelector(".chat");
+  function compareWrapId(event) {
+    return ("live-wrap-" + event.suite + "-" + event.scenario + "-" + event.host).replace(/[^a-z0-9]+/gi, "-");
+  }
+
+  function selectCompareTab(wrap, armId) {
+    wrap.querySelectorAll(".compare-tab").forEach(function (tab) {
+      var on = tab.getAttribute("data-arm") === armId;
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    wrap.querySelectorAll(".live-cell").forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-arm") !== armId;
+    });
+  }
+
+  function scenarioCard(event) {
+    return document.querySelector('[data-scenario-card="' + event.suite + "::" + event.scenario + '"]');
+  }
+
+  function selectHostTab(card, host) {
+    if (!card || !host) {
+      return;
     }
-    var dock = document.getElementById("live-dock");
+    card.querySelectorAll(".host-tab").forEach(function (tab) {
+      var on = tab.getAttribute("data-host") === host;
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    card.querySelectorAll("[data-host-panel]").forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-host-panel") !== host;
+    });
+    var run = card.querySelector("button.run-cell");
+    if (run) {
+      run.setAttribute("data-host", host);
+      var tab = card.querySelector('.host-tab[data-host="' + host + '"]');
+      if (tab) {
+        run.disabled = tab.disabled;
+      }
+    }
+  }
+
+  function revealLive(event) {
+    var card = scenarioCard(event);
+    if (!card) {
+      return;
+    }
+    var live = card.querySelector(".scenario-live");
+    if (live) {
+      live.hidden = false;
+    }
+    if (card.dataset.userPickedHost === "1") {
+      return;
+    }
+    if (card.dataset.followHost && card.dataset.followHost !== event.host) {
+      return;
+    }
+    card.dataset.followHost = event.host;
+    selectHostTab(card, event.host);
+  }
+
+  function hostPanel(event) {
+    var card = scenarioCard(event);
+    return card ? card.querySelector('[data-host-panel="' + event.host + '"]') : null;
+  }
+
+  function markArmTab(wrap, armId, status) {
+    var tab = wrap.querySelector('.compare-tab[data-arm="' + armId + '"]');
+    if (tab) {
+      tab.setAttribute("data-status", status);
+    }
+  }
+
+  function armLabel(scenario, armId, fallback) {
+    var arm = scenario && scenario.compare
+      ? scenario.compare.filter(function (entry) { return entry.id === armId; })[0]
+      : null;
+    return arm ? arm.label : fallback;
+  }
+
+  function createLiveArticle(event, title) {
     var article = document.createElement("article");
     article.className = "live-cell";
-    article.id = id;
-    var title = event.suite + " / " + event.scenario + " / " + event.host;
-    if (event.arm) {
-      title += " / arm " + event.arm;
-    }
-    article.innerHTML = "<h3></h3><div class=\\"chat\\"></div>";
+    article.id = paneId(event);
+    article.dataset.chatKey = cellKey(event);
+    article.innerHTML = "<h3></h3><ol class=\\"live-status\\"></ol><div class=\\"chat\\"></div>";
     article.querySelector("h3").textContent = title;
-    var parent = dock;
-    if (event.arm) {
-      var wrapId = ("live-wrap-" + event.suite + "-" + event.scenario + "-" + event.host).replace(/[^a-z0-9]+/gi, "-");
-      var wrap = document.getElementById(wrapId);
-      if (!wrap) {
-        wrap = document.createElement("div");
-        wrap.className = "compare-layout";
-        wrap.id = wrapId;
-        var arms = document.createElement("div");
-        arms.className = "compare-arms";
-        wrap.appendChild(arms);
-        dock.appendChild(wrap);
-      }
-      parent = wrap.querySelector(".compare-arms");
+    return article;
+  }
+
+  var openChats = {};
+
+  function resetArticle(article) {
+    if (!article) {
+      return;
     }
-    parent.appendChild(article);
+    var status = article.querySelector(".live-status");
+    if (status) {
+      status.replaceChildren();
+    }
+    var chat = article.querySelector(".chat");
+    if (chat) {
+      chat.replaceChildren();
+    }
+    var result = article.querySelector(".cell-result");
+    if (result) {
+      result.remove();
+    }
+    var panel = article.closest("[data-host-panel]");
+    var empty = panel ? panel.querySelector(".host-empty") : null;
+    if (empty) {
+      empty.hidden = false;
+    }
+  }
+
+  function chatIsOpen(event) {
+    return !!openChats[cellKey(event)];
+  }
+
+  function startChat(event) {
+    openChats[cellKey(event)] = true;
+    delete assistantBodies[cellKey(event)];
+    delete finishedMetrics[cellKey(event)];
+    ensurePane(event);
+    resetArticle(document.getElementById(paneId(event)));
+    var panel = hostPanel(event);
+    var empty = panel ? panel.querySelector(".host-empty") : null;
+    if (empty) {
+      empty.hidden = true;
+    }
+  }
+
+  function markRunningIdle() {
+    document.querySelectorAll("[data-cell]").forEach(function (node) {
+      var status = node.querySelector(".cell-status");
+      if (!status) {
+        return;
+      }
+      var label = status.textContent;
+      if (label !== "running" && label !== "starting") {
+        return;
+      }
+      status.textContent = "idle";
+      status.className = "cell-status muted";
+      if (node.classList.contains("host-tab")) {
+        node.setAttribute("data-status", "idle");
+      }
+    });
+    document.querySelectorAll(".compare-tab[data-status='running']").forEach(function (tab) {
+      tab.setAttribute("data-status", "idle");
+    });
+  }
+
+  function closeAllChats() {
+    Object.keys(openChats).forEach(function (key) {
+      resetArticle(document.getElementById("live-" + key.replace(/[^a-z0-9]+/gi, "-")));
+    });
+    openChats = {};
+    assistantBodies = {};
+    hideAllRunning();
+    markRunningIdle();
+  }
+
+  function setCancelButton(label, disabled) {
+    var button = document.getElementById("cancel-run");
+    button.textContent = label;
+    button.disabled = disabled;
+  }
+
+  function showCancelledNote(article, text) {
+    if (!article) {
+      return;
+    }
+    var existing = article.querySelector(".cell-result");
+    if (existing) {
+      existing.remove();
+    }
+    var box = document.createElement("div");
+    box.className = "cell-result status-skipped";
+    var verdict = document.createElement("p");
+    verdict.className = "cell-result-verdict";
+    verdict.textContent = text;
+    box.appendChild(verdict);
+    article.appendChild(box);
+    var panel = article.closest("[data-host-panel]");
+    var empty = panel ? panel.querySelector(".host-empty") : null;
+    if (empty) {
+      empty.hidden = true;
+    }
+  }
+
+  function cancelOpenChats() {
+    document.querySelectorAll(".cell-status").forEach(function (status) {
+      if (status.textContent !== "running" && status.textContent !== "starting") {
+        return;
+      }
+      status.textContent = "cancelling";
+      status.className = "cell-status status-skipped";
+      var tab = status.closest(".host-tab");
+      if (tab) {
+        tab.setAttribute("data-status", "cancelling");
+      }
+    });
+    document.querySelectorAll(".compare-tab[data-status='running']").forEach(function (tab) {
+      tab.setAttribute("data-status", "cancelling");
+    });
+    hideAllRunning();
+    document.querySelectorAll("[data-cell]").forEach(function (node) {
+      var status = node.querySelector(".cell-status");
+      if (!status || status.textContent !== "cancelling") {
+        return;
+      }
+      var card = node.closest("[data-scenario-card]");
+      if (!card) {
+        return;
+      }
+      var live = card.querySelector(".scenario-live");
+      if (live) {
+        live.hidden = false;
+      }
+      var host = node.getAttribute("data-host") || (node.getAttribute("data-cell") || "").split("::")[2];
+      var panel = card.querySelector('[data-host-panel="' + host + '"]');
+      if (!panel) {
+        return;
+      }
+      var articles = panel.querySelectorAll("article.live-cell");
+      if (articles.length === 0) {
+        showCancelledNote(panel, "Cancelled. Stopping the host agent.");
+        return;
+      }
+      articles.forEach(function (article) {
+        var key = article.dataset.chatKey;
+        resetArticle(article);
+        showCancelledNote(article, "Cancelled. Stopping the host agent.");
+        if (key) {
+          delete openChats[key];
+          delete assistantBodies[key];
+        }
+      });
+    });
+  }
+
+  function markCancelledCells() {
+    document.querySelectorAll(".cell-status").forEach(function (status) {
+      if (status.textContent === "cancelling") {
+        status.textContent = "cancelled";
+        status.className = "cell-status status-skipped";
+        var tab = status.closest(".host-tab");
+        if (tab) {
+          tab.setAttribute("data-status", "cancelled");
+        }
+      }
+    });
+    document.querySelectorAll(".compare-tab[data-status='cancelling']").forEach(function (tab) {
+      tab.setAttribute("data-status", "cancelled");
+    });
+    document.querySelectorAll(".cell-result-verdict").forEach(function (node) {
+      if (node.textContent === "Cancelled. Stopping the host agent.") {
+        node.textContent = "Cancelled.";
+      }
+    });
+  }
+
+  function sealAllChats() {
+    openChats = {};
+  }
+
+  function addArmTab(wrap, list, article, armId, label, selected) {
+    article.setAttribute("role", "tabpanel");
+    article.setAttribute("data-arm", armId);
+    article.hidden = !selected;
+    var tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "compare-tab";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("data-arm", armId);
+    tab.setAttribute("aria-controls", article.id);
+    tab.setAttribute("aria-selected", selected ? "true" : "false");
+    tab.textContent = label;
+    tab.addEventListener("click", function () {
+      wrap.dataset.userPicked = "1";
+      selectCompareTab(wrap, armId);
+    });
+    list.appendChild(tab);
+  }
+
+  function ensureCompareWrap(event, scenario, slot) {
+    var wrapId = compareWrapId(event);
+    var wrap = document.getElementById(wrapId);
+    var many = scenario && scenario.compare && scenario.compare.length > 2;
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.className = many ? "compare-layout compare-tabs" : "compare-layout";
+      wrap.id = wrapId;
+      var list = null;
+      if (many) {
+        list = document.createElement("div");
+        list.className = "compare-tablist";
+        list.setAttribute("role", "tablist");
+        wrap.appendChild(list);
+      }
+      var arms = document.createElement("div");
+      arms.className = "compare-arms";
+      if (scenario && scenario.compare) {
+        arms.setAttribute("data-arm-count", String(scenario.compare.length));
+      }
+      wrap.appendChild(arms);
+      if (many && list) {
+        scenario.compare.forEach(function (arm, index) {
+          var article = createLiveArticle({
+            suite: event.suite,
+            scenario: event.scenario,
+            host: event.host,
+            arm: arm.id,
+          }, arm.label);
+          addArmTab(wrap, list, article, arm.id, arm.label, index === 0);
+          arms.appendChild(article);
+        });
+      }
+    }
+    if (!wrap.parentNode) {
+      slot.appendChild(wrap);
+    }
+    return wrap;
+  }
+
+  function ensurePane(event) {
+    var existing = document.getElementById(paneId(event));
+    if (existing) {
+      revealLive(event);
+      return existing.querySelector(".chat");
+    }
+    var slot = hostPanel(event);
+    if (!slot) {
+      return null;
+    }
+    revealLive(event);
+    var empty = slot.querySelector(".host-empty");
+    if (empty) {
+      empty.hidden = true;
+    }
+    var leftover = slot.querySelector(":scope > .cell-result");
+    if (leftover) {
+      leftover.remove();
+    }
+    var scenario = findScenario(event.suite, event.scenario);
+    if (event.arm) {
+      var wrap = ensureCompareWrap(event, scenario, slot);
+      existing = document.getElementById(paneId(event));
+      if (existing) {
+        if (wrap.classList.contains("compare-tabs") && wrap.dataset.userPicked !== "1") {
+          selectCompareTab(wrap, event.arm);
+        }
+        return existing.querySelector(".chat");
+      }
+      var twoArm = createLiveArticle(event, armLabel(scenario, event.arm, event.arm));
+      wrap.querySelector(".compare-arms").appendChild(twoArm);
+      return twoArm.querySelector(".chat");
+    }
+    var article = createLiveArticle(event, event.host);
+    slot.appendChild(article);
     return article.querySelector(".chat");
+  }
+
+  function appendStatus(event, text) {
+    var article = document.getElementById(paneId(event));
+    var list = article ? article.querySelector(".live-status") : null;
+    if (!list) {
+      ensurePane(event);
+      article = document.getElementById(paneId(event));
+      list = article ? article.querySelector(".live-status") : null;
+    }
+    if (!list) {
+      return;
+    }
+    var item = document.createElement("li");
+    item.textContent = text;
+    list.appendChild(item);
+    list.scrollTop = list.scrollHeight;
   }
 
   function appendBubble(chat, role, text) {
@@ -230,6 +745,117 @@ function clientScript(): string {
     row.appendChild(bubble);
     chat.appendChild(row);
     return body;
+  }
+
+  function runningRow(article) {
+    return article.querySelector(".chat-running-row");
+  }
+
+  function showRunning(event) {
+    var article = document.getElementById(paneId(event));
+    if (!article) {
+      ensurePane(event);
+      article = document.getElementById(paneId(event));
+    }
+    if (!article) {
+      return;
+    }
+    var chat = article.querySelector(".chat");
+    if (!chat) {
+      return;
+    }
+    var row = runningRow(article);
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "chat-row side-left chat-running-row";
+      row.innerHTML = '<div class="chat-running" aria-live="polite">Running<span class="chat-progress" aria-hidden="true"><span></span><span></span><span></span></span></div>';
+      chat.appendChild(row);
+    }
+    row.hidden = false;
+    chat.appendChild(row);
+  }
+
+  function hideRunning(event) {
+    var article = document.getElementById(paneId(event));
+    var row = article ? runningRow(article) : null;
+    if (row) {
+      row.remove();
+    }
+  }
+
+  function hideAllRunning() {
+    document.querySelectorAll(".chat-running-row").forEach(function (row) {
+      row.remove();
+    });
+    document.querySelectorAll(".bubble.is-streaming").forEach(function (bubble) {
+      bubble.classList.remove("is-streaming");
+    });
+  }
+
+  function setStreaming(event, on) {
+    var body = assistantBodies[cellKey(event)];
+    var bubble = body ? body.parentNode : null;
+    if (bubble) {
+      if (on) {
+        bubble.classList.add("is-streaming");
+      } else {
+        bubble.classList.remove("is-streaming");
+      }
+    }
+  }
+
+  function appendContextFiles(chat, files) {
+    (files || []).forEach(function (file) {
+      var row = document.createElement("div");
+      row.className = "chat-row side-left";
+      var bubble = document.createElement("div");
+      bubble.className = "bubble role-context";
+      var label = document.createElement("div");
+      label.className = "bubble-label";
+      label.textContent = "Context";
+      var path = document.createElement("p");
+      path.className = "context-path";
+      path.textContent = file.path || "context";
+      var why = document.createElement("p");
+      why.className = "context-why";
+      why.textContent = file.why || "The runner loaded this file into the host preamble.";
+      var body = document.createElement("div");
+      body.className = "bubble-text";
+      body.textContent = file.text || "";
+      bubble.appendChild(label);
+      bubble.appendChild(path);
+      bubble.appendChild(why);
+      bubble.appendChild(body);
+      row.appendChild(bubble);
+      chat.appendChild(row);
+    });
+  }
+
+  function displayToolPath(path) {
+    var stripped = String(path).replace(/^file:\\/\\//, "").replace(/\\/+$/, "");
+    var workspace = stripped.match(/\\/agent-harness-seal-[^/]+(?:\\/(.*))?$/);
+    if (workspace) {
+      return workspace[1] ? workspace[1] : ".";
+    }
+    var sealed = stripped.match(/\\/(?:\\.agents|\\.claude|\\.codex|AGENTS\\.md|CLAUDE\\.md)(?:\\/|$)/);
+    if (sealed && sealed.index !== undefined) {
+      return stripped.slice(sealed.index + 1);
+    }
+    var parts = stripped.split("/").filter(Boolean);
+    if (parts.length > 3) {
+      return ".../" + parts.slice(-3).join("/");
+    }
+    return stripped;
+  }
+
+  function formatArgValue(key, value) {
+    var pathKeys = { path: 1, file_path: 1, filePath: 1, target_file: 1, uri: 1, cwd: 1 };
+    if (typeof value === "string" && (pathKeys[key] || value.indexOf("/") === 0 || value.indexOf("file://") === 0)) {
+      return { text: displayToolPath(value), title: value };
+    }
+    var raw = typeof value === "string" ? value : JSON.stringify(value);
+    var oneLine = raw.replace(/\\n/g, " ↵ ");
+    return { text: oneLine.length > 140 ? oneLine.slice(0, 140) + "…" : oneLine };
   }
 
   function appendTool(chat, name, args) {
@@ -254,7 +880,11 @@ function clientScript(): string {
         keyEl.className = "tool-arg-key";
         keyEl.textContent = key;
         var value = document.createElement("code");
-        value.textContent = typeof args[key] === "string" ? args[key] : JSON.stringify(args[key]);
+        var formatted = formatArgValue(key, args[key]);
+        value.textContent = formatted.text;
+        if (formatted.title && formatted.title !== formatted.text) {
+          value.title = formatted.title;
+        }
         line.appendChild(keyEl);
         line.appendChild(value);
         box.appendChild(line);
@@ -266,100 +896,530 @@ function clientScript(): string {
   }
 
   var assistantBodies = {};
+  var finishedMetrics = {};
+
+  function findScenario(suiteName, scenarioName) {
+    for (var i = 0; i < catalog.suites.length; i++) {
+      if (catalog.suites[i].name !== suiteName) {
+        continue;
+      }
+      var scenarios = catalog.suites[i].scenarios;
+      for (var j = 0; j < scenarios.length; j++) {
+        if (scenarios[j].name === scenarioName) {
+          return scenarios[j];
+        }
+      }
+    }
+    return null;
+  }
+
+  function joinLabels(labels) {
+    if (labels.length <= 1) {
+      return labels[0] || "";
+    }
+    if (labels.length === 2) {
+      return labels[0] + " and " + labels[1];
+    }
+    return labels.slice(0, -1).join(", ") + ", and " + labels[labels.length - 1];
+  }
+
+  function summarizeMetric(arms, id, label) {
+    var values = arms.map(function (arm) { return arm[id]; });
+    var numeric = values.filter(function (value) { return typeof value === "number"; });
+    if (numeric.length < 2) {
+      return { line: label + ": n/a." };
+    }
+    var lowest = Math.min.apply(null, numeric);
+    var winners = arms.filter(function (arm) { return arm[id] === lowest; });
+    var shown = values.map(function (value) { return typeof value === "number" ? String(value) : "n/a"; }).join(" vs ");
+    if (winners.length > 1) {
+      return {
+        line: arms.length === 2
+          ? label + ": tie (" + shown + ")."
+          : label + ": lowest is a tie between " + joinLabels(winners.map(function (arm) { return arm.label; })) + " (" + shown + ").",
+      };
+    }
+    var winner = winners[0];
+    if (!winner) {
+      return { line: label + ": n/a." };
+    }
+    if (arms.length === 2) {
+      return { line: label + ": " + winner.label + " wins (" + shown + ")." };
+    }
+    return { line: label + ": lowest is " + winner.label + " (" + shown + ")." };
+  }
+
+  function summarizeGates(arms, metric, pairs, verb, field) {
+    var byId = {};
+    arms.forEach(function (arm) { byId[arm.id] = arm; });
+    return (pairs || []).map(function (pair) {
+      var winner = byId[pair.winner];
+      var loser = byId[pair.loser];
+      if (!winner || !loser) {
+        return { passed: false, line: pair.winner + " must " + verb + " " + pair.loser + ", but one arm is missing. Fail." };
+      }
+      var winnerValue = winner[field];
+      var loserValue = loser[field];
+      if (typeof winnerValue !== "number" || typeof loserValue !== "number") {
+        return { passed: false, line: winner.label + " must " + verb + " " + loser.label + ", but one arm did not report " + field + ". Fail." };
+      }
+      var passed = winnerValue < loserValue;
+      return { passed: passed, line: winner.label + " must " + verb + " " + loser.label + " (" + winnerValue + " vs " + loserValue + "). " + (passed ? "Pass." : "Fail.") };
+    });
+  }
+
+  function renderCompareWinners(event) {
+    var scenario = findScenario(event.suite, event.scenario);
+    if (!scenario || !scenario.compare || !scenario.compare.length) {
+      return;
+    }
+    var wrap = document.getElementById(compareWrapId(event));
+    if (!wrap) {
+      return;
+    }
+    var rows = [];
+    for (var i = 0; i < scenario.compare.length; i++) {
+      var arm = scenario.compare[i];
+      var metrics = finishedMetrics[[event.suite, event.scenario, event.host, arm.id].join("::")];
+      if (!metrics) {
+        return;
+      }
+      rows.push({
+        id: arm.id,
+        label: arm.label,
+        turns: metrics.turns,
+        tokens: metrics.tokens,
+        tools: metrics.tools,
+      });
+    }
+    var metricLines = [
+      summarizeMetric(rows, "turns", "Turns"),
+      summarizeMetric(rows, "tokens", "Tokens"),
+      summarizeMetric(rows, "tools", "Tools"),
+    ];
+    var gateLines = summarizeGates(rows, "faster", scenario.faster, "use fewer turns than", "turns")
+      .concat(summarizeGates(rows, "cheaper", scenario.cheaper, "use fewer tokens than", "tokens"));
+    var existing = wrap.querySelector(".compare-winners");
+    if (existing) {
+      existing.remove();
+    }
+    var section = document.createElement("section");
+    section.className = "compare-winners";
+    var heading = document.createElement("h3");
+    heading.textContent = "Winners";
+    var list = document.createElement("ul");
+    metricLines.forEach(function (metric) {
+      var item = document.createElement("li");
+      item.textContent = metric.line;
+      list.appendChild(item);
+    });
+    gateLines.forEach(function (gate) {
+      var item = document.createElement("li");
+      item.className = gate.passed ? "compare-winner-pass" : "compare-winner-fail";
+      item.textContent = gate.line;
+      list.appendChild(item);
+    });
+    section.appendChild(heading);
+    section.appendChild(list);
+    wrap.appendChild(section);
+  }
 
   function markCell(event, label, statusClass) {
-    var selector = '[data-cell="' + event.suite + "::" + event.scenario + "::" + event.host + '"] .cell-status';
+    var selector = '[data-cell="' + event.suite + "::" + event.scenario + "::" + event.host + '"]';
     document.querySelectorAll(selector).forEach(function (node) {
-      node.textContent = label;
-      node.className = "cell-status " + statusClass;
+      var status = node.querySelector(".cell-status");
+      if (status) {
+        status.textContent = label;
+        status.className = "cell-status " + statusClass;
+      }
+      if (node.classList.contains("host-tab")) {
+        node.setAttribute("data-status", label);
+      }
     });
+  }
+
+  function metricPart(count, one, many) {
+    if (typeof count !== "number") {
+      return "";
+    }
+    return count + " " + (count === 1 ? one : many);
+  }
+
+  function formatMetrics(metrics) {
+    if (!metrics) {
+      return "";
+    }
+    return [metricPart(metrics.turns, "turn", "turns"), metricPart(metrics.tokens, "token", "tokens"), metricPart(metrics.tools, "tool", "tools")]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function clearCellResult(event) {
+    var article = document.getElementById(paneId(event));
+    var existing = article ? article.querySelector(".cell-result") : null;
+    if (existing) {
+      existing.remove();
+    }
+  }
+
+  function renderCellResult(event) {
+    ensurePane(event);
+    var article = document.getElementById(paneId(event));
+    if (!article) {
+      return;
+    }
+    var existing = article.querySelector(".cell-result");
+    if (existing) {
+      existing.remove();
+    }
+    var skipped = !!event.skipped;
+    var passed = !!event.passed && !skipped;
+    var box = document.createElement("div");
+    box.className = "cell-result " + (skipped ? "status-skipped" : passed ? "status-passed" : "status-failed");
+    var verdict = document.createElement("p");
+    verdict.className = "cell-result-verdict";
+    verdict.textContent = skipped ? "Skipped." : passed ? "Passed." : "Failed.";
+    box.appendChild(verdict);
+    var metrics = formatMetrics(event.metrics);
+    if (metrics) {
+      var line = document.createElement("p");
+      line.className = "cell-result-metrics";
+      line.textContent = metrics;
+      box.appendChild(line);
+    }
+    if (!skipped && !passed) {
+      var list = document.createElement("ul");
+      list.className = "cell-result-failures";
+      var failures = event.failures || [];
+      if (failures.length === 0) {
+        var item = document.createElement("li");
+        item.textContent = "The run failed. The host did not report a reason.";
+        list.appendChild(item);
+      } else {
+        failures.forEach(function (failure) {
+          var item = document.createElement("li");
+          item.textContent = failure.message || failure.matcher || "The run failed.";
+          list.appendChild(item);
+        });
+      }
+      box.appendChild(list);
+    }
+    article.appendChild(box);
+  }
+
+  function appendJudgeVerdicts(event) {
+    ensurePane(event);
+    var article = document.getElementById(paneId(event));
+    if (!article) {
+      return;
+    }
+    var box = article.querySelector(".cell-result");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "cell-result";
+      article.appendChild(box);
+    }
+    var existing = box.querySelector(".cell-result-judges");
+    if (existing) {
+      existing.remove();
+    }
+    var list = document.createElement("ul");
+    list.className = "cell-result-judges";
+    (event.verdicts || []).forEach(function (verdict) {
+      var item = document.createElement("li");
+      item.className = verdict.pass ? "judge-pass" : "judge-fail";
+      var text = (verdict.pass ? "Pass. " : "Fail. ") + (verdict.question || "");
+      if (verdict.rationale) {
+        text += " " + verdict.rationale;
+      }
+      item.textContent = text;
+      list.appendChild(item);
+    });
+    box.appendChild(list);
   }
 
   function handleEvent(event) {
     if (event.type === "run_started") {
+      if (cancelRequested) {
+        return;
+      }
       setRunBanner("Run " + event.runId + " started.");
-      document.getElementById("cancel-run").disabled = false;
+      setCancelButton("Cancel run", false);
       return;
     }
     if (event.type === "run_finished") {
-      setRunBanner(
-        "Run finished. " + event.passed + " passed. " + event.failed + " failed. " + event.skipped + " skipped."
-      );
-      document.getElementById("cancel-run").disabled = true;
+      hideAllRunning();
+      sealAllChats();
+      if (cancelRequested) {
+        markCancelledCells();
+        setRunBanner("Run cancelled.");
+      } else {
+        setRunBanner(
+          "Run finished. " + event.passed + " passed. " + event.failed + " failed. " + event.skipped + " skipped."
+        );
+      }
+      setCancelButton("Cancel run", true);
+      cancelRequested = false;
       runId = null;
+      if (source) {
+        source.close();
+        source = null;
+      }
+      return;
+    }
+    if (cancelRequested) {
       return;
     }
     if (event.type === "error") {
       setRunBanner(event.message);
+      if (event.suite && chatIsOpen(event)) {
+        appendStatus(event, event.message);
+        var errorChat = ensurePane(event);
+        if (errorChat) {
+          appendBubble(errorChat, "system", event.message);
+        }
+      }
       return;
     }
     if (event.type === "cell_started") {
       markCell(event, "running", "status-skipped");
-      ensurePane(event);
+      startChat(event);
+      if (event.arm) {
+        var startedWrap = document.getElementById(compareWrapId(event));
+        if (startedWrap) {
+          markArmTab(startedWrap, event.arm, "running");
+          if (startedWrap.classList.contains("compare-tabs") && startedWrap.dataset.userPicked !== "1") {
+            selectCompareTab(startedWrap, event.arm);
+          }
+        }
+      }
+      return;
+    }
+    if (event.type === "status") {
+      if (!chatIsOpen(event)) {
+        return;
+      }
+      appendStatus(event, event.text);
+      return;
+    }
+    if (event.type === "context") {
+      if (!chatIsOpen(event)) {
+        return;
+      }
+      var contextChat = ensurePane(event);
+      if (contextChat) {
+        appendContextFiles(contextChat, event.files);
+      }
       return;
     }
     if (event.type === "prompt") {
-      appendBubble(ensurePane(event), "user", event.text);
+      if (!chatIsOpen(event)) {
+        return;
+      }
+      var promptChat = ensurePane(event);
+      if (promptChat) {
+        appendBubble(promptChat, "user", event.text);
+        showRunning(event);
+      }
       return;
     }
     if (event.type === "text") {
+      if (!chatIsOpen(event)) {
+        return;
+      }
       var key = cellKey(event);
       var chat = ensurePane(event);
+      if (!chat) {
+        return;
+      }
+      hideRunning(event);
       if (!assistantBodies[key]) {
         assistantBodies[key] = appendBubble(chat, "assistant", event.text);
       } else {
         assistantBodies[key].textContent = event.text;
       }
+      setStreaming(event, true);
       return;
     }
     if (event.type === "tool") {
+      if (!chatIsOpen(event)) {
+        return;
+      }
+      var toolChat = ensurePane(event);
+      if (!toolChat) {
+        return;
+      }
+      setStreaming(event, false);
       assistantBodies[cellKey(event)] = null;
-      appendTool(ensurePane(event), event.name, event.args);
+      hideRunning(event);
+      appendTool(toolChat, event.name, event.args);
+      showRunning(event);
       return;
     }
     if (event.type === "cell_finished") {
+      if (!chatIsOpen(event)) {
+        return;
+      }
+      hideRunning(event);
+      setStreaming(event, false);
       markCell(event, event.skipped ? "skipped" : event.passed ? "passed" : "failed", event.skipped ? "status-skipped" : event.passed ? "status-passed" : "status-failed");
+      finishedMetrics[cellKey(event)] = event.metrics || {};
+      renderCellResult(event);
+      if (event.arm) {
+        var finishedWrap = document.getElementById(compareWrapId(event));
+        if (finishedWrap) {
+          markArmTab(
+            finishedWrap,
+            event.arm,
+            event.skipped ? "skipped" : event.passed ? "passed" : "failed"
+          );
+        }
+        renderCompareWinners(event);
+      }
+      return;
     }
+    if (event.type === "judge") {
+      if (!chatIsOpen(event)) {
+        return;
+      }
+      appendJudgeVerdicts(event);
+    }
+  }
+
+  function markRunTargets(body, label, statusClass) {
+    var hosts = body.hosts && body.hosts.length ? body.hosts : catalog.defaultSelectedHosts;
+    catalog.suites.forEach(function (suite) {
+      if (body.suite && suite.name !== body.suite) {
+        return;
+      }
+      suite.scenarios.forEach(function (scenario) {
+        if (body.scenario && scenario.name !== body.scenario) {
+          return;
+        }
+        if (scenario.skip) {
+          return;
+        }
+        hosts.forEach(function (host) {
+          if (scenario.host && scenario.host !== host) {
+            return;
+          }
+          markCell({ suite: suite.name, scenario: scenario.name, host: host }, label, statusClass);
+        });
+      });
+    });
   }
 
   async function startRun(body) {
     if (runId) {
-      setRunBanner("A run is already in progress.");
+      setRunBanner(
+        cancelRequested
+          ? "Cancelling the run. Wait for it to stop."
+          : "A run is already in progress. Cancel it first."
+      );
       return;
     }
-    var response = await fetch("/api/runs", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+    markRunTargets(body, "starting", "status-skipped");
+    var firstCard = document.querySelector(
+      body.suite && body.scenario
+        ? '[data-scenario-card="' + body.suite + "::" + body.scenario + '"]'
+        : body.suite
+          ? '[data-suite="' + body.suite + '"] [data-scenario-card]'
+          : "[data-scenario-card]"
+    );
+    document.querySelectorAll("[data-scenario-card]").forEach(function (card) {
+      if (body.suite && card.getAttribute("data-scenario-card").indexOf(body.suite + "::") !== 0) {
+        return;
+      }
+      if (body.scenario && card.getAttribute("data-scenario-card") !== body.suite + "::" + body.scenario) {
+        return;
+      }
+      delete card.dataset.followHost;
     });
-    var payload = await response.json();
-    if (!response.ok) {
-      setRunBanner(payload.error || "Run failed to start.");
-      return;
+    if (firstCard) {
+      var live = firstCard.querySelector(".scenario-live");
+      if (live) {
+        live.hidden = false;
+      }
+      if (body.hosts && body.hosts.length === 1 && firstCard.dataset.userPickedHost !== "1") {
+        firstCard.dataset.followHost = body.hosts[0];
+        selectHostTab(firstCard, body.hosts[0]);
+      }
+      if (live) {
+        live.scrollIntoView({ block: "nearest" });
+      }
     }
-    runId = payload.runId;
-    if (source) {
-      source.close();
+    try {
+      var response = await fetch("/api/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      var payload = await response.json();
+      if (!response.ok) {
+        setRunBanner(payload.error || "Run failed to start.");
+        markRunTargets(body, "idle", "muted");
+        return;
+      }
+      runId = payload.runId;
+      cancelRequested = false;
+      setRunBanner("Run " + runId + " started.");
+      setCancelButton("Cancel run", false);
+      if (source) {
+        source.close();
+      }
+      source = new EventSource("/api/runs/" + runId + "/events");
+      source.onmessage = function (message) {
+        handleEvent(JSON.parse(message.data));
+      };
+      source.onerror = function () {
+        source.close();
+        if (!runId) {
+          return;
+        }
+        setRunBanner("Live event stream dropped.");
+      };
+    } catch (error) {
+      setRunBanner(error instanceof Error ? error.message : String(error));
+      markRunTargets(body, "idle", "muted");
     }
-    source = new EventSource("/api/runs/" + runId + "/events");
-    source.onmessage = function (message) {
-      handleEvent(JSON.parse(message.data));
-    };
   }
 
   document.getElementById("run-selection").addEventListener("click", function () {
     startRun({ hosts: selectedHosts(), parallelHosts: parallelHosts() });
   });
   document.getElementById("cancel-run").addEventListener("click", function () {
-    if (!runId) {
+    if (!runId || cancelRequested) {
       return;
     }
-    fetch("/api/runs/" + runId + "/cancel", { method: "POST" });
+    cancelRequested = true;
+    setRunBanner("Cancelling the run.");
+    setCancelButton("Cancelling", true);
+    cancelOpenChats();
+    fetch("/api/runs/" + runId + "/cancel", { method: "POST" }).then(function (response) {
+      if (!response.ok && cancelRequested) {
+        setRunBanner("Cancel failed.");
+        setCancelButton("Cancel run", false);
+        cancelRequested = false;
+      }
+    }).catch(function () {
+      if (cancelRequested) {
+        setRunBanner("Cancel failed.");
+        setCancelButton("Cancel run", false);
+        cancelRequested = false;
+      }
+    });
   });
   document.body.addEventListener("click", function (event) {
     var button = event.target.closest("button");
     if (!button) {
       return;
+    }
+    if (button.classList.contains("host-tab")) {
+      var card = button.closest("[data-scenario-card]");
+      if (card) {
+        card.dataset.userPickedHost = "1";
+        selectHostTab(card, button.getAttribute("data-host"));
+      }
     }
     if (button.classList.contains("run-cell")) {
       startRun({
@@ -422,7 +1482,7 @@ ${viewerCss()}
         <div class="host-toggles">${hostToggles}</div>
       </div>
       <div class="toolbar-block">
-        <p class="toolbar-label">Matrix</p>
+        <p class="toolbar-label">Run order</p>
         <label><input type="checkbox" id="parallel-hosts"> Run hosts together</label>
       </div>
       <div class="toolbar-actions">
@@ -432,7 +1492,6 @@ ${viewerCss()}
       <p class="run-banner" id="run-banner"></p>
     </section>
     ${suites}
-    <section class="live-dock" id="live-dock"></section>
   </main>
   <script type="application/json" id="catalog-data">${embedJson(catalog)}</script>
   <script>

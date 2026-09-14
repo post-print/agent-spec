@@ -6,7 +6,7 @@
 
 <!-- review-deps: paths=package.json,agent-suites/**/scenarios.json -->
 
-`bun run test:unit` does not launch a paid agent. `bun run test` launches Cursor, Claude, or OpenAI Codex. Replay-based testing is deprecated and removed. JSON suites only configure direct runs.
+`bun run test:unit` does not launch a host agent. `bun run test` launches Cursor, Claude, or OpenAI Codex. Replay-based testing is deprecated and removed. JSON suites only configure direct runs.
 
 How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
 

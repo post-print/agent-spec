@@ -23,8 +23,7 @@
 			"workspace": "agent-suites/tools/workspaces/write",
 			"prompt": "Create agent-test-write-out.txt at the workspace root. The file must contain exactly one line: agent-test-write-ok-9c2e. Then stop.",
 			"rubric": {
-				"mustCallTool": ["Write"],
-				"must": ["agent-test-write-ok-9c2e"]
+				"mustCallTool": ["Write:agent-test-write-ok-9c2e"]
 			}
 		}
 	]

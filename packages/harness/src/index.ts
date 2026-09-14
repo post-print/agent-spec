@@ -38,6 +38,7 @@ export {
 	mergeAgentUsage,
 	mergeSkillsInvoked,
 	normalizeAgentUsage,
+	resolvedTotalTokens,
 	routingBlockBeforeTools,
 } from "./capture.js";
 export {
