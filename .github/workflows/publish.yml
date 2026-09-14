@@ -109,7 +109,11 @@ jobs:
         working-directory: packages/test
         run: |
           npm pkg set "dependencies.@post-print/agent-harness=${{ steps.version.outputs.NEW_VERSION }}"
-          npm publish --access public --provenance
+          if npm view "@post-print/agent-test@${{ steps.version.outputs.NEW_VERSION }}" version >/dev/null 2>&1; then
+            echo "@post-print/agent-test@${{ steps.version.outputs.NEW_VERSION }} is already published; skipping"
+          else
+            npm publish --access public --provenance
+          fi
 
       - uses: softprops/action-gh-release@v3
         with:
