@@ -60,6 +60,8 @@ export function describeRubricChecks(
 		bLabel: string;
 		faster?: CompareArmId;
 		cheaper?: CompareArmId;
+		aRubric?: ScenarioRubric;
+		bRubric?: ScenarioRubric;
 	},
 ): string[] {
 	if (!rubric) {
@@ -113,6 +115,18 @@ export function describeRubricChecks(
 			const winner = compare.cheaper === "a" ? compare.aLabel : compare.bLabel;
 			const loser = compare.cheaper === "a" ? compare.bLabel : compare.aLabel;
 			lines.push(`${winner} uses fewer tokens than ${loser}`);
+		}
+		for (const line of describeRubricChecks(compare.aRubric)) {
+			if (line === "no rubric checks" || line === "no rubric recorded") {
+				continue;
+			}
+			lines.push(`${compare.aLabel}: ${line}`);
+		}
+		for (const line of describeRubricChecks(compare.bRubric)) {
+			if (line === "no rubric checks" || line === "no rubric recorded") {
+				continue;
+			}
+			lines.push(`${compare.bLabel}: ${line}`);
 		}
 	}
 	if (rubric.judge && rubric.judge.length > 0) {
@@ -219,6 +233,8 @@ export function buildScenarioStory(options: {
 		bLabel: string;
 		faster?: CompareArmId;
 		cheaper?: CompareArmId;
+		aRubric?: ScenarioRubric;
+		bRubric?: ScenarioRubric;
 		aTrace?: AgentTrace;
 		bTrace?: AgentTrace;
 	};

@@ -5,6 +5,7 @@ import {
 	applySidecarCompareDurations,
 	assertCompareMetrics,
 	compareArmLabel,
+	mergeArmRubric,
 	prefixCompareFailures,
 } from "../compare-scenario.js";
 import type { AgentScenario, ScenarioCompareResult } from "../types.js";
@@ -34,6 +35,34 @@ describe("compare-scenario", () => {
 		expect(a.prompt).toBe("shared prompt");
 		expect(b.workspace).toBe("workspaces/shared");
 		expect(b.prompt).toBe("arm b prompt");
+	});
+
+	it("merges arm rubric arrays and keeps the pairwise judge", () => {
+		const merged = mergeArmRubric(
+			{ must: ["shared"], judge: ["Did B stay closer to the note?"] },
+			{ mustInvokeSkill: ["brief-ship"], must: ["SHIP: token"] },
+		);
+		expect(merged.must).toEqual(["shared", "SHIP: token"]);
+		expect(merged.mustInvokeSkill).toEqual(["brief-ship"]);
+		expect(merged.judge).toEqual(["Did B stay closer to the note?"]);
+	});
+
+	it("applies the merged arm rubric", () => {
+		const scenario: AgentScenario = {
+			...base,
+			rubric: { mustReadPath: ["note.md"], judge: ["Was B more faithful?"] },
+			compare: {
+				a: { label: "no skill", rubric: { mustNotInvokeSkill: ["brief-ship"] } },
+				b: { label: "with skill", rubric: { mustInvokeSkill: ["brief-ship"] } },
+			},
+		};
+		const a = applyCompareArm(scenario, "a");
+		const b = applyCompareArm(scenario, "b");
+		expect(a.rubric.mustNotInvokeSkill).toEqual(["brief-ship"]);
+		expect(a.rubric.mustInvokeSkill).toBeUndefined();
+		expect(b.rubric.mustInvokeSkill).toEqual(["brief-ship"]);
+		expect(b.rubric.mustReadPath).toEqual(["note.md"]);
+		expect(b.rubric.judge).toEqual(["Was B more faithful?"]);
 	});
 
 	it("prefixes arm failures with the label", () => {

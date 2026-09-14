@@ -7,7 +7,42 @@ import type {
 	CompareArmResult,
 	ScenarioCompare,
 	ScenarioCompareResult,
+	ScenarioRubric,
 } from "./types.js";
+
+const RUBRIC_ARRAY_KEYS = [
+	"must",
+	"mustNot",
+	"mustRun",
+	"mustCallTool",
+	"mustNotCallTool",
+	"mustReadPath",
+	"mustNotReadPath",
+	"mustInvokeSkill",
+	"mustNotInvokeSkill",
+] as const;
+
+/** Append arm-only array checks. Keep pairwise judge on the scenario rubric. */
+export function mergeArmRubric(base: ScenarioRubric, overlay?: ScenarioRubric): ScenarioRubric {
+	if (!overlay) {
+		return base;
+	}
+	const merged: ScenarioRubric = {
+		...base,
+		tier: overlay.tier ?? base.tier,
+		handsOnRouting: overlay.handsOnRouting ?? base.handsOnRouting,
+		routingBlock: overlay.routingBlock ?? base.routingBlock,
+		reviewDepth: overlay.reviewDepth ?? base.reviewDepth,
+		judge: base.judge,
+	};
+	for (const key of RUBRIC_ARRAY_KEYS) {
+		const extra = overlay[key];
+		if (extra !== undefined) {
+			merged[key] = [...(base[key] ?? []), ...extra];
+		}
+	}
+	return merged;
+}
 
 export function isCompareScenario(
 	scenario: Pick<AgentScenario, "compare">,
@@ -55,6 +90,25 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 		allowUserSkills: arm.allowUserSkills ?? rest.allowUserSkills,
 		seedPatch: arm.seedPatch ?? rest.seedPatch,
 		seedStageOnly: arm.seedStageOnly ?? rest.seedStageOnly,
+		rubric: mergeArmRubric(rest.rubric, arm.rubric),
+	};
+}
+
+export function compareStoryFields(scenario: AgentScenario): {
+	aLabel: string;
+	bLabel: string;
+	faster?: CompareArmId;
+	cheaper?: CompareArmId;
+	aRubric?: ScenarioRubric;
+	bRubric?: ScenarioRubric;
+} {
+	return {
+		aLabel: compareArmLabel(scenario.compare?.a, "a"),
+		bLabel: compareArmLabel(scenario.compare?.b, "b"),
+		faster: scenario.compare?.faster,
+		cheaper: scenario.compare?.cheaper,
+		aRubric: scenario.compare?.a.rubric,
+		bRubric: scenario.compare?.b.rubric,
 	};
 }
 

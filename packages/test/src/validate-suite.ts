@@ -101,12 +101,13 @@ function validateRubric(
 	suitePath: string,
 	scenarioName: string,
 	rubric: ScenarioRubric,
+	fieldPrefix = "rubric",
 ): void {
 	if (rubric.tier !== undefined && !VALID_TIERS.has(rubric.tier)) {
 		pushIssue(
 			issues,
 			suitePath,
-			"rubric.tier",
+			`${fieldPrefix}.tier`,
 			`tier must be low|medium|high, got ${JSON.stringify(rubric.tier)}`,
 			scenarioName,
 		);
@@ -115,7 +116,7 @@ function validateRubric(
 		pushIssue(
 			issues,
 			suitePath,
-			"rubric.reviewDepth",
+			`${fieldPrefix}.reviewDepth`,
 			`reviewDepth must be quick|standard|thorough|full, got ${JSON.stringify(rubric.reviewDepth)}`,
 			scenarioName,
 		);
@@ -134,7 +135,7 @@ function validateRubric(
 			pushIssue(
 				issues,
 				suitePath,
-				`rubric.${key}`,
+				`${fieldPrefix}.${key}`,
 				`${key} must be an array of strings`,
 				scenarioName,
 			);
@@ -146,7 +147,7 @@ function validateRubric(
 			pushIssue(
 				issues,
 				suitePath,
-				`rubric.${key}`,
+				`${fieldPrefix}.${key}`,
 				`${key} must be an array of skill folder names`,
 				scenarioName,
 			);
@@ -157,7 +158,7 @@ function validateRubric(
 			pushIssue(
 				issues,
 				suitePath,
-				"rubric.judge",
+				`${fieldPrefix}.judge`,
 				"judge must be an array of strings or { question } objects",
 				scenarioName,
 			);
@@ -170,7 +171,7 @@ function validateRubric(
 					pushIssue(
 						issues,
 						suitePath,
-						`rubric.judge[${index}]`,
+						`${fieldPrefix}.judge[${index}]`,
 						"judge item must be a string or { question: string }",
 						scenarioName,
 					);
@@ -285,6 +286,36 @@ function validateCompareArmFields(
 			"seedStageOnly requires seedPatch",
 			scenarioName,
 		);
+	}
+	if (arm.skills !== undefined && !isValidSkillSetting(arm.skills)) {
+		pushIssue(
+			issues,
+			suitePath,
+			`${fieldPrefix}.skills`,
+			`skills must be "none" or repo-relative SKILL.md / skill-folder paths, got ${JSON.stringify(arm.skills)}`,
+			scenarioName,
+		);
+	}
+	if (arm.rubric !== undefined) {
+		if (typeof arm.rubric !== "object" || arm.rubric === null) {
+			pushIssue(
+				issues,
+				suitePath,
+				`${fieldPrefix}.rubric`,
+				"rubric must be an object",
+				scenarioName,
+			);
+		} else if (arm.rubric.judge !== undefined) {
+			pushIssue(
+				issues,
+				suitePath,
+				`${fieldPrefix}.rubric.judge`,
+				"arm rubric cannot include judge. Put judge on the scenario",
+				scenarioName,
+			);
+		} else {
+			validateRubric(issues, suitePath, scenarioName, arm.rubric, `${fieldPrefix}.rubric`);
+		}
 	}
 }
 
@@ -534,7 +565,40 @@ export async function validateSuitePaths(
 						);
 					}
 				}
-				const workspaceRel = resolveScenarioWorkspaceRel(suite, scenario);
+				const skillTargets = scenario.compare
+					? ([
+							{
+								field: "compare.a.skills",
+								scenario: applyCompareArm(scenario, "a"),
+							},
+							{
+								field: "compare.b.skills",
+								scenario: applyCompareArm(scenario, "b"),
+							},
+						] as const)
+					: [{ field: "skills", scenario }];
+				for (const target of skillTargets) {
+					const skills = target.scenario.skills ?? suite.defaults?.skills;
+					if (skills === undefined || !isValidSkillSetting(skills)) {
+						continue;
+					}
+					const skillWorkspaceRel = resolveScenarioWorkspaceRel(suite, target.scenario);
+					const skillRoot = skillWorkspaceRel ? resolve(repoRoot, skillWorkspaceRel) : repoRoot;
+					for (const rel of skillPathsFromSetting(skills)) {
+						const manifest = skillManifestRelPath(rel);
+						try {
+							await access(resolve(skillRoot, manifest));
+						} catch {
+							pushIssue(
+								issues,
+								suitePath,
+								target.field,
+								`skill path not found: ${manifest}`,
+								scenario.name,
+							);
+						}
+					}
+				}
 				for (const scriptPath of mcpScriptPaths(suite, scenario)) {
 					try {
 						await access(resolve(repoRoot, scriptPath));
@@ -560,24 +624,6 @@ export async function validateSuitePaths(
 							`seed patch not found: ${scenario.seedPatch}`,
 							scenario.name,
 						);
-					}
-				}
-				const skills = scenario.skills ?? suite.defaults?.skills;
-				if (skills !== undefined && isValidSkillSetting(skills)) {
-					for (const rel of skillPathsFromSetting(skills)) {
-						const manifest = skillManifestRelPath(rel);
-						const skillRoot = workspaceRel ? resolve(repoRoot, workspaceRel) : repoRoot;
-						try {
-							await access(resolve(skillRoot, manifest));
-						} catch {
-							pushIssue(
-								issues,
-								suitePath,
-								"skills",
-								`skill path not found: ${manifest}`,
-								scenario.name,
-							);
-						}
 					}
 				}
 			}

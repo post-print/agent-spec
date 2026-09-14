@@ -1,6 +1,6 @@
 {
 	"name": "judge",
-	"description": "LLM judge scores the reply. Each scenario launches a test agent and a judge. One scenario runs two arms and compares both transcripts.",
+	"description": "LLM judge scores the reply. Each scenario launches a test agent and a judge. Compare scenarios run two arms. One pair checks a skill against no skill.",
 	"hosts": ["cursor", "claude", "openai"],
 	"defaults": {
 		"host": "cursor",
@@ -60,6 +60,43 @@
 					{
 						"id": "distinct-words",
 						"question": "Did arm A reply with alpha-compare-a7c1 and arm B reply with beta-compare-b3e9?"
+					}
+				]
+			}
+		},
+		{
+			"name": "skill arm is cheaper and more faithful",
+			"prompt": "Read every markdown file. Write a detailed shipping plan with background, risks, and next steps.",
+			"compare": {
+				"a": {
+					"label": "no skill",
+					"workspace": "agent-suites/judge/workspaces/skill-off",
+					"skills": "none",
+					"rubric": {
+						"mustNotInvokeSkill": ["brief-ship"]
+					}
+				},
+				"b": {
+					"label": "with skill",
+					"workspace": "agent-suites/judge/workspaces/skill-on",
+					"skills": [".agents/skills/brief-ship/SKILL.md"],
+					"rubric": {
+						"mustInvokeSkill": ["brief-ship"],
+						"must": ["SHIP: agent-test-compare-skill-c4f0"],
+						"mustNot": ["agent-test-compare-rumor-7d3e"],
+						"mustNotReadPath": ["rumor.md", "extras.md"]
+					}
+				},
+				"cheaper": "b"
+			},
+			"rubric": {
+				"mustReadPath": ["note.md"],
+				"must": ["agent-test-compare-skill-c4f0"],
+				"mustNotCallTool": ["Shell", "Bash"],
+				"judge": [
+					{
+						"id": "skill-fidelity",
+						"question": "Did arm B follow the brief-ship skill and stay closer to the note than arm A? Arm B must use the SHIP line and avoid rumor claims. Arm A may write a longer plan."
 					}
 				]
 			}

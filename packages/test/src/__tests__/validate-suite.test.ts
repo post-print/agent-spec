@@ -191,6 +191,53 @@ describe("validate-suite", () => {
 		).toEqual([]);
 	});
 
+	it("accepts per-arm rubric checks on a compare scenario", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "pair",
+						prompt: "test",
+						compare: {
+							a: {
+								label: "no skill",
+								workspace: "agent-suites/judge/workspaces/skill-off",
+								rubric: { mustNotInvokeSkill: ["brief-ship"] },
+							},
+							b: {
+								label: "with skill",
+								workspace: "agent-suites/judge/workspaces/skill-on",
+								skills: [".agents/skills/brief-ship/SKILL.md"],
+								rubric: { mustInvokeSkill: ["brief-ship"] },
+							},
+							cheaper: "b",
+						},
+						rubric: { mustReadPath: ["note.md"] },
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects judge questions on an arm rubric", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						a: { rubric: { judge: ["Did A win?"] } },
+						b: {},
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.a.rubric.judge")).toBe(true);
+	});
+
 	it("accepts a repo-relative workspace", () => {
 		expect(
 			validateSuiteFile("/tmp/scenarios.json", {

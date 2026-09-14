@@ -15,6 +15,8 @@ export {
 	assertCompareMetrics,
 	compareArmLabel,
 	compareArmTokens,
+	compareStoryFields,
+	mergeArmRubric,
 	parseCompareArmId,
 	prefixCompareFailures,
 } from "./compare-scenario.js";

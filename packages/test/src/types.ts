@@ -65,6 +65,11 @@ export interface CompareArm {
 	allowUserSkills?: boolean;
 	seedPatch?: string;
 	seedStageOnly?: boolean;
+	/**
+	 * Extra deterministic checks for this arm only.
+	 * Arrays append onto the scenario rubric. Do not set judge here.
+	 */
+	rubric?: ScenarioRubric;
 }
 
 /**

@@ -98,7 +98,7 @@ Direct runs need host auth. Cursor uses `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=s
 npx agent-test --check --suites-dir agent-suites
 ```
 
-A compare scenario sets `compare.a` and `compare.b`. Each arm can override workspace, prompt, host, or skills. `compare.faster` and `compare.cheaper` name the arm that must win on time or tokens. Add `rubric.judge` when you want a pairwise judge. Omit it for a metric-only compare. `--no-judge` skips the judge.
+A compare scenario sets `compare.a` and `compare.b`. Each arm can override workspace, prompt, host, skills, or extra rubric checks. Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. `compare.faster` and `compare.cheaper` name the arm that must win on time or tokens. Add `rubric.judge` when you want a pairwise judge. Omit it for a metric-only compare. `--no-judge` skips the judge.
 
 ```json
 {
@@ -110,6 +110,33 @@ A compare scenario sets `compare.a` and `compare.b`. Each arm can override works
     "cheaper": "b"
   },
   "rubric": { "mustReadPath": ["README.txt"] }
+}
+```
+
+Use two workspaces when one arm has a skill and the other does not. Put `mustInvokeSkill` on the skill arm only.
+
+```json
+{
+  "name": "skill vs no skill",
+  "prompt": "Read every markdown file. Write a detailed shipping plan.",
+  "compare": {
+    "a": {
+      "label": "no skill",
+      "workspace": "workspaces/skill-off",
+      "rubric": { "mustNotInvokeSkill": ["brief-ship"] }
+    },
+    "b": {
+      "label": "with skill",
+      "workspace": "workspaces/skill-on",
+      "skills": [".agents/skills/brief-ship/SKILL.md"],
+      "rubric": { "mustInvokeSkill": ["brief-ship"] }
+    },
+    "cheaper": "b"
+  },
+  "rubric": {
+    "mustReadPath": ["note.md"],
+    "judge": ["Did the skill arm stay closer to the note?"]
+  }
 }
 ```
 

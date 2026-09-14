@@ -118,6 +118,25 @@ describe("buildScenarioStory", () => {
 		expect(story.criteria.some((line) => line.includes("judge"))).toBe(false);
 	});
 
+	it("lists per-arm rubric checks on a skill compare", () => {
+		const story = buildScenarioStory({
+			rubric: { mustReadPath: ["note.md"] },
+			passed: true,
+			failures: [],
+			compare: {
+				aLabel: "no skill",
+				bLabel: "with skill",
+				cheaper: "b",
+				aRubric: { mustNotInvokeSkill: ["brief-ship"] },
+				bRubric: { mustInvokeSkill: ["brief-ship"] },
+			},
+		});
+		expect(story.criteria).toContain("read note.md");
+		expect(story.criteria).toContain("with skill uses fewer tokens than no skill");
+		expect(story.criteria).toContain("no skill: no brief-ship skill");
+		expect(story.criteria).toContain("with skill: invoke skill brief-ship");
+	});
+
 	it("puts a worktree leak in the result verdict", () => {
 		const story = buildScenarioStory({
 			rubric: { mustReadPath: ["SKILL.md"] },

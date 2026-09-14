@@ -46,6 +46,7 @@ import {
 	applySidecarCompareDurations,
 	assertCompareMetrics,
 	compareArmLabel,
+	compareStoryFields,
 	prefixCompareFailures,
 } from "./compare-scenario.js";
 import { collectDebugEnvironment, getDebugBundleDir, writeDebugBundle } from "./debug-bundle.js";
@@ -832,10 +833,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				judgeVerdicts,
 				compare: compareResult
 					? {
-							aLabel: compareResult.a.label,
-							bLabel: compareResult.b.label,
-							faster: scenario.compare?.faster,
-							cheaper: scenario.compare?.cheaper,
+							...compareStoryFields(scenario),
 							aTrace: compareResult.a.trace,
 							bTrace: compareResult.b.trace,
 						}
@@ -1735,10 +1733,7 @@ async function runCompareAgentTestOnce(
 		failures,
 		judgeVerdicts,
 		compare: {
-			aLabel,
-			bLabel,
-			faster: scenario.compare?.faster,
-			cheaper: scenario.compare?.cheaper,
+			...compareStoryFields(scenario),
 			aTrace: compareResult.a.trace,
 			bTrace: compareResult.b.trace,
 		},
