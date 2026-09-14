@@ -44,7 +44,7 @@ npx agent-test --check --suites-dir agent-suites
 
 In-repo suites list `hosts: ["cursor", "claude", "openai"]`. `npx agent-test --suites-dir agent-suites` and `bun run test` run every suite on each host. That is the consumer confidence gate. Pass `--host cursor` to pin one adapter.
 
-`smoke` is the short host proof. `tools` checks Read and Write. `mcp` checks echo invoke and a lookup read. `judge` starts a second host call that scores the reply. `depth` checks workspace roots, seed patches, injected context, mustRun, and skill invoke. `bun run test:smoke` stays on Cursor.
+`smoke` is the short host proof. `tools` checks Read and Write. `mcp` checks echo invoke and a lookup read. `judge` starts a second host call that scores the reply. One judge scenario runs two workspace arms and scores both transcripts together. `depth` checks workspace roots, seed patches, injected context, mustRun, and skill invoke. `bun run test:smoke` stays on Cursor.
 
 `scenario.host` pins that scenario to one host. A matrix run skips it on the other hosts.
 
@@ -86,17 +86,31 @@ Then `--host gemini` and a suite `hosts` list can include `gemini`. You can also
 
 Do not reuse `cursor`, `claude`, `openai`, `replay`, or `all` as the slug.
 
-Direct runs need host auth. Cursor uses `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()`. The Cursor app login does not count. Claude uses `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login`. The judge uses the same host family. It runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns it off. The CLI does not load `.env`.
+Direct runs need host auth. Cursor uses `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()`. The Cursor app login does not count. Claude uses `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login`. The judge uses the same host family. It runs when a rubric has judge questions or `mustInvokeSkill`. A `compare` scenario runs two arms. `compare.faster` and `compare.cheaper` pick a metric winner. `rubric.judge` is optional and scores both transcripts. `--no-judge` turns the judge off. The CLI does not load `.env`.
 
 `--allow-user-input` starts a second classifier as the user. That user agent answers AskQuestion-style tools. The test agent then continues with the original task plus the transcript.
 
-## Check, rubrics, and comparison
+## Check, rubrics, and compare
 
 `--check` inspects the suite, seeds, package, and host. It does not launch an agent. A live run runs the same check first, then starts the host.
 
 ```bash
 npx agent-test --check --suites-dir agent-suites
-npx agent-test compare --a clean.suite-report.json --b changed.suite-report.json --out-dir "$TMPDIR/compare"
+```
+
+A compare scenario sets `compare.a` and `compare.b`. Each arm can override workspace, prompt, host, or skills. `compare.faster` and `compare.cheaper` name the arm that must win on time or tokens. Add `rubric.judge` when you want a pairwise judge. Omit it for a metric-only compare. `--no-judge` skips the judge.
+
+```json
+{
+  "name": "cheaper prompt",
+  "prompt": "Read README.txt. Reply with one sentence.",
+  "compare": {
+    "a": { "label": "verbose", "prompt": "Read README.txt. Write a long summary." },
+    "b": { "label": "short" },
+    "cheaper": "b"
+  },
+  "rubric": { "mustReadPath": ["README.txt"] }
+}
 ```
 
 `--doctor`, `--validate-only`, `--validate-paths`, and `--validate-seeds` are aliases for `--check`.

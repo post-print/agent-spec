@@ -10,19 +10,14 @@ export {
 	runCheck,
 } from "./check.js";
 export {
-	type ComparePairSpec,
-	compareSuiteReports,
-	formatCompareReportMarkdown,
-	labelForCompareSide,
-	loadSuiteRunReport,
-	metricsFromResult,
-	parseComparePairToken,
-	type ScenarioCompareDelta,
-	type ScenarioCompareMetrics,
-	type SuiteCompareReport,
-	type WriteCompareReportOptions,
-	writeCompareReport,
-} from "./compare.js";
+	applyCompareArm,
+	applySidecarCompareDurations,
+	assertCompareMetrics,
+	compareArmLabel,
+	compareArmTokens,
+	parseCompareArmId,
+	prefixCompareFailures,
+} from "./compare-scenario.js";
 export {
 	buildRerunCommand,
 	collectDebugEnvironment,
@@ -47,8 +42,6 @@ export {
 } from "./hosts.js";
 export {
 	type HtmlReportMeta,
-	renderCompareHtmlReport,
-	renderCompareHtmlSection,
 	renderHtmlReport,
 	writeHtmlReport,
 } from "./html-report.js";
@@ -70,16 +63,17 @@ export {
 	getLiveStagingRootOverride,
 	getLiveStagingSessionRoot,
 	getStagingResultPath,
+	type LiveCompareArmSidecar,
 	type LiveScenarioResultSidecar,
 	loadStagingResult,
 	recordTrace,
 	resolveRecordingPath,
 	scenarioArtifactSlug,
-	scenarioCompareKey,
 	setLiveStagingRootOverride,
 	writeStagingResult,
 } from "./record-trace.js";
 export {
+	collectCompareJudgeCriteria,
 	collectJudgeCriteria,
 	discoverSuites,
 	judgeAuthRequired,
@@ -88,6 +82,8 @@ export {
 	runAgentTest,
 	runAllSuites,
 	runSuite,
+	scenarioNeedsJudge,
+	selectedRunNeedsJudge,
 } from "./run-suite.js";
 export {
 	ANNOUNCE_STOP_MATCHERS,
@@ -123,11 +119,16 @@ export type {
 	AgentSuiteFile,
 	AgentUsage,
 	AssertionFailure,
+	CompareArm,
+	CompareArmId,
+	CompareArmResult,
 	FailureCategory,
 	JudgeRubricItem,
 	JudgeVerdictResult,
 	McpServerConfig,
 	RunSummary,
+	ScenarioCompare,
+	ScenarioCompareResult,
 	ScenarioResult,
 	ScenarioRubric,
 	ScenarioStory,

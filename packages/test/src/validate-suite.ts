@@ -11,8 +11,9 @@ import {
 	skillPathsFromSetting,
 } from "@post-print/agent-harness";
 
+import { applyCompareArm } from "./compare-scenario.js";
 import { loadSuiteFile } from "./load-suite.js";
-import type { AgentScenario, AgentSuiteFile, ScenarioRubric } from "./types.js";
+import type { AgentScenario, AgentSuiteFile, CompareArm, ScenarioRubric } from "./types.js";
 
 const REPLAY_DEPRECATION =
 	"Replay-based testing is deprecated and no longer supported; use Cursor, Claude, or OpenAI.";
@@ -241,7 +242,109 @@ function validateScenario(
 			scenario.name,
 		);
 	}
+	validateCompare(issues, suitePath, scenario);
 	validateRubric(issues, suitePath, scenario.name, scenario.rubric);
+}
+
+function validateCompareArmFields(
+	issues: SuiteValidationIssue[],
+	suitePath: string,
+	scenarioName: string,
+	fieldPrefix: string,
+	arm: CompareArm,
+): void {
+	if (arm.label !== undefined && (typeof arm.label !== "string" || !arm.label.trim())) {
+		pushIssue(issues, suitePath, fieldPrefix, "label must be a non-empty string", scenarioName);
+	}
+	if (arm.prompt !== undefined && typeof arm.prompt !== "string") {
+		pushIssue(issues, suitePath, `${fieldPrefix}.prompt`, "prompt must be a string", scenarioName);
+	}
+	if (arm.host !== undefined && !isKnownHostId(arm.host)) {
+		pushIssue(issues, suitePath, `${fieldPrefix}.host`, unknownHostMessage(arm.host), scenarioName);
+	}
+	if (arm.workspace !== undefined) {
+		const parsed = parseScenarioWorkspace(arm.workspace);
+		if (!parsed.ok) {
+			pushIssue(issues, suitePath, `${fieldPrefix}.workspace`, parsed.message, scenarioName);
+		}
+	}
+	if (arm.allowUserSkills !== undefined && typeof arm.allowUserSkills !== "boolean") {
+		pushIssue(
+			issues,
+			suitePath,
+			`${fieldPrefix}.allowUserSkills`,
+			`allowUserSkills must be a boolean, got ${JSON.stringify(arm.allowUserSkills)}`,
+			scenarioName,
+		);
+	}
+	if (arm.seedStageOnly && !arm.seedPatch) {
+		pushIssue(
+			issues,
+			suitePath,
+			`${fieldPrefix}.seedStageOnly`,
+			"seedStageOnly requires seedPatch",
+			scenarioName,
+		);
+	}
+}
+
+function validateCompare(
+	issues: SuiteValidationIssue[],
+	suitePath: string,
+	scenario: AgentScenario,
+): void {
+	if (scenario.compare === undefined) {
+		return;
+	}
+	if (typeof scenario.compare !== "object" || scenario.compare === null) {
+		pushIssue(
+			issues,
+			suitePath,
+			"compare",
+			"compare must be an object with a and b",
+			scenario.name,
+		);
+		return;
+	}
+	if (typeof scenario.compare.a !== "object" || scenario.compare.a === null) {
+		pushIssue(issues, suitePath, "compare.a", "compare.a must be an object", scenario.name);
+	} else {
+		validateCompareArmFields(issues, suitePath, scenario.name, "compare.a", scenario.compare.a);
+	}
+	if (typeof scenario.compare.b !== "object" || scenario.compare.b === null) {
+		pushIssue(issues, suitePath, "compare.b", "compare.b must be an object", scenario.name);
+	} else {
+		validateCompareArmFields(issues, suitePath, scenario.name, "compare.b", scenario.compare.b);
+	}
+	validateCompareArmPick(
+		issues,
+		suitePath,
+		scenario.name,
+		"compare.faster",
+		scenario.compare.faster,
+	);
+	validateCompareArmPick(
+		issues,
+		suitePath,
+		scenario.name,
+		"compare.cheaper",
+		scenario.compare.cheaper,
+	);
+}
+
+function validateCompareArmPick(
+	issues: SuiteValidationIssue[],
+	suitePath: string,
+	scenarioName: string,
+	field: string,
+	value: unknown,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (value !== "a" && value !== "b") {
+		pushIssue(issues, suitePath, field, `${field} must be "a" or "b"`, scenarioName);
+	}
 }
 
 function validateHosts(
@@ -392,8 +495,23 @@ export async function validateSuitePaths(
 
 		if (options?.validatePaths && repoRoot) {
 			for (const scenario of suite.scenarios) {
-				const workspaceRel = resolveScenarioWorkspaceRel(suite, scenario);
-				if (workspaceRel) {
+				const workspaceChecks = scenario.compare
+					? [
+							{
+								field: "compare.a.workspace",
+								rel: resolveScenarioWorkspaceRel(suite, applyCompareArm(scenario, "a")),
+							},
+							{
+								field: "compare.b.workspace",
+								rel: resolveScenarioWorkspaceRel(suite, applyCompareArm(scenario, "b")),
+							},
+						]
+					: [{ field: "workspace", rel: resolveScenarioWorkspaceRel(suite, scenario) }];
+				for (const check of workspaceChecks) {
+					const workspaceRel = check.rel;
+					if (!workspaceRel) {
+						continue;
+					}
 					const workspacePath = resolve(repoRoot, workspaceRel);
 					try {
 						const info = await stat(workspacePath);
@@ -401,7 +519,7 @@ export async function validateSuitePaths(
 							pushIssue(
 								issues,
 								suitePath,
-								"workspace",
+								check.field,
 								`workspace must be a directory: ${workspaceRel}`,
 								scenario.name,
 							);
@@ -410,12 +528,13 @@ export async function validateSuitePaths(
 						pushIssue(
 							issues,
 							suitePath,
-							"workspace",
+							check.field,
 							`workspace not found: ${workspaceRel}`,
 							scenario.name,
 						);
 					}
 				}
+				const workspaceRel = resolveScenarioWorkspaceRel(suite, scenario);
 				for (const scriptPath of mcpScriptPaths(suite, scenario)) {
 					try {
 						await access(resolve(repoRoot, scriptPath));

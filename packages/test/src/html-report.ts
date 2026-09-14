@@ -9,26 +9,13 @@ import type {
 	AgentUsage,
 } from "@post-print/agent-harness";
 
-import {
-	compareSuiteReports,
-	type ScenarioCompareDelta,
-	type SuiteCompareReport,
-} from "./compare.js";
 import { summarizeReports } from "./suite-summary.js";
-import type { ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
+import type { CompareArmResult, ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
 
 export interface HtmlReportMeta {
 	generatedAt?: Date;
 	host?: string;
 	suitesDir?: string;
-	/**
-	 * When two suite reports are present, embed an A/B compare table (default true).
-	 * Set false to skip (e.g. unrelated multi-suite runs).
-	 */
-	includeCompare?: boolean;
-	/** Labels for the embedded compare section (defaults to suite names). */
-	compareALabel?: string;
-	compareBLabel?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -153,6 +140,14 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	},
 	recordTrace: { label: "Recording failed", hint: "Saving the trace to disk failed." },
 	judge: { label: "Judge", hint: "The LLM judge flagged this scenario." },
+	faster: {
+		label: "Faster arm",
+		hint: "The named arm must finish in less time.",
+	},
+	cheaper: {
+		label: "Cheaper arm",
+		hint: "The named arm must use fewer tokens.",
+	},
 };
 
 function humanizeMatcher(matcher: string): { label: string; hint?: string } {
@@ -484,13 +479,15 @@ function formatSigned(value: number | undefined): string {
 	return formatInteger(value);
 }
 
-function passCell(passed: boolean, skipped?: boolean): string {
-	if (skipped) {
-		return `<span class="badge status-skipped">skip</span>`;
+function formatSignedDuration(deltaMs: number | undefined): string {
+	if (deltaMs === undefined) {
+		return "n/a";
 	}
-	return passed
-		? `<span class="badge status-passed">pass</span>`
-		: `<span class="badge status-failed">fail</span>`;
+	if (deltaMs === 0) {
+		return formatDuration(0);
+	}
+	const sign = deltaMs > 0 ? "+" : "-";
+	return `${sign}${formatDuration(Math.abs(deltaMs))}`;
 }
 
 function deltaClass(value: number | undefined): string {
@@ -500,121 +497,104 @@ function deltaClass(value: number | undefined): string {
 	return value > 0 ? "delta-up" : "delta-down";
 }
 
-function compareScenarioLabel(row: ScenarioCompareDelta): string {
-	if (row.aScenario && row.bScenario && row.aScenario !== row.bScenario) {
-		return `${row.scenario}<br><span class="muted compare-aliases">A: ${escapeHtml(row.aScenario)}<br>B: ${escapeHtml(row.bScenario)}</span>`;
-	}
-	return escapeHtml(row.scenario);
+function armDurationMs(arm: CompareArmResult): number | undefined {
+	return typeof arm.durationMs === "number" ? arm.durationMs : undefined;
 }
 
-/** Render an A/B compare table (fragment — no document chrome). */
-export function renderCompareHtmlSection(report: SuiteCompareReport): string {
-	const rows = report.paired
-		.map((row: ScenarioCompareDelta) => {
-			const regression = row.a.passed && !row.b.passed;
-			const improvement = !row.a.passed && row.b.passed;
-			const rowClass = regression
-				? "compare-regress"
-				: improvement
-					? "compare-improve"
-					: row.deltas.passedChanged
-						? "compare-changed"
-						: "";
-			return `
-<tr class="${rowClass}">
-  <td class="compare-name">${compareScenarioLabel(row)}</td>
-  <td>${passCell(row.a.passed, row.a.skipped)}</td>
-  <td>${passCell(row.b.passed, row.b.skipped)}</td>
-  <td class="${deltaClass(row.deltas.durationMs)}">${escapeHtml(formatSigned(row.deltas.durationMs))}</td>
-  <td class="${deltaClass(row.deltas.toolCallCount)}">${escapeHtml(formatSigned(row.deltas.toolCallCount))}</td>
-  <td class="${deltaClass(row.deltas.skillCount)}">${escapeHtml(formatSigned(row.deltas.skillCount))}</td>
-  <td class="${deltaClass(row.deltas.registryHopCount)}">${escapeHtml(formatSigned(row.deltas.registryHopCount))}</td>
-  <td class="${deltaClass(row.deltas.totalTokens)}">${escapeHtml(formatSigned(row.deltas.totalTokens))}</td>
+function armToolCount(arm: CompareArmResult): number | undefined {
+	return arm.trace ? arm.trace.toolCalls.length : undefined;
+}
+
+function formatArmDuration(arm: CompareArmResult): string {
+	const ms = armDurationMs(arm);
+	return ms === undefined ? "n/a" : formatDuration(ms);
+}
+
+function formatArmTokens(arm: CompareArmResult, key: "total" | "input" | "output"): string {
+	const usage = arm.trace?.usage;
+	const value =
+		key === "total"
+			? usage?.totalTokens
+			: key === "input"
+				? usage?.inputTokens
+				: usage?.outputTokens;
+	return typeof value === "number" ? formatInteger(value) : "n/a";
+}
+
+function tokenDelta(
+	a: CompareArmResult,
+	b: CompareArmResult,
+	key: "total" | "input" | "output",
+): number | undefined {
+	const pick = (arm: CompareArmResult) => {
+		const usage = arm.trace?.usage;
+		return key === "total"
+			? usage?.totalTokens
+			: key === "input"
+				? usage?.inputTokens
+				: usage?.outputTokens;
+	};
+	const aValue = pick(a);
+	const bValue = pick(b);
+	if (typeof aValue !== "number" || typeof bValue !== "number") {
+		return undefined;
+	}
+	return bValue - aValue;
+}
+
+function renderCompareMetricRow(
+	label: string,
+	aText: string,
+	bText: string,
+	delta: number | undefined,
+	deltaText: string,
+): string {
+	return `<tr>
+  <th scope="row">${escapeHtml(label)}</th>
+  <td>${escapeHtml(aText)}</td>
+  <td>${escapeHtml(bText)}</td>
+  <td class="${deltaClass(delta)}">${escapeHtml(deltaText)}</td>
 </tr>`;
-		})
-		.join("\n");
+}
 
-	const onlyA =
-		report.onlyInA.length > 0
-			? `<p class="muted">Only in A (${escapeHtml(report.aLabel)}): ${report.onlyInA.map((n) => escapeHtml(n)).join(", ")}</p>`
-			: "";
-	const onlyB =
-		report.onlyInB.length > 0
-			? `<p class="muted">Only in B (${escapeHtml(report.bLabel)}): ${report.onlyInB.map((n) => escapeHtml(n)).join(", ")}</p>`
-			: "";
-
+function renderCompareMetrics(result: ScenarioResult): string {
+	const compare = result.compare;
+	if (!compare) {
+		return "";
+	}
+	const aMs = armDurationMs(compare.a);
+	const bMs = armDurationMs(compare.b);
+	const durationDelta = aMs !== undefined && bMs !== undefined ? bMs - aMs : undefined;
+	const aTools = armToolCount(compare.a);
+	const bTools = armToolCount(compare.b);
+	const toolDelta = aTools !== undefined && bTools !== undefined ? bTools - aTools : undefined;
+	const totalDelta = tokenDelta(compare.a, compare.b, "total");
 	return `
 <section class="compare">
   <header class="compare-header">
-    <h2>A/B compare</h2>
-    <p class="muted">${escapeHtml(report.aLabel)} → ${escapeHtml(report.bLabel)} · ${formatInteger(report.summary.pairedCount)} paired · regressions ${formatInteger(report.summary.passRegressions)} · improvements ${formatInteger(report.summary.passImprovements)}</p>
+    <h3>Comparison</h3>
+    <p class="muted">${escapeHtml(compare.a.label)} vs ${escapeHtml(compare.b.label)}. Δ is B minus A. A lower time and a lower token count is better.</p>
   </header>
-  <div class="compare-summary meta-grid">
-    <div class="meta-item"><span class="meta-key">Mean Δ durationMs</span><span class="meta-val">${escapeHtml(formatSigned(report.summary.meanDurationDeltaMs !== undefined ? Math.round(report.summary.meanDurationDeltaMs) : undefined))}</span></div>
-    <div class="meta-item"><span class="meta-key">Mean Δ tools</span><span class="meta-val">${escapeHtml(formatSigned(report.summary.meanToolCallDelta !== undefined ? Math.round(report.summary.meanToolCallDelta) : undefined))}</span></div>
-    <div class="meta-item"><span class="meta-key">Mean Δ totalTokens</span><span class="meta-val">${escapeHtml(formatSigned(report.summary.meanTotalTokensDelta !== undefined ? Math.round(report.summary.meanTotalTokensDelta) : undefined))}</span></div>
-  </div>
-  ${onlyA}
-  ${onlyB}
   <div class="compare-table-wrap">
     <table class="compare-table">
       <thead>
         <tr>
-          <th>Scenario</th>
-          <th>A</th>
-          <th>B</th>
-          <th>Δ duration</th>
-          <th>Δ tools</th>
-          <th>Δ skills</th>
-          <th>Δ registry</th>
-          <th>Δ tokens</th>
+          <th>Metric</th>
+          <th>${escapeHtml(compare.a.label)}</th>
+          <th>${escapeHtml(compare.b.label)}</th>
+          <th>Δ</th>
         </tr>
       </thead>
       <tbody>
-        ${rows}
+        ${renderCompareMetricRow("Duration", formatArmDuration(compare.a), formatArmDuration(compare.b), durationDelta, formatSignedDuration(durationDelta))}
+        ${renderCompareMetricRow("Tokens", formatArmTokens(compare.a, "total"), formatArmTokens(compare.b, "total"), totalDelta, formatSigned(totalDelta))}
+        ${renderCompareMetricRow("In", formatArmTokens(compare.a, "input"), formatArmTokens(compare.b, "input"), tokenDelta(compare.a, compare.b, "input"), formatSigned(tokenDelta(compare.a, compare.b, "input")))}
+        ${renderCompareMetricRow("Out", formatArmTokens(compare.a, "output"), formatArmTokens(compare.b, "output"), tokenDelta(compare.a, compare.b, "output"), formatSigned(tokenDelta(compare.a, compare.b, "output")))}
+        ${renderCompareMetricRow("Tools", aTools === undefined ? "n/a" : formatInteger(aTools), bTools === undefined ? "n/a" : formatInteger(bTools), toolDelta, formatSigned(toolDelta))}
       </tbody>
     </table>
   </div>
 </section>`;
-}
-
-/** Standalone compare HTML document (written next to compare-report.json / .md). */
-export function renderCompareHtmlReport(
-	report: SuiteCompareReport,
-	meta: HtmlReportMeta = {},
-): string {
-	const generatedAt = meta.generatedAt ?? new Date();
-	return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>agent-test compare — ${escapeHtml(report.aLabel)} vs ${escapeHtml(report.bLabel)}</title>
-<style>${sharedReportCss()}</style>
-</head>
-<body>
-<main>
-  <header class="report-header">
-    <h1>agent-test compare</h1>
-    <span class="report-kicker">${escapeHtml(report.aLabel)} vs ${escapeHtml(report.bLabel)}</span>
-  </header>
-  <div class="summary">
-    <div class="stats">
-      <span class="stat"><strong>${formatInteger(report.summary.pairedCount)}</strong> paired</span>
-      <span class="stat stat-fail"><strong>${formatInteger(report.summary.passRegressions)}</strong> regressions</span>
-      <span class="stat stat-pass"><strong>${formatInteger(report.summary.passImprovements)}</strong> improvements</span>
-    </div>
-    <dl>
-      <dt>Generated</dt><dd>${escapeHtml(generatedAt.toISOString())}</dd>
-      <dt>A</dt><dd>${escapeHtml(report.aSuite)}</dd>
-      <dt>B</dt><dd>${escapeHtml(report.bSuite)}</dd>
-    </dl>
-  </div>
-  ${renderCompareHtmlSection(report)}
-</main>
-</body>
-</html>
-`;
 }
 
 function renderStoryList(title: string, lines: string[] | undefined): string {
@@ -667,10 +647,22 @@ function renderScenario(result: ScenarioResult): string {
   <div class="scenario-body">
   ${diagnostics}
   ${metaRow}
+  ${renderCompareMetrics(result)}
+  ${
+		result.compare
+			? `<section class="conversation">
+    <h3>Conversation · ${escapeHtml(result.compare.a.label)}</h3>
+    ${renderChat(result.compare.a.trace, result.compare.a.prompt)}
+  </section>
   <section class="conversation">
+    <h3>Conversation · ${escapeHtml(result.compare.b.label)}</h3>
+    ${renderChat(result.compare.b.trace, result.compare.b.prompt)}
+  </section>`
+			: `<section class="conversation">
     <h3>Conversation</h3>
     ${renderChat(result.trace, result.prompt)}
-  </section>
+  </section>`
+	}
   </div>
 </details>`;
 }
@@ -709,8 +701,6 @@ function sharedReportCss(): string {
     --system-bubble: oklch(0.26 0.04 300);
     --tool: oklch(0.82 0.12 80);
     --tool-bubble: oklch(0.26 0.04 80);
-    --improve: var(--pass);
-    --regress: var(--fail);
   }
   @layer reset {
     * { box-sizing: border-box; }
@@ -914,8 +904,7 @@ function sharedReportCss(): string {
     padding: 0.85rem 0.9rem 1rem;
   }
   .compare-header { margin-bottom: 0.65rem; }
-  .compare-header h2 { margin-bottom: 0.2rem; }
-  .compare-summary { margin-bottom: 0.75rem; }
+  .compare-header h3 { margin-bottom: 0.2rem; }
   .compare-table-wrap { overflow-x: auto; }
   .compare-table {
     width: 100%;
@@ -930,9 +919,6 @@ function sharedReportCss(): string {
     vertical-align: middle;
   }
   .compare-table th { color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  .compare-name { font-weight: 600; }
-  .compare-regress { background: color-mix(in srgb, var(--regress) 10%, transparent); }
-  .compare-improve { background: color-mix(in srgb, var(--improve) 10%, transparent); }
   .delta-up { color: var(--fail); }
   .delta-down { color: var(--pass); }
   .delta-flat { color: var(--muted); }
@@ -956,24 +942,6 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
 	const hostNames = [...new Set(reports.map((report) => report.host).filter(Boolean))];
 	const host = meta.host ?? (hostNames.length > 0 ? hostNames.join(", ") : "unknown");
 	const runUsage = summarizeReports(reports).usage;
-
-	// Embed A/B only when explicitly requested (compare-pairs / compare labels), not for every 2-suite run.
-	const includeCompare =
-		reports.length === 2 &&
-		(meta.includeCompare === true ||
-			meta.compareALabel !== undefined ||
-			meta.compareBLabel !== undefined);
-	const compareSection =
-		includeCompare && reports[0] && reports[1]
-			? renderCompareHtmlSection(
-					compareSuiteReports({
-						aLabel: meta.compareALabel ?? reports[0].suite,
-						bLabel: meta.compareBLabel ?? reports[1].suite,
-						a: reports[0],
-						b: reports[1],
-					}),
-				)
-			: "";
 
 	const suitesHtml = reports.map(renderSuite).join("\n");
 
@@ -1005,13 +973,12 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
     <h2 id="guide-heading">How to read this report</h2>
     <ol>
       <li>The verdict is pass or fail. Tokens are cost, not the score.</li>
-      <li>Open a scenario for the criteria and the result.</li>
+      <li>Open a scenario for the criteria and the result. A compare scenario shows a time and token table, then two conversations.</li>
       <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
       <li>In is prompt and context. Out is generated text.</li>
     </ol>
   </section>
   ${renderCostSection(runUsage)}
-  ${compareSection}
   ${suitesHtml}
 </main>
 </body>

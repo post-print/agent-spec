@@ -26,7 +26,20 @@ describe("in-repo suites", () => {
 			expect(suite.hosts).toEqual(["cursor", "claude", "openai"]);
 			expect(suite.defaults?.allowUserSkills).toBe(false);
 			for (const scenario of suite.scenarios) {
-				expect(resolveScenarioWorkspaceRel(suite, scenario)).toBeDefined();
+				if (scenario.compare) {
+					expect(
+						resolveScenarioWorkspaceRel(suite, {
+							workspace: scenario.compare.a.workspace ?? scenario.workspace,
+						}),
+					).toBeDefined();
+					expect(
+						resolveScenarioWorkspaceRel(suite, {
+							workspace: scenario.compare.b.workspace ?? scenario.workspace,
+						}),
+					).toBeDefined();
+				} else {
+					expect(resolveScenarioWorkspaceRel(suite, scenario)).toBeDefined();
+				}
 				expect(scenario.allowUserSkills).not.toBe(true);
 			}
 		}

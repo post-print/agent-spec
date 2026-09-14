@@ -133,6 +133,64 @@ describe("validate-suite", () => {
 		expect(issues.some((issue) => issue.field === "allowUserSkills")).toBe(true);
 	});
 
+	it("accepts a compare scenario without a judge", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "pair",
+						prompt: "test",
+						compare: {
+							a: { label: "alpha", workspace: "agent-suites/judge/workspaces/compare-a" },
+							b: { label: "beta", workspace: "agent-suites/judge/workspaces/compare-b" },
+							cheaper: "b",
+						},
+						rubric: {},
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects compare.faster that is not a or b", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						a: {},
+						b: {},
+						faster: "c" as "a",
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "compare.faster")).toBe(true);
+	});
+
+	it("accepts a compare scenario with two arms and a judge question", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "pair",
+						prompt: "test",
+						compare: {
+							a: { label: "alpha", workspace: "agent-suites/judge/workspaces/compare-a" },
+							b: { label: "beta", workspace: "agent-suites/judge/workspaces/compare-b" },
+						},
+						rubric: { judge: ["Did the arms differ?"] },
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
 	it("accepts a repo-relative workspace", () => {
 		expect(
 			validateSuiteFile("/tmp/scenarios.json", {

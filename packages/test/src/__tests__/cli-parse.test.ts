@@ -128,6 +128,7 @@ describe("parseCliArgs debug flags", () => {
 		expect(formatHelp()).toContain("--check");
 		expect(formatHelp()).toContain("Do not launch an agent");
 		expect(formatHelp()).toContain("cursor|claude|openai|all");
+		expect(formatHelp()).not.toContain("compare --a");
 	});
 
 	it("parses --scenario-retries", () => {
@@ -158,31 +159,17 @@ describe("parseCliArgs debug flags", () => {
 		);
 	});
 
-	it("parses compare subcommand and --compare-pairs", () => {
-		const compare = parseCliArgs([
-			"node",
-			"cli.js",
-			"compare",
-			"--a",
-			"a.json",
-			"--b",
-			"b.json",
-			"--out-dir",
-			"out/compare",
-		]);
-		expect(compare.compareMode).toBe(true);
-		expect(compare.compareA).toBe("a.json");
-		expect(compare.compareB).toBe("b.json");
-		expect(compare.compareOutDir).toBe(`${process.cwd()}/out/compare`);
+	it("rejects the compare subcommand", () => {
+		expect(() =>
+			parseCliArgs(["node", "cli.js", "compare", "--a", "a.json", "--b", "b.json"]),
+		).toThrow(/compare subcommand is removed/);
+	});
 
-		const pairs = parseCliArgs([
-			"node",
-			"cli.js",
-			"--compare-pairs",
-			"skeleton-clean:skeleton-messy",
-		]);
-		expect(pairs.comparePairs).toBe("skeleton-clean:skeleton-messy");
-		expect(pairs.host).toBeUndefined();
+	it("rejects leftover compare flags", () => {
+		expect(() => parseCliArgs(["node", "cli.js", "--a", "a.json"])).toThrow(/--a is removed/);
+		expect(() =>
+			parseCliArgs(["node", "cli.js", "--compare-pairs", "skeleton-clean:skeleton-messy"]),
+		).toThrow(/--compare-pairs is removed/);
 	});
 });
 

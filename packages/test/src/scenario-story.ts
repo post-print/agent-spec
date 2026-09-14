@@ -2,6 +2,7 @@ import type { AgentTrace } from "@post-print/agent-harness";
 
 import type {
 	AssertionFailure,
+	CompareArmId,
 	JudgeVerdictResult,
 	ScenarioRubric,
 	ScenarioStory,
@@ -52,7 +53,15 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 /** Rubric checks in one short line each. */
-export function describeRubricChecks(rubric?: ScenarioRubric): string[] {
+export function describeRubricChecks(
+	rubric?: ScenarioRubric,
+	compare?: {
+		aLabel: string;
+		bLabel: string;
+		faster?: CompareArmId;
+		cheaper?: CompareArmId;
+	},
+): string[] {
 	if (!rubric) {
 		return ["no rubric recorded"];
 	}
@@ -93,8 +102,25 @@ export function describeRubricChecks(rubric?: ScenarioRubric): string[] {
 	if (rubric.reviewDepth) {
 		lines.push(`announce review depth ${rubric.reviewDepth}`);
 	}
+	if (compare) {
+		lines.push(`compare ${compare.aLabel} vs ${compare.bLabel}`);
+		if (compare.faster) {
+			const winner = compare.faster === "a" ? compare.aLabel : compare.bLabel;
+			const loser = compare.faster === "a" ? compare.bLabel : compare.aLabel;
+			lines.push(`${winner} is faster than ${loser}`);
+		}
+		if (compare.cheaper) {
+			const winner = compare.cheaper === "a" ? compare.aLabel : compare.bLabel;
+			const loser = compare.cheaper === "a" ? compare.bLabel : compare.aLabel;
+			lines.push(`${winner} uses fewer tokens than ${loser}`);
+		}
+	}
 	if (rubric.judge && rubric.judge.length > 0) {
-		lines.push(`judge answers ${countLabel(rubric.judge.length, "question", "questions")}`);
+		lines.push(
+			compare
+				? `judge answers ${countLabel(rubric.judge.length, "question", "questions")} on both arms`
+				: `judge answers ${countLabel(rubric.judge.length, "question", "questions")}`,
+		);
 	}
 	return lines.length > 0 ? lines : ["no rubric checks"];
 }
@@ -188,10 +214,29 @@ export function buildScenarioStory(options: {
 	skipped?: boolean;
 	failures: AssertionFailure[];
 	judgeVerdicts?: JudgeVerdictResult[];
+	compare?: {
+		aLabel: string;
+		bLabel: string;
+		faster?: CompareArmId;
+		cheaper?: CompareArmId;
+		aTrace?: AgentTrace;
+		bTrace?: AgentTrace;
+	};
 }): ScenarioStory {
-	const result = options.skipped ? ["scenario skipped"] : describeTraceHappened(options.trace);
+	const result = options.skipped
+		? ["scenario skipped"]
+		: options.compare
+			? [
+					...describeTraceHappened(options.compare.aTrace).map(
+						(line) => `${options.compare?.aLabel}: ${line}`,
+					),
+					...describeTraceHappened(options.compare.bTrace).map(
+						(line) => `${options.compare?.bLabel}: ${line}`,
+					),
+				]
+			: describeTraceHappened(options.trace);
 	return {
-		criteria: describeRubricChecks(options.rubric),
+		criteria: describeRubricChecks(options.rubric, options.compare),
 		result,
 		verdict: storyVerdict(result, describeOutcome(options)),
 	};

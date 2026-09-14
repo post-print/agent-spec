@@ -36,19 +36,6 @@ export function scenarioArtifactSlug(name: string): string {
 	return `${base}-${hash}`;
 }
 
-/**
- * Band-neutral key for pairing outcome vs transfer scenarios in compare reports.
- * Strips `outcome:` / `transfer:` prefixes and normalizes case.
- */
-export function scenarioCompareKey(name: string): string {
-	return name
-		.replace(/^(outcome|transfer)[:-]\s*/i, "")
-		.replace(/-[a-f0-9]{8}$/i, "")
-		.replace(/-/g, " ")
-		.trim()
-		.toLowerCase();
-}
-
 export function getLiveStagingRoot(): string {
 	if (liveStagingRootOverride) {
 		return join(liveStagingRootOverride, "sessions");
@@ -69,11 +56,13 @@ export function getStagingTracePath(
 	stagingSessionId: string,
 	suiteName: string,
 	scenarioName: string,
+	arm?: "a" | "b",
 ): string {
+	const suffix = arm ? `.${arm}` : "";
 	return join(
 		getLiveStagingSessionRoot(stagingSessionId),
 		suiteName,
-		`${stagingScenarioBasename(scenarioName)}.json`,
+		`${stagingScenarioBasename(scenarioName)}${suffix}.json`,
 	);
 }
 
@@ -120,10 +109,18 @@ export function getStagingResultPath(
 	);
 }
 
+export interface LiveCompareArmSidecar {
+	durationMs: number;
+}
+
 export interface LiveScenarioResultSidecar {
 	passed: boolean;
 	failures: AssertionFailure[];
 	durationMs: number;
+	compare?: {
+		a: LiveCompareArmSidecar;
+		b: LiveCompareArmSidecar;
+	};
 }
 
 export function createLiveStagingSessionId(): string {
@@ -135,11 +132,12 @@ export function resolveRecordingPath(
 	suiteName: string,
 	scenarioName: string,
 	stagingSessionId: string | undefined,
+	arm?: "a" | "b",
 ): string | undefined {
 	if (!stagingSessionId) {
 		return undefined;
 	}
-	return getStagingTracePath(stagingSessionId, suiteName, scenarioName);
+	return getStagingTracePath(stagingSessionId, suiteName, scenarioName, arm);
 }
 
 /** Persist a direct-run trace for parent-process judging and diagnostics. */

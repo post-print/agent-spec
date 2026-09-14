@@ -21,6 +21,7 @@ import {
 	filterWorkingTreeLeaks,
 	findWorkingTreeLeak,
 	formatWorkingTreeLeak,
+	judgeCompareTraces,
 	judgeTrace,
 	loadContext,
 	loadUnifiedDiffPaths,
@@ -34,11 +35,19 @@ import {
 	runAgent,
 	skillInvokeJudgeCriteria,
 	skillPathsFromSetting,
+	sumUsageParts,
 	toolPathsOutsideWorkspace,
 	traceEditsOutsideWorktree,
 	traceHasUserInputTool,
 } from "@post-print/agent-harness";
 
+import {
+	applyCompareArm,
+	applySidecarCompareDurations,
+	assertCompareMetrics,
+	compareArmLabel,
+	prefixCompareFailures,
+} from "./compare-scenario.js";
 import { collectDebugEnvironment, getDebugBundleDir, writeDebugBundle } from "./debug-bundle.js";
 import { discoverSuites } from "./discover-suites.js";
 import { assertRubric } from "./expect.js";
@@ -71,6 +80,7 @@ import {
 	getStagingAgentStartPath,
 	getStagingResultPath,
 	getStagingTracePath,
+	type LiveScenarioResultSidecar,
 	loadStagingResult,
 	loadStagingTrace,
 	recordTrace,
@@ -94,8 +104,10 @@ import type {
 	AgentScenario,
 	AgentSuiteDefaults,
 	AssertionFailure,
+	CompareArmId,
 	JudgeRubricItem,
 	JudgeVerdictResult,
+	ScenarioCompareResult,
 	ScenarioResult,
 	ScenarioRubric,
 	ScenarioStory,
@@ -278,9 +290,64 @@ export function collectJudgeCriteria(rubric: ScenarioRubric): JudgeCriterion[] {
 	];
 }
 
+/** Pairwise judge questions only. Skill-follow checks stay per-arm and deterministic. */
+export function collectCompareJudgeCriteria(rubric: ScenarioRubric): JudgeCriterion[] {
+	return normalizeJudgeCriteria(rubric.judge);
+}
+
 /** Judge auth and the judge call apply only when a rubric has judge work. */
 export function judgeAuthRequired(judge: boolean, rubrics: readonly ScenarioRubric[]): boolean {
 	return judge !== false && rubrics.some((rubric) => collectJudgeCriteria(rubric).length > 0);
+}
+
+/** Pairwise judge on compare. Skill-follow judge questions stay on non-compare scenarios. */
+export function scenarioNeedsJudge(
+	judge: boolean,
+	scenario: Pick<AgentScenario, "compare" | "rubric">,
+): boolean {
+	if (judge === false) {
+		return false;
+	}
+	if (scenario.compare) {
+		return collectCompareJudgeCriteria(scenario.rubric).length > 0;
+	}
+	return collectJudgeCriteria(scenario.rubric).length > 0;
+}
+
+/** True when the selected live run will call the judge. */
+export async function selectedRunNeedsJudge(options: {
+	cwd: string;
+	suitesDir: string;
+	filter?: string;
+	scenarioFilter?: string;
+	rubricsDir?: string;
+	judge?: boolean;
+}): Promise<boolean> {
+	if (options.judge === false) {
+		return false;
+	}
+	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
+	const filtered = options.filter
+		? suitePaths.filter((suitePath) => {
+				const suiteName = suiteNameFromPath(suitePath);
+				return suiteName === options.filter || suitePath.includes(`/${options.filter}/`);
+			})
+		: suitePaths;
+	for (const suitePath of filtered) {
+		const suite = await loadSuiteFile(suitePath, { rubricsDir: options.rubricsDir });
+		for (const scenario of suite.scenarios) {
+			if (scenario.skip) {
+				continue;
+			}
+			if (options.scenarioFilter && scenario.name !== options.scenarioFilter) {
+				continue;
+			}
+			if (scenarioNeedsJudge(true, scenario)) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 export async function loadSelectedRubrics(options: {
@@ -606,6 +673,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 			let failures: AssertionFailure[] = [];
 			let scenarioTrace: AgentTrace | undefined;
 			let previousAttemptExitCode = previousIsolatedExitCode;
+			let childSidecar: LiveScenarioResultSidecar | undefined;
 
 			while (true) {
 				attempts++;
@@ -635,28 +703,38 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				previousIsolatedExitCode = spawned.exitCode;
 				failures = [];
 				scenarioTrace = undefined;
+				childSidecar =
+					options.stagingSessionId !== undefined
+						? await loadStagingResult(
+								getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
+							)
+						: undefined;
 
 				if (spawned.exitCode !== 0) {
-					const childResult =
-						options.stagingSessionId !== undefined
-							? await loadStagingResult(
-									getStagingResultPath(options.stagingSessionId, suite.name, scenario.name),
-								)
-							: undefined;
 					failures.push(
-						...failuresForLiveSubprocessExit(spawned.exitCode, childResult, spawned.stderr),
+						...failuresForLiveSubprocessExit(spawned.exitCode, childSidecar, spawned.stderr),
 					);
 				}
 				if (options.stagingSessionId) {
-					const tracePath = getStagingTracePath(
-						options.stagingSessionId,
-						suite.name,
-						scenario.name,
-					);
-					try {
-						scenarioTrace = await loadStagingTrace(tracePath);
-					} catch {
-						// Trace may be missing when the child crashed before recording.
+					if (scenario.compare) {
+						try {
+							scenarioTrace = await loadStagingTrace(
+								getStagingTracePath(options.stagingSessionId, suite.name, scenario.name, "a"),
+							);
+						} catch {
+							// Trace may be missing when the child crashed before recording.
+						}
+					} else {
+						const tracePath = getStagingTracePath(
+							options.stagingSessionId,
+							suite.name,
+							scenario.name,
+						);
+						try {
+							scenarioTrace = await loadStagingTrace(tracePath);
+						} catch {
+							// Trace may be missing when the child crashed before recording.
+						}
 					}
 				}
 
@@ -672,29 +750,68 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 			}
 
 			let judgeVerdicts: JudgeVerdictResult[] | undefined;
-			if (failures.length === 0 && options.judge !== false && scenarioTrace) {
-				const criteria = collectJudgeCriteria(scenario.rubric);
-				if (criteria.length > 0) {
-					releaseLiveMemory();
-					logPhase(theme.judgePhase(criteria.length), { last: true });
-					try {
-						const judged = await runJudgeRubric(
-							scenarioTrace,
-							scenario.rubric,
-							options.cwd,
-							options.host ?? scenario.host ?? suite.defaults?.host ?? "cursor",
-						);
-						failures.push(...judged.failures);
-						scenarioTrace = judged.trace;
-						judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
-					} catch (error) {
-						failures.push(
-							assertionFailure(
-								"judge",
-								error instanceof Error ? error.message : "failed to load staging trace for judge",
-								"judge_infra",
-							),
-						);
+			let compareResult: ScenarioCompareResult | undefined;
+			const judgeHost = options.host ?? scenario.host ?? suite.defaults?.host ?? "cursor";
+			if (scenario.compare && options.stagingSessionId) {
+				compareResult = applySidecarCompareDurations(
+					await loadCompareResultFromStaging(options.stagingSessionId, suite.name, scenario),
+					childSidecar,
+				);
+				scenarioTrace = compareResult.a.trace ?? scenarioTrace;
+			}
+			if (failures.length === 0 && options.judge !== false) {
+				if (scenario.compare && compareResult?.a.trace && compareResult.b.trace) {
+					const criteria = collectCompareJudgeCriteria(scenario.rubric);
+					if (criteria.length > 0) {
+						releaseLiveMemory();
+						logPhase(theme.judgePhase(criteria.length), { last: true });
+						try {
+							const judged = await runCompareJudgeRubric(
+								compareResult,
+								scenario.rubric,
+								options.cwd,
+								judgeHost,
+							);
+							failures.push(...judged.failures);
+							judgeVerdicts = toJudgeVerdictResults(
+								{ ...compareResult.a.trace, judgeVerdicts: judged.verdicts },
+								criteria,
+								judged.verdicts,
+							);
+						} catch (error) {
+							failures.push(
+								assertionFailure(
+									"judge",
+									error instanceof Error ? error.message : "failed to judge compare traces",
+									"judge_infra",
+								),
+							);
+						}
+					}
+				} else if (scenarioTrace && !scenario.compare) {
+					const criteria = collectJudgeCriteria(scenario.rubric);
+					if (criteria.length > 0) {
+						releaseLiveMemory();
+						logPhase(theme.judgePhase(criteria.length), { last: true });
+						try {
+							const judged = await runJudgeRubric(
+								scenarioTrace,
+								scenario.rubric,
+								options.cwd,
+								judgeHost,
+							);
+							failures.push(...judged.failures);
+							scenarioTrace = judged.trace;
+							judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
+						} catch (error) {
+							failures.push(
+								assertionFailure(
+									"judge",
+									error instanceof Error ? error.message : "failed to load staging trace for judge",
+									"judge_infra",
+								),
+							);
+						}
 					}
 				}
 			}
@@ -702,7 +819,9 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 			const durationMs = Math.round(performance.now() - started);
 			const passed = failures.length === 0;
 			const usageFields = buildScenarioResultUsage({
-				agentUsage: scenarioTrace?.usage,
+				agentUsage: compareResult
+					? sumUsageParts([compareResult.a.trace?.usage, compareResult.b.trace?.usage])
+					: scenarioTrace?.usage,
 				judgeVerdicts,
 			});
 			const story = buildScenarioStory({
@@ -711,11 +830,20 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				passed,
 				failures,
 				judgeVerdicts,
+				compare: compareResult
+					? {
+							aLabel: compareResult.a.label,
+							bLabel: compareResult.b.label,
+							faster: scenario.compare?.faster,
+							cheaper: scenario.compare?.cheaper,
+							aTrace: compareResult.a.trace,
+							bTrace: compareResult.b.trace,
+						}
+					: undefined,
 			});
 			const scenarioResult: ScenarioResult = {
 				suite: suite.name,
 				scenario: scenario.name,
-				compareId: scenario.compareId,
 				prompt: scenario.prompt,
 				passed,
 				failures,
@@ -723,6 +851,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				attempts,
 				judgeVerdicts,
 				trace: scenarioTrace,
+				compare: compareResult,
 				story,
 				...usageFields,
 			};
@@ -1008,7 +1137,7 @@ async function runAgentTestOnce(
 	suitesDir = "agent-suites",
 	keepRecordings?: boolean,
 	rubricsDir?: string,
-	runOptions?: { suppressEmit?: boolean },
+	runOptions?: { suppressEmit?: boolean; compareArm?: CompareArmId; writeSidecar?: boolean },
 ): Promise<ScenarioResult> {
 	const started = performance.now();
 	const debug = isDebugEnabled({ debug: debugFlag });
@@ -1037,6 +1166,34 @@ async function runAgentTestOnce(
 		};
 	}
 
+	if (scenario.compare && runOptions?.compareArm === undefined) {
+		return runCompareAgentTestOnce(
+			cwd,
+			suiteName,
+			scenario,
+			defaultHost,
+			defaultProfile,
+			defaultSkills,
+			defaultContextSources,
+			defaultMcpServers,
+			defaultWorkspace,
+			defaultAllowUserSkills,
+			judge,
+			worktree,
+			stagingSessionId,
+			scenarioIndex,
+			scenarioTotal,
+			timeoutMs,
+			allowUserInput,
+			debugFlag,
+			debugDir,
+			suitesDir,
+			keepRecordings,
+			rubricsDir,
+			{ suppressEmit },
+		);
+	}
+
 	const host = scenario.host ?? defaultHost;
 	const profile = scenario.profile ?? defaultProfile ?? defaultProfileForHost(host);
 	const skills = scenario.skills ?? defaultSkills;
@@ -1050,7 +1207,9 @@ async function runAgentTestOnce(
 	const liveTimeoutMs = resolveLiveTimeoutMs(timeoutMs);
 	const failOnUserInput = !allowUserInput;
 
-	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
+	if (runOptions?.compareArm) {
+		logPhase(theme.phase("arm", `${runOptions.compareArm.toUpperCase()} ${host}`));
+	} else if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
 		logProgress(theme.scenarioTitle(scenarioIndex, scenarioTotal, scenario.name, host));
 	} else {
 		logProgress(theme.scenarioLabel(scenario.name, host));
@@ -1256,7 +1415,12 @@ async function runAgentTestOnce(
 			}
 		}
 
-		const stagingTracePath = resolveRecordingPath(suiteName, scenario.name, stagingSessionId);
+		const stagingTracePath = resolveRecordingPath(
+			suiteName,
+			scenario.name,
+			stagingSessionId,
+			runOptions?.compareArm,
+		);
 		if (stagingTracePath) {
 			try {
 				const path = await recordTrace(stagingTracePath, trace);
@@ -1289,7 +1453,7 @@ async function runAgentTestOnce(
 
 		const durationMs = Math.round(performance.now() - started);
 
-		if (isChildProcess() && stagingSessionId) {
+		if (isChildProcess() && stagingSessionId && runOptions?.writeSidecar !== false) {
 			await writeStagingResult(getStagingResultPath(stagingSessionId, suiteName, scenario.name), {
 				passed: failures.length === 0,
 				failures,
@@ -1319,7 +1483,6 @@ async function runAgentTestOnce(
 		const scenarioResult: ScenarioResult = {
 			suite: suiteName,
 			scenario: scenario.name,
-			compareId: scenario.compareId,
 			prompt: scenario.prompt,
 			passed,
 			failures,
@@ -1392,6 +1555,315 @@ async function runAgentTestOnce(
 			await restoreActiveCallerHead().catch(() => undefined);
 		}
 	}
+}
+
+async function runCompareAgentTestOnce(
+	cwd: string,
+	suiteName: string,
+	scenario: AgentScenario,
+	defaultHost: AgentHost,
+	defaultProfile?: AgentScenario["profile"],
+	defaultSkills?: SkillContextSetting,
+	defaultContextSources?: string[],
+	defaultMcpServers?: Record<string, McpServerConfig>,
+	defaultWorkspace?: string,
+	defaultAllowUserSkills?: boolean,
+	judge?: boolean,
+	worktree?: boolean,
+	stagingSessionId?: string,
+	scenarioIndex?: number,
+	scenarioTotal?: number,
+	timeoutMs?: number,
+	allowUserInput?: boolean,
+	debugFlag?: boolean,
+	debugDir?: string,
+	suitesDir = "agent-suites",
+	keepRecordings?: boolean,
+	rubricsDir?: string,
+	runOptions?: { suppressEmit?: boolean },
+): Promise<ScenarioResult> {
+	const started = performance.now();
+	const debug = isDebugEnabled({ debug: debugFlag });
+	const suppressEmit = runOptions?.suppressEmit === true;
+	const host = scenario.host ?? defaultHost;
+	if (scenarioIndex !== undefined && scenarioTotal !== undefined) {
+		logProgress(theme.scenarioTitle(scenarioIndex, scenarioTotal, scenario.name, host));
+	} else {
+		logProgress(theme.scenarioLabel(scenario.name, host));
+	}
+
+	const aScenario = applyCompareArm(scenario, "a");
+	const bScenario = applyCompareArm(scenario, "b");
+	const aLabel = compareArmLabel(scenario.compare?.a, "a");
+	const bLabel = compareArmLabel(scenario.compare?.b, "b");
+	const shared = {
+		cwd,
+		suiteName,
+		defaultHost,
+		defaultProfile,
+		defaultSkills,
+		defaultContextSources,
+		defaultMcpServers,
+		defaultWorkspace,
+		defaultAllowUserSkills,
+		worktree,
+		stagingSessionId,
+		timeoutMs,
+		allowUserInput,
+		debugFlag,
+		debugDir,
+		suitesDir,
+		keepRecordings,
+		rubricsDir,
+	};
+
+	const aResult = await runAgentTestOnce(
+		shared.cwd,
+		shared.suiteName,
+		aScenario,
+		shared.defaultHost,
+		shared.defaultProfile,
+		shared.defaultSkills,
+		shared.defaultContextSources,
+		shared.defaultMcpServers,
+		shared.defaultWorkspace,
+		shared.defaultAllowUserSkills,
+		false,
+		shared.worktree,
+		shared.stagingSessionId,
+		undefined,
+		undefined,
+		shared.timeoutMs,
+		shared.allowUserInput,
+		shared.debugFlag,
+		shared.debugDir,
+		shared.suitesDir,
+		shared.keepRecordings,
+		shared.rubricsDir,
+		{ suppressEmit: true, compareArm: "a", writeSidecar: false },
+	);
+	const bResult = await runAgentTestOnce(
+		shared.cwd,
+		shared.suiteName,
+		bScenario,
+		shared.defaultHost,
+		shared.defaultProfile,
+		shared.defaultSkills,
+		shared.defaultContextSources,
+		shared.defaultMcpServers,
+		shared.defaultWorkspace,
+		shared.defaultAllowUserSkills,
+		false,
+		shared.worktree,
+		shared.stagingSessionId,
+		undefined,
+		undefined,
+		shared.timeoutMs,
+		shared.allowUserInput,
+		shared.debugFlag,
+		shared.debugDir,
+		shared.suitesDir,
+		shared.keepRecordings,
+		shared.rubricsDir,
+		{ suppressEmit: true, compareArm: "b", writeSidecar: false },
+	);
+
+	const failures: AssertionFailure[] = [
+		...prefixCompareFailures(aLabel, aResult.failures),
+		...prefixCompareFailures(bLabel, bResult.failures),
+	];
+	const compareResult: ScenarioCompareResult = {
+		a: {
+			id: "a",
+			label: aLabel,
+			prompt: aScenario.prompt,
+			trace: aResult.trace,
+			durationMs: aResult.durationMs,
+		},
+		b: {
+			id: "b",
+			label: bLabel,
+			prompt: bScenario.prompt,
+			trace: bResult.trace,
+			durationMs: bResult.durationMs,
+		},
+	};
+	if (scenario.compare) {
+		failures.push(...assertCompareMetrics(scenario.compare, compareResult));
+	}
+
+	const deferJudgeToParent = isChildProcess();
+	let judgeVerdicts: JudgeVerdictResult[] | undefined;
+	if (
+		judge &&
+		!deferJudgeToParent &&
+		failures.length === 0 &&
+		compareResult.a.trace &&
+		compareResult.b.trace
+	) {
+		const criteria = collectCompareJudgeCriteria(scenario.rubric);
+		if (criteria.length > 0) {
+			logPhase(theme.judgePhase(criteria.length), { last: true });
+		}
+		const judged = await runCompareJudgeRubric(compareResult, scenario.rubric, cwd, host);
+		failures.push(...judged.failures);
+		judgeVerdicts = toJudgeVerdictResults(
+			{ ...compareResult.a.trace, judgeVerdicts: judged.verdicts },
+			criteria,
+			judged.verdicts,
+		);
+	}
+
+	const durationMs = Math.round(performance.now() - started);
+	if (isChildProcess() && stagingSessionId) {
+		await writeStagingResult(getStagingResultPath(stagingSessionId, suiteName, scenario.name), {
+			passed: failures.length === 0,
+			failures,
+			durationMs,
+			compare: {
+				a: { durationMs: aResult.durationMs },
+				b: { durationMs: bResult.durationMs },
+			},
+		});
+	}
+
+	const passed = failures.length === 0;
+	const story = buildScenarioStory({
+		rubric: scenario.rubric,
+		trace: compareResult.a.trace,
+		passed,
+		failures,
+		judgeVerdicts,
+		compare: {
+			aLabel,
+			bLabel,
+			faster: scenario.compare?.faster,
+			cheaper: scenario.compare?.cheaper,
+			aTrace: compareResult.a.trace,
+			bTrace: compareResult.b.trace,
+		},
+	});
+	const scenarioResult: ScenarioResult = {
+		suite: suiteName,
+		scenario: scenario.name,
+		prompt: scenario.prompt,
+		passed,
+		failures,
+		durationMs,
+		judgeVerdicts,
+		trace: compareResult.a.trace,
+		compare: compareResult,
+		story,
+		...buildScenarioResultUsage({
+			agentUsage: sumUsageParts([aResult.agentUsage, bResult.agentUsage]),
+			judgeVerdicts,
+		}),
+	};
+	if (!suppressEmit) {
+		const debugBundleDir = await maybeWriteDebugBundle({
+			debug,
+			cwd,
+			suitesDir,
+			rubricsDir,
+			stagingSessionId,
+			debugDir,
+			suiteName,
+			scenario,
+			host,
+			result: scenarioResult,
+			trace: compareResult.a.trace,
+			timeoutMs,
+			worktree,
+			judge,
+			allowUserInput,
+			keepRecordings,
+		});
+		scenarioResult.debugBundleDir = debugBundleDir;
+		emitScenarioVerdict({
+			passed,
+			index: scenarioIndex,
+			total: scenarioTotal,
+			name: scenario.name,
+			durationMs,
+			totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, compareResult.a.trace?.usage),
+			judgeVerdicts,
+			failures,
+			story,
+			debug,
+			debugBundleDir,
+		});
+	}
+	return scenarioResult;
+}
+
+async function loadCompareResultFromStaging(
+	stagingSessionId: string,
+	suiteName: string,
+	scenario: AgentScenario,
+): Promise<ScenarioCompareResult> {
+	const aLabel = compareArmLabel(scenario.compare?.a, "a");
+	const bLabel = compareArmLabel(scenario.compare?.b, "b");
+	const aScenario = applyCompareArm(scenario, "a");
+	const bScenario = applyCompareArm(scenario, "b");
+	const loadArm = async (side: CompareArmId) => {
+		try {
+			return await loadStagingTrace(
+				getStagingTracePath(stagingSessionId, suiteName, scenario.name, side),
+			);
+		} catch {
+			return undefined;
+		}
+	};
+	return {
+		a: { id: "a", label: aLabel, prompt: aScenario.prompt, trace: await loadArm("a") },
+		b: { id: "b", label: bLabel, prompt: bScenario.prompt, trace: await loadArm("b") },
+	};
+}
+
+async function runCompareJudgeRubric(
+	compare: ScenarioCompareResult,
+	rubric: ScenarioRubric,
+	runCwd: string,
+	host: AgentHost,
+): Promise<{
+	failures: AssertionFailure[];
+	verdicts: NonNullable<Awaited<ReturnType<typeof judgeCompareTraces>>["verdicts"]>;
+}> {
+	const criteria = collectCompareJudgeCriteria(rubric);
+	if (criteria.length === 0 || !compare.a.trace || !compare.b.trace) {
+		return { failures: [], verdicts: [] };
+	}
+	const result = await judgeCompareTraces(
+		{
+			aLabel: compare.a.label,
+			a: compare.a.trace,
+			bLabel: compare.b.label,
+			b: compare.b.trace,
+		},
+		criteria,
+		{ cwd: runCwd, host },
+	);
+	if (result.skipped) {
+		return {
+			failures: [assertionFailure("judge", result.error ?? "judge skipped", "judge_infra")],
+			verdicts: [],
+		};
+	}
+	const failures: AssertionFailure[] = [];
+	for (const verdict of result.verdicts) {
+		if (!verdict.pass) {
+			const category = verdict.infraError
+				? "judge_infra"
+				: verdict.parseError
+					? "judge_parse"
+					: "rubric_miss";
+			failures.push(assertionFailure(`judge:${verdict.id}`, verdict.rationale, category));
+		}
+	}
+	if (result.error && !result.verdicts.some((verdict) => !verdict.pass)) {
+		failures.push(assertionFailure("judge", result.error, "judge_infra"));
+	}
+	return { failures, verdicts: result.verdicts };
 }
 
 async function runJudgeRubric(

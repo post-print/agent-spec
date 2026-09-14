@@ -14,6 +14,7 @@ import {
 	runAgentTest,
 	runAllSuites,
 	runSuite,
+	scenarioNeedsJudge,
 	shouldPrintSuiteChrome,
 } from "../run-suite.js";
 
@@ -86,6 +87,26 @@ describe("judgeAuthRequired", () => {
 
 	it("is on when judge is on and mustInvokeSkill adds criteria", () => {
 		expect(judgeAuthRequired(true, [{ mustInvokeSkill: ["probe"] }])).toBe(true);
+	});
+});
+
+describe("scenarioNeedsJudge", () => {
+	it("is off for a compare scenario with no judge questions", () => {
+		expect(
+			scenarioNeedsJudge(true, {
+				compare: { a: {}, b: {}, cheaper: "b" },
+				rubric: { mustInvokeSkill: ["probe"] },
+			}),
+		).toBe(false);
+	});
+
+	it("is on for a compare scenario with judge questions", () => {
+		expect(
+			scenarioNeedsJudge(true, {
+				compare: { a: {}, b: {} },
+				rubric: { judge: ["Did the arms differ?"] },
+			}),
+		).toBe(true);
 	});
 });
 

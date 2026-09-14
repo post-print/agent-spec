@@ -50,10 +50,54 @@ export interface ScenarioRubric {
 	judge?: JudgeRubricItem[];
 }
 
+export type CompareArmId = "a" | "b";
+
+/** Overrides for one side of a compare scenario. Omitted fields inherit the scenario. */
+export interface CompareArm {
+	label?: string;
+	prompt?: string;
+	host?: AgentHost;
+	profile?: ContextProfile;
+	workspace?: string;
+	skills?: SkillContextSetting;
+	contextSources?: string[];
+	mcpServers?: Record<string, McpServerConfig>;
+	allowUserSkills?: boolean;
+	seedPatch?: string;
+	seedStageOnly?: boolean;
+}
+
+/**
+ * Two live arms in one scenario.
+ * `faster` and `cheaper` are optional metric gates.
+ * `rubric.judge` is optional and scores both transcripts.
+ */
+export interface ScenarioCompare {
+	a: CompareArm;
+	b: CompareArm;
+	/** Named arm must have a shorter duration. */
+	faster?: CompareArmId;
+	/** Named arm must use fewer total tokens. */
+	cheaper?: CompareArmId;
+}
+
+export interface CompareArmResult {
+	id: CompareArmId;
+	label: string;
+	prompt: string;
+	trace?: AgentTrace;
+	durationMs?: number;
+}
+
+export interface ScenarioCompareResult {
+	a: CompareArmResult;
+	b: CompareArmResult;
+}
+
 export interface AgentScenario {
 	name: string;
-	/** Stable key for full vs transfer arm comparison (optional). */
-	compareId?: string;
+	/** Run two arms. Optional metric gates and an optional pairwise judge. */
+	compare?: ScenarioCompare;
 	prompt: string;
 	host?: AgentHost;
 	profile?: ContextProfile;
@@ -162,8 +206,6 @@ export interface ScenarioStory {
 export interface ScenarioResult {
 	suite: string;
 	scenario: string;
-	/** Stable compare key when scenario JSON defines compareId. */
-	compareId?: string;
 	passed: boolean;
 	failures: AssertionFailure[];
 	skipped?: boolean;
@@ -182,6 +224,8 @@ export interface ScenarioResult {
 	prompt?: string;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */
 	trace?: AgentTrace;
+	/** Both arms when this scenario is a compare run. */
+	compare?: ScenarioCompareResult;
 	/** Plain-language summary of the check, the agent run, and the verdict. */
 	story?: ScenarioStory;
 	/** Absolute path to the debug bundle directory when --debug wrote one. */

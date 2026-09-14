@@ -9,8 +9,7 @@
 	"scenarios": [
 		{
 			"name": "opaque hello",
-			"prompt": "Say hello and confirm the split-rubric suite ran.",
-			"compareId": "opaque-hello"
+			"prompt": "Say hello and confirm the split-rubric suite ran."
 		}
 	]
 }

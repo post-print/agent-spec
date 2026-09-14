@@ -604,6 +604,33 @@ function buildJudgePrompt(transcript: string, question: string): string {
 	].join("\n");
 }
 
+export function buildCompareJudgePrompt(options: {
+	aLabel: string;
+	aTranscript: string;
+	bLabel: string;
+	bTranscript: string;
+	question: string;
+}): string {
+	return [
+		"You are a test harness classifier. Do not use tools. Do not edit files.",
+		"Decide whether the two transcripts satisfy the criterion using only transcript evidence.",
+		"Arm A and arm B are two agent runs of the same test.",
+		"The transcripts include assistant text, tool names, tool args, and tool results.",
+		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
+		"Reply with one JSON object only — no markdown fences, no text before or after:",
+		'{"verdict":"yes"|"no","evidence":["verbatim quote from a transcript"],"rationale":"one sentence"}',
+		'Use verdict "yes" only when evidence clearly supports the criterion.',
+		"",
+		`Arm A (${options.aLabel}):`,
+		options.aTranscript,
+		"",
+		`Arm B (${options.bLabel}):`,
+		options.bTranscript,
+		"",
+		`Criterion: ${options.question}`,
+	].join("\n");
+}
+
 function formatJudgeInfraError(result: {
 	status: string;
 	rawStatus?: string;
@@ -781,11 +808,65 @@ export async function judgeTrace(
 	}
 
 	const transcript = formatTraceForJudge(trace);
-	const transcriptChars = transcript.length;
+	return judgeCriteria(criteria, (question) => buildJudgePrompt(transcript, question), options, {
+		transcriptChars: transcript.length,
+	});
+}
+
+export interface CompareJudgePair {
+	aLabel: string;
+	a: AgentTrace;
+	bLabel: string;
+	b: AgentTrace;
+}
+
+/** Score criteria against two arm transcripts. */
+export async function judgeCompareTraces(
+	pair: CompareJudgePair,
+	criteria: JudgeCriterion[],
+	options: JudgeTraceOptions,
+): Promise<JudgeTraceResult> {
+	if (criteria.length === 0) {
+		return { verdicts: [], skipped: true };
+	}
+
+	const host = options.host ?? "cursor";
+	const missing = missingClassifierAuth(host, options.apiKey);
+	if (missing) {
+		return {
+			verdicts: [],
+			skipped: true,
+			error: `${missing} — judge criteria skipped`,
+		};
+	}
+
+	const aTranscript = formatTraceForJudge(pair.a);
+	const bTranscript = formatTraceForJudge(pair.b);
+	return judgeCriteria(
+		criteria,
+		(question) =>
+			buildCompareJudgePrompt({
+				aLabel: pair.aLabel,
+				aTranscript,
+				bLabel: pair.bLabel,
+				bTranscript,
+				question,
+			}),
+		options,
+		{ transcriptChars: aTranscript.length + bTranscript.length },
+	);
+}
+
+async function judgeCriteria(
+	criteria: JudgeCriterion[],
+	buildPrompt: (question: string) => string,
+	options: JudgeTraceOptions,
+	meta: { transcriptChars: number },
+): Promise<JudgeTraceResult> {
 	const verdicts: JudgeVerdict[] = [];
 
 	for (const criterion of criteria) {
-		const prompt = buildJudgePrompt(transcript, criterion.question);
+		const prompt = buildPrompt(criterion.question);
 		const parsed = await runJudgePrompt(prompt, options);
 		verdicts.push({
 			id: criterion.id,
@@ -799,7 +880,7 @@ export async function judgeTrace(
 			attempt: parsed.attempt,
 			durationMs: parsed.durationMs,
 			usage: parsed.usage,
-			transcriptChars,
+			transcriptChars: meta.transcriptChars,
 			promptChars: prompt.length,
 		});
 		if (parsed.error) {

@@ -32,9 +32,6 @@ bun run test:tools
 bun run test:mcp
 bun run test:judge
 bun run test:depth
-
-# Offline comparison of existing reports
-node packages/test/dist/cli.js compare --a a.suite-report.json --b b.suite-report.json --out-dir "$TMPDIR/compare"
 ```
 
 ## Signals and failures

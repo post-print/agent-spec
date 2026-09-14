@@ -112,11 +112,14 @@ export {
 	unregisterHostAdapter,
 } from "./host-registry.js";
 export {
+	buildCompareJudgePrompt,
+	type CompareJudgePair,
 	formatTraceForJudge,
 	type JudgeCriterion,
 	type JudgeTraceOptions,
 	type JudgeTraceResult,
 	type JudgeVerdict,
+	judgeCompareTraces,
 	judgeTrace,
 	type ParsedJudgeJson,
 	parseJudgeJsonResponse,

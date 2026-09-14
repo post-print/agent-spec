@@ -115,6 +115,51 @@ describe("judgeTrace host auth", () => {
 	});
 });
 
+describe("judgeCompareTraces", () => {
+	it("sends both arm transcripts to the classifier", async () => {
+		let prompt = "";
+		const { judgeCompareTraces } = await import("../judge.js");
+		const result = await judgeCompareTraces(
+			{
+				aLabel: "alpha",
+				a: {
+					messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+				},
+				bLabel: "beta",
+				b: {
+					messages: [{ role: "assistant", content: "beta-compare-b3e9" }],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+				},
+			},
+			[{ id: "distinct-words", question: "Did the two arms reply with different words?" }],
+			{
+				cwd: process.cwd(),
+				host: "openai",
+				apiKey: "openai-test-key",
+				classify: async (options) => {
+					prompt = options.prompt;
+					return {
+						status: "completed",
+						text: '{"verdict":"yes","evidence":["alpha-compare-a7c1"],"rationale":"words differ"}',
+					};
+				},
+			},
+		);
+		expect(result.skipped).toBe(false);
+		expect(result.verdicts[0]?.pass).toBe(true);
+		expect(prompt).toContain("Arm A (alpha)");
+		expect(prompt).toContain("Arm B (beta)");
+		expect(prompt).toContain("alpha-compare-a7c1");
+		expect(prompt).toContain("beta-compare-b3e9");
+		expect(prompt).toContain("Did the two arms reply with different words?");
+	});
+});
+
 describe("skillInvokeJudgeCriteria", () => {
 	it("asks whether the skill was followed, not merely named", () => {
 		const criteria = skillInvokeJudgeCriteria(["probe"]);

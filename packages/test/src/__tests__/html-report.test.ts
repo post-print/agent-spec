@@ -158,6 +158,53 @@ describe("html-report", () => {
 		expect(html.split("Say hi &lt;script&gt;").length - 1).toBe(1);
 	});
 
+	it("renders both compare conversations", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					prompt: "Read word.txt.",
+					compare: {
+						a: {
+							id: "a",
+							label: "alpha",
+							prompt: "Read word.txt.",
+							durationMs: 1200,
+							trace: {
+								messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
+								toolCalls: [{ name: "Read", args: { path: "word.txt" } }],
+								shellCommands: [],
+								artifacts: {},
+								usage: { totalTokens: 1200, inputTokens: 800, outputTokens: 400 },
+							},
+						},
+						b: {
+							id: "b",
+							label: "beta",
+							prompt: "Read word.txt.",
+							durationMs: 800,
+							trace: {
+								messages: [{ role: "assistant", content: "beta-compare-b3e9" }],
+								toolCalls: [],
+								shellCommands: [],
+								artifacts: {},
+								usage: { totalTokens: 900, inputTokens: 600, outputTokens: 300 },
+							},
+						},
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("Conversation · alpha");
+		expect(html).toContain("Conversation · beta");
+		expect(html).toContain("alpha-compare-a7c1");
+		expect(html).toContain("beta-compare-b3e9");
+		expect(html).toContain("Comparison");
+		expect(html).toContain("1.2s");
+		expect(html).toContain("1,200");
+		expect(html).toContain("900");
+		expect(html).toContain("-300");
+	});
+
 	it("renders criteria and result from the scenario story", () => {
 		const html = renderHtmlReport([
 			makeReport([
@@ -200,54 +247,6 @@ describe("html-report", () => {
 		expect(html).toContain("registry-first");
 		expect(html).toContain("Read toolCalls=[]");
 		expect(html).toContain("failure-evidence");
-	});
-
-	it("embeds A/B compare when two suites are present", () => {
-		const clean = makeReport([
-			makeResult({
-				suite: "clean",
-				scenario: "route",
-				passed: true,
-				usage: { total: { totalTokens: 100 } },
-				trace: {
-					messages: [],
-					toolCalls: [{ name: "Read", args: { path: ".skeleton/registry.md" } }],
-					shellCommands: [],
-					artifacts: {},
-					skillsInvoked: ["a"],
-				},
-			}),
-		]);
-		clean.suite = "clean";
-		const messy = makeReport([
-			makeResult({
-				suite: "messy",
-				scenario: "route",
-				passed: false,
-				usage: { total: { totalTokens: 300 } },
-				trace: {
-					messages: [],
-					toolCalls: [{ name: "Read", args: { path: "invented.ts" } }],
-					shellCommands: [],
-					artifacts: {},
-				},
-			}),
-		]);
-		messy.suite = "messy";
-
-		const html = renderHtmlReport([clean, messy], {
-			includeCompare: true,
-			compareALabel: "skeleton-clean",
-			compareBLabel: "skeleton-messy",
-		});
-		expect(html).toContain("A/B compare");
-		expect(html).toContain("skeleton-clean");
-		expect(html).toContain("skeleton-messy");
-		expect(html).toContain("Δ tokens");
-		expect(html).toContain("compare-regress");
-
-		const unrelated = renderHtmlReport([clean, messy]);
-		expect(unrelated).not.toContain("A/B compare");
 	});
 
 	it("interleaves messages and tool calls chronologically when seq is recorded", () => {

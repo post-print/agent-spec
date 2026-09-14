@@ -453,7 +453,6 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 		`${JSON.stringify(
 			{
 				name: scenario.name,
-				compareId: scenario.compareId,
 				prompt: scenario.prompt,
 				rubric: scenario.rubric,
 				workspace: scenario.workspace,
@@ -474,7 +473,6 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 			{
 				suite: result.suite,
 				scenario: result.scenario,
-				compareId: scenario.compareId ?? result.compareId,
 				passed: result.passed,
 				skipped: result.skipped,
 				durationMs: result.durationMs,

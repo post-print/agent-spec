@@ -1,6 +1,6 @@
 {
 	"name": "judge",
-	"description": "LLM judge scores the reply. Each scenario launches a test agent and a judge.",
+	"description": "LLM judge scores the reply. Each scenario launches a test agent and a judge. One scenario runs two arms and compares both transcripts.",
 	"hosts": ["cursor", "claude", "openai"],
 	"defaults": {
 		"host": "cursor",
@@ -36,6 +36,30 @@
 					{
 						"id": "no-invention",
 						"question": "Did the summary use only confirmed facts from the note, with no invented or rumor claims?"
+					}
+				]
+			}
+		},
+		{
+			"name": "compares two workspace arms",
+			"prompt": "Read word.txt. Reply with only that word. Do not add other words.",
+			"compare": {
+				"a": {
+					"label": "alpha",
+					"workspace": "agent-suites/judge/workspaces/compare-a"
+				},
+				"b": {
+					"label": "beta",
+					"workspace": "agent-suites/judge/workspaces/compare-b"
+				}
+			},
+			"rubric": {
+				"mustReadPath": ["word.txt"],
+				"mustNotCallTool": ["Shell", "Bash"],
+				"judge": [
+					{
+						"id": "distinct-words",
+						"question": "Did arm A reply with alpha-compare-a7c1 and arm B reply with beta-compare-b3e9?"
 					}
 				]
 			}

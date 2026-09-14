@@ -72,6 +72,52 @@ describe("buildScenarioStory", () => {
 		expect(story.verdict).toEqual([]);
 	});
 
+	it("lists both compare arms in the result", () => {
+		const story = buildScenarioStory({
+			rubric: { judge: ["Did the arms differ?"] },
+			passed: true,
+			failures: [],
+			compare: {
+				aLabel: "alpha",
+				bLabel: "beta",
+				aTrace: {
+					messages: [{ role: "assistant", content: "alpha-compare-a7c1" }],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+				},
+				bTrace: {
+					messages: [{ role: "assistant", content: "beta-compare-b3e9" }],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+				},
+			},
+		});
+		expect(story.criteria.some((line) => line.includes("compare alpha vs beta"))).toBe(true);
+		expect(story.criteria.some((line) => line.includes("judge answers"))).toBe(true);
+		expect(story.result.some((line) => line.startsWith("alpha:"))).toBe(true);
+		expect(story.result.some((line) => line.startsWith("beta:"))).toBe(true);
+	});
+
+	it("lists metric gates without a judge", () => {
+		const story = buildScenarioStory({
+			rubric: {},
+			passed: true,
+			failures: [],
+			compare: {
+				aLabel: "alpha",
+				bLabel: "beta",
+				faster: "a",
+				cheaper: "b",
+			},
+		});
+		expect(story.criteria).toContain("compare alpha vs beta");
+		expect(story.criteria).toContain("alpha is faster than beta");
+		expect(story.criteria).toContain("beta uses fewer tokens than alpha");
+		expect(story.criteria.some((line) => line.includes("judge"))).toBe(false);
+	});
+
 	it("puts a worktree leak in the result verdict", () => {
 		const story = buildScenarioStory({
 			rubric: { mustReadPath: ["SKILL.md"] },
