@@ -7,11 +7,13 @@ import {
 	type AgentHost,
 	CLAUDE_AUTH_MODE_ENV,
 	CURSOR_AUTH_MODE_ENV,
+	CURSOR_SDK_LOGIN_HINT,
 	DEFAULT_HOST_AUTH_MODE,
 	getHealthStatus,
 	getProcessAuthMode,
 	getRegisteredAdapter,
 	HEALTH_CHECK_PATH,
+	hasCursorSdkAuthFile,
 	isBuiltinAgentHost,
 	OPENAI_AUTH_MODE_ENV,
 	resolveClaudeAuthMode,
@@ -25,6 +27,7 @@ export interface DoctorReport {
 	nodeOk: boolean;
 	cliPresent: boolean;
 	cursorApiKeySet: boolean;
+	cursorSdkAuthFilePresent: boolean;
 	cursorSdkPresent: boolean;
 	anthropicApiKeySet: boolean;
 	claudeBinPresent: boolean;
@@ -135,7 +138,14 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	if (cursorApiKeySet) {
 		messages.push("CURSOR_API_KEY: set");
 	} else {
-		messages.push("CURSOR_API_KEY unset (required for CURSOR_AUTH_MODE=api-key)");
+		messages.push("CURSOR_API_KEY unset (required for --auth-mode api-key)");
+	}
+
+	const cursorSdkAuthFilePresent = hasCursorSdkAuthFile();
+	if (cursorSdkAuthFilePresent) {
+		messages.push("Cursor SDK login file: present (~/.cursor/sdk/auth.json)");
+	} else {
+		messages.push(`Cursor SDK login file: missing (${CURSOR_SDK_LOGIN_HINT})`);
 	}
 
 	const cursorAuthMode = process.env[CURSOR_AUTH_MODE_ENV]?.trim();
@@ -247,6 +257,7 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		nodeOk,
 		cliPresent,
 		cursorApiKeySet,
+		cursorSdkAuthFilePresent,
 		cursorSdkPresent,
 		anthropicApiKeySet,
 		claudeBinPresent,
@@ -298,7 +309,10 @@ export function missingAgentAuth(host: AgentHost): string | undefined {
 		return undefined;
 	}
 	try {
-		resolveCursorAuthMode();
+		const authMode = resolveCursorAuthMode();
+		if (authMode === "subscription" && !hasCursorSdkAuthFile()) {
+			return CURSOR_SDK_LOGIN_HINT;
+		}
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);
 	}

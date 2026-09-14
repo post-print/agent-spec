@@ -35,6 +35,7 @@ The default host is Cursor. Set `scenario.host`, `defaults.host`, or the top-lev
 JSON is an authoring adapter, not a stored answer. This repository keeps host-agent suites under `agent-suites/<suite>/scenarios.json`.
 
 ```bash
+npx agent-test login
 npx agent-test --check --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --host cursor --suite smoke
 npx agent-test --suites-dir agent-suites --host cursor --auth-mode api-key

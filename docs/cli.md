@@ -18,8 +18,13 @@ npx agent-test --help
 
 | Mode | Command | Agent |
 | --- | --- | --- |
+| Login | `npx agent-test login` | No |
 | Check | `npx agent-test --check --suites-dir agent-suites` | No |
 | Live | `npx agent-test --suites-dir agent-suites` | Yes |
+
+`login` stores a Cursor SDK login in `~/.cursor/sdk/auth.json`. It does not print the key. Pass `--host openai` to run `codex login`. For Claude, run the Claude Code CLI login.
+
+A TTY subscription run opens the Cursor login when that file is missing. `--check` reports the login file. It still does not fail the package check when the file is absent. A live run fails until you log in or pass `--auth-mode api-key`.
 
 `--doctor`, `--validate-only`, `--validate-paths`, and `--validate-seeds` are aliases for `--check`.
 

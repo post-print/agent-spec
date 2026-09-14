@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/auth-mode.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
+<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/auth-mode.ts,packages/harness/src/cursor-auth.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
 
 A **host** is the coding-agent runtime that executes a scenario. Builtin slugs are `cursor`, `claude`, and `openai`. A consumer repo can register another slug.
 
@@ -18,11 +18,11 @@ Default mode is subscription. Pass `--auth-mode api-key` (alias `--auth-method`)
 
 | Host | Binary / SDK | Subscription | API key |
 | --- | --- | --- | --- |
-| `cursor` | `@cursor/sdk` | `Cursor.auth.login()` | `--auth-mode api-key` plus `CURSOR_API_KEY` |
+| `cursor` | `@cursor/sdk` | `npx agent-test login` | `--auth-mode api-key` plus `CURSOR_API_KEY` |
 | `claude` | `claude` or `CLAUDE_CODE_BIN` | Claude Code CLI login | `--auth-mode api-key` plus `ANTHROPIC_API_KEY` |
 | `openai` | `codex` or `CODEX_BIN` | `codex login` | `--auth-mode api-key` plus `OPENAI_API_KEY` or `CODEX_API_KEY` |
 
-The Cursor app login does not feed the SDK. Run `Cursor.auth.login()` once.
+The Cursor app login does not feed the SDK. Run `npx agent-test login`. That command calls `Cursor.auth.login()` and stores the key in `~/.cursor/sdk/auth.json`. It does not print the key. A TTY subscription run opens the same login when that file is missing. `npx agent-test login --host openai` runs `codex login`. For Claude, run the Claude Code CLI login.
 
 Resolution order: `--auth-mode`, then `runAgent({ authMode })`, then `CURSOR_AUTH_MODE` / `CLAUDE_AUTH_MODE` / `OPENAI_AUTH_MODE`, then subscription.
 

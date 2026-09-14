@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { formatHelp, parseCliArgs, resolveReportOutput } from "../cli.js";
+import {
+	formatHelp,
+	parseCliArgs,
+	resolveHtmlReportWritePath,
+	resolveReportOutput,
+} from "../cli.js";
 
 describe("parseCliArgs debug flags", () => {
 	const priorDebug = process.env.AGENT_TEST_DEBUG;
@@ -181,6 +186,20 @@ describe("parseCliArgs debug flags", () => {
 		).toThrow(/compare subcommand is removed/);
 	});
 
+	it("parses the login subcommand", () => {
+		expect(parseCliArgs(["node", "cli.js", "login"]).login).toBe(true);
+		expect(parseCliArgs(["node", "cli.js", "login", "--host", "openai"]).host).toBe("openai");
+		expect(parseCliArgs(["node", "cli.js"]).login).toBe(false);
+		expect(() => parseCliArgs(["node", "cli.js", "login", "smoke"])).toThrow(
+			/login does not take a suite name/,
+		);
+	});
+
+	it("lists login in help", () => {
+		expect(formatHelp()).toContain("agent-test login");
+		expect(formatHelp()).toContain("Cursor SDK login");
+	});
+
 	it("rejects leftover compare flags", () => {
 		expect(() => parseCliArgs(["node", "cli.js", "--a", "a.json"])).toThrow(/--a is removed/);
 		expect(() =>
@@ -210,5 +229,12 @@ describe("--report-out", () => {
 
 	it("is inert when unset", () => {
 		expect(resolveReportOutput(undefined)).toEqual({});
+	});
+
+	it("passes the resolved path to the HTML writer", () => {
+		expect(resolveHtmlReportWritePath(true, "/tmp/x/run.html")).toBe("/tmp/x/run.html");
+		expect(resolveHtmlReportWritePath(true, "/tmp/x/reports")).toBe("/tmp/x/reports/report.html");
+		expect(resolveHtmlReportWritePath(true)).toBeUndefined();
+		expect(resolveHtmlReportWritePath(false, "/tmp/x/run.html")).toBeUndefined();
 	});
 });

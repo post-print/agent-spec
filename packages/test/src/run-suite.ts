@@ -375,36 +375,6 @@ export async function selectedRunNeedsJudge(options: {
 	return false;
 }
 
-export async function loadSelectedRubrics(options: {
-	cwd: string;
-	suitesDir: string;
-	filter?: string;
-	scenarioFilter?: string;
-	rubricsDir?: string;
-}): Promise<ScenarioRubric[]> {
-	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
-	const filtered = options.filter
-		? suitePaths.filter((suitePath) => {
-				const suiteName = suiteNameFromPath(suitePath);
-				return suiteName === options.filter || suitePath.includes(`/${options.filter}/`);
-			})
-		: suitePaths;
-	const rubrics: ScenarioRubric[] = [];
-	for (const suitePath of filtered) {
-		const suite = await loadSuiteFile(suitePath, { rubricsDir: options.rubricsDir });
-		for (const scenario of suite.scenarios) {
-			if (scenario.skip) {
-				continue;
-			}
-			if (options.scenarioFilter && scenario.name !== options.scenarioFilter) {
-				continue;
-			}
-			rubrics.push(scenario.rubric);
-		}
-	}
-	return rubrics;
-}
-
 function questionForCriterion(criteria: JudgeCriterion[], id: string): string {
 	return criteria.find((c) => c.id === id)?.question ?? id;
 }

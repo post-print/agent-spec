@@ -74,12 +74,6 @@ export function mergeArmRubric(base: ScenarioRubric, overlay?: ScenarioRubric): 
 	return merged;
 }
 
-export function isCompareScenario(
-	scenario: Pick<AgentScenario, "compare">,
-): scenario is AgentScenario & { compare: ScenarioCompare } {
-	return scenario.compare !== undefined;
-}
-
 export function parseCompareArmId(value: unknown): CompareArmId | undefined {
 	if (typeof value !== "string") {
 		return undefined;

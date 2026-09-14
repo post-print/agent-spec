@@ -434,14 +434,14 @@ describe("expectTrace", () => {
 			toolCalls: [
 				{
 					name: "Shell",
-					args: { command: "cat agent-suites/tools/fixtures/needle.txt" },
+					args: { command: "cat agent-suites/tools/workspaces/read/needle.txt" },
 				},
 			],
-			shellCommands: ["cat agent-suites/tools/fixtures/needle.txt"],
+			shellCommands: ["cat agent-suites/tools/workspaces/read/needle.txt"],
 			artifacts: {},
 		};
 		expect(
-			assertRubric(trace, { mustReadPath: ["agent-suites/tools/fixtures/needle.txt"] }),
+			assertRubric(trace, { mustReadPath: ["agent-suites/tools/workspaces/read/needle.txt"] }),
 		).toHaveLength(0);
 	});
 

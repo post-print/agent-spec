@@ -90,6 +90,20 @@ export {
 	type UserSimulator,
 } from "./conversation.js";
 export {
+	CURSOR_SDK_AUTH_REL,
+	CURSOR_SDK_AUTH_TOO_OLD,
+	CURSOR_SDK_LOGIN_HINT,
+	type CursorSdkAuthClient,
+	type CursorSdkAuthStatus,
+	type CursorSdkLoginPublicResult,
+	cursorSdkAuthFilePath,
+	hasCursorSdkAuthFile,
+	isInvalidCursorUserApiKey,
+	loginCursorSdk,
+	readCursorSdkAuthStatus,
+	wrapCursorSdkAuthError,
+} from "./cursor-auth.js";
+export {
 	assistantTextFromSdkMessages,
 	CURSOR_AUTH_MODE_ENV,
 	CURSOR_MISSING_KEY_MESSAGE,

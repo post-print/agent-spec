@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { setProcessAuthMode } from "../auth-mode.js";
 import { missingClassifierAuth } from "../classifier.js";
@@ -17,13 +20,16 @@ describe("isAgentHost", () => {
 });
 
 describe("missingClassifierAuth", () => {
-	it("accepts the Cursor classifier under the subscription default", () => {
+	it("names a missing Cursor SDK login under the subscription default", async () => {
 		const prior = process.env.CURSOR_API_KEY;
 		const priorMode = process.env.CURSOR_AUTH_MODE;
+		const priorHome = process.env.HOME;
+		const home = await mkdtemp(join(tmpdir(), "classifier-no-sdk-login-"));
 		delete process.env.CURSOR_API_KEY;
 		delete process.env.CURSOR_AUTH_MODE;
+		process.env.HOME = home;
 		try {
-			expect(missingClassifierAuth("cursor")).toBeUndefined();
+			expect(missingClassifierAuth("cursor")).toMatch(/agent-test login/);
 			expect(missingClassifierAuth("cursor", "injected")).toBeUndefined();
 		} finally {
 			if (prior === undefined) {
@@ -36,6 +42,12 @@ describe("missingClassifierAuth", () => {
 			} else {
 				process.env.CURSOR_AUTH_MODE = priorMode;
 			}
+			if (priorHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = priorHome;
+			}
+			await rm(home, { recursive: true, force: true });
 		}
 	});
 
@@ -47,27 +59,6 @@ describe("missingClassifierAuth", () => {
 		setProcessAuthMode("api-key");
 		try {
 			expect(missingClassifierAuth("cursor")).toMatch(/CURSOR_API_KEY/);
-		} finally {
-			if (prior === undefined) {
-				delete process.env.CURSOR_API_KEY;
-			} else {
-				process.env.CURSOR_API_KEY = prior;
-			}
-			if (priorMode === undefined) {
-				delete process.env.CURSOR_AUTH_MODE;
-			} else {
-				process.env.CURSOR_AUTH_MODE = priorMode;
-			}
-		}
-	});
-
-	it("accepts a Cursor SDK login when CURSOR_AUTH_MODE=subscription", () => {
-		const prior = process.env.CURSOR_API_KEY;
-		const priorMode = process.env.CURSOR_AUTH_MODE;
-		delete process.env.CURSOR_API_KEY;
-		process.env.CURSOR_AUTH_MODE = "subscription";
-		try {
-			expect(missingClassifierAuth("cursor")).toBeUndefined();
 		} finally {
 			if (prior === undefined) {
 				delete process.env.CURSOR_API_KEY;

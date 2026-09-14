@@ -60,4 +60,53 @@ describe("validateSeedPatches", () => {
 		expect(report.ok).toBe(true);
 		expect(report.checked).toBe(1);
 	});
+
+	it("applies a caller-HEAD seed patch without a git worktree", async () => {
+		const repoRoot = await mkdtemp(join(tmpdir(), "agent-seed-head-"));
+		await execFileAsync("git", ["init", "-b", "main"], { cwd: repoRoot });
+		await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repoRoot });
+		await execFileAsync("git", ["config", "user.name", "test"], { cwd: repoRoot });
+		await mkdir(join(repoRoot, "agent-suites/depth"), { recursive: true });
+		await writeFile(join(repoRoot, "seeded.txt"), "agent-test-depth-seed-before\n", "utf8");
+		await writeFile(
+			join(repoRoot, "agent-suites/depth/head.patch"),
+			[
+				"diff --git a/seeded.txt b/seeded.txt",
+				"--- a/seeded.txt",
+				"+++ b/seeded.txt",
+				"@@ -1 +1 @@",
+				"-agent-test-depth-seed-before",
+				"+agent-test-depth-seed-4e91",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+		await writeFile(
+			join(repoRoot, "agent-suites/depth/scenarios.json"),
+			JSON.stringify({
+				name: "depth",
+				scenarios: [
+					{
+						name: "applies a caller-head seed",
+						prompt: "read seeded.txt",
+						seedPatch: "agent-suites/depth/head.patch",
+						rubric: { must: ["agent-test-depth-seed-4e91"] },
+					},
+				],
+			}),
+			"utf8",
+		);
+		await execFileAsync("git", ["add", "."], { cwd: repoRoot });
+		await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoRoot });
+
+		const report = await validateSeedPatches({
+			cwd: repoRoot,
+			suitesDir: "agent-suites",
+		});
+		expect(report.ok).toBe(true);
+		expect(report.checked).toBe(1);
+
+		const { stdout } = await execFileAsync("git", ["worktree", "list"], { cwd: repoRoot });
+		expect(stdout).not.toContain("agent-harness-wt-");
+	});
 });

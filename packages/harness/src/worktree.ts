@@ -54,7 +54,7 @@ export async function cleanupStaleScenarioWorktrees(repoRoot: string): Promise<s
 	return removed;
 }
 
-/** Detached git worktree so live agent runs do not mutate the caller's working tree. */
+/** Detached git worktree for tests and leftover crash cleanup. Live runs use `createSealedWorkspace`. */
 export async function createScenarioWorktree(
 	repoRoot: string,
 	label: string,

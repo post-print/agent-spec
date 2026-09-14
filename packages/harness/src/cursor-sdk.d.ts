@@ -113,4 +113,38 @@ declare module "@cursor/sdk" {
 		}>;
 		create: (options: CursorAgentOptions) => Promise<DisposableAgent>;
 	};
+
+	export interface CursorAuthLoginResult {
+		apiKey: string;
+		email?: string;
+		apiKeyExpiresAtMs: number;
+	}
+
+	export type CursorAuthStatus =
+		| {
+				status: "logged-in";
+				backendUrl: string;
+				email?: string;
+				apiKeyExpiresAtMs?: number;
+		  }
+		| { status: "logged-out" };
+
+	export interface CursorAuthLoginOptions {
+		backendUrl?: string;
+		websiteUrl?: string;
+		openBrowser?: boolean | ((url: string) => void | Promise<void>);
+		onLoginUrl?: (url: string) => void;
+		signal?: AbortSignal;
+		store?: unknown;
+		apiKeyName?: string;
+		apiKeyTtlMs?: number;
+	}
+
+	export const Cursor: {
+		auth: {
+			login: (options?: CursorAuthLoginOptions) => Promise<CursorAuthLoginResult>;
+			status: (options?: { store?: unknown }) => Promise<CursorAuthStatus>;
+			logout: (options?: { store?: unknown }) => Promise<void>;
+		};
+	};
 }

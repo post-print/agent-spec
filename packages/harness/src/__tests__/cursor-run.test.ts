@@ -287,6 +287,18 @@ describe("runCursorAgent failure detail", () => {
 		jest.clearAllMocks();
 	});
 
+	it("adds a login hint when the SDK rejects the user API key", async () => {
+		const { CURSOR_SDK_LOGIN_HINT } = await import("../cursor-auth.js");
+		const { formatCursorRunFailure } = await import("../cursor-run.js");
+		expect(
+			formatCursorRunFailure({
+				status: "failed",
+				rawStatus: "error",
+				sdkError: { message: "Invalid User API Key" },
+			}),
+		).toContain(CURSOR_SDK_LOGIN_HINT);
+	});
+
 	it("attaches partial trace on user-input failure", async () => {
 		agentCreate.mockResolvedValue({
 			send: agentSend,

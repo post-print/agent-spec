@@ -559,7 +559,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		`# Re-run failed scenario ${shellCommentText(scenario.name)}`,
-		`# Requires host auth. Default is subscription after CLI login. Pass --auth-mode api-key plus the host API key to bill the API.`,
+		`# Requires host auth. Default is subscription after agent-test login. Pass --auth-mode api-key plus the host API key to bill the API.`,
 		`cd ${shellQuote(rerun.cwd)}`,
 		buildRerunCommand(rerun),
 		"",

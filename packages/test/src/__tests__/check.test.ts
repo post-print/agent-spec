@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,21 +69,33 @@ describe("check", () => {
 		expect(hosts).toEqual(["cursor", "claude"]);
 	});
 
-	it("accepts Cursor under the subscription default", () => {
+	it("names a missing Cursor SDK login under the subscription default", async () => {
 		const prior = process.env.CURSOR_API_KEY;
 		const priorMode = process.env.CURSOR_AUTH_MODE;
+		const priorHome = process.env.HOME;
+		const home = await mkdtemp(join(tmpdir(), "agent-test-no-sdk-login-"));
 		delete process.env.CURSOR_API_KEY;
 		delete process.env.CURSOR_AUTH_MODE;
-		expect(missingAgentAuth("cursor")).toBeUndefined();
-		if (prior === undefined) {
-			delete process.env.CURSOR_API_KEY;
-		} else {
-			process.env.CURSOR_API_KEY = prior;
-		}
-		if (priorMode === undefined) {
-			delete process.env.CURSOR_AUTH_MODE;
-		} else {
-			process.env.CURSOR_AUTH_MODE = priorMode;
+		process.env.HOME = home;
+		try {
+			expect(missingAgentAuth("cursor")).toMatch(/agent-test login/);
+		} finally {
+			if (prior === undefined) {
+				delete process.env.CURSOR_API_KEY;
+			} else {
+				process.env.CURSOR_API_KEY = prior;
+			}
+			if (priorMode === undefined) {
+				delete process.env.CURSOR_AUTH_MODE;
+			} else {
+				process.env.CURSOR_AUTH_MODE = priorMode;
+			}
+			if (priorHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = priorHome;
+			}
+			await rm(home, { recursive: true, force: true });
 		}
 	});
 
@@ -101,27 +115,6 @@ describe("check", () => {
 			delete process.env.CURSOR_AUTH_MODE;
 		} else {
 			process.env.CURSOR_AUTH_MODE = priorMode;
-		}
-	});
-
-	it("accepts a Cursor SDK login when CURSOR_AUTH_MODE=subscription", () => {
-		const prior = process.env.CURSOR_API_KEY;
-		const priorMode = process.env.CURSOR_AUTH_MODE;
-		delete process.env.CURSOR_API_KEY;
-		process.env.CURSOR_AUTH_MODE = "subscription";
-		try {
-			expect(missingAgentAuth("cursor")).toBeUndefined();
-		} finally {
-			if (prior === undefined) {
-				delete process.env.CURSOR_API_KEY;
-			} else {
-				process.env.CURSOR_API_KEY = prior;
-			}
-			if (priorMode === undefined) {
-				delete process.env.CURSOR_AUTH_MODE;
-			} else {
-				process.env.CURSOR_AUTH_MODE = priorMode;
-			}
 		}
 	});
 });

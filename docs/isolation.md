@@ -31,7 +31,7 @@ The `skills` field only overlays extra repo-relative folders that are not alread
 
 Host-global user skills stay out unless `allowUserSkills` is true. Those trees live under `~/.cursor/skills-cursor`, `~/.cursor/skills`, `~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`. Keep `allowUserSkills` false for a custom workspace fixture.
 
-The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees. Claude uses `--setting-sources project` or `--bare`. Codex uses `--ignore-user-config`. Cursor still indexes user skills from `os.homedir()` when `settingSources` omits `user`. The harness then points `HOME` at an empty tree for that Node process.
+The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees. That temp home copies `~/.cursor/sdk` so subscription login still works. Claude uses `--setting-sources project` or `--bare`. Codex uses `--ignore-user-config`. Cursor still indexes user skills from `os.homedir()` when `settingSources` omits `user`. The harness then points `HOME` at an empty tree for that Node process.
 
 ## Context
 

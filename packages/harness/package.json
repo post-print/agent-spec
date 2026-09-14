@@ -19,13 +19,13 @@
 		"lint": "bunx biome check .",
 		"lint:fix": "bunx biome check . --write",
 		"test": "bun test",
-		"test:sandbox-safe": "bun test --path-ignore-patterns '**/{worktree-judge,harness,sealed-workspace}.test.ts'",
+		"test:sandbox-safe": "bun test --path-ignore-patterns '**/{worktree-judge,harness,sealed-workspace,cursor-auth}.test.ts'",
 		"test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {},
 	"peerDependencies": {
-		"@cursor/sdk": ">=0.1.0"
+		"@cursor/sdk": ">=1.0.27"
 	},
 	"peerDependenciesMeta": {
 		"@cursor/sdk": {
@@ -33,7 +33,7 @@
 		}
 	},
 	"devDependencies": {
-		"@cursor/sdk": "^1.0.23",
+		"@cursor/sdk": "^1.0.27",
 		"@types/node": "^26.1.1",
 		"typescript": "~7.0.2"
 	},

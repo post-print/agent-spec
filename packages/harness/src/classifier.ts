@@ -1,4 +1,5 @@
 import { resolveClaudeAuthMode, runClaudeClassifier } from "./claude-run.js";
+import { CURSOR_SDK_LOGIN_HINT, hasCursorSdkAuthFile } from "./cursor-auth.js";
 import {
 	CURSOR_AUTH_MODE_ENV,
 	type JudgeClassifierResult,
@@ -54,7 +55,10 @@ export function missingClassifierAuth(host: AgentHost, apiKey?: string): string 
 			}
 		default:
 			try {
-				resolveCursorAuthMode(process.env[CURSOR_AUTH_MODE_ENV], apiKey);
+				const mode = resolveCursorAuthMode(process.env[CURSOR_AUTH_MODE_ENV], apiKey);
+				if (mode === "subscription" && !apiKey?.trim() && !hasCursorSdkAuthFile()) {
+					return CURSOR_SDK_LOGIN_HINT;
+				}
 				return undefined;
 			} catch (error) {
 				return error instanceof Error ? error.message : String(error);

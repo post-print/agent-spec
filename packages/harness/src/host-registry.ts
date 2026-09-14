@@ -5,10 +5,6 @@ const RESERVED_HOST_IDS = new Set<string>([...AGENT_HOSTS, "replay", "all"]);
 
 const adapters = new Map<string, HostAdapter>();
 
-export function reservedHostIds(): readonly string[] {
-	return [...RESERVED_HOST_IDS];
-}
-
 export function listRegisteredHosts(): AgentHost[] {
 	return [...adapters.keys()];
 }

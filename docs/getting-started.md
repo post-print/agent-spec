@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=.env.example,package.json,packages/test/package.json -->
+<!-- review-deps: paths=.env.example,package.json,packages/test/package.json,packages/test/src/validate-suite.ts -->
 
 Install `@post-print/agent-test`. Write one JSON suite. Check it. Then launch a host agent.
 
@@ -41,7 +41,7 @@ Create `agent-suites/smoke/scenarios.json`:
   "scenarios": [
     {
       "name": "hello",
-      "workspace": "workspaces/hello",
+      "workspace": "agent-suites/smoke/workspaces/hello",
       "prompt": "Reply with the exact sentence: smoke ok. Do not use tools.",
       "rubric": {
         "must": ["smoke ok"],
@@ -68,7 +68,7 @@ If the check fails, fix the printed path or host message. Then run the same comm
 
 Copy `.env.example` if you work in this repo. Export the variables. Do not expect the CLI to read the file.
 
-Default auth is subscription. Run `Cursor.auth.login()` first. The Cursor app login does not count.
+Default auth is subscription. Run `npx agent-test login` first. The Cursor app login does not count.
 
 To bill an API key:
 

@@ -13,10 +13,21 @@ import {
 	setProcessAuthMode,
 } from "@post-print/agent-harness";
 
-import { formatCheckReport, formatCheckSummary, missingHostsAuth, runCheck } from "./check.js";
+import {
+	collectSuiteHosts,
+	formatCheckReport,
+	formatCheckSummary,
+	missingHostsAuth,
+	runCheck,
+} from "./check.js";
 import { isCliMain } from "./cli-entry.js";
 import { missingAgentAuth } from "./doctor.js";
 import { installHostLogFilter } from "./host-log.js";
+import {
+	ensureCursorSdkLoginForLive,
+	offerCursorSdkReloginIfNeeded,
+	runHostLogin,
+} from "./host-login.js";
 import { parseHostList, uniqueHosts } from "./hosts.js";
 import { writeHtmlReport } from "./html-report.js";
 import { loadHostAdapters } from "./load-adapters.js";
@@ -80,6 +91,8 @@ export interface ParsedCliArgs {
 	scenarioRetries?: number;
 	/** Host billing mode. Default is subscription when omitted. */
 	authMode?: HostAuthMode;
+	/** `agent-test login` — store host CLI or Cursor SDK credentials. */
+	login: boolean;
 }
 
 function splitArgvFlag(token: string): { flag: string; inline?: string } | undefined {
@@ -131,10 +144,12 @@ function enableCheckMode(target: {
 export function formatHelp(): string {
 	return [
 		"agent-test [options] [suite]",
+		"agent-test login [--host cursor|claude|openai]",
 		"",
 		"Launch a host agent and score the transcript.",
 		"A run checks the suite and host first.",
 		"",
+		"  login                           Store a Cursor SDK login. Codex uses `codex login`.",
 		"  --check                         Check the suite and host. Do not launch an agent.",
 		"  --help, -h                      Print this help.",
 		"",
@@ -200,7 +215,8 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		);
 	}
 
-	const startIndex = 2;
+	const login = argv[2] === "login";
+	const startIndex = login ? 3 : 2;
 
 	const checkMode = {
 		check: false,
@@ -216,6 +232,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		}
 		const parsed = splitArgvFlag(token);
 		if (!parsed) {
+			if (login) {
+				throw new Error("login does not take a suite name");
+			}
 			filter = token;
 			continue;
 		}
@@ -411,6 +430,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		failOn,
 		scenarioRetries,
 		authMode,
+		login,
 	};
 }
 
@@ -423,6 +443,17 @@ export function resolveReportOutput(reportOut?: string): { htmlPath?: string; ou
 		return { htmlPath: reportOut };
 	}
 	return { htmlPath: join(reportOut, "report.html"), outDir: reportOut };
+}
+
+/** Path passed to `writeHtmlReport`. `undefined` keeps the temp default. */
+export function resolveHtmlReportWritePath(
+	htmlReport: boolean,
+	reportOut?: string,
+): string | undefined {
+	if (!htmlReport) {
+		return undefined;
+	}
+	return resolveReportOutput(reportOut).htmlPath;
 }
 
 async function htmlReportTip(label: string, reportPath: string): Promise<string> {
@@ -468,6 +499,15 @@ async function main(): Promise<number> {
 	if (args.help) {
 		console.log(formatHelp());
 		return 0;
+	}
+
+	if (args.login) {
+		try {
+			return await runHostLogin(args.host ?? "cursor");
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : error);
+			return 1;
+		}
 	}
 
 	try {
@@ -520,6 +560,18 @@ async function main(): Promise<number> {
 	try {
 		let checkHosts: AgentHost[] = args.hosts ?? (args.host ? [args.host] : ["cursor"]);
 		if (!isChild) {
+			checkHosts = await collectSuiteHosts({
+				cwd: args.cwd,
+				suitesDir: args.suitesDir,
+				filter: args.filter,
+				rubricsDir: args.rubricsDir,
+				host: args.host,
+				hosts: args.hosts,
+			});
+			await ensureCursorSdkLoginForLive({
+				hosts: checkHosts,
+				authMode: args.authMode,
+			});
 			const report = await runCheck({
 				cwd: args.cwd,
 				suitesDir: args.suitesDir,
@@ -679,10 +731,14 @@ async function main(): Promise<number> {
 
 			if (args.htmlReport && reports.length > 0) {
 				try {
-					const reportPath = await writeHtmlReport(reports, {
-						host: args.host,
-						suitesDir: args.suitesDir,
-					});
+					const reportPath = await writeHtmlReport(
+						reports,
+						{
+							host: args.host,
+							suitesDir: args.suitesDir,
+						},
+						resolveHtmlReportWritePath(args.htmlReport, args.reportOut),
+					);
 					console.log(`\n${await htmlReportTip("HTML report", reportPath)}`);
 				} catch (error) {
 					console.warn(
@@ -704,6 +760,10 @@ async function main(): Promise<number> {
 		if (reports.length === 0) {
 			logProgress(`No suites found under ${args.suitesDir}`);
 			return 1;
+		}
+
+		if (!isChild) {
+			await offerCursorSdkReloginIfNeeded({ reports });
 		}
 
 		return exitCode;

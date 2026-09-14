@@ -41,7 +41,7 @@ function sessionFromTrace(
 	};
 }
 
-/** Cursor SDK adapter — requires optional @cursor/sdk peer + key or SDK login. */
+/** Cursor SDK adapter — requires optional @cursor/sdk peer plus a key or `agent-test login`. */
 export class CursorAdapter implements HostAdapter {
 	readonly host = "cursor" as const;
 

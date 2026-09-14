@@ -1,6 +1,10 @@
 import { resolve } from "node:path";
 
-import { createScenarioWorktree, createSealedWorkspace } from "@post-print/agent-harness";
+import {
+	createSealedWorkspace,
+	defaultSealedOverlayPaths,
+	isCallerHeadWorkspace,
+} from "@post-print/agent-harness";
 
 import { discoverSuites } from "./discover-suites.js";
 import { loadSuiteFile } from "./load-suite.js";
@@ -20,7 +24,7 @@ export interface SeedValidationReport {
 	checked: number;
 }
 
-/** Apply each seedPatch in a temp worktree to verify hunks match the current baseline. */
+/** Apply each seedPatch in a sealed workspace to verify hunks match the current baseline. */
 export async function validateSeedPatches(options: {
 	cwd: string;
 	suitesDir: string;
@@ -48,7 +52,7 @@ export async function validateSeedPatches(options: {
 			}
 			checked++;
 			try {
-				await validateOneSeed(options.cwd, suite.name, scenario.name, scenario.seedPatch, {
+				await validateOneSeed(options.cwd, scenario.seedPatch, {
 					stageOnly: scenario.seedStageOnly,
 					workspace: resolveScenarioWorkspaceRel(suite, scenario),
 				});
@@ -68,29 +72,21 @@ export async function validateSeedPatches(options: {
 
 async function validateOneSeed(
 	repoRoot: string,
-	suiteName: string,
-	scenarioName: string,
 	seedPatch: string,
 	options: { stageOnly?: boolean; workspace?: string },
 ): Promise<void> {
 	let cleanup: (() => Promise<void>) | undefined;
 	let applyPath: string;
 	try {
-		if (options.workspace) {
-			const sealed = await createSealedWorkspace({
-				callerCwd: repoRoot,
-				workspace: options.workspace,
-			});
-			cleanup = sealed.cleanup;
-			applyPath = sealed.path;
-		} else {
-			const worktree = await createScenarioWorktree(
-				repoRoot,
-				`seed-validate-${suiteName}-${scenarioName}`,
-			);
-			cleanup = worktree.cleanup;
-			applyPath = worktree.path;
-		}
+		const sealed = await createSealedWorkspace({
+			callerCwd: repoRoot,
+			workspace: options.workspace,
+			overlayPaths: isCallerHeadWorkspace(options.workspace)
+				? defaultSealedOverlayPaths()
+				: undefined,
+		});
+		cleanup = sealed.cleanup;
+		applyPath = sealed.path;
 		await seedScenarioWorktree(repoRoot, applyPath, seedPatch, {
 			stageOnly: options.stageOnly,
 		});
