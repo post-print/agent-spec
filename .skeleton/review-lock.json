@@ -16,7 +16,7 @@
 			"reviewedAt": "2026-09-13",
 			"documentHash": "sha256:925e08d15f36db38f4927a1b519db3b11da872c19d022cfba3292f4e06ffc7fe",
 			"reviewDependencies": {
-				".github/workflows/test.yml": "sha256:309a8fc41594021378dec87c7bb388c2270b4d63d195db669a9e8b84411bf431",
+				".github/workflows/test.yml": "sha256:25fb45ffcc872f2599bd3fffeb5f191e6e1565470ac3cf33cd277478e9e4cd21",
 				"package.json": "sha256:ba62ab54c1ff20357f7b88137c1ce6d981fb52115e91c7c191938e262d51cc2b",
 				"skeleton.toml": "sha256:8ad3913b0e83ae624ef4fe77a912b00ac8a4ff07a83b34dab8bae1e0612d1327"
 			}
