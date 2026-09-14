@@ -2,7 +2,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import chalk from "chalk";
 
-import type { ScenarioStory } from "./types.js";
+import type { ScenarioStory, StoryCheck, StorySection } from "./types.js";
 
 const FALLBACK_COLUMNS = 80;
 const MIN_WRAP_COLS = 40;
@@ -373,20 +373,21 @@ export const theme = {
 		const lines: string[] = ["", `    ${mark} ${status}  ${category}${duration}${tokens}`, ""];
 
 		if (options.story) {
-			const criteria = storyLines("criteria", options.story.criteria);
-			const result = storyLines("result", options.story.result);
-			const verdict = storyLines("result", options.story.verdict, options.passed, {
-				continueLabel: result.length > 0,
-			});
-			lines.push(...criteria);
-			if (criteria.length > 0 && (result.length > 0 || verdict.length > 0)) {
-				lines.push("");
-			}
-			lines.push(...result);
-			if (result.length > 0 && verdict.length > 0) {
-				lines.push("");
-			}
-			lines.push(...verdict);
+			const sectionLines = options.story.sections
+				? renderStorySections(options.story.sections, options.story.verdict, options.passed)
+				: [
+						...storyLines("criteria", options.story.criteria),
+						...blankIf(
+							options.story.criteria.length > 0 &&
+								(options.story.result.length > 0 || options.story.verdict.length > 0),
+						),
+						...storyLines("result", options.story.result),
+						...blankIf(options.story.result.length > 0 && options.story.verdict.length > 0),
+						...storyLines("result", options.story.verdict, options.passed, {
+							continueLabel: options.story.result.length > 0,
+						}),
+					];
+			lines.push(...sectionLines);
 			lines.push("");
 			if (options.debug) {
 				const evidenceCols = wrapColumnWidth(STORY_INDENT);
@@ -438,6 +439,93 @@ export const theme = {
 		return lines;
 	},
 };
+
+function blankIf(condition: boolean): string[] {
+	return condition ? [""] : [];
+}
+
+function checkMark(status: StoryCheck["status"]): string {
+	if (status === "pass") {
+		return "✓";
+	}
+	if (status === "fail") {
+		return "✗";
+	}
+	return "·";
+}
+
+function checkColor(status: StoryCheck["status"]): (text: string) => string {
+	if (status === "pass") {
+		return chalk.green;
+	}
+	if (status === "fail") {
+		return chalk.red;
+	}
+	return (text) => text;
+}
+
+function renderCheckLines(check: StoryCheck, cols: number): string[] {
+	const hang = " ".repeat(STORY_LABEL_WIDTH);
+	const mark = checkMark(check.status);
+	const color = checkColor(check.status);
+	const wrapped = wrapText(`${mark} ${check.text}`, cols);
+	const body = wrapped.length > 0 ? wrapped : [`${mark} ${check.text}`];
+	return body.map((part) => `${STORY_GUTTER}${hang}${color(part)}`);
+}
+
+function renderStorySections(
+	sections: StorySection[],
+	verdict: string[],
+	passed: boolean,
+): string[] {
+	const titled = sections.some((section) => section.title);
+	if (!titled && sections.length === 1 && sections[0]) {
+		const section = sections[0];
+		const checkTexts = section.checks.map((check) => `${checkMark(check.status)} ${check.text}`);
+		const notes = section.notes ?? [];
+		return [
+			...storyLines("criteria", checkTexts),
+			...blankIf(checkTexts.length > 0 && (notes.length > 0 || verdict.length > 0)),
+			...storyLines("result", notes),
+			...blankIf(notes.length > 0 && verdict.length > 0),
+			...storyLines("result", verdict, passed, { continueLabel: notes.length > 0 }),
+		];
+	}
+
+	const cols = wrapColumnWidth(STORY_INDENT);
+	const hang = " ".repeat(STORY_LABEL_WIDTH);
+	const lines: string[] = [];
+	for (const [index, section] of sections.entries()) {
+		if (index > 0) {
+			lines.push("");
+		}
+		if (section.title) {
+			lines.push(`${STORY_GUTTER}${chalk.bold(section.title)}`);
+		}
+		if (section.description) {
+			for (const part of wrapText(section.description, cols)) {
+				lines.push(`${STORY_GUTTER}${hang}${chalk.dim(part)}`);
+			}
+		}
+		for (const check of section.checks) {
+			lines.push(...renderCheckLines(check, cols));
+		}
+		for (const note of section.notes ?? []) {
+			const wrapped = wrapText(note, cols);
+			const body = wrapped.length > 0 ? wrapped : [note];
+			for (const part of body) {
+				lines.push(`${STORY_GUTTER}${hang}${part}`);
+			}
+		}
+	}
+	if (verdict.length > 0) {
+		if (lines.length > 0) {
+			lines.push("");
+		}
+		lines.push(...storyLines("result", verdict, passed));
+	}
+	return lines;
+}
 
 function storyLines(
 	label: "criteria" | "result",

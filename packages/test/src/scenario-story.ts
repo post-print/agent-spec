@@ -13,7 +13,15 @@ import type {
 	JudgeVerdictResult,
 	ScenarioRubric,
 	ScenarioStory,
+	StoryCheck,
+	StorySection,
 } from "./types.js";
+
+interface RubricCheckSpec {
+	text: string;
+	matcher: string;
+	needle: string;
+}
 
 const PATH_ARG_KEYS = ["path", "file_path", "filePath", "target_file", "uri", "cwd"] as const;
 const EXCERPT_CHARS = 80;
@@ -141,6 +149,262 @@ function normalizeStoryCompare(compare: StoryCompareInput): CompareStoryFields {
 	};
 }
 
+function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
+	if (!rubric) {
+		return [];
+	}
+	const specs: RubricCheckSpec[] = [];
+	for (const text of rubric.must ?? []) {
+		specs.push({
+			text: `reply includes ${quoteExcerpt(text)}`,
+			matcher: "mustInclude",
+			needle: text,
+		});
+	}
+	for (const text of rubric.mustNot ?? []) {
+		specs.push({
+			text: `reply omits ${quoteExcerpt(text)}`,
+			matcher: "mustNotInclude",
+			needle: text,
+		});
+	}
+	for (const command of rubric.mustRun ?? []) {
+		specs.push({
+			text: `run a command matching ${quoteExcerpt(command)}`,
+			matcher: "toHaveRunCommand",
+			needle: command,
+		});
+	}
+	for (const tool of rubric.mustCallTool ?? []) {
+		specs.push({ text: `call ${tool}`, matcher: "toHaveCalledTool", needle: tool });
+	}
+	for (const tool of rubric.mustNotCallTool ?? []) {
+		specs.push({ text: `no ${tool} call`, matcher: "toHaveNotCalledTool", needle: tool });
+	}
+	for (const path of rubric.mustReadPath ?? []) {
+		specs.push({ text: `read ${path}`, matcher: "toHaveReadPath", needle: path });
+	}
+	for (const path of rubric.mustNotReadPath ?? []) {
+		specs.push({ text: `no read of ${path}`, matcher: "toHaveNotReadPath", needle: path });
+	}
+	for (const skill of rubric.mustInvokeSkill ?? []) {
+		specs.push({
+			text: `invoke skill ${skill}`,
+			matcher: "toHaveInvokedSkill",
+			needle: skill,
+		});
+	}
+	for (const skill of rubric.mustNotInvokeSkill ?? []) {
+		specs.push({
+			text: `no ${skill} skill`,
+			matcher: "toHaveNotInvokedSkill",
+			needle: skill,
+		});
+	}
+	if (rubric.routingBlock) {
+		specs.push({
+			text: "announce a routing block",
+			matcher: "toIncludeRoutingBlock",
+			needle: "Routing",
+		});
+	}
+	if (rubric.tier) {
+		specs.push({
+			text: `announce tier ${rubric.tier}`,
+			matcher: "toHaveTier",
+			needle: rubric.tier,
+		});
+	}
+	if (rubric.reviewDepth) {
+		specs.push({
+			text: `announce review depth ${rubric.reviewDepth}`,
+			matcher: "toHaveReviewDepth",
+			needle: rubric.reviewDepth,
+		});
+	}
+	return specs;
+}
+
+function matcherMatches(actual: string, expected: string): boolean {
+	if (actual === expected) {
+		return true;
+	}
+	if (expected === "toIncludeRoutingBlock") {
+		return actual.includes("Routing") || actual.includes("routing");
+	}
+	if (expected === "toHaveTier") {
+		return actual === "toHaveHandsOnTier" || actual === "toHaveHandsOnTierBeforeTools";
+	}
+	return false;
+}
+
+function specFailed(
+	failures: AssertionFailure[],
+	spec: RubricCheckSpec,
+	armLabel?: string,
+): boolean {
+	return failures.some((failure) => {
+		if (armLabel && !failure.message.startsWith(`${armLabel}: `)) {
+			return false;
+		}
+		if (!matcherMatches(failure.matcher, spec.matcher)) {
+			return false;
+		}
+		const message = armLabel ? failure.message.slice(armLabel.length + 2) : failure.message;
+		return message.includes(spec.needle);
+	});
+}
+
+function scoreSpecs(
+	specs: RubricCheckSpec[],
+	failures: AssertionFailure[],
+	armLabel?: string,
+): StoryCheck[] {
+	return specs.map((spec) => ({
+		text: spec.text,
+		status: specFailed(failures, spec, armLabel) ? "fail" : "pass",
+	}));
+}
+
+function judgeChecks(
+	rubric: ScenarioRubric | undefined,
+	failures: AssertionFailure[],
+	judgeVerdicts: JudgeVerdictResult[] | undefined,
+	armCount?: number,
+): StoryCheck[] {
+	if (!rubric?.judge || rubric.judge.length === 0) {
+		return [];
+	}
+	if (judgeVerdicts && judgeVerdicts.length > 0) {
+		return judgeVerdicts.map((verdict) => ({
+			text: verdict.question.trim() || `judge ${verdict.id}`,
+			status: verdict.pass ? "pass" : "fail",
+		}));
+	}
+	const failed = failures.some(
+		(failure) => failure.matcher === "judge" || failure.matcher.startsWith("judge:"),
+	);
+	const scope = armCount === undefined ? "" : ` on ${armCount === 2 ? "both arms" : "every arm"}`;
+	return [
+		{
+			text: `judge answers ${countLabel(rubric.judge.length, "question", "questions")}${scope}`,
+			status: failed ? "fail" : "pass",
+		},
+	];
+}
+
+function pairCheckFailed(
+	failures: AssertionFailure[],
+	matcher: "faster" | "cheaper",
+	winnerLabel: string,
+	loserLabel: string,
+): boolean {
+	return failures.some(
+		(failure) =>
+			failure.matcher === matcher &&
+			failure.message.includes(winnerLabel) &&
+			failure.message.includes(loserLabel),
+	);
+}
+
+function buildCompareMetricSection(
+	compare: CompareStoryFields,
+	failures: AssertionFailure[],
+	judge: StoryCheck[],
+): StorySection | undefined {
+	const result = buildCompareResult(
+		compare.arms.map((arm) => ({
+			id: arm.id,
+			label: arm.label,
+			prompt: "",
+			trace: arm.trace,
+			durationMs: arm.durationMs,
+		})),
+		{ faster: compare.faster, cheaper: compare.cheaper },
+	);
+	const outcomes = describeCompareOutcome(result);
+	const checks: StoryCheck[] = [];
+	const claimed = new Set<string>();
+	for (const pair of compare.faster ?? []) {
+		const winner = labelForArm(compare.arms, pair.winner);
+		const loser = labelForArm(compare.arms, pair.loser);
+		const measured = outcomes.find(
+			(line) =>
+				line.includes(`${winner} is faster than ${loser}`) ||
+				line.includes(`${loser} is faster than ${winner}`),
+		);
+		const text = measured ?? `${winner} is faster than ${loser}`;
+		claimed.add(text);
+		checks.push({
+			text,
+			status: pairCheckFailed(failures, "faster", winner, loser) ? "fail" : "pass",
+		});
+	}
+	for (const pair of compare.cheaper ?? []) {
+		const winner = labelForArm(compare.arms, pair.winner);
+		const loser = labelForArm(compare.arms, pair.loser);
+		const measured = outcomes.find(
+			(line) =>
+				line.includes(`${winner} uses fewer tokens than ${loser}`) ||
+				line.includes(`${loser} uses fewer tokens than ${winner}`),
+		);
+		const text = measured ?? `${winner} uses fewer tokens than ${loser}`;
+		claimed.add(text);
+		checks.push({
+			text,
+			status: pairCheckFailed(failures, "cheaper", winner, loser) ? "fail" : "pass",
+		});
+	}
+	checks.push(...judge);
+	const notes = outcomes.filter((line) => !claimed.has(line));
+	if (checks.length === 0 && notes.length === 0) {
+		return undefined;
+	}
+	return { title: "compare", checks, notes };
+}
+
+function buildStorySections(options: {
+	rubric?: ScenarioRubric;
+	trace?: AgentTrace;
+	failures: AssertionFailure[];
+	judgeVerdicts?: JudgeVerdictResult[];
+	compare?: StoryCompareInput;
+}): StorySection[] {
+	const compare = options.compare ? normalizeStoryCompare(options.compare) : undefined;
+	if (!compare) {
+		const checks = [
+			...scoreSpecs(rubricCheckSpecs(options.rubric), options.failures),
+			...judgeChecks(options.rubric, options.failures, options.judgeVerdicts),
+		];
+		return [
+			{
+				checks: checks.length > 0 ? checks : [{ text: "no rubric checks", status: "info" }],
+				notes: describeTraceHappened(options.trace),
+			},
+		];
+	}
+	const sharedSpecs = rubricCheckSpecs(options.rubric);
+	const sections: StorySection[] = compare.arms.map((arm) => ({
+		title: arm.label,
+		description: arm.description,
+		checks: scoreSpecs(
+			[...sharedSpecs, ...rubricCheckSpecs(arm.rubric)],
+			options.failures,
+			arm.label,
+		),
+		notes: describeTraceHappened(arm.trace),
+	}));
+	const compareSection = buildCompareMetricSection(
+		compare,
+		options.failures,
+		judgeChecks(options.rubric, options.failures, options.judgeVerdicts, compare.arms.length),
+	);
+	if (compareSection) {
+		sections.push(compareSection);
+	}
+	return sections;
+}
+
 /** Rubric checks in one short line each. */
 export function describeRubricChecks(
 	rubric?: ScenarioRubric,
@@ -149,43 +413,7 @@ export function describeRubricChecks(
 	if (!rubric) {
 		return ["no rubric recorded"];
 	}
-	const lines: string[] = [];
-	for (const text of rubric.must ?? []) {
-		lines.push(`reply includes ${quoteExcerpt(text)}`);
-	}
-	for (const text of rubric.mustNot ?? []) {
-		lines.push(`reply omits ${quoteExcerpt(text)}`);
-	}
-	for (const command of rubric.mustRun ?? []) {
-		lines.push(`run a command matching ${quoteExcerpt(command)}`);
-	}
-	for (const tool of rubric.mustCallTool ?? []) {
-		lines.push(`call ${tool}`);
-	}
-	for (const tool of rubric.mustNotCallTool ?? []) {
-		lines.push(`no ${tool} call`);
-	}
-	for (const path of rubric.mustReadPath ?? []) {
-		lines.push(`read ${path}`);
-	}
-	for (const path of rubric.mustNotReadPath ?? []) {
-		lines.push(`no read of ${path}`);
-	}
-	for (const skill of rubric.mustInvokeSkill ?? []) {
-		lines.push(`invoke skill ${skill}`);
-	}
-	for (const skill of rubric.mustNotInvokeSkill ?? []) {
-		lines.push(`no ${skill} skill`);
-	}
-	if (rubric.routingBlock) {
-		lines.push("announce a routing block");
-	}
-	if (rubric.tier) {
-		lines.push(`announce tier ${rubric.tier}`);
-	}
-	if (rubric.reviewDepth) {
-		lines.push(`announce review depth ${rubric.reviewDepth}`);
-	}
+	const lines = rubricCheckSpecs(rubric).map((spec) => spec.text);
 	if (compare) {
 		const normalized = normalizeStoryCompare(compare);
 		lines.push(compareHeading(normalized.arms.map((arm) => arm.label)));
@@ -205,11 +433,8 @@ export function describeRubricChecks(
 			);
 		}
 		for (const arm of normalized.arms) {
-			for (const line of describeRubricChecks(arm.rubric)) {
-				if (line === "no rubric checks" || line === "no rubric recorded") {
-					continue;
-				}
-				lines.push(`${arm.label}: ${line}`);
+			for (const spec of rubricCheckSpecs(arm.rubric)) {
+				lines.push(`${arm.label}: ${spec.text}`);
 			}
 		}
 	}
@@ -299,6 +524,67 @@ export function describeOutcome(options: {
 	return options.failures.map(describeFailure);
 }
 
+function failureIsScored(
+	failure: AssertionFailure,
+	rubric: ScenarioRubric | undefined,
+	compare: CompareStoryFields | undefined,
+): boolean {
+	if (
+		failure.category === "worktree_leak" ||
+		failure.category === "agent_runtime" ||
+		failure.category === "judge_infra" ||
+		failure.category === "judge_parse" ||
+		failure.category === "recording_error"
+	) {
+		return false;
+	}
+	if (failure.matcher === "judge" || failure.matcher.startsWith("judge:")) {
+		return true;
+	}
+	if (compare) {
+		for (const arm of compare.arms) {
+			const specs = [...rubricCheckSpecs(rubric), ...rubricCheckSpecs(arm.rubric)];
+			if (specs.some((spec) => specFailed([failure], spec, arm.label))) {
+				return true;
+			}
+		}
+		for (const pair of compare.faster ?? []) {
+			if (
+				pairCheckFailed(
+					[failure],
+					"faster",
+					labelForArm(compare.arms, pair.winner),
+					labelForArm(compare.arms, pair.loser),
+				)
+			) {
+				return true;
+			}
+		}
+		for (const pair of compare.cheaper ?? []) {
+			if (
+				pairCheckFailed(
+					[failure],
+					"cheaper",
+					labelForArm(compare.arms, pair.winner),
+					labelForArm(compare.arms, pair.loser),
+				)
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+	return rubricCheckSpecs(rubric).some((spec) => specFailed([failure], spec));
+}
+
+function leftoverFailures(
+	failures: AssertionFailure[],
+	rubric: ScenarioRubric | undefined,
+	compare: CompareStoryFields | undefined,
+): AssertionFailure[] {
+	return failures.filter((failure) => !failureIsScored(failure, rubric, compare));
+}
+
 const REDUNDANT_VERDICT = new Set(["all checks passed", "skipped"]);
 
 function storyVerdict(happened: string[], outcome: string[]): string[] {
@@ -315,6 +601,14 @@ export function buildScenarioStory(options: {
 	compare?: StoryCompareInput;
 }): ScenarioStory {
 	const compare = options.compare ? normalizeStoryCompare(options.compare) : undefined;
+	const leftover = leftoverFailures(options.failures, options.rubric, compare);
+	const outcome =
+		!options.passed && leftover.length === 0 && options.failures.length > 0
+			? []
+			: describeOutcome({
+					...options,
+					failures: leftover.length === options.failures.length ? options.failures : leftover,
+				});
 	const result = options.skipped
 		? ["scenario skipped"]
 		: compare
@@ -339,6 +633,7 @@ export function buildScenarioStory(options: {
 	return {
 		criteria: describeRubricChecks(options.rubric, options.compare),
 		result,
-		verdict: storyVerdict(result, describeOutcome(options)),
+		verdict: storyVerdict(result, outcome),
+		sections: options.skipped ? undefined : buildStorySections(options),
 	};
 }

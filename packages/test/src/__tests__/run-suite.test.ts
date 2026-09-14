@@ -127,6 +127,7 @@ describe("runAgentTest direct host selection", () => {
 				worktree: false,
 				judge: false,
 				scenarioRetries: 0,
+				authMode: "api-key",
 			});
 			const claude = await runAgentTest({
 				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
@@ -134,6 +135,7 @@ describe("runAgentTest direct host selection", () => {
 				worktree: false,
 				judge: false,
 				scenarioRetries: 0,
+				authMode: "api-key",
 			});
 			const claudeDefault = await runAgentTest({
 				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
@@ -142,6 +144,7 @@ describe("runAgentTest direct host selection", () => {
 				worktree: false,
 				judge: false,
 				scenarioRetries: 0,
+				authMode: "api-key",
 			});
 			const scenarioWins = await runAgentTest({
 				cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
@@ -150,6 +153,7 @@ describe("runAgentTest direct host selection", () => {
 				worktree: false,
 				judge: false,
 				scenarioRetries: 0,
+				authMode: "api-key",
 			});
 
 			expect(cursor.suite).toBe("direct");
@@ -171,6 +175,7 @@ describe("runAgentTest direct host selection", () => {
 					worktree: false,
 					judge: false,
 					scenarioRetries: 0,
+					authMode: "api-key",
 				});
 				expect(openai.failures[0]?.message).toMatch(/OPENAI_API_KEY or CODEX_API_KEY/);
 			} finally {

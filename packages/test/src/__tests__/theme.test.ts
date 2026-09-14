@@ -272,6 +272,72 @@ describe("theme.scenarioVerdict", () => {
 		expect(joined).toMatch(/shipping lite[\s\S]*\n\n\s+judge: The agent/);
 	});
 
+	it("renders compare sections under each arm with pass and fail marks", () => {
+		chalk.level = 0;
+		const lines = theme.scenarioVerdict({
+			passed: false,
+			name: "attest lane",
+			durationMs: 18_100,
+			story: {
+				criteria: ['reply omits "audit all"'],
+				result: ["cli-lanes: agent replied ok"],
+				verdict: [],
+				sections: [
+					{
+						title: "cli-lanes",
+						description: "Attest token is ATTEST_CMD=skeleton audit docs.",
+						checks: [
+							{ text: 'reply includes "ATTEST_CMD=skeleton audit docs"', status: "pass" },
+							{ text: 'reply omits "audit all"', status: "pass" },
+						],
+						notes: ['agent replied "ATTEST_CMD=skeleton audit docs"'],
+					},
+					{
+						title: "audit-all",
+						description: "Attest token is ATTEST_CMD=audit all.",
+						checks: [{ text: 'reply omits "audit all"', status: "fail" }],
+						notes: ['agent replied "ATTEST_CMD=audit all"'],
+					},
+				],
+			},
+		});
+		const joined = lines.join("\n");
+		expect(joined).toContain("cli-lanes");
+		expect(joined).toContain("audit-all");
+		expect(joined).toContain("Attest token is ATTEST_CMD=skeleton audit docs.");
+		expect(joined).toContain("✓ reply includes");
+		expect(joined).toContain('✗ reply omits "audit all"');
+		expect(joined).not.toContain("criteria");
+	});
+
+	it("keeps criteria and result labels on a single scenario with marks", () => {
+		chalk.level = 0;
+		const lines = theme.scenarioVerdict({
+			passed: true,
+			name: "hello",
+			durationMs: 6800,
+			story: {
+				criteria: ['reply includes "smoke ok"'],
+				result: ['agent replied "smoke ok"'],
+				verdict: [],
+				sections: [
+					{
+						checks: [
+							{ text: 'reply includes "smoke ok"', status: "pass" },
+							{ text: "no Shell call", status: "pass" },
+						],
+						notes: ['agent replied "smoke ok"', "no tools"],
+					},
+				],
+			},
+		});
+		const joined = lines.join("\n");
+		expect(joined).toContain("criteria");
+		expect(joined).toContain("result");
+		expect(joined).toContain('✓ reply includes "smoke ok"');
+		expect(joined).toContain("no tools");
+	});
+
 	it("includes ANSI colors when chalk.level > 0", () => {
 		chalk.level = 1;
 		const lines = theme.scenarioVerdict({

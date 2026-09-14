@@ -141,6 +141,7 @@ describe("runCursorAgent usage", () => {
 			cwd: process.cwd(),
 			prompt: "test",
 			apiKey: "test-key",
+			authMode: "api-key",
 		});
 		expect(result.trace.usage).toEqual({
 			inputTokens: 10,

@@ -5,9 +5,12 @@ import { fileURLToPath } from "node:url";
 import {
 	type AgentHost,
 	cleanupStaleScenarioWorktrees,
+	type HostAuthMode,
 	isPathUnderRoot,
 	knownAgentHosts,
 	missingClassifierAuth,
+	parseHostAuthModeFlag,
+	setProcessAuthMode,
 } from "@post-print/agent-harness";
 
 import { formatCheckReport, formatCheckSummary, missingHostsAuth, runCheck } from "./check.js";
@@ -75,6 +78,8 @@ export interface ParsedCliArgs {
 	failOn: FailOnMode;
 	/** Live announce-stop retries (overrides AGENT_TEST_SCENARIO_RETRIES). */
 	scenarioRetries?: number;
+	/** Host billing mode. Default is subscription when omitted. */
+	authMode?: HostAuthMode;
 }
 
 function splitArgvFlag(token: string): { flag: string; inline?: string } | undefined {
@@ -135,6 +140,9 @@ export function formatHelp(): string {
 		"",
 		"  --host cursor|claude|openai|all Host adapter (default: suite or cursor).",
 		"                                  Repeat or comma-separate for a matrix.",
+		"  --auth-mode subscription|api-key",
+		"                                  Host auth (default: subscription).",
+		"                                  --auth-method is the same flag.",
 		"  --adapter <module>              Load a consumer host adapter module.",
 		"  --suites-dir <path>             Suite root (default: agent-suites)",
 		"  --suite <name>                  Run one suite",
@@ -184,6 +192,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 	let validatePaths = false;
 	let failOn: FailOnMode = "all";
 	let scenarioRetries: number | undefined;
+	let authMode: HostAuthMode | undefined;
 
 	if (argv[2] === "compare") {
 		throw new Error(
@@ -251,6 +260,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 				parsedHosts.push(...parseHostList(value));
 				break;
 			}
+			case "--auth-mode":
+			case "--auth-method":
+				authMode = parseHostAuthModeFlag(read(), flag);
+				break;
 			case "--adapter":
 				adapterModules.push(resolve(cwd, read()));
 				break;
@@ -397,6 +410,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 		validatePaths,
 		failOn,
 		scenarioRetries,
+		authMode,
 	};
 }
 
@@ -442,6 +456,9 @@ async function main(): Promise<number> {
 	let args: ParsedCliArgs;
 	try {
 		args = parseCliArgs(process.argv);
+		if (args.authMode) {
+			setProcessAuthMode(args.authMode);
+		}
 		installHostLogFilter();
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : error);

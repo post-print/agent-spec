@@ -1,4 +1,4 @@
-import { parseClaudeAuthMode, runClaudeClassifier } from "./claude-run.js";
+import { resolveClaudeAuthMode, runClaudeClassifier } from "./claude-run.js";
 import {
 	CURSOR_AUTH_MODE_ENV,
 	type JudgeClassifierResult,
@@ -37,9 +37,9 @@ export function missingClassifierAuth(host: AgentHost, apiKey?: string): string 
 	switch (host) {
 		case "claude":
 			try {
-				const mode = parseClaudeAuthMode(process.env.CLAUDE_AUTH_MODE);
+				const mode = resolveClaudeAuthMode();
 				if (mode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
-					return "ANTHROPIC_API_KEY not set — required for the Claude classifier";
+					return "ANTHROPIC_API_KEY not set — required for --auth-mode api-key";
 				}
 				return undefined;
 			} catch (error) {

@@ -28,7 +28,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 
 - Bun `1.4.0` (see `packageManager` in `package.json`)
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
-- Host-agent runs need host auth. Cursor uses `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()`. The Cursor app login does not count. Claude uses `CLAUDE_AUTH_MODE=api-key` plus `ANTHROPIC_API_KEY`, or `CLAUDE_AUTH_MODE=subscription` with the Claude Code CLI login. OpenAI uses `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login`. Copy `.env.example`. The CLI does not auto-load `.env`.
+- Host-agent runs need host auth. Default is subscription after CLI login: `Cursor.auth.login()`, Claude Code login, or `codex login`. The Cursor app login does not count. Pass `--auth-mode api-key` (alias `--auth-method`) plus `CURSOR_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` / `CODEX_API_KEY` to bill an API key. Per-host `*_AUTH_MODE` env vars still work when the flag is omitted. Copy `.env.example`. The CLI does not auto-load `.env`.
 - The judge and the default user simulator use the same host family as the test agent. The judge runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns the judge off.
 - `bun run test:unit` and `bun run test:sandbox-safe` do not launch a paid agent. `bun run test` launches a real host agent and can incur provider usage.
 
@@ -49,7 +49,7 @@ Full unpaid gate (`bun run check` = lint + typecheck + unit tests + build) needs
 
 Use `bun run lint` / `bunx biome` (pinned 2.5.12). A global `biome` on PATH is often older and will fail this repo's config.
 
-Host-agent proof after export of the host keys:
+Host-agent proof after host login:
 
 ```bash
 bun run test

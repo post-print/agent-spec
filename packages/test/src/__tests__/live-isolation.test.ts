@@ -125,6 +125,18 @@ describe("live-isolation", () => {
 		expect(args).not.toContain("--timeout-ms");
 	});
 
+	it("forwards --auth-mode to the child CLI", () => {
+		const { args } = buildLiveScenarioCommand({
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "dialogue",
+			suitesDir: "agent-suites",
+			authMode: "api-key",
+		});
+		expect(args).toContain("--auth-mode");
+		expect(args).toContain("api-key");
+	});
+
 	it("forwards allow-user-input to the child CLI", () => {
 		const { args } = buildLiveScenarioCommand({
 			cwd: "/repo",

@@ -30,17 +30,19 @@ export type OpenaiAuthMode = HostAuthMode;
 export const OPENAI_AUTH_MODE_ENV = "OPENAI_AUTH_MODE";
 
 export const OPENAI_MISSING_KEY_MESSAGE =
-	"OPENAI_API_KEY or CODEX_API_KEY required for OpenAI agent runs, or set OPENAI_AUTH_MODE=subscription after `codex login`";
+	"OPENAI_API_KEY or CODEX_API_KEY required for --auth-mode api-key";
 
 export function resolveOpenaiAuthMode(
 	raw: string | undefined = process.env[OPENAI_AUTH_MODE_ENV],
 	apiKey?: string,
+	explicit?: OpenaiAuthMode,
 ): OpenaiAuthMode {
 	return resolveKeyOrLoginAuthMode({
 		envName: OPENAI_AUTH_MODE_ENV,
 		raw,
 		hasApiKey: Boolean((apiKey ?? process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY)?.trim()),
 		missingKeyMessage: OPENAI_MISSING_KEY_MESSAGE,
+		explicit,
 	});
 }
 
@@ -362,7 +364,7 @@ async function drainJsonl(
 
 /** Shared Codex CLI path — `codex exec --json` → AgentTrace. */
 export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiRunResult> {
-	const authMode = options.authMode ?? resolveOpenaiAuthMode(undefined, options.apiKey);
+	const authMode = resolveOpenaiAuthMode(undefined, options.apiKey, options.authMode);
 	const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY;
 	if (authMode === "api-key" && !apiKey?.trim()) {
 		throw new Error(OPENAI_MISSING_KEY_MESSAGE);

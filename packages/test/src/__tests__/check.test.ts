@@ -1,9 +1,15 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { setProcessAuthMode } from "@post-print/agent-harness";
+
 import { collectSuiteHosts, formatCheckReport, formatCheckSummary, runCheck } from "../check.js";
 import { missingAgentAuth } from "../doctor.js";
+
+afterEach(() => {
+	setProcessAuthMode(undefined);
+});
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const repoRoot = join(packageRoot, "../..");
@@ -61,11 +67,30 @@ describe("check", () => {
 		expect(hosts).toEqual(["cursor", "claude"]);
 	});
 
-	it("names missing Cursor auth", () => {
+	it("accepts Cursor under the subscription default", () => {
 		const prior = process.env.CURSOR_API_KEY;
 		const priorMode = process.env.CURSOR_AUTH_MODE;
 		delete process.env.CURSOR_API_KEY;
 		delete process.env.CURSOR_AUTH_MODE;
+		expect(missingAgentAuth("cursor")).toBeUndefined();
+		if (prior === undefined) {
+			delete process.env.CURSOR_API_KEY;
+		} else {
+			process.env.CURSOR_API_KEY = prior;
+		}
+		if (priorMode === undefined) {
+			delete process.env.CURSOR_AUTH_MODE;
+		} else {
+			process.env.CURSOR_AUTH_MODE = priorMode;
+		}
+	});
+
+	it("names missing Cursor auth when --auth-mode api-key has no key", () => {
+		const prior = process.env.CURSOR_API_KEY;
+		const priorMode = process.env.CURSOR_AUTH_MODE;
+		delete process.env.CURSOR_API_KEY;
+		delete process.env.CURSOR_AUTH_MODE;
+		setProcessAuthMode("api-key");
 		expect(missingAgentAuth("cursor")).toMatch(/CURSOR_API_KEY/);
 		if (prior === undefined) {
 			delete process.env.CURSOR_API_KEY;

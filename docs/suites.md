@@ -92,6 +92,8 @@ Use `compare.arms` when the scenario has more than two workspaces. Each named ar
 
 Arm rubric arrays append onto the scenario rubric. Do not put `judge` on an arm. `rubric.judge` stays on the scenario. The judge sees every arm transcript. It does not pick one winner.
 
+The live verdict lists each arm. Shared rubric checks appear under every arm. Extra arm checks stay on that arm. Faster and cheaper gates sit in a compare section. Each check shows pass or fail.
+
 For two arms, `compare.faster` and `compare.cheaper` name the arm that must win. The win is a strict less-than on duration or total tokens.
 
 When `compare.arms` has more than two arms, name winner-versus-loser pairs. A 2x2 must not require one arm to beat every other arm. Do not invent a four-way winner.

@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: first consumer run of agent-test -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
 <!-- review-deps: paths=.env.example,package.json,packages/test/package.json -->
 
@@ -68,15 +68,15 @@ If the check fails, fix the printed path or host message. Then run the same comm
 
 Copy `.env.example` if you work in this repo. Export the variables. Do not expect the CLI to read the file.
 
-Cursor (one of these):
+Default auth is subscription. Run `Cursor.auth.login()` first. The Cursor app login does not count.
+
+To bill an API key:
 
 ```bash
 export CURSOR_API_KEY=…
-# or
-export CURSOR_AUTH_MODE=subscription
 ```
 
-`CURSOR_AUTH_MODE=subscription` needs `Cursor.auth.login()` first. The Cursor app login does not count.
+Then pass `--auth-mode api-key` on the live command.
 
 Claude and OpenAI steps live in [hosts.md](hosts.md).
 

@@ -58,18 +58,19 @@ export type CursorAuthMode = HostAuthMode;
 
 export const CURSOR_AUTH_MODE_ENV = "CURSOR_AUTH_MODE";
 
-export const CURSOR_MISSING_KEY_MESSAGE =
-	"CURSOR_API_KEY required for Cursor agent runs, or set CURSOR_AUTH_MODE=subscription after Cursor.auth.login()";
+export const CURSOR_MISSING_KEY_MESSAGE = "CURSOR_API_KEY required for --auth-mode api-key";
 
 export function resolveCursorAuthMode(
 	raw: string | undefined = process.env[CURSOR_AUTH_MODE_ENV],
 	apiKey?: string,
+	explicit?: CursorAuthMode,
 ): CursorAuthMode {
 	return resolveKeyOrLoginAuthMode({
 		envName: CURSOR_AUTH_MODE_ENV,
 		raw,
 		hasApiKey: Boolean((apiKey ?? process.env.CURSOR_API_KEY)?.trim()),
 		missingKeyMessage: CURSOR_MISSING_KEY_MESSAGE,
+		explicit,
 	});
 }
 
@@ -220,7 +221,7 @@ export function takeLastCursorRunTrace(): AgentTrace | undefined {
 
 /** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
 export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
-	const authMode = options.authMode ?? resolveCursorAuthMode(undefined, options.apiKey);
+	const authMode = resolveCursorAuthMode(undefined, options.apiKey, options.authMode);
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
 	if (authMode === "api-key" && !apiKey?.trim()) {
 		throw new Error(CURSOR_MISSING_KEY_MESSAGE);
@@ -340,7 +341,7 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 export async function runJudgeClassifier(
 	options: JudgeClassifierOptions,
 ): Promise<JudgeClassifierResult> {
-	const authMode = options.authMode ?? resolveCursorAuthMode(undefined, options.apiKey);
+	const authMode = resolveCursorAuthMode(undefined, options.apiKey, options.authMode);
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
 	if (authMode === "api-key" && !apiKey?.trim()) {
 		throw new Error(CURSOR_MISSING_KEY_MESSAGE);

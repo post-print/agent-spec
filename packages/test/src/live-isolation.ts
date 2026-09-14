@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { resolve } from "node:path";
-import type { AgentHost } from "@post-print/agent-harness";
+import type { AgentHost, HostAuthMode } from "@post-print/agent-harness";
 import { assertionFailure } from "./failures.js";
 import {
 	LIVE_SUBPROCESS_SETUP_MAX_MS,
@@ -113,6 +113,8 @@ export interface SpawnLiveScenarioOptions {
 	allowUserInput?: boolean;
 	debug?: boolean;
 	debugDir?: string;
+	/** Host billing mode. Forwarded so the child does not fall back to env or default. */
+	authMode?: HostAuthMode;
 }
 
 export interface LiveScenarioCommand {
@@ -162,6 +164,9 @@ export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): Liv
 	}
 	if (options.allowUserInput) {
 		args.push("--allow-user-input");
+	}
+	if (options.authMode) {
+		args.push("--auth-mode", options.authMode);
 	}
 	if (options.debug) {
 		args.push("--debug");

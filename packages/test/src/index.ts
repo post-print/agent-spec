@@ -145,6 +145,9 @@ export type {
 	ScenarioRubric,
 	ScenarioStory,
 	ScenarioUsageBreakdown,
+	StoryCheck,
+	StoryCheckStatus,
+	StorySection,
 	SuiteRunReport,
 	UsageStats,
 } from "./types.js";

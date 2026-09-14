@@ -28,6 +28,7 @@ export interface DebugRerunOptions {
 	allowUserInput?: boolean;
 	debugDir?: string;
 	keepRecordings?: boolean;
+	authMode?: string;
 }
 
 export interface DebugEnvironmentSnapshot {
@@ -126,6 +127,9 @@ export function buildRerunCommand(options: DebugRerunOptions): string {
 	}
 	if (options.allowUserInput) {
 		args.push("--allow-user-input");
+	}
+	if (options.authMode) {
+		args.push("--auth-mode", options.authMode);
 	}
 	args.push("--debug");
 	if (options.debugDir) {
@@ -555,7 +559,7 @@ export async function writeDebugBundle(options: WriteDebugBundleOptions): Promis
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
 		`# Re-run failed scenario ${shellCommentText(scenario.name)}`,
-		`# Requires host auth: CURSOR_API_KEY or CURSOR_AUTH_MODE=subscription, CLAUDE_AUTH_MODE (+ ANTHROPIC_API_KEY or login), or OPENAI_API_KEY/CODEX_API_KEY or OPENAI_AUTH_MODE=subscription.`,
+		`# Requires host auth. Default is subscription after CLI login. Pass --auth-mode api-key plus the host API key to bill the API.`,
 		`cd ${shellQuote(rerun.cwd)}`,
 		buildRerunCommand(rerun),
 		"",

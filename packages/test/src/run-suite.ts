@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import type {
 	AgentHost,
 	AgentTrace,
+	HostAuthMode,
 	JudgeCriterion,
 	LiveAgentEvent,
 	McpServerConfig,
@@ -21,6 +22,7 @@ import {
 	filterWorkingTreeLeaks,
 	findWorkingTreeLeak,
 	formatWorkingTreeLeak,
+	getProcessAuthMode,
 	judgeCompareTraces,
 	judgeTrace,
 	loadContext,
@@ -33,6 +35,7 @@ import {
 	resolveHarnessArtifactIgnoreRoots,
 	restoreWorkingTreePaths,
 	runAgent,
+	setProcessAuthMode,
 	skillInvokeJudgeCriteria,
 	skillPathsFromSetting,
 	sumUsageParts,
@@ -252,6 +255,8 @@ export interface RunSuiteOptions {
 	rubricsDir?: string;
 	/** Consumer adapter modules to forward to isolated children. */
 	adapterModules?: string[];
+	/** Host billing mode. Default is subscription when omitted. */
+	authMode?: HostAuthMode;
 }
 
 export interface RunAgentTestOptions {
@@ -275,6 +280,8 @@ export interface RunAgentTestOptions {
 	rubricsDir?: string;
 	scenarioIndex?: number;
 	scenarioTotal?: number;
+	/** Host billing mode. Default is subscription when omitted. */
+	authMode?: HostAuthMode;
 }
 
 /** Live-only mode hint from rubric — not part of the user scenario prompt. */
@@ -516,6 +523,7 @@ async function maybeWriteDebugBundle(options: {
 	judge?: boolean;
 	allowUserInput?: boolean;
 	keepRecordings?: boolean;
+	authMode?: HostAuthMode;
 }): Promise<string | undefined> {
 	if (!options.debug || options.result.skipped) {
 		return undefined;
@@ -568,6 +576,7 @@ async function maybeWriteDebugBundle(options: {
 				// override without an explicit debugDir.
 				debugDir: options.debugDir ?? getLiveStagingRootOverride(),
 				keepRecordings: options.keepRecordings ?? true,
+				authMode: options.authMode,
 			},
 		});
 	} catch (error) {
@@ -718,6 +727,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					debug: options.debug,
 					debugDir: options.debugDir,
 					previousExitCode: previousAttemptExitCode,
+					authMode: options.authMode ?? getProcessAuthMode(),
 				});
 				previousAttemptExitCode = spawned.exitCode;
 				previousIsolatedExitCode = spawned.exitCode;
@@ -909,6 +919,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				judge: options.judge,
 				allowUserInput: options.allowUserInput,
 				keepRecordings: options.keepRecordings,
+				authMode: options.authMode ?? getProcessAuthMode(),
 			});
 			scenarioResult.debugBundleDir = debugBundleDir;
 			emitScenarioVerdict({
@@ -1044,9 +1055,16 @@ export async function runAgentTest(options: RunAgentTestOptions): Promise<Scenar
 	const stagingSessionId =
 		options.stagingSessionId ??
 		(options.debug || options.keepRecordings ? createLiveStagingSessionId() : undefined);
+	const previousAuthMode = getProcessAuthMode();
+	if (options.authMode !== undefined) {
+		setProcessAuthMode(options.authMode);
+	}
 	try {
 		return await runAgentTestBody({ ...options, stagingSessionId });
 	} finally {
+		if (options.authMode !== undefined) {
+			setProcessAuthMode(previousAuthMode);
+		}
 		if (options.debugDir !== undefined) {
 			setLiveStagingRootOverride(previousStagingRoot);
 		}
@@ -1132,6 +1150,7 @@ async function runAgentTestBody(options: RunAgentTestOptions): Promise<ScenarioR
 			judge: options.judge ?? true,
 			allowUserInput: options.allowUserInput,
 			keepRecordings: options.keepRecordings,
+			authMode: options.authMode ?? getProcessAuthMode(),
 		});
 		result.debugBundleDir = debugBundleDir;
 		emitScenarioVerdict({
@@ -1312,6 +1331,7 @@ async function runAgentTestOnce(
 				outputContract,
 				mcpServers,
 				allowUserSkills,
+				authMode: getProcessAuthMode(),
 				timeoutMs: liveTimeoutMs,
 				failOnUserInput,
 				maxConversationTurns: resolveMaxConversationTurns(),
@@ -1555,6 +1575,7 @@ async function runAgentTestOnce(
 				judge,
 				allowUserInput,
 				keepRecordings,
+				authMode: getProcessAuthMode(),
 			});
 			scenarioResult.debugBundleDir = debugBundleDir;
 
@@ -1804,6 +1825,7 @@ async function runCompareAgentTestOnce(
 			judge,
 			allowUserInput,
 			keepRecordings,
+			authMode: getProcessAuthMode(),
 		});
 		scenarioResult.debugBundleDir = debugBundleDir;
 		emitScenarioVerdict({
@@ -1976,6 +1998,40 @@ export async function runAllSuites(options: {
 	scenarioRetries?: number;
 	rubricsDir?: string;
 	adapterModules?: string[];
+	authMode?: HostAuthMode;
+}): Promise<SuiteRunReport[]> {
+	const previousAuthMode = getProcessAuthMode();
+	if (options.authMode !== undefined) {
+		setProcessAuthMode(options.authMode);
+	}
+	try {
+		return await runAllSuitesBody(options);
+	} finally {
+		if (options.authMode !== undefined) {
+			setProcessAuthMode(previousAuthMode);
+		}
+	}
+}
+
+async function runAllSuitesBody(options: {
+	cwd: string;
+	suitesDir: string;
+	host?: AgentHost;
+	hosts?: readonly AgentHost[];
+	filter?: string;
+	scenarioFilter?: string;
+	judge?: boolean;
+	worktree?: boolean;
+	stagingSessionId?: string;
+	keepRecordings?: boolean;
+	timeoutMs?: number;
+	allowUserInput?: boolean;
+	debug?: boolean;
+	debugDir?: string;
+	scenarioRetries?: number;
+	rubricsDir?: string;
+	adapterModules?: string[];
+	authMode?: HostAuthMode;
 }): Promise<SuiteRunReport[]> {
 	const suitePaths = await discoverSuites(resolve(options.cwd, options.suitesDir));
 	const filtered = options.filter
@@ -2016,6 +2072,7 @@ export async function runAllSuites(options: {
 					scenarioRetries: options.scenarioRetries,
 					rubricsDir: options.rubricsDir,
 					adapterModules: options.adapterModules,
+					authMode: options.authMode ?? getProcessAuthMode(),
 				}),
 			);
 		}

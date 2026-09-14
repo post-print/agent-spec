@@ -223,4 +223,94 @@ describe("buildScenarioStory", () => {
 		expect(story.verdict[0]).toContain("…/tmp/seal/SKILL.md");
 		expect(story.verdict[0]).not.toContain("/private/tmp/seal/SKILL.md");
 	});
+
+	it("scores shared rubric checks on each compare arm", () => {
+		const story = buildScenarioStory({
+			rubric: { mustNot: ["audit all"] },
+			passed: false,
+			failures: [
+				{
+					matcher: "mustNotInclude",
+					message: 'audit-all: forbidden text present: "audit all"',
+				},
+			],
+			compare: {
+				aLabel: "cli-lanes",
+				bLabel: "audit-all",
+				aDescription: "Attest token is ATTEST_CMD=skeleton audit docs.",
+				bDescription: "Attest token is ATTEST_CMD=audit all.",
+				aRubric: { must: ["ATTEST_CMD=skeleton audit docs"] },
+				bRubric: { must: ["ATTEST_CMD=audit all"] },
+			},
+		});
+		expect(story.sections).toBeDefined();
+		const cli = story.sections?.find((section) => section.title === "cli-lanes");
+		const audit = story.sections?.find((section) => section.title === "audit-all");
+		expect(cli?.description).toBe("Attest token is ATTEST_CMD=skeleton audit docs.");
+		expect(audit?.description).toBe("Attest token is ATTEST_CMD=audit all.");
+		expect(cli?.checks.some((check) => check.text.includes("description"))).toBe(false);
+		expect(cli?.checks).toContainEqual({
+			text: 'reply includes "ATTEST_CMD=skeleton audit docs"',
+			status: "pass",
+		});
+		expect(cli?.checks).toContainEqual({
+			text: 'reply omits "audit all"',
+			status: "pass",
+		});
+		expect(audit?.checks).toContainEqual({
+			text: 'reply omits "audit all"',
+			status: "fail",
+		});
+		expect(story.verdict.some((line) => line.includes("forbidden text"))).toBe(false);
+	});
+
+	it("scores a faster gate on the compare section", () => {
+		const story = buildScenarioStory({
+			rubric: {},
+			passed: false,
+			failures: [
+				{
+					matcher: "faster",
+					message: "cli-lanes must be faster than audit-all (10200ms vs 7300ms)",
+				},
+			],
+			compare: {
+				aLabel: "cli-lanes",
+				aDurationMs: 10_200,
+				bLabel: "audit-all",
+				bDurationMs: 7300,
+				faster: "a",
+			},
+		});
+		const compare = story.sections?.find((section) => section.title === "compare");
+		expect(compare?.checks).toContainEqual({
+			text: "audit-all is faster than cli-lanes (7.3s vs 10.2s)",
+			status: "fail",
+		});
+	});
+
+	it("keeps an unmatched worktree leak on the leftover verdict", () => {
+		const story = buildScenarioStory({
+			rubric: { must: ["smoke ok"] },
+			trace: {
+				messages: [{ role: "assistant", content: "smoke ok" }],
+				toolCalls: [],
+				shellCommands: [],
+				artifacts: {},
+			},
+			passed: false,
+			failures: [
+				{
+					matcher: "workingTreeLeak",
+					message: "agent used paths outside the sealed workspace: /private/tmp/seal",
+					category: "worktree_leak",
+				},
+			],
+		});
+		expect(story.sections?.[0]?.checks).toContainEqual({
+			text: 'reply includes "smoke ok"',
+			status: "pass",
+		});
+		expect(story.verdict[0]).toContain("worktree leak");
+	});
 });

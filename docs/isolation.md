@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: sealed workspace isolation and debug evidence -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
 <!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts -->
 
@@ -52,6 +52,8 @@ The `skeleton` profile loads `skeleton.toml` when present. It falls back to `.sk
 `--debug` writes a bundle under `$TMPDIR/agent-spec/sessions/<id>/` by default. Use `--debug-dir` to override the parent directory. Keep that path outside the git repo.
 
 The bundle holds the transcript, trace, environment snapshot, and a rerun command.
+
+Isolated children inherit `--host`, `--adapter`, and `--auth-mode` from the parent.
 
 Host SDK INFO lines stay hidden. Set `AGENT_TEST_HOST_LOGS=1` or `--debug` to print them.
 

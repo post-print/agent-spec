@@ -2,9 +2,9 @@
 
 <!-- source-of-truth: host auth and custom adapters -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
-<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/auth-mode.ts,packages/test/src/load-adapters.ts -->
+<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/auth-mode.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
 
 A **host** is the coding-agent runtime that executes a scenario. Builtin slugs are `cursor`, `claude`, and `openai`. A consumer repo can register another slug.
 
@@ -14,19 +14,21 @@ The judge and the default user simulator use the same host family as the test ag
 
 ## Builtin auth
 
-| Host | Binary / SDK | Auth |
-| --- | --- | --- |
-| `cursor` | `@cursor/sdk` | `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()` |
-| `claude` | `claude` or `CLAUDE_CODE_BIN` | `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login |
-| `openai` | `codex` or `CODEX_BIN` | `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login` |
+Default mode is subscription. Pass `--auth-mode api-key` (alias `--auth-method`) to bill an API key. A leftover key does not select api-key.
 
-The Cursor app login does not feed the SDK. Run `Cursor.auth.login()` once, or set `CURSOR_API_KEY`.
+| Host | Binary / SDK | Subscription | API key |
+| --- | --- | --- | --- |
+| `cursor` | `@cursor/sdk` | `Cursor.auth.login()` | `--auth-mode api-key` plus `CURSOR_API_KEY` |
+| `claude` | `claude` or `CLAUDE_CODE_BIN` | Claude Code CLI login | `--auth-mode api-key` plus `ANTHROPIC_API_KEY` |
+| `openai` | `codex` or `CODEX_BIN` | `codex login` | `--auth-mode api-key` plus `OPENAI_API_KEY` or `CODEX_API_KEY` |
 
-`CURSOR_AUTH_MODE` unset plus `CURSOR_API_KEY` uses api-key. `OPENAI_AUTH_MODE` unset plus a Codex key uses api-key.
+The Cursor app login does not feed the SDK. Run `Cursor.auth.login()` once.
+
+Resolution order: `--auth-mode`, then `runAgent({ authMode })`, then `CURSOR_AUTH_MODE` / `CLAUDE_AUTH_MODE` / `OPENAI_AUTH_MODE`, then subscription.
 
 Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`.
 
-OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. `OPENAI_AUTH_MODE=subscription` uses the Codex CLI login and strips stale API keys from the child env.
+OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. Subscription mode uses the Codex CLI login and strips stale API keys from the child env.
 
 Optional model pins:
 

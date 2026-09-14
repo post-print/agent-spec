@@ -37,6 +37,7 @@ JSON is an authoring adapter, not a stored answer. This repository keeps host-ag
 ```bash
 npx agent-test --check --suites-dir agent-suites
 npx agent-test --suites-dir agent-suites --host cursor --suite smoke
+npx agent-test --suites-dir agent-suites --host cursor --auth-mode api-key
 ```
 
 First run: [docs/getting-started.md](../../docs/getting-started.md). Flags: [docs/cli.md](../../docs/cli.md). Suite fields, rubric, compare, and MCP: [docs/suites.md](../../docs/suites.md). Auth and adapters: [docs/hosts.md](../../docs/hosts.md). Sealed workspace and debug: [docs/isolation.md](../../docs/isolation.md).
@@ -53,4 +54,4 @@ node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --sui
 node packages/test/dist/cli.js --check --suites-dir agent-suites --suite smoke
 ```
 
-Host-agent acceptance is `bun run test`. That command runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. `bun run test:smoke`, `bun run test:tools`, `bun run test:mcp`, `bun run test:judge`, and `bun run test:depth` stay on Cursor. A key-gated GitHub Actions job runs the same suites on Cursor when `CURSOR_API_KEY` is present.
+Host-agent acceptance is `bun run test`. That command runs smoke, tools, mcp, judge, and depth on Cursor, Claude, and Codex. `bun run test:smoke`, `bun run test:tools`, `bun run test:mcp`, `bun run test:judge`, and `bun run test:depth` stay on Cursor. A key-gated GitHub Actions job runs the same suites on Cursor with `--auth-mode api-key` when `CURSOR_API_KEY` is present.

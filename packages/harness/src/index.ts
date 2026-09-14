@@ -11,10 +11,15 @@ export {
 	OpenaiAdapter,
 } from "./adapters/index.js";
 export {
+	DEFAULT_HOST_AUTH_MODE,
+	getProcessAuthMode,
 	HOST_AUTH_MODES,
 	type HostAuthMode,
+	parseHostAuthModeFlag,
 	parseOptionalAuthMode,
+	resolveHostAuthMode,
 	resolveKeyOrLoginAuthMode,
+	setProcessAuthMode,
 } from "./auth-mode.js";
 export type { SdkMessage } from "./capture.js";
 export {
@@ -62,6 +67,7 @@ export {
 	cancelActiveClaudeRun,
 	formatClaudeRunFailure,
 	parseClaudeAuthMode,
+	resolveClaudeAuthMode,
 	resolveClaudeBin,
 	runClaudeAgent,
 	runClaudeClassifier,

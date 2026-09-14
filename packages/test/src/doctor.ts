@@ -7,12 +7,14 @@ import {
 	type AgentHost,
 	CLAUDE_AUTH_MODE_ENV,
 	CURSOR_AUTH_MODE_ENV,
+	DEFAULT_HOST_AUTH_MODE,
 	getHealthStatus,
+	getProcessAuthMode,
 	getRegisteredAdapter,
 	HEALTH_CHECK_PATH,
 	isBuiltinAgentHost,
 	OPENAI_AUTH_MODE_ENV,
-	parseClaudeAuthMode,
+	resolveClaudeAuthMode,
 	resolveCursorAuthMode,
 	resolveOpenaiAuthMode,
 } from "@post-print/agent-harness";
@@ -141,11 +143,12 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		messages.push(`${CURSOR_AUTH_MODE_ENV}: ${cursorAuthMode}`);
 	} else if (cursorAuthMode) {
 		messages.push(`${CURSOR_AUTH_MODE_ENV}="${cursorAuthMode}" invalid (api-key or subscription)`);
-	} else if (cursorApiKeySet) {
-		messages.push(`${CURSOR_AUTH_MODE_ENV} unset (using CURSOR_API_KEY)`);
 	} else {
+		const processMode = getProcessAuthMode();
 		messages.push(
-			`${CURSOR_AUTH_MODE_ENV} unset (set CURSOR_API_KEY or ${CURSOR_AUTH_MODE_ENV}=subscription after Cursor.auth.login())`,
+			processMode
+				? `auth mode: ${processMode} (--auth-mode)`
+				: `auth mode: ${DEFAULT_HOST_AUTH_MODE} (default; pass --auth-mode api-key to use a key)`,
 		);
 	}
 
@@ -162,8 +165,11 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 	} else if (claudeAuthMode) {
 		messages.push(`${CLAUDE_AUTH_MODE_ENV}="${claudeAuthMode}" invalid (api-key or subscription)`);
 	} else {
+		const processMode = getProcessAuthMode();
 		messages.push(
-			`${CLAUDE_AUTH_MODE_ENV} unset (required for --host claude: api-key or subscription)`,
+			processMode
+				? `auth mode: ${processMode} (--auth-mode)`
+				: `auth mode: ${DEFAULT_HOST_AUTH_MODE} (default; pass --auth-mode api-key to use ANTHROPIC_API_KEY)`,
 		);
 	}
 
@@ -194,11 +200,12 @@ export function runDoctor(options?: { cliPath?: string }): DoctorReport {
 		messages.push(`${OPENAI_AUTH_MODE_ENV}: ${openaiAuthMode}`);
 	} else if (openaiAuthMode) {
 		messages.push(`${OPENAI_AUTH_MODE_ENV}="${openaiAuthMode}" invalid (api-key or subscription)`);
-	} else if (openaiApiKeySet) {
-		messages.push(`${OPENAI_AUTH_MODE_ENV} unset (using OPENAI_API_KEY or CODEX_API_KEY)`);
 	} else {
+		const processMode = getProcessAuthMode();
 		messages.push(
-			`${OPENAI_AUTH_MODE_ENV} unset (set a key or ${OPENAI_AUTH_MODE_ENV}=subscription after \`codex login\`)`,
+			processMode
+				? `auth mode: ${processMode} (--auth-mode)`
+				: `auth mode: ${DEFAULT_HOST_AUTH_MODE} (default; pass --auth-mode api-key to use a Codex key)`,
 		);
 	}
 
@@ -261,11 +268,10 @@ export function missingAgentAuth(host: AgentHost): string | undefined {
 		return adapter.missingAuth?.();
 	}
 	if (host === "claude") {
-		const raw = process.env[CLAUDE_AUTH_MODE_ENV]?.trim();
 		try {
-			const authMode = parseClaudeAuthMode(raw);
+			const authMode = resolveClaudeAuthMode();
 			if (authMode === "api-key" && !process.env.ANTHROPIC_API_KEY?.trim()) {
-				return `${CLAUDE_AUTH_MODE_ENV}=api-key requires ANTHROPIC_API_KEY`;
+				return "--auth-mode api-key requires ANTHROPIC_API_KEY";
 			}
 		} catch (error) {
 			return error instanceof Error ? error.message : String(error);

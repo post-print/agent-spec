@@ -34,9 +34,9 @@ Replay-based testing is deprecated and removed. `runAgent` always launches the s
 
 | Host | Binary / SDK | Auth |
 | --- | --- | --- |
-| `cursor` | `@cursor/sdk` | `CURSOR_API_KEY`, or `CURSOR_AUTH_MODE=subscription` after `Cursor.auth.login()` |
-| `claude` | `claude` or `CLAUDE_CODE_BIN` | `CLAUDE_AUTH_MODE` plus `ANTHROPIC_API_KEY` or a Claude Code login |
-| `openai` | `codex` or `CODEX_BIN` | `OPENAI_API_KEY` or `CODEX_API_KEY`, or `OPENAI_AUTH_MODE=subscription` after `codex login` |
+| `cursor` | `@cursor/sdk` | Subscription after `Cursor.auth.login()`, or `--auth-mode api-key` plus `CURSOR_API_KEY` |
+| `claude` | `claude` or `CLAUDE_CODE_BIN` | Subscription after Claude Code login, or `--auth-mode api-key` plus `ANTHROPIC_API_KEY` |
+| `openai` | `codex` or `CODEX_BIN` | Subscription after `codex login`, or `--auth-mode api-key` plus `OPENAI_API_KEY` or `CODEX_API_KEY` |
 | custom slug | your `HostAdapter` | `missingAuth()` on the adapter |
 
 A consumer repo can add a host. Implement `HostAdapter` and call `registerHostAdapter`. Builtin ids stay reserved.
@@ -85,8 +85,8 @@ The sealed workspace is a git repo. Hosts load project skills from `.agents/skil
 
 ## Judge
 
-`judgeTrace` uses the same host family as the test agent. Cursor judge calls use `CURSOR_API_KEY` or the SDK login store. Claude and OpenAI judges use their own host credentials.
+`judgeTrace` uses the same host family as the test agent. Default auth is subscription. Cursor judge calls use the SDK login store, or `CURSOR_API_KEY` when `--auth-mode api-key` is set. Claude and OpenAI judges use their own host credentials.
 
-The Cursor app login does not feed the SDK. Run `Cursor.auth.login()` once, or set `CURSOR_API_KEY`. `OPENAI_AUTH_MODE=subscription` uses the Codex CLI login and strips stale API keys from the child env.
+The Cursor app login does not feed the SDK. Run `Cursor.auth.login()` once, or pass `--auth-mode api-key` plus `CURSOR_API_KEY`. Subscription mode uses the Codex CLI login and strips stale API keys from the child env.
 
 Consumer: `@post-print/agent-test`. Auth and adapters: [docs/hosts.md](../../docs/hosts.md). Sealed workspace: [docs/isolation.md](../../docs/isolation.md).

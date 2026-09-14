@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
-
+import { resolveHostAuthMode } from "./auth-mode.js";
 import {
 	accumulateClaudeEvent,
 	type ClaudeTraceAccumulator,
@@ -45,7 +45,7 @@ export interface ClaudeRunOptions {
 	bin?: string;
 	/** Override --allowedTools; defaults to CLAUDE_CODE_ALLOWED_TOOLS or built-in list. */
 	allowedTools?: string;
-	/** Auth mode; when omitted it is read from CLAUDE_AUTH_MODE (which is required). */
+	/** Auth mode; when omitted it is `--auth-mode`, then CLAUDE_AUTH_MODE, then subscription. */
 	authMode?: ClaudeAuthMode;
 	/** Load `~/.claude` user skills and settings. Default false. */
 	allowUserSkills?: boolean;
@@ -270,16 +270,13 @@ export const CLAUDE_AUTH_MODE_ENV = "CLAUDE_AUTH_MODE";
 const CLAUDE_AUTH_MODES: ClaudeAuthMode[] = ["api-key", "subscription"];
 
 /**
- * Parse an explicit auth-mode selection. Throws on anything else: an unset or
- * misspelled value must never silently pick a mode, because the two bill
- * different accounts.
+ * Parse an explicit auth-mode selection. Unset uses subscription.
+ * A misspelled value still throws because the two modes bill different accounts.
  */
 export function parseClaudeAuthMode(raw: string | undefined): ClaudeAuthMode {
 	const value = raw?.trim();
 	if (!value) {
-		throw new Error(
-			`${CLAUDE_AUTH_MODE_ENV} not set — choose ${CLAUDE_AUTH_MODES.join(" or ")} (no default)`,
-		);
+		return "subscription";
 	}
 	if (!(CLAUDE_AUTH_MODES as string[]).includes(value)) {
 		throw new Error(
@@ -287,6 +284,18 @@ export function parseClaudeAuthMode(raw: string | undefined): ClaudeAuthMode {
 		);
 	}
 	return value as ClaudeAuthMode;
+}
+
+/** CLI flag, then CLAUDE_AUTH_MODE, then subscription. */
+export function resolveClaudeAuthMode(
+	raw: string | undefined = process.env[CLAUDE_AUTH_MODE_ENV],
+	explicit?: ClaudeAuthMode,
+): ClaudeAuthMode {
+	return resolveHostAuthMode({
+		envName: CLAUDE_AUTH_MODE_ENV,
+		raw,
+		explicit,
+	});
 }
 
 function buildClaudeArgs(options: {
@@ -400,9 +409,9 @@ async function drainNdjson(
 /** Shared Claude Code CLI path — spawn + stream-json → AgentTrace. */
 export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
 	const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
-	const authMode = options.authMode ?? parseClaudeAuthMode(process.env[CLAUDE_AUTH_MODE_ENV]);
+	const authMode = resolveClaudeAuthMode(undefined, options.authMode);
 	if (authMode === "api-key" && !apiKey?.trim()) {
-		throw new Error(`${CLAUDE_AUTH_MODE_ENV}=api-key but ANTHROPIC_API_KEY is not set`);
+		throw new Error("--auth-mode api-key requires ANTHROPIC_API_KEY");
 	}
 
 	const bin = await resolveClaudeBin(options.bin);

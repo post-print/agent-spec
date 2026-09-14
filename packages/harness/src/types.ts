@@ -19,6 +19,7 @@ export function isAgentHost(value: string): value is AgentHost {
 	return isBuiltinAgentHost(value);
 }
 
+import type { HostAuthMode } from "./auth-mode.js";
 import type { McpServerConfig } from "./mcp.js";
 import type { RoutingContract } from "./routing-contract.js";
 import type { SkillContextMode } from "./skills-context.js";
@@ -127,6 +128,8 @@ export interface RunAgentOptions {
 	 * `~/.agents/skills`). Default false.
 	 */
 	allowUserSkills?: boolean;
+	/** Host billing mode. Default is subscription when omitted. */
+	authMode?: HostAuthMode;
 	env?: Record<string, string>;
 }
 

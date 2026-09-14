@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent-spec reliability targets and verification commands -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-13 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
 
 <!-- review-deps: paths=package.json,agent-suites/**/scenarios.json -->
 
@@ -31,6 +31,8 @@ bun run test
 
 # One host
 bun run test -- --host cursor
+# API-key billing (CI host job)
+bun run test -- --host cursor --auth-mode api-key
 bun run test:smoke
 bun run test:tools
 bun run test:mcp
@@ -61,5 +63,6 @@ Provider usage is captured on `AgentTrace` and `ScenarioResult`. Read/tool match
 | `AGENT_TEST_TIMEOUT_MS` | `600000` | Direct agent deadline |
 | `AGENT_TEST_DEBUG` | Unset | Retain evidence-rich debug bundles |
 | `AGENT_TEST_MAX_TURNS` | `6` | User-agent plus test-agent conversation turns |
-| `CURSOR_AUTH_MODE` | Unset | `api-key` or `subscription`. Unset plus `CURSOR_API_KEY` uses api-key. |
-| `OPENAI_AUTH_MODE` | Unset | `api-key` or `subscription`. Unset plus a Codex key uses api-key. |
+| `CURSOR_AUTH_MODE` | Unset | Fallback when `--auth-mode` is omitted. Default is subscription. |
+| `CLAUDE_AUTH_MODE` | Unset | Fallback when `--auth-mode` is omitted. Default is subscription. |
+| `OPENAI_AUTH_MODE` | Unset | Fallback when `--auth-mode` is omitted. Default is subscription. |

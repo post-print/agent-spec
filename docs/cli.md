@@ -33,6 +33,7 @@ npx agent-test --help
 | `--suite <name>` | One suite folder name. |
 | `--scenario <name>` | One scenario inside the selected suites. |
 | `--host cursor\|claude\|openai\|all` | Adapter. Repeat or comma-separate for a matrix. Default is the suite `hosts` list, or `cursor`. |
+| `--auth-mode subscription\|api-key` | Host billing mode. Default `subscription`. `--auth-method` is the same flag. |
 | `--adapter <module>` | Load a consumer host adapter. Repeat for more than one module. |
 | `--rubrics-dir <path>` | Extra rubric sidecar directory. |
 
@@ -66,6 +67,8 @@ Removed flags fail with a message: `--live`, `--record`, `--record-fixtures`, `-
 | `--no-worktree` | Run in the caller checkout. Needs `AGENT_TEST_ALLOW_IN_PLACE=1`. |
 
 A TTY live run prints a localhost HTML preview. Cmd-click the `http://` URL to open the browser. The preview exits after 30 minutes idle. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip it. That prints a file path. Cursor opens the file path in the editor.
+
+A compare verdict lists checks under each arm. Each check shows pass or fail. A single scenario keeps the criteria and result labels.
 
 `--debug-dir` inside the git repo prints a tip. Prefer `$TMPDIR` so debug files stay out of `git status`.
 
@@ -108,3 +111,5 @@ Pass extra flags after `--`:
 ```bash
 bun run test -- --host cursor --suite smoke
 ```
+
+CI host jobs that use `CURSOR_API_KEY` must pass `--auth-mode api-key`.

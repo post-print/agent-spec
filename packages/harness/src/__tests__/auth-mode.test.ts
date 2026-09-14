@@ -1,6 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
-import { parseOptionalAuthMode, resolveKeyOrLoginAuthMode } from "../auth-mode.js";
+import {
+	DEFAULT_HOST_AUTH_MODE,
+	parseHostAuthModeFlag,
+	parseOptionalAuthMode,
+	resolveHostAuthMode,
+	resolveKeyOrLoginAuthMode,
+	setProcessAuthMode,
+} from "../auth-mode.js";
 import {
 	CURSOR_AUTH_MODE_ENV,
 	CURSOR_MISSING_KEY_MESSAGE,
@@ -13,6 +20,10 @@ import {
 	OPENAI_MISSING_KEY_MESSAGE,
 	resolveOpenaiAuthMode,
 } from "../openai-run.js";
+
+afterEach(() => {
+	setProcessAuthMode(undefined);
+});
 
 describe("parseOptionalAuthMode", () => {
 	it("returns undefined when unset", () => {
@@ -30,8 +41,52 @@ describe("parseOptionalAuthMode", () => {
 	});
 });
 
+describe("parseHostAuthModeFlag", () => {
+	it("accepts subscription and api-key", () => {
+		expect(parseHostAuthModeFlag("subscription")).toBe("subscription");
+		expect(parseHostAuthModeFlag(" api-key ")).toBe("api-key");
+	});
+
+	it("rejects an unknown value", () => {
+		expect(() => parseHostAuthModeFlag("subscriber", "--auth-mode")).toThrow(/--auth-mode must be/);
+	});
+});
+
+describe("resolveHostAuthMode", () => {
+	it("defaults to subscription", () => {
+		expect(DEFAULT_HOST_AUTH_MODE).toBe("subscription");
+		expect(
+			resolveHostAuthMode({
+				envName: "CURSOR_AUTH_MODE",
+				raw: undefined,
+			}),
+		).toBe("subscription");
+	});
+
+	it("prefers an explicit option over env and process", () => {
+		setProcessAuthMode("api-key");
+		expect(
+			resolveHostAuthMode({
+				envName: "CURSOR_AUTH_MODE",
+				raw: "api-key",
+				explicit: "subscription",
+			}),
+		).toBe("subscription");
+	});
+
+	it("prefers process --auth-mode over env", () => {
+		setProcessAuthMode("api-key");
+		expect(
+			resolveHostAuthMode({
+				envName: "CURSOR_AUTH_MODE",
+				raw: "subscription",
+			}),
+		).toBe("api-key");
+	});
+});
+
 describe("resolveKeyOrLoginAuthMode", () => {
-	it("uses a present key when the mode is unset", () => {
+	it("defaults to subscription when a key is present", () => {
 		expect(
 			resolveKeyOrLoginAuthMode({
 				envName: "CURSOR_AUTH_MODE",
@@ -39,7 +94,7 @@ describe("resolveKeyOrLoginAuthMode", () => {
 				hasApiKey: true,
 				missingKeyMessage: "missing",
 			}),
-		).toBe("api-key");
+		).toBe("subscription");
 	});
 
 	it("honors an explicit subscription mode when a key is also set", () => {
@@ -53,26 +108,37 @@ describe("resolveKeyOrLoginAuthMode", () => {
 		).toBe("subscription");
 	});
 
-	it("names the key and the login mode when both are unset", () => {
-		expect(() =>
+	it("defaults to subscription when both mode and key are unset", () => {
+		expect(
 			resolveKeyOrLoginAuthMode({
 				envName: "CURSOR_AUTH_MODE",
 				raw: undefined,
 				hasApiKey: false,
 				missingKeyMessage: CURSOR_MISSING_KEY_MESSAGE,
 			}),
-		).toThrow(/CURSOR_AUTH_MODE=subscription/);
+		).toBe("subscription");
+	});
+
+	it("names the key when api-key mode has no key", () => {
+		expect(() =>
+			resolveKeyOrLoginAuthMode({
+				envName: "CURSOR_AUTH_MODE",
+				raw: "api-key",
+				hasApiKey: false,
+				missingKeyMessage: CURSOR_MISSING_KEY_MESSAGE,
+			}),
+		).toThrow(/CURSOR_API_KEY required for --auth-mode api-key/);
 	});
 });
 
 describe("resolveCursorAuthMode", () => {
-	it("defaults to api-key when CURSOR_API_KEY is set", () => {
+	it("defaults to subscription when CURSOR_API_KEY is set", () => {
 		const priorMode = process.env[CURSOR_AUTH_MODE_ENV];
 		const priorKey = process.env.CURSOR_API_KEY;
 		delete process.env[CURSOR_AUTH_MODE_ENV];
 		process.env.CURSOR_API_KEY = "cursor-test-key";
 		try {
-			expect(resolveCursorAuthMode()).toBe("api-key");
+			expect(resolveCursorAuthMode()).toBe("subscription");
 		} finally {
 			if (priorMode === undefined) {
 				delete process.env[CURSOR_AUTH_MODE_ENV];
@@ -108,7 +174,7 @@ describe("withCursorAuthEnv", () => {
 });
 
 describe("resolveOpenaiAuthMode", () => {
-	it("keeps api-key when a Codex key is set", () => {
+	it("defaults to subscription when a Codex key is set", () => {
 		const priorMode = process.env[OPENAI_AUTH_MODE_ENV];
 		const priorOpen = process.env.OPENAI_API_KEY;
 		const priorCodex = process.env.CODEX_API_KEY;
@@ -116,7 +182,7 @@ describe("resolveOpenaiAuthMode", () => {
 		delete process.env.OPENAI_API_KEY;
 		process.env.CODEX_API_KEY = "codex-test-key";
 		try {
-			expect(resolveOpenaiAuthMode()).toBe("api-key");
+			expect(resolveOpenaiAuthMode()).toBe("subscription");
 		} finally {
 			if (priorMode === undefined) {
 				delete process.env[OPENAI_AUTH_MODE_ENV];
@@ -136,8 +202,8 @@ describe("resolveOpenaiAuthMode", () => {
 		}
 	});
 
-	it("names the login mode when no key is set", () => {
-		expect(() => resolveOpenaiAuthMode(undefined, "")).toThrow(OPENAI_MISSING_KEY_MESSAGE);
+	it("names the key when api-key mode has no key", () => {
+		expect(() => resolveOpenaiAuthMode("api-key", "")).toThrow(OPENAI_MISSING_KEY_MESSAGE);
 	});
 });
 

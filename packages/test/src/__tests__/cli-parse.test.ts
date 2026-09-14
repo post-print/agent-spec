@@ -92,6 +92,22 @@ describe("parseCliArgs debug flags", () => {
 		expect(parseCliArgs(["node", "cli.js", "-h"]).help).toBe(true);
 	});
 
+	it("parses --auth-mode and --auth-method", () => {
+		expect(parseCliArgs(["node", "cli.js", "--auth-mode", "api-key"]).authMode).toBe("api-key");
+		expect(parseCliArgs(["node", "cli.js", "--auth-method=subscription"]).authMode).toBe(
+			"subscription",
+		);
+		expect(parseCliArgs(["node", "cli.js"]).authMode).toBeUndefined();
+		expect(() => parseCliArgs(["node", "cli.js", "--auth-mode", "subscriber"])).toThrow(
+			/--auth-mode must be/,
+		);
+	});
+
+	it("lists --auth-mode in help", () => {
+		expect(formatHelp()).toContain("--auth-mode");
+		expect(formatHelp()).toContain("--auth-method");
+	});
+
 	it("parses a consumer host slug and --adapter path", () => {
 		const args = parseCliArgs([
 			"node",

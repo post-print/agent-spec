@@ -11,7 +11,14 @@ import type {
 
 import { compareResultArms, describeCompareOutcome } from "./compare-scenario.js";
 import { summarizeReports } from "./suite-summary.js";
-import type { CompareArmResult, ScenarioResult, SuiteRunReport, UsageStats } from "./types.js";
+import type {
+	CompareArmResult,
+	ScenarioResult,
+	StoryCheck,
+	StorySection,
+	SuiteRunReport,
+	UsageStats,
+} from "./types.js";
 
 export interface HtmlReportMeta {
 	generatedAt?: Date;
@@ -738,10 +745,50 @@ function renderStoryList(title: string, lines: string[] | undefined): string {
 	return `<section class="story-block"><h3>${escapeHtml(title)}</h3><ul class="story-list">${items}</ul></section>`;
 }
 
+function renderStoryCheck(check: StoryCheck): string {
+	const icon = check.status === "pass" ? "✓" : check.status === "fail" ? "✗" : "·";
+	return `<li class="story-check story-check-${check.status}"><span class="story-check-icon">${icon}</span>${escapeHtml(check.text)}</li>`;
+}
+
+function renderStorySection(section: StorySection): string {
+	const titled = Boolean(section.title);
+	const title = section.title ? `<h3>${escapeHtml(section.title)}</h3>` : `<h3>Criteria</h3>`;
+	const description = section.description
+		? `<p class="story-section-description">${escapeHtml(section.description)}</p>`
+		: "";
+	const checks =
+		section.checks.length > 0
+			? `<ul class="story-checks">${section.checks.map(renderStoryCheck).join("")}</ul>`
+			: "";
+	const notes =
+		section.notes && section.notes.length > 0
+			? `<ul class="story-notes">${section.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>`
+			: "";
+	const titledClass = titled ? " story-section-titled" : "";
+	return `<section class="story-section${titledClass}">${title}${description}${checks}${notes}</section>`;
+}
+
 function renderStory(result: ScenarioResult): string {
 	const story = result.story;
 	if (!story) {
 		return "";
+	}
+	if (story.sections && story.sections.length > 0) {
+		const titled = story.sections.some((section) => section.title);
+		if (!titled && story.sections.length === 1 && story.sections[0]) {
+			const section = story.sections[0];
+			const criteria =
+				section.checks.length > 0
+					? `<section class="story-block"><h3>Criteria</h3><ul class="story-checks">${section.checks.map(renderStoryCheck).join("")}</ul></section>`
+					: "";
+			return `<div class="story">${criteria}${renderStoryList("Result", [
+				...(section.notes ?? []),
+				...story.verdict,
+			])}</div>`;
+		}
+		const sections = story.sections.map(renderStorySection).join("");
+		const leftover = story.verdict.length > 0 ? renderStoryList("Result", story.verdict) : "";
+		return `<div class="story story-sections">${sections}${leftover}</div>`;
 	}
 	return `<div class="story">
     ${renderStoryList("Criteria", story.criteria)}
@@ -960,8 +1007,17 @@ function sharedReportCss(): string {
   .conversation { min-width: 0; }
 
   .story { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.85rem; margin-bottom: 0.85rem; }
-  .story-block h3 { margin: 0 0 0.35rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-  .story-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.25rem; color: var(--text); }
+  .story-sections { display: flex; flex-direction: column; gap: 0.85rem; }
+  .story-block h3, .story-section h3 { margin: 0 0 0.35rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .story-section-titled h3 { text-transform: none; letter-spacing: 0; font-size: 0.9rem; color: var(--text); }
+  .story-section-description { margin: 0 0 0.4rem; color: var(--muted); font-size: 0.82rem; }
+  .story-list, .story-checks, .story-notes { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.25rem; color: var(--text); }
+  .story-checks { list-style: none; padding-left: 0; }
+  .story-check { display: flex; gap: 0.4rem; }
+  .story-check-icon { width: 1rem; flex: none; font-weight: 700; }
+  .story-check-pass .story-check-icon { color: var(--pass); }
+  .story-check-fail .story-check-icon { color: var(--fail); }
+  .story-notes { color: var(--muted); }
   .failures { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
   .failures li { border-left: 3px solid var(--fail); padding-left: 0.6rem; }
   .failure-label { margin: 0; font-weight: 600; font-size: 0.85rem; color: var(--fail); }

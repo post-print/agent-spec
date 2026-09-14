@@ -95,6 +95,19 @@ describe("debug-bundle", () => {
 		expect(cmd).toContain("'pr: anti-thrash targeted contextual'");
 	});
 
+	it("forwards --auth-mode on the rerun command", () => {
+		const cmd = buildRerunCommand({
+			cliPath: "/repo/packages/test/dist/cli.js",
+			cwd: "/repo",
+			suitesDir: "agent-suites",
+			suite: "smoke",
+			scenario: "hello",
+			authMode: "api-key",
+		});
+		expect(cmd).toContain("--auth-mode");
+		expect(cmd).toContain("api-key");
+	});
+
 	it("shell-quotes process.execPath in the rerun command", () => {
 		const original = process.execPath;
 		Object.defineProperty(process, "execPath", {

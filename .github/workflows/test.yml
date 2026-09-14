@@ -104,7 +104,7 @@ jobs:
         if: steps.host.outputs.run == 'true'
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-        run: bun run test -- --host cursor
+        run: bun run test -- --host cursor --auth-mode api-key
 
   security:
     runs-on: ubuntu-latest

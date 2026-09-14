@@ -239,12 +239,31 @@ export interface JudgeVerdictResult {
 	usage?: AgentUsage;
 }
 
+export type StoryCheckStatus = "pass" | "fail" | "info";
+
+/** One scored rubric or metric line. */
+export interface StoryCheck {
+	text: string;
+	status: StoryCheckStatus;
+}
+
+/** One verdict block. Compare runs use one section per arm. */
+export interface StorySection {
+	title?: string;
+	description?: string;
+	checks: StoryCheck[];
+	/** Trace summary and observational notes. */
+	notes?: string[];
+}
+
 /** CLI and HTML summary of rubric checks and what the run produced. */
 export interface ScenarioStory {
 	criteria: string[];
 	result: string[];
 	/** Failures and judge notes. Shown under Result. */
 	verdict: string[];
+	/** Scored checks grouped by arm. Theme and HTML prefer this when set. */
+	sections?: StorySection[];
 }
 
 export interface ScenarioResult {

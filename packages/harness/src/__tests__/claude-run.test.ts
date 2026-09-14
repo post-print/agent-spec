@@ -86,9 +86,9 @@ describe("runClaudeAgent", () => {
 		spawnMock.mockReset();
 	});
 
-	it("rejects an unset or unknown auth mode instead of picking one", () => {
-		expect(() => parseClaudeAuthMode(undefined)).toThrow(/not set/);
-		expect(() => parseClaudeAuthMode("   ")).toThrow(/not set/);
+	it("defaults unset mode to subscription and rejects an unknown value", () => {
+		expect(parseClaudeAuthMode(undefined)).toBe("subscription");
+		expect(parseClaudeAuthMode("   ")).toBe("subscription");
 		expect(() => parseClaudeAuthMode("subscription-ish")).toThrow(/invalid/);
 		expect(parseClaudeAuthMode("api-key")).toBe("api-key");
 		expect(parseClaudeAuthMode(" subscription ")).toBe("subscription");
@@ -109,18 +109,30 @@ describe("runClaudeAgent", () => {
 		expect(spawnMock).not.toHaveBeenCalled();
 	});
 
-	it("fails a run when CLAUDE_AUTH_MODE is unset", async () => {
+	it("uses subscription when CLAUDE_AUTH_MODE is unset", async () => {
 		process.env.ANTHROPIC_API_KEY = "sk-ant-test";
-		const adapter = new ClaudeAdapter();
-		const session = await adapter.run({
-			host: "claude",
+		spawnMock.mockImplementation(() =>
+			mockChild({
+				lines: [
+					JSON.stringify({
+						type: "result",
+						subtype: "success",
+						result: "ok",
+					}),
+				],
+			}),
+		);
+		const { runClaudeAgent } = await import("../claude-run.js");
+		const result = await runClaudeAgent({
 			cwd: process.cwd(),
-			context: emptyContext(),
 			prompt: "hi",
+			bin: "claude",
 		});
-		expect(session.status).toBe("failed");
-		expect(session.error).toMatch(/CLAUDE_AUTH_MODE not set/);
-		expect(spawnMock).not.toHaveBeenCalled();
+		expect(result.status).toBe("completed");
+		expect(spawnMock).toHaveBeenCalled();
+		const args = spawnMock.mock.calls[0]?.[1] as string[];
+		expect(args).toContain("--strict-mcp-config");
+		expect(args).not.toContain("--bare");
 	});
 
 	it("passes the key through in api-key mode", () => {

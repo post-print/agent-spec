@@ -331,6 +331,35 @@ describe("html-report", () => {
 		expect(html).toContain("all checks passed");
 	});
 
+	it("renders scored story sections with pass and fail marks", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					passed: false,
+					story: {
+						criteria: ['reply omits "WEBHOOK"'],
+						result: [],
+						verdict: [],
+						sections: [
+							{
+								title: "plain two papers",
+								description: "Two Billing papers fight.",
+								checks: [{ text: 'reply omits "WEBHOOK"', status: "fail" }],
+								notes: ["agent replied CONFLICT WEBHOOK"],
+							},
+						],
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("plain two papers");
+		expect(html).toContain("Two Billing papers fight.");
+		expect(html).toContain("story-check-fail");
+		expect(html).toContain("✗");
+		expect(html).toContain("reply omits &quot;WEBHOOK&quot;");
+		expect(html).not.toContain("Tested");
+	});
+
 	it("renders grounding matcher labels and failure evidence", () => {
 		const html = renderHtmlReport([
 			makeReport([

@@ -68,6 +68,7 @@ export class CursorAdapter implements HostAdapter {
 				onDeadlineStart: options.onDeadlineStart,
 				onAgentEvent: options.onAgentEvent,
 				allowUserSkills: options.allowUserSkills === true,
+				authMode: options.authMode,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);
 			const trace = enrichTrace({
@@ -123,8 +124,9 @@ export class CursorAdapter implements HostAdapter {
 }
 
 /**
- * Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN)
- * and an explicit auth mode.
+ * Claude Code CLI adapter — requires `claude` on PATH (or CLAUDE_CODE_BIN).
+ * Default auth is subscription. Pass `--auth-mode api-key` plus ANTHROPIC_API_KEY
+ * to bill the API.
  */
 export class ClaudeAdapter implements HostAdapter {
 	readonly host = "claude" as const;
@@ -152,6 +154,7 @@ export class ClaudeAdapter implements HostAdapter {
 				onDeadlineStart: options.onDeadlineStart,
 				onAgentEvent: options.onAgentEvent,
 				allowUserSkills: options.allowUserSkills === true,
+				authMode: options.authMode,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);
 			const resultError = streamedTrace.artifacts.claudeResultError;
@@ -194,23 +197,20 @@ export class ClaudeAdapter implements HostAdapter {
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "Failed to run Claude Code CLI";
-			const enrichedMessage =
-				message.includes("CLAUDE_AUTH_MODE not set") && !process.env.ANTHROPIC_API_KEY?.trim()
-					? `${message}; ANTHROPIC_API_KEY is required for api-key mode`
-					: message;
 			const durationMs = Math.round(performance.now() - started);
 			const partial = getPartialTrace(error) ?? takeLastClaudeRunTrace();
 			if (partial && (partial.messages.length > 0 || partial.toolCalls.length > 0)) {
-				return sessionFromTrace(this.host, partial, enrichedMessage, durationMs);
+				return sessionFromTrace(this.host, partial, message, durationMs);
 			}
-			return emptyFailed(this.host, enrichedMessage);
+			return emptyFailed(this.host, message);
 		}
 	}
 }
 
 /**
- * OpenAI Codex CLI adapter — requires `codex` on PATH (or CODEX_BIN)
- * and an API key or OPENAI_AUTH_MODE=subscription after `codex login`.
+ * OpenAI Codex CLI adapter — requires `codex` on PATH (or CODEX_BIN).
+ * Default auth is subscription after `codex login`. Pass `--auth-mode api-key`
+ * plus OPENAI_API_KEY or CODEX_API_KEY to bill the API.
  */
 export class OpenaiAdapter implements HostAdapter {
 	readonly host = "openai" as const;
@@ -238,6 +238,7 @@ export class OpenaiAdapter implements HostAdapter {
 				onDeadlineStart: options.onDeadlineStart,
 				onAgentEvent: options.onAgentEvent,
 				allowUserSkills: options.allowUserSkills === true,
+				authMode: options.authMode,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);
 			const resultError = streamedTrace.artifacts.openaiResultError;
