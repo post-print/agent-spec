@@ -103,7 +103,12 @@ jobs:
 
       - name: Publish @post-print/agent-harness
         working-directory: packages/harness
-        run: npm publish --access public --provenance
+        run: |
+          if npm view "@post-print/agent-harness@${{ steps.version.outputs.NEW_VERSION }}" version >/dev/null 2>&1; then
+            echo "@post-print/agent-harness@${{ steps.version.outputs.NEW_VERSION }} is already published; skipping"
+          else
+            npm publish --access public --provenance
+          fi
 
       - name: Publish @post-print/agent-test
         working-directory: packages/test
