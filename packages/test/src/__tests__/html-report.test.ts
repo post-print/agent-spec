@@ -332,6 +332,50 @@ describe("html-report", () => {
 		expect(html).toContain('compare-scenario" open>');
 	});
 
+	it("renders undefined tool arguments in a host-native named comparison", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					contextMode: "host-native",
+					prompt: "What billing webhook URL is live?",
+					compare: {
+						arms: [
+							{
+								id: "control",
+								label: "ordinary docs",
+								contextMode: "host-native",
+								hostInput: "What billing webhook URL is live?",
+								trace: {
+									messages: [{ role: "assistant", content: "v2" }],
+									toolCalls: [{ name: "Read", args: { path: undefined } }],
+									shellCommands: [],
+									artifacts: {},
+								},
+							},
+							{
+								id: "skeleton",
+								label: "full Skeleton workflow",
+								contextMode: "host-native",
+								hostInput: "What billing webhook URL is live?",
+								trace: {
+									messages: [{ role: "assistant", content: "v2" }],
+									toolCalls: [],
+									shellCommands: [],
+									artifacts: {},
+								},
+							},
+						],
+					},
+				}),
+			]),
+		]);
+
+		expect(html).toContain("Host-native");
+		expect(html).toContain("ordinary docs");
+		expect(html).toContain("full Skeleton workflow");
+		expect(html).toContain("undefined");
+	});
+
 	it("renders named compare arms without a four-way delta", () => {
 		const html = renderHtmlReport([
 			makeReport([
