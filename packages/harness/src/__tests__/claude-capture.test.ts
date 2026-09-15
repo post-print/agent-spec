@@ -37,6 +37,7 @@ const TOOL_RESULT: ClaudeStreamEvent = {
 				type: "tool_result",
 				tool_use_id: "toolu_1",
 				content: "ok",
+				is_error: false,
 			},
 		],
 	},
@@ -101,6 +102,7 @@ describe("buildTraceFromClaudeEvents", () => {
 				name: "Bash",
 				args: { command: "bun run test:sandbox-safe" },
 				result: "ok",
+				succeeded: true,
 				seq: expect.any(Number),
 			}),
 		]);
@@ -111,6 +113,21 @@ describe("buildTraceFromClaudeEvents", () => {
 			cacheReadTokens: 2,
 		});
 		expect(trace.artifacts.claudeRawStatus).toBe("success");
+	});
+
+	it("records a failed Bash tool result without inventing an exit code", () => {
+		const failedResult: ClaudeStreamEvent = {
+			type: "user",
+			message: {
+				role: "user",
+				content: [
+					{ type: "tool_result", tool_use_id: "toolu_1", content: "failed", is_error: true },
+				],
+			},
+		};
+		const trace = buildTraceFromClaudeEvents([ASSISTANT_WITH_BASH, failedResult]);
+		expect(trace.toolCalls[0]).toMatchObject({ succeeded: false });
+		expect(trace.toolCalls[0]?.exitCode).toBeUndefined();
 	});
 
 	it("records AskUserQuestion tool calls for fail-fast detection", () => {

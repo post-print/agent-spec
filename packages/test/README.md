@@ -41,7 +41,7 @@ JSON is an authoring adapter, not a stored answer. This repository keeps host-ag
 npx agent-test login
 npx agent-test --check --suites-dir agent-suites
 npx agent-test viewer --suites-dir agent-suites --workers 2
-npx agent-test --suites-dir agent-suites --host cursor --suite confidence
+npx agent-test --suites-dir agent-suites --host cursor --suite test-sdk-capabilities
 npx agent-test --suites-dir agent-suites --host cursor --auth-mode api-key
 ```
 
@@ -59,7 +59,7 @@ node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --sui
 node packages/test/dist/cli.js --check --suites-dir agent-suites
 ```
 
-Host-agent acceptance is `bun run test`. That command runs the Cursor confidence suite. The tour and reference have their own commands. The host matrix and 20-run qualification are manual. A key-gated GitHub Actions job runs Cursor confidence and the direct SDK smoke when `CURSOR_API_KEY` is present.
+`bun run test` is offline and sandbox-safe. Provider-backed runs are manual: `bun run test:capabilities` exercises supported `runAgentTest` capabilities on Cursor, and the tour has its own command. The host matrix and 20-run qualification are also manual. CI does not launch a provider-backed host.
 
 `bun run test:sdk:consumer` packs both packages, installs them in a clean Node 22 fixture, compiles the public declarations, runs a fake adapter, inspects comparison results, and runs the installed CLI. It does not use host credentials.
 

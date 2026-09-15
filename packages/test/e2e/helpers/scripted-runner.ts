@@ -89,6 +89,11 @@ export function createScriptedRunner(options: {
 			};
 			emit({ type: "cell_started", ...cell });
 			const steps = scripts[jobKey(job)] ?? fallback;
+			const judgeVerdicts: ViewerJudgeVerdictEvent[] = [];
+			const messages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
+			const toolCalls: Array<{ name: string; args?: Record<string, unknown> }> = [];
+			let finished: Extract<ViewerEvent, { type: "cell_finished" }> | undefined;
+			let continuingAssistant = false;
 			for (const step of steps) {
 				if (signal.aborted) {
 					return;
@@ -116,29 +121,43 @@ export function createScriptedRunner(options: {
 					continue;
 				}
 				if (step.type === "prompt") {
-					emit({ type: "prompt", text: step.text ?? job.prompt, ...cell });
+					const text = step.text ?? job.prompt;
+					messages.push({ role: "user", content: text });
+					continuingAssistant = false;
+					emit({ type: "prompt", text, ...cell });
 					continue;
 				}
 				if (step.type === "text") {
+					if (continuingAssistant && messages.at(-1)?.role === "assistant") {
+						(messages.at(-1) as { role: "assistant"; content: string }).content = step.text;
+					} else {
+						messages.push({ role: "assistant", content: step.text });
+					}
+					continuingAssistant = true;
 					emit({ type: "text", text: step.text, ...cell });
 					continue;
 				}
 				if (step.type === "tool") {
+					toolCalls.push({ name: step.name, ...(step.args ? { args: step.args } : {}) });
+					continuingAssistant = false;
 					emit({ type: "tool", name: step.name, args: step.args, ...cell });
 					continue;
 				}
 				if (step.type === "error") {
+					messages.push({ role: "system", content: step.message });
+					continuingAssistant = false;
 					emit({ type: "error", message: step.message, ...cell });
 					continue;
 				}
 				if (step.type === "judge") {
+					judgeVerdicts.push(...step.verdicts);
 					emit({ type: "judge", verdicts: step.verdicts, ...cell });
 					continue;
 				}
 				if (step.type === "throw") {
 					throw new Error(step.message);
 				}
-				const finished: ViewerEvent = {
+				finished = {
 					type: "cell_finished",
 					...cell,
 					passed: step.passed ?? !step.skipped,
@@ -154,6 +173,36 @@ export function createScriptedRunner(options: {
 					finished.failures = step.failures;
 				}
 				emit(finished);
+			}
+			if (finished) {
+				const metrics = finished.metrics;
+				while (
+					messages.filter((message) => message.role === "assistant").length < (metrics?.turns ?? 0)
+				) {
+					messages.push({ role: "assistant", content: "" });
+				}
+				while (toolCalls.length < (metrics?.tools ?? 0)) toolCalls.push({ name: "ScriptedTool" });
+				emit({
+					type: "scenario_result",
+					...cell,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						prompt: job.prompt,
+						passed: finished.passed,
+						skipped: finished.skipped,
+						failures: finished.failures ?? [],
+						durationMs: finished.durationMs,
+						judgeVerdicts,
+						trace: {
+							messages,
+							toolCalls,
+							shellCommands: [],
+							artifacts: {},
+							...(metrics?.tokens === undefined ? {} : { usage: { totalTokens: metrics.tokens } }),
+						},
+					},
+				});
 			}
 		},
 	};

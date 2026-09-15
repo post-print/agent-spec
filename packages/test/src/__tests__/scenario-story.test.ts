@@ -30,6 +30,12 @@ describe("describeRubricChecks", () => {
 			}),
 		).toEqual(["shell commands stay on the allowlist"]);
 	});
+
+	it("distinguishes a successful command requirement from invocation", () => {
+		expect(describeRubricChecks({ mustRunSuccessfully: ["bun test"] })).toEqual([
+			'run "bun test" successfully',
+		]);
+	});
 });
 
 describe("describeTraceHappened", () => {
@@ -162,8 +168,8 @@ describe("buildScenarioStory", () => {
 			},
 		});
 		expect(story.criteria).toContain("compare alpha vs beta");
-		expect(story.criteria).toContain("a beats b on turns");
-		expect(story.criteria).toContain("b beats a on tokens");
+		expect(story.criteria).toContain("alpha must use fewer turns than beta");
+		expect(story.criteria).toContain("beta must use fewer tokens than alpha");
 		expect(story.criteria.some((line) => line.includes("judge"))).toBe(false);
 	});
 
@@ -196,8 +202,8 @@ describe("buildScenarioStory", () => {
 		expect(story.criteria).toContain(
 			"compare skeleton clean, no skill clean, skeleton messy, and no skill messy",
 		);
-		expect(story.criteria).toContain("skel-clean beats none-clean on tokens");
-		expect(story.criteria).toContain("skel-messy beats none-messy on tokens");
+		expect(story.criteria).toContain("skeleton clean must use fewer tokens than no skill clean");
+		expect(story.criteria).toContain("skeleton messy must use fewer tokens than no skill messy");
 		expect(story.criteria).toContain("skeleton clean: Skill on a clean catalog.");
 	});
 
@@ -215,7 +221,7 @@ describe("buildScenarioStory", () => {
 			},
 		});
 		expect(story.criteria).toContain("read note.md");
-		expect(story.criteria).toContain("b beats a on tokens");
+		expect(story.criteria).toContain("with skill must use fewer tokens than no skill");
 		expect(story.criteria).toContain("no skill: no brief-ship skill");
 		expect(story.criteria).toContain("with skill: invoke skill brief-ship");
 	});
@@ -325,7 +331,7 @@ describe("buildScenarioStory", () => {
 		});
 		const compare = story.sections?.find((section) => section.title === "compare");
 		expect(compare?.checks).toContainEqual({
-			text: "a beats b on turns",
+			text: "cli-lanes must use fewer turns than audit-all",
 			status: "fail",
 		});
 	});

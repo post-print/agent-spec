@@ -29,6 +29,22 @@ async function postRuns(page: Page, body: unknown) {
 	}, body);
 }
 
+async function focusScenario(page: Page, suite: string, scenario: string) {
+	const key = `${suite}::${scenario}`;
+	const picker = page.locator("#test-picker");
+	if (await picker.isVisible()) {
+		await picker.selectOption(key);
+		return;
+	}
+	await page.locator(`[data-select-scenario="${key}"]`).click();
+}
+
+async function startCell(page: Page, suite: string, scenario: string, host: string) {
+	await focusScenario(page, suite, scenario);
+	await hostTab(page, suite, scenario, host).click();
+	await runCell(page, suite, scenario, host).click();
+}
+
 test.describe("suite viewer", () => {
 	let viewer: ViewerHarness | undefined;
 
@@ -41,44 +57,75 @@ test.describe("suite viewer", () => {
 		test("renders host tabs, host defaults, skip, pin, and escaped prompts", async ({ page }) => {
 			viewer = await openViewer(page);
 			await expect(page).toHaveTitle("agent-test viewer");
-			await expect(page.getByRole("heading", { name: "Suite viewer" })).toBeVisible();
-			await expect(page.getByText("Run starts a live host agent.")).toBeVisible();
-			await expect(page.getByRole("button", { name: "Run selection" })).toBeVisible();
-			await expect(page.getByRole("button", { name: "Cancel run" })).toBeDisabled();
-			await expect(page.locator("#run-banner")).toHaveText("");
+			await expect(page.getByRole("heading", { name: "Test viewer" })).toBeVisible();
+			await expect(page.locator("#run-banner")).toHaveText("Choose a test to inspect or run.");
+			await expect(page.locator("#run-selection")).toBeDisabled();
+			await expect(page.getByRole("button", { name: "Start run" })).toBeDisabled();
+			await expect(page.locator(".run-settings")).toHaveCount(0);
+			await expect(page.locator(".viewer-command-row .host-toggles")).toBeVisible();
 			await expect(page.locator("#run-progress")).toBeHidden();
 
-			await expect(hostToggle(page, "cursor")).toBeChecked();
+			await expect(hostToggle(page, "cursor")).not.toBeChecked();
 			await expect(hostToggle(page, "claude")).not.toBeChecked();
 			await expect(hostToggle(page, "openai")).not.toBeChecked();
-			await expect(page.locator("#parallel-hosts")).not.toBeChecked();
+			await expect(page.locator("#parallel-hosts")).toBeChecked();
 
 			await expect(page.getByRole("heading", { name: "smoke" })).toBeVisible();
-			await expect(page.getByText("Minimal suite for the viewer.")).toBeVisible();
-			await expect(page.getByRole("heading", { name: "judge" })).toBeVisible();
-			await expect(page.getByText("Plain reply.")).toBeVisible();
-			await expect(page.locator(".rubric-line").first()).toContainText("must smoke");
-			await expect(page.locator(".rubric-line").first()).toContainText("judge");
-			await expect(page.getByText("contextSources brief.md")).toBeVisible();
-			await expect(page.getByText("Alpha workspace.")).toBeVisible();
-			await expect(page.getByText("skeleton clean")).toBeVisible();
+			await expect(
+				page.locator('[data-scenario-card="smoke::hello"] .suite-description'),
+			).toHaveText("Minimal suite for the viewer.");
+			await expect(page.getByRole("heading", { name: "judge", exact: true })).toBeVisible();
+			await expect(page.locator('[data-scenario-card="smoke::hello"] .scenario-lede')).toHaveText(
+				"Plain reply.",
+			);
+			await expect(page.locator(".criterion-groups").first()).toContainText(
+				"Final reply must include smoke.",
+			);
+			await expect(page.locator(".criterion-groups").first()).toContainText("Judge");
+			await focusScenario(page, "smoke", "context brief");
+			const providedContext = page.locator(
+				'[data-scenario-card="smoke::context brief"] .test-intent',
+			);
+			await expect(providedContext).toBeVisible();
+			await expect(providedContext.locator(".task-meta-label")).toHaveText("Provided context");
+			await expect(providedContext.getByText("brief.md", { exact: true })).toBeVisible();
+			await expect(
+				page.locator('[data-scenario-card="smoke::context brief"] .criteria-panel'),
+			).not.toContainText("Provided context");
+			await focusScenario(page, "judge", "pair");
+			const pairDefinition = page.locator('[data-scenario-card="judge::pair"] .compare-definition');
+			await expect(pairDefinition.getByRole("tablist")).toBeVisible();
+			await expect(pairDefinition.getByText("Alpha workspace.")).toBeVisible();
+			await expect(pairDefinition.getByText("Beta workspace.")).toBeHidden();
+			await pairDefinition.locator("label.compare-definition-tab", { hasText: "beta" }).click();
+			await expect(pairDefinition.getByText("Beta workspace.")).toBeVisible();
+			await expect(pairDefinition.getByText("Alpha workspace.")).toBeHidden();
+			await focusScenario(page, "judge", "four arms");
+			await expect(
+				page.getByRole("heading", { name: "skeleton clean", exact: true }),
+			).toBeVisible();
 
 			const prompt = page.locator(".prompt-preview").first();
 			await expect(prompt).toHaveText("Reply with smoke. <script>window.__xss=1</script>");
 			expect(await page.evaluate(() => (window as { __xss?: number }).__xss)).toBeUndefined();
 			expect(await page.locator("script[id='catalog-data']").count()).toBe(1);
 
-			await expect(page.locator(".host-tablist").first()).toBeVisible();
+			await focusScenario(page, "smoke", "hello");
+			await expect(page.locator('[data-scenario-card="smoke::hello"] .host-tablist')).toBeVisible();
 			await expect(hostTab(page, "smoke", "hello", "cursor")).toHaveAttribute(
 				"aria-selected",
-				"true",
+				"false",
 			);
-			await expect(runCell(page, "smoke", "skipped", "cursor")).toBeDisabled();
+			await expect(
+				page.locator('[data-scenario-card="smoke::skipped"] button.run-cell'),
+			).toBeDisabled();
 			await expect(cellStatus(page, "smoke", "skipped", "cursor")).toHaveText("skip");
 			await expect(hostTab(page, "smoke", "pinned", "cursor")).toBeDisabled();
 			await expect(cellStatus(page, "smoke", "pinned", "cursor")).toHaveText("skip");
 			await expect(runCell(page, "smoke", "pinned", "claude")).toBeEnabled();
-			await expect(runCell(page, "smoke", "hello", "cursor")).toBeEnabled();
+			await expect(
+				page.locator('[data-scenario-card="smoke::hello"] button.run-cell'),
+			).toBeDisabled();
 			await expect(liveRow(page, "smoke", "hello")).toBeHidden();
 		});
 
@@ -89,7 +136,7 @@ test.describe("suite viewer", () => {
 				return { status: response.status, body: await response.json() };
 			});
 			expect(catalog.status).toBe(200);
-			expect(catalog.body.defaultSelectedHosts).toEqual(["cursor"]);
+			expect(catalog.body.defaultSelectedHosts).toEqual([]);
 			expect(catalog.body.suites.map((suite: { name: string }) => suite.name)).toEqual([
 				"smoke",
 				"judge",
@@ -97,7 +144,7 @@ test.describe("suite viewer", () => {
 
 			const index = await page.goto(new URL("index.html", viewer.url).href);
 			expect(index?.status()).toBe(200);
-			await expect(page.getByRole("heading", { name: "Suite viewer" })).toBeVisible();
+			await expect(page.getByRole("heading", { name: "Test viewer" })).toBeVisible();
 
 			const missing = await page.goto(new URL("missing", viewer.url).href);
 			expect(missing?.status()).toBe(404);
@@ -114,7 +161,7 @@ test.describe("suite viewer", () => {
 			const posted = page.waitForRequest(
 				(request) => request.url().includes("/api/runs") && request.method() === "POST",
 			);
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			expect((await posted).postDataJSON()).toEqual({
 				suite: "smoke",
 				scenario: "hello",
@@ -122,35 +169,42 @@ test.describe("suite viewer", () => {
 				parallelHosts: false,
 			});
 			await expect(page.locator("#run-banner")).toContainText("started");
-			await expect(page.getByRole("button", { name: "Cancel run" })).toBeEnabled();
+			await expect(page.getByRole("button", { name: "Stop test" })).toBeEnabled();
 			viewer.gates.release("mid");
 			await expect(page.locator("#run-banner")).toContainText("Run finished.");
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("passed");
-			await expect(page.getByRole("button", { name: "Cancel run" })).toBeDisabled();
+			await expect(page.getByRole("button", { name: "Start test" })).toBeEnabled();
 			expect(viewer.jobs).toEqual(["smoke::hello::cursor::_"]);
 		});
 
-		test("run row uses selected hosts and the parallel-hosts box", async ({ page }) => {
+		test("start run uses selected hosts and runs them together by default", async ({ page }) => {
 			viewer = await openViewer(page);
 			await hostToggle(page, "cursor").uncheck();
 			await hostToggle(page, "claude").check();
-			await page.locator("#parallel-hosts").check();
+			await focusScenario(page, "smoke", "hello");
+			await expect(hostTab(page, "smoke", "hello", "claude")).toBeVisible();
+			await expect(hostTab(page, "smoke", "hello", "claude")).toHaveAttribute(
+				"aria-selected",
+				"true",
+			);
+			await expect(hostTab(page, "smoke", "hello", "cursor")).toBeHidden();
+			await expect(hostTab(page, "smoke", "hello", "openai")).toBeHidden();
 			const posted = page.waitForRequest(
 				(request) => request.url().includes("/api/runs") && request.method() === "POST",
 			);
-			await page.locator('button.run-row[data-suite="smoke"][data-scenario="hello"]').click();
+			await page.locator("#run-selection").click();
 			expect((await posted).postDataJSON()).toEqual({
-				suite: "smoke",
-				scenario: "hello",
 				hosts: ["claude"],
 				parallelHosts: true,
 			});
 			await expect(cellStatus(page, "smoke", "hello", "claude")).toHaveText("passed");
-			expect(viewer.jobs).toEqual(["smoke::hello::claude::_"]);
+			expect(viewer.jobs).toContain("smoke::hello::claude::_");
+			expect(viewer.jobs.every((job) => job.includes("::claude::"))).toBe(true);
 		});
 
 		test("run suite expands every runnable cell for selected hosts", async ({ page }) => {
 			viewer = await openViewer(page);
+			await hostToggle(page, "cursor").check();
 			await page.locator('button.run-suite[data-suite="smoke"]').click();
 			await expect(page.locator("#run-banner")).toContainText("2 passed");
 			expect(viewer.jobs.sort()).toEqual(
@@ -177,6 +231,7 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
+			await hostToggle(page, "cursor").check();
 			await page.locator('button.run-suite[data-suite="smoke"]').click();
 			const progress = page.locator("#run-progress");
 			await expect(progress).toBeVisible();
@@ -193,22 +248,14 @@ test.describe("suite viewer", () => {
 			await expect(progress.locator(".run-progress-track")).toHaveAttribute("aria-valuenow", "2");
 		});
 
-		test("run selection with no host ticked still falls back to cursor", async ({ page }) => {
+		test("requires an explicit host before running a selection", async ({ page }) => {
 			viewer = await openViewer(page);
-			await hostToggle(page, "cursor").uncheck();
-			const posted = page.waitForRequest(
-				(request) => request.url().includes("/api/runs") && request.method() === "POST",
-			);
-			await page.getByRole("button", { name: "Run selection" }).click();
-			expect((await posted).postDataJSON()).toEqual({
-				hosts: [],
-				parallelHosts: false,
-			});
-			await expect(page.locator("#run-banner")).toContainText("Run finished.");
-			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("passed");
-			await expect(cellStatus(page, "smoke", "hello", "claude")).toHaveText("idle");
-			expect(viewer.jobs.length).toBeGreaterThan(0);
-			expect(viewer.jobs.every((job) => job.split("::")[2] === "cursor")).toBe(true);
+			await expect(page.locator("#run-selection")).toBeDisabled();
+			await expect(page.locator('button.run-suite[data-suite="smoke"]')).toBeDisabled();
+			await hostToggle(page, "openai").check();
+			await expect(page.locator("#run-selection")).toBeEnabled();
+			await expect(page.locator('button.run-suite[data-suite="smoke"]')).toBeEnabled();
+			expect(viewer.jobs).toEqual([]);
 		});
 
 		test("blocks a second start from the page while a run is live", async ({ page }) => {
@@ -217,9 +264,9 @@ test.describe("suite viewer", () => {
 					"smoke::hello::cursor::_": holdThenPass("hold"),
 				},
 			});
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			await expect(page.locator("#run-banner")).toContainText("started");
-			await runCell(page, "smoke", "context brief", "cursor").click();
+			await startCell(page, "smoke", "context brief", "cursor");
 			await expect(page.locator("#run-banner")).toHaveText(
 				"A run is already in progress. Cancel it first.",
 			);
@@ -236,12 +283,35 @@ test.describe("suite viewer", () => {
 
 		test("can start another run after the first run finishes", async ({ page }) => {
 			viewer = await openViewer(page);
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			await expect(page.locator("#run-banner")).toContainText("Run finished.");
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			await expect(page.locator("#run-banner")).toContainText("Run finished.");
 			expect(viewer.jobs).toEqual(["smoke::hello::cursor::_", "smoke::hello::cursor::_"]);
 			await expect(liveSlot(page, "smoke", "hello").locator(".bubble.role-user")).toHaveCount(1);
+		});
+
+		test("keeps an older run selected while a newer run continues", async ({ page }) => {
+			viewer = await openViewer(page, {
+				scripts: {
+					"smoke::context brief::cursor::_": holdThenPass("newer"),
+				},
+			});
+			await startCell(page, "smoke", "hello", "cursor");
+			await expect(page.locator("#run-banner")).toContainText("Run finished.");
+			const history = page.locator("#run-history");
+			const olderRunId = await history.inputValue();
+
+			await startCell(page, "smoke", "context brief", "cursor");
+			await expect(page.locator("#run-banner")).toContainText("started");
+			await history.selectOption(olderRunId);
+			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("passed");
+			await expect(history.locator("option", { hasText: "running" })).toHaveCount(1);
+
+			viewer.gates.release("newer");
+			await expect(history.locator("option", { hasText: "completed" })).toHaveCount(2);
+			await expect(history).toHaveValue(olderRunId);
+			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("passed");
 		});
 	});
 
@@ -285,7 +355,7 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			const slot = liveSlot(page, "smoke", "hello");
 			await expect(liveRow(page, "smoke", "hello")).toBeVisible();
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("running");
@@ -331,8 +401,9 @@ test.describe("suite viewer", () => {
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveClass(/status-passed/);
 			await expect(slot.locator(".chat-running-row")).toHaveCount(0);
 			await expect(slot.locator(".bubble.is-streaming")).toHaveCount(0);
-			await expect(slot.locator(".cell-result-verdict")).toHaveText("Passed.");
-			await expect(slot.locator(".cell-result-metrics")).toHaveText("2 turns · 40 tokens · 1 tool");
+			await expect(slot.locator(".badge")).toHaveText("passed");
+			await expect(slot.locator(".tokens")).toHaveText("40 tokens");
+			await expect(slot.locator(".scenario-meta h3", { hasText: "Trace stats" })).toHaveCount(1);
 		});
 
 		test("renders a host error in the live row and marks the cell failed", async ({ page }) => {
@@ -349,16 +420,15 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			const slot = liveSlot(page, "smoke", "hello");
-			await expect(slot.locator(".live-status li")).toHaveText("Host login is missing.");
 			await expect(slot.locator(".bubble.role-system .bubble-text")).toHaveText(
 				"Host login is missing.",
 			);
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("failed");
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveClass(/status-failed/);
-			await expect(slot.locator(".cell-result-verdict")).toHaveText("Failed.");
-			await expect(slot.locator(".cell-result-failures li")).toHaveText("Host login is missing.");
+			await expect(slot.locator(".badge")).toHaveText("failed");
+			await expect(slot.locator(".failure-message")).toHaveText("Host login is missing.");
 			await expect(page.locator("#run-banner")).toContainText("1 failed");
 		});
 
@@ -389,26 +459,26 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			const slot = liveSlot(page, "smoke", "hello");
-			await expect(slot.locator(".cell-result-verdict")).toHaveText("Failed.");
-			await expect(slot.locator(".cell-result-metrics")).toHaveText("1 turn · 12 tokens · 0 tools");
-			await expect(slot.locator(".cell-result-failures li")).toHaveText(
-				'Reply must contain "smoke".',
-			);
-			await expect(slot.locator(".cell-result-judges li")).toHaveText(
-				"Fail. Was the reply useful? The reply ignored the prompt.",
+			await expect(slot.locator(".badge")).toHaveText("failed");
+			await expect(slot.locator(".tokens")).toHaveText("12 tokens");
+			await expect(slot.locator(".failure-message")).toHaveText('Reply must contain "smoke".');
+			await expect(slot.locator(".verdict-fail .question")).toContainText("Was the reply useful?");
+			await expect(slot.locator(".verdict-fail .rationale")).toHaveText(
+				"The reply ignored the prompt.",
 			);
 		});
 
 		test("host tabs switch live panes and keep each result", async ({ page }) => {
 			viewer = await openViewer(page);
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await hostToggle(page, "cursor").check();
+			await hostToggle(page, "claude").check();
+			await page.locator("#run-selection").click();
 			await expect(page.locator("#run-banner")).toContainText("Run finished.");
+			await focusScenario(page, "smoke", "hello");
 			const card = page.locator('[data-scenario-card="smoke::hello"]');
-			await expect(card.locator('[data-host-panel="cursor"] .cell-result-verdict')).toHaveText(
-				"Passed.",
-			);
+			await expect(card.locator('[data-host-panel="cursor"] .badge')).toHaveText("passed");
 			await hostTab(page, "smoke", "hello", "claude").click();
 			await expect(hostTab(page, "smoke", "hello", "claude")).toHaveAttribute(
 				"aria-selected",
@@ -416,20 +486,10 @@ test.describe("suite viewer", () => {
 			);
 			await expect(card.locator('[data-host-panel="cursor"]')).toHaveAttribute("hidden", "");
 			await expect(card.locator('[data-host-panel="claude"]')).not.toHaveAttribute("hidden");
-			await expect(card.locator('[data-host-panel="claude"] .host-empty')).toHaveText(
-				"No run yet.",
-			);
-			await expect(runCell(page, "smoke", "hello", "claude")).toBeEnabled();
-			await runCell(page, "smoke", "hello", "claude").click();
-			await expect(page.locator("#run-banner")).toContainText("Run finished.");
 			await expect(cellStatus(page, "smoke", "hello", "claude")).toHaveText("passed");
-			await expect(card.locator('[data-host-panel="claude"] .cell-result-verdict')).toHaveText(
-				"Passed.",
-			);
+			await expect(card.locator('[data-host-panel="claude"] .badge')).toHaveText("passed");
 			await hostTab(page, "smoke", "hello", "cursor").click();
-			await expect(card.locator('[data-host-panel="cursor"] .cell-result-verdict')).toHaveText(
-				"Passed.",
-			);
+			await expect(card.locator('[data-host-panel="cursor"] .badge')).toHaveText("passed");
 			await expect(card.locator('[data-host-panel="claude"]')).toBeHidden();
 		});
 
@@ -440,14 +500,13 @@ test.describe("suite viewer", () => {
 					"smoke::context brief::cursor::_": [{ type: "throw", message: "spawn failed" }],
 				},
 			});
+			await hostToggle(page, "cursor").check();
 			await page.locator('button.run-suite[data-suite="smoke"]').click();
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("skipped");
-			await expect(liveSlot(page, "smoke", "hello").locator(".cell-result-verdict")).toHaveText(
-				"Skipped.",
-			);
+			await expect(liveSlot(page, "smoke", "hello").locator(".badge")).toHaveText("skipped");
 			await expect(page.locator("#run-banner")).toContainText("Run finished.");
 			await expect(page.locator("#run-banner")).toContainText("1 skipped");
-			await expect(page.locator("#run-banner")).toContainText("0 failed");
+			await expect(page.locator("#run-banner")).toContainText("1 failed");
 		});
 
 		test("cancels a held run and ends the banner", async ({ page }) => {
@@ -460,15 +519,15 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			await expect(liveSlot(page, "smoke", "hello").locator(".chat-running")).toBeVisible();
 			const cancel = page.waitForRequest(
 				(request) => request.url().includes("/cancel") && request.method() === "POST",
 			);
-			await page.getByRole("button", { name: "Cancel run" }).click();
+			await page.getByRole("button", { name: "Stop test" }).click();
 			expect((await cancel).url()).toMatch(/\/api\/runs\/run-\d+\/cancel$/);
 			await expect(page.locator("#run-banner")).toContainText("Run cancelled.");
-			await expect(page.getByRole("button", { name: "Cancel run" })).toBeDisabled();
+			await expect(page.getByRole("button", { name: "Start test" })).toBeEnabled();
 			const slot = liveSlot(page, "smoke", "hello");
 			await expect(slot.locator(".chat-running-row")).toHaveCount(0);
 			await expect(slot.locator(".cell-result-verdict")).toHaveText("Cancelled.");
@@ -486,14 +545,14 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			await expect(liveSlot(page, "smoke", "hello").locator(".chat-running")).toBeVisible();
-			await page.getByRole("button", { name: "Cancel run" }).click();
+			await page.getByRole("button", { name: "Stop test" }).click();
 			await expect(page.locator("#run-banner")).toContainText("Run cancelled.");
 			const slot = liveSlot(page, "smoke", "hello");
 			await expect(slot.locator(".cell-result-verdict")).toHaveText("Cancelled.");
 			viewer.gates.release("hold");
-			await runCell(page, "smoke", "hello", "cursor").click();
+			await startCell(page, "smoke", "hello", "cursor");
 			await expect(page.locator("#run-banner")).toContainText("Run finished.");
 			await expect(slot.locator(".bubble.role-user")).toHaveCount(1);
 			await expect(slot.locator(".bubble.role-assistant .bubble-text")).toHaveText("hello-again");
@@ -502,7 +561,7 @@ test.describe("suite viewer", () => {
 	});
 
 	test.describe("compare", () => {
-		test("uses tabs for two arms and names winners", async ({ page }) => {
+		test("uses the completed two-arm report layout and names winners", async ({ page }) => {
 			viewer = await openViewer(page, {
 				scripts: {
 					"judge::pair::cursor::a": [
@@ -517,22 +576,32 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
-			await runCell(page, "judge", "pair", "cursor").click();
+			await focusScenario(page, "judge", "pair");
+			const definition = page.locator('[data-scenario-card="judge::pair"] .scenario-definition');
+			await expect(definition.getByText("Comparison pass criteria", { exact: true })).toBeVisible();
+			await expect(definition.getByText("alpha must pass all of its criteria.")).toBeVisible();
+			await expect(definition.getByText("beta must pass all of its criteria.")).toBeVisible();
+			const alphaDefinition = definition.locator('[data-compare-arm-definition="a"]');
+			await expect(alphaDefinition.getByText("Task", { exact: true })).toBeVisible();
+			await expect(alphaDefinition.getByText("Read word.txt. Reply alpha.")).toBeVisible();
+			await expect(alphaDefinition.getByText("Pass criteria", { exact: true })).toBeVisible();
+			await expect(alphaDefinition.getByText("Final reply must include")).toBeVisible();
+			await startCell(page, "judge", "pair", "cursor");
 			const slot = liveSlot(page, "judge", "pair");
 			await expect(page.locator("#run-banner")).toContainText("1 passed");
 			await expect(slot.locator(".compare-tablist")).toBeVisible();
 			await expect(slot.locator(".compare-tab")).toHaveCount(2);
-			await expect(slot.locator(".live-cell")).toHaveCount(2);
-			await expect(slot.getByText("alpha-live")).toBeHidden();
-			await expect(slot.getByText("beta-live")).toBeVisible();
-			await slot.getByRole("tab", { name: "alpha" }).click();
-			await expect(slot.getByText("alpha-live")).toBeVisible();
-			await expect(slot.getByText("beta-live")).toBeHidden();
-			const winners = slot.locator(".compare-winners");
-			await expect(winners.getByRole("heading", { name: "Winners" })).toBeVisible();
-			await expect(winners.getByText("Turns: beta wins (2 vs 1).")).toBeVisible();
-			await expect(winners.getByText("Tokens: beta wins (300 vs 200).")).toBeVisible();
-			await expect(winners.getByText("Tools: tie (1 vs 1).")).toBeVisible();
+			await expect(slot.locator(".compare-arm")).toHaveCount(2);
+			await expect(slot.locator("details.trace-details[open]:visible")).toHaveCount(1);
+			await expect(slot.getByText("alpha-live", { exact: true })).toBeVisible();
+			await expect(slot.getByText("beta-live", { exact: true })).toBeHidden();
+			await slot.locator("label.compare-tab", { hasText: "beta" }).click();
+			await expect(slot.getByText("beta-live", { exact: true })).toBeVisible();
+			await expect(slot.getByText("alpha-live", { exact: true })).toBeHidden();
+			await expect(
+				slot.getByText("Lower is better: green is lowest and red is highest."),
+			).toBeVisible();
+			await expect(slot.locator(".compare-table td.is-better")).toHaveCount(2);
 		});
 
 		test("uses tabs for four arms and keeps a user-picked tab", async ({ page }) => {
@@ -554,7 +623,7 @@ test.describe("suite viewer", () => {
 				]),
 			);
 			viewer = await openViewer(page, { scripts });
-			await runCell(page, "judge", "four arms", "cursor").click();
+			await startCell(page, "judge", "four arms", "cursor");
 			const slot = liveSlot(page, "judge", "four arms");
 			await expect(slot.locator(".compare-tablist")).toBeVisible();
 			await expect(slot.locator(".compare-tab")).toHaveCount(4);
@@ -567,34 +636,29 @@ test.describe("suite viewer", () => {
 				viewer.gates.release(`start:${arm}`);
 			}
 			await expect(page.locator("#run-banner")).toContainText("1 passed");
-			await expect(slot.getByRole("tab", { name: "skeleton clean" })).toHaveAttribute(
-				"aria-selected",
-				"true",
-			);
-			await expect(slot.locator(".live-cell").filter({ hasText: "skel-clean-live" })).toBeVisible();
-			await expect(slot.locator(".live-cell").filter({ hasText: "none-messy-live" })).toBeHidden();
-			await expect(slot.getByRole("tab", { name: "skeleton clean" })).toHaveAttribute(
-				"data-status",
-				"passed",
-			);
-			await slot.getByRole("tab", { name: "no skill messy" }).click();
-			await expect(slot.locator(".live-cell").filter({ hasText: "none-messy-live" })).toBeVisible();
-			await expect(slot.locator(".live-cell").filter({ hasText: "skel-clean-live" })).toBeHidden();
-			const winners = slot.locator(".compare-winners");
+			await expect(slot.locator('[data-arm-id="skel-clean"]')).toBeVisible();
+			await expect(slot.locator('[data-arm-id="none-messy"]')).toBeHidden();
+			await slot.locator("label.compare-tab", { hasText: "no skill messy" }).click();
+			await expect(slot.locator('[data-arm-id="none-messy"]')).toBeVisible();
+			await expect(slot.locator('[data-arm-id="skel-clean"]')).toBeHidden();
+			const criteria = slot.locator(".story-criteria");
 			await expect(
-				winners.getByText("Turns: lowest is a tie between skeleton clean and skeleton messy"),
-			).toBeVisible();
-			await expect(winners.getByText("Tokens: lowest is skeleton clean")).toBeVisible();
-			await expect(
-				winners.getByText("skeleton clean must beat no skill messy on turns (1 vs 3). Pass."),
+				slot.getByText("Lower is better: green is lowest and red is highest."),
 			).toBeVisible();
 			await expect(
-				winners.getByText("skeleton clean must beat no skill clean on tokens (80 vs 200). Pass."),
+				slot.locator(".compare-table tr", { hasText: "Tokens" }).locator("td.is-better"),
+			).toHaveCount(1);
+			await expect(
+				criteria.getByText("skeleton clean must use fewer turns than no skill messy"),
 			).toBeVisible();
-			await expect(winners.locator(".compare-winner-pass")).toHaveCount(3);
+			await expect(
+				criteria.getByText("skeleton clean must use fewer tokens than no skill clean"),
+			).toBeVisible();
+			await expect(criteria.getByRole("heading", { name: "Pass criteria" })).toBeVisible();
+			await expect(slot.getByText("Decision checks")).toHaveCount(0);
 		});
 
-		test("shows one selected arm on a narrow viewport", async ({ page }) => {
+		test("stacks both completed arms on a narrow viewport", async ({ page }) => {
 			await page.setViewportSize({ width: 390, height: 844 });
 			viewer = await openViewer(page, {
 				scripts: {
@@ -608,12 +672,16 @@ test.describe("suite viewer", () => {
 					],
 				},
 			});
-			await runCell(page, "judge", "pair", "cursor").click();
+			await startCell(page, "judge", "pair", "cursor");
 			const arms = liveSlot(page, "judge", "pair").locator(".compare-arms");
 			await expect(arms).toBeVisible();
 			const tracks = await arms.evaluate((node) => getComputedStyle(node).gridTemplateColumns);
 			expect(tracks.split(/\s+/).filter(Boolean)).toHaveLength(1);
-			await expect(arms.locator(".live-cell:visible")).toHaveCount(1);
+			await expect(arms.locator(".compare-arm:visible")).toHaveCount(1);
+			await liveSlot(page, "judge", "pair")
+				.locator("label.compare-tab", { hasText: "beta" })
+				.click();
+			await expect(arms.locator('[data-arm-id="b"]')).toBeVisible();
 		});
 	});
 

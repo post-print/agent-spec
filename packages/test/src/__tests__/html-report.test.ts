@@ -42,6 +42,10 @@ describe("html-report", () => {
 								question: "Was the reply helpful?",
 								pass: false,
 								rationale: "Too curt & vague",
+								evidence: ["Hello & welcome"],
+								prompt: "Judge this transcript: <unsafe>",
+								response:
+									'{"verdict":"no","evidence":["Hello & welcome"],"rationale":"Too curt & vague"}',
 							},
 						],
 						trace: {
@@ -64,6 +68,10 @@ describe("html-report", () => {
 		expect(html).toContain("failed");
 		expect(html).toContain("Was the reply helpful?");
 		expect(html).toContain("Too curt &amp; vague");
+		expect(html).toContain("Judge conversation");
+		expect(html).toContain("Judge this transcript: &lt;unsafe&gt;");
+		expect(html).toContain("Hello &amp; welcome");
+		expect(html).not.toContain("<unsafe>");
 		expect(html).toContain("Missing requirement");
 		expect(html).toContain("missing &lt;b&gt;tag&lt;/b&gt;");
 		expect(html).toContain("Say hi &lt;script&gt;");
@@ -298,7 +306,8 @@ describe("html-report", () => {
 			]),
 		]);
 		expect(html).toContain("compare-layout");
-		expect(html).not.toContain('role="tablist"');
+		expect(html).toContain('role="tablist"');
+		expect(html).toContain('for="ct-smoke-hello-cursor-a"');
 		expect(html).toContain("compare-arm-a");
 		expect(html).toContain("compare-arm-b");
 		expect(html).toContain("Arm A");
@@ -307,7 +316,7 @@ describe("html-report", () => {
 		expect(html).toContain("Reads the alpha workspace word.");
 		expect(html).toContain("Reads the beta workspace word.");
 		expect(html).toContain("Outcome");
-		expect(html).toContain("Duration");
+		expect(html).not.toContain('<th scope="row">Duration</th>');
 		expect(html).toContain("beta judge grounded: pass");
 		expect(html).toContain("The answer is wrong.");
 		expect(html).toContain("alpha-compare-a7c1");
@@ -315,19 +324,20 @@ describe("html-report", () => {
 		expect(html).toContain("alpha workspace word");
 		expect(html).toContain("beta workspace word");
 		expect(html).toContain("Comparison");
-		expect(html).toContain("Winners");
-		expect(html).toContain("beta wins");
-		expect(html).toContain("Turns: beta wins");
+		expect(html).toContain("Conversation & evidence");
+		expect(html).not.toContain("beta wins");
+		expect(html).toContain("green is lowest and red is highest");
 		expect(html).toContain("Turns");
 		expect(html).toContain("1,200");
 		expect(html).toContain("900");
 		expect(html).toContain("-300");
 		const aIdx = html.indexOf("alpha-compare-a7c1");
 		const bIdx = html.indexOf("beta-compare-b3e9");
-		const cmpIdx = html.indexOf("Comparison");
+		const cmpIdx = html.indexOf('class="compare comparison-metrics"');
 		expect(aIdx).toBeGreaterThan(-1);
-		expect(bIdx).toBeGreaterThan(aIdx);
-		expect(cmpIdx).toBeGreaterThan(bIdx);
+		expect(bIdx).toBeGreaterThan(-1);
+		expect(cmpIdx).toBeLessThan(aIdx);
+		expect(cmpIdx).toBeLessThan(bIdx);
 		expect(html).toContain("compare-scenario");
 		expect(html).toContain('compare-scenario" open>');
 	});
@@ -389,6 +399,7 @@ describe("html-report", () => {
 								label: "skeleton clean",
 								description: "Skill on a clean catalog.",
 								prompt: "Answer from the catalog.",
+								passed: false,
 								durationMs: 800,
 								trace: {
 									messages: [{ role: "assistant", content: "skel-clean-ok" }],
@@ -403,6 +414,7 @@ describe("html-report", () => {
 								label: "no skill clean",
 								description: "No skill on a clean catalog.",
 								prompt: "Answer from the catalog.",
+								passed: true,
 								durationMs: 1200,
 								trace: {
 									messages: [{ role: "assistant", content: "none-clean-ok" }],
@@ -417,6 +429,7 @@ describe("html-report", () => {
 								label: "skeleton messy",
 								description: "Skill on a messy catalog.",
 								prompt: "Answer from the catalog.",
+								passed: true,
 								durationMs: 900,
 								trace: {
 									messages: [{ role: "assistant", content: "skel-messy-ok" }],
@@ -431,6 +444,7 @@ describe("html-report", () => {
 								label: "no skill messy",
 								description: "No skill on a messy catalog.",
 								prompt: "Answer from the catalog.",
+								passed: true,
 								durationMs: 1500,
 								trace: {
 									messages: [{ role: "assistant", content: "none-messy-ok" }],
@@ -442,6 +456,12 @@ describe("html-report", () => {
 							},
 						],
 						gates: [
+							{
+								metric: "outcome",
+								arm: "skel-clean",
+								operator: "equal",
+								value: "fail",
+							},
 							{ metric: "tokens", winner: "skel-clean", loser: "none-clean" },
 							{ metric: "tokens", winner: "skel-messy", loser: "none-messy" },
 						],
@@ -472,14 +492,60 @@ describe("html-report", () => {
 		expect(html).toContain("Arm skel-clean");
 		expect(html).toContain("compare-tablist");
 		expect(html).toContain('for="ct-smoke-hello-cursor-skel-clean"');
-		expect(html).toContain("Winners");
-		expect(html).toContain("lowest is skeleton clean");
+		expect(html).not.toContain("Decision checks");
+		expect(html).toContain("Pass criteria");
+		expect(html).toContain('class="is-better">80');
+		expect(html).toContain('class="is-expected-failure">expected fail');
+		expect(html).toContain('class="is-outcome-pass">pass');
 		expect(html).toContain("skel-clean must beat none-clean on tokens");
 		expect(html).not.toContain("Δ is B minus A");
 		expect(html).not.toContain("four-way");
 	});
 
-	it("renders criteria and result from the scenario story", () => {
+	it("renders undefined tool arguments in a host-native named comparison", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					contextMode: "host-native",
+					prompt: "What billing webhook URL is live?",
+					compare: {
+						arms: [
+							{
+								id: "control",
+								label: "ordinary docs",
+								contextMode: "host-native",
+								hostInput: "What billing webhook URL is live?",
+								trace: {
+									messages: [{ role: "assistant", content: "v2" }],
+									toolCalls: [{ name: "Read", args: { path: undefined } }],
+									shellCommands: [],
+									artifacts: {},
+								},
+							},
+							{
+								id: "skeleton",
+								label: "full Skeleton workflow",
+								contextMode: "host-native",
+								hostInput: "What billing webhook URL is live?",
+								trace: {
+									messages: [{ role: "assistant", content: "v2" }],
+									toolCalls: [],
+									shellCommands: [],
+									artifacts: {},
+								},
+							},
+						],
+					},
+				}),
+			]),
+		]);
+
+		expect(html).toContain("ordinary docs");
+		expect(html).toContain("full Skeleton workflow");
+		expect(html).toContain("undefined");
+	});
+
+	it("renders legacy story criteria as checked pass criteria", () => {
 		const html = renderHtmlReport([
 			makeReport([
 				makeResult({
@@ -491,14 +557,16 @@ describe("html-report", () => {
 				}),
 			]),
 		]);
-		expect(html).toContain("Criteria");
-		expect(html).toContain("Result");
+		expect(html).toContain("Pass criteria");
+		expect(html).toContain("story-check-pass");
+		expect(html).toContain("✓");
+		expect(html).not.toContain(">Result<");
 		expect(html).not.toContain("Tested");
 		expect(html).not.toContain("Happened");
 		expect(html).not.toContain("Outcome");
 		expect(html).toContain("reply includes &quot;smoke ok&quot;");
-		expect(html).toContain("no tools");
-		expect(html).toContain("all checks passed");
+		expect(html).not.toContain("no tools");
+		expect(html).not.toContain("all checks passed");
 	});
 
 	it("renders scored story sections with pass and fail marks", () => {
@@ -611,7 +679,7 @@ describe("html-report", () => {
 		]);
 
 		const userIdx = html.indexOf("Please read the config first.");
-		const toolIdx = html.indexOf("Read");
+		const toolIdx = html.indexOf('<span class="tool-name">Read</span>', userIdx);
 		const assistantIdx = html.indexOf("Config confirms port 8080.");
 		expect(userIdx).toBeGreaterThan(-1);
 		expect(toolIdx).toBeGreaterThan(userIdx);

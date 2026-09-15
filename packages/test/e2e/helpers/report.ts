@@ -89,6 +89,10 @@ export function e2eReports(): SuiteRunReport[] {
 					question: "Was the reply helpful?",
 					pass: false,
 					rationale: "Too curt & vague",
+					evidence: ["CONFLICT WEBHOOK"],
+					prompt: "Judge the transcript.\nCriterion: Was the reply helpful?",
+					response:
+						'{"verdict":"no","evidence":["CONFLICT WEBHOOK"],"rationale":"Too curt & vague"}',
 				},
 			],
 			story: {

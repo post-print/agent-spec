@@ -1,0 +1,157 @@
+{
+  "name": "test-sdk-capabilities",
+  "description": "Manual live checks for the supported runAgentTest inputs, trace capture, scoring, isolation, judging, and comparisons.",
+  "hosts": ["cursor", "claude", "openai"],
+  "defaults": {
+    "host": "cursor",
+    "profile": "cursor",
+    "skills": "none",
+    "allowUserSkills": false,
+    "workspace": "agent-suites/fixtures/task-list"
+  },
+  "scenarios": [
+    {
+      "name": "scores required and forbidden reply text",
+      "description": "runAgentTest can require reply text and reject forbidden reply text.",
+      "prompt": "Reply with exactly: REPLY_SCORING_OK",
+      "rubric": {
+        "must": ["REPLY_SCORING_OK"],
+        "mustNot": ["REPLY_SCORING_BAD"]
+      }
+    },
+    {
+      "name": "scores forbidden tool calls",
+      "description": "runAgentTest can verify that the agent did not call forbidden tools.",
+      "prompt": "Reply with exactly: NO_TOOLS_OK. Do not use tools.",
+      "rubric": {
+        "must": ["NO_TOOLS_OK"],
+        "mustNotCallTool": ["Read", "Shell", "Bash", "Write", "Edit"]
+      }
+    },
+    {
+      "name": "captures required and forbidden file reads",
+      "description": "runAgentTest can identify files the agent did and did not read.",
+      "prompt": "Read PROJECT.md. Reply with the next task ID only. Do not read records/TASK-101.md.",
+      "rubric": {
+        "must": ["TASK-104"],
+        "mustReadPath": ["PROJECT.md"],
+        "mustNotReadPath": ["records/TASK-101.md"]
+      }
+    },
+    {
+      "name": "captures writes and shell commands",
+      "description": "runAgentTest can identify a file write, require a command, and enforce a command allowlist.",
+      "prompt": "Repair the status bug in src/status.ts. Change only that source file. Run bun test. End with WRITE_COMMAND_OK.",
+      "rubric": {
+        "must": ["WRITE_COMMAND_OK"],
+		"mustRunSuccessfully": ["bun test"],
+        "allowedCommands": ["bun test", "pwd", "rg", "cat", "sed", "find", "ls", "head", "tail", "git status", "git diff"],
+        "mustCallTool": ["Write:src/status.ts"]
+      }
+    },
+    {
+      "name": "captures ordered MCP tool calls",
+      "description": "runAgentTest can attach an MCP server and score tool names, arguments, results, and call order.",
+      "mcpServers": {
+        "tasks": {
+          "type": "stdio",
+          "tools": ["echo", "lookup", "search_tasks", "get_task", "task_index"],
+          "command": "node",
+          "args": ["packages/test/fixtures/mcp-echo/server.mjs"]
+        }
+      },
+      "prompt": "Call search_tasks for TASK-104. Then call get_task with TASK-104. Reply with the current due date in YYYY-MM-DD format only.",
+      "rubric": {
+        "must": ["2026-09-24"],
+        "mustCallTool": ["search_tasks:TASK-104", "get_task:2026-09-24"],
+        "mustCallToolsInOrder": ["search_tasks:TASK-104", "get_task:TASK-104"],
+        "mustNotCallTool": ["Write", "Edit"]
+      }
+    },
+    {
+      "name": "injects provided context",
+      "description": "runAgentTest can add a context file to the agent input without requiring a file read.",
+      "contextSources": ["brief.md"],
+      "prompt": "Reply with the support code from the provided context. Do not use tools.",
+      "rubric": {
+        "must": ["BLUE-417"],
+        "mustNotCallTool": ["Read", "Shell", "Bash"]
+      }
+    },
+    {
+      "name": "applies a seed patch",
+      "description": "runAgentTest can apply caller-provided changes before the agent starts.",
+      "seedPatch": "agent-suites/fixtures/task-list/seed.patch",
+      "prompt": "Read seeded.txt. Reply with its exact value.",
+      "rubric": {
+        "must": ["SEED-READY"],
+        "mustReadPath": ["seeded.txt"]
+      }
+    },
+    {
+      "name": "isolates a scenario workspace",
+      "description": "runAgentTest can run the agent in a sealed workspace without exposing the parent repository.",
+      "prompt": "List the names at the workspace root. Reply with names only.",
+      "rubric": {
+        "must": ["PROJECT.md", "src", "tests"],
+        "mustNot": ["packages", "agent-suites", "AGENTS.md"]
+      }
+    },
+    {
+      "name": "loads a supplied skill",
+      "description": "runAgentTest can provide a project skill and detect that the agent invoked it.",
+      "workspace": "agent-suites/fixtures/task-list-skill",
+      "skills": [".agents/skills/release-note/SKILL.md"],
+      "prompt": "Use the release-note skill. Return only the release note.",
+      "rubric": {
+        "must": ["RELEASE: TASK-104 is ready."],
+        "mustInvokeSkill": ["release-note"]
+      }
+    },
+    {
+      "name": "scores a judge question",
+      "description": "runAgentTest can ask a judge to score the completed transcript and return its rationale.",
+      "prompt": "Reply with exactly: JUDGE_SCORING_OK",
+      "rubric": {
+        "must": ["JUDGE_SCORING_OK"],
+        "judge": [
+          {
+            "id": "exact-reply",
+            "question": "Did the agent reply with exactly JUDGE_SCORING_OK and no other content?"
+          }
+        ]
+      }
+    },
+    {
+      "name": "runs comparison arms and gates",
+      "description": "runAgentTest can keep arm results separate and accept an expected failed control through declared gates.",
+      "prompt": "Follow the prompt for the selected comparison arm.",
+      "rubric": {},
+      "compare": {
+        "arms": [
+          {
+            "id": "expected-failure",
+            "description": "Returns the control text and intentionally fails its arm rubric.",
+            "prompt": "Reply with exactly: CAPABILITY_CONTROL",
+            "rubric": {
+              "must": ["CAPABILITY_COMPARE_OK"]
+            }
+          },
+          {
+            "id": "passing-arm",
+            "description": "Returns the required text and passes its arm rubric.",
+            "prompt": "Reply with exactly: CAPABILITY_COMPARE_OK",
+            "rubric": {
+              "must": ["CAPABILITY_COMPARE_OK"]
+            }
+          }
+        ],
+        "gates": [
+          { "metric": "outcome", "arm": "expected-failure", "operator": "equal", "value": "fail" },
+          { "metric": "outcome", "arm": "passing-arm", "operator": "equal", "value": "pass" },
+          { "metric": "turns", "arm": "passing-arm", "operator": "atMost", "value": 2 }
+        ]
+      }
+    }
+  ]
+}

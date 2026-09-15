@@ -204,6 +204,33 @@ export class TraceAssertion {
 		return this;
 	}
 
+	toHaveRunCommandSuccessfully(fragment: string): this {
+		const matches = this.trace.toolCalls.filter((call) => {
+			const args = call.args;
+			if (!args) return false;
+			return [args.command, args.cmd, args.script, args.input].some(
+				(value) => typeof value === "string" && value.includes(fragment),
+			);
+		});
+		if (matches.some((call) => call.succeeded === true || call.exitCode === 0)) return this;
+
+		const status = matches.map((call) => ({
+			command: call.args?.command ?? call.args?.cmd ?? call.args?.script ?? call.args?.input,
+			succeeded: call.succeeded,
+			exitCode: call.exitCode,
+		}));
+		this.push(
+			"toHaveRunCommandSuccessfully",
+			matches.length === 0
+				? `expected a successful shell command containing "${fragment}", but no matching structured tool call was captured`
+				: matches.some((call) => call.succeeded === false || call.exitCode !== undefined)
+					? `shell command containing "${fragment}" did not succeed`
+					: `shell command containing "${fragment}" did not report execution status`,
+			`executions=${JSON.stringify(status)}`,
+		);
+		return this;
+	}
+
 	/** When set, every shell statement must match one allowlist fragment. */
 	toHaveAllowedCommands(allowlist: string[] | undefined): this {
 		if (allowlist === undefined) {
@@ -598,6 +625,9 @@ export function assertRubric(
 	}
 	for (const cmd of rubric.mustRun ?? []) {
 		assertion.toHaveRunCommand(cmd);
+	}
+	for (const cmd of rubric.mustRunSuccessfully ?? []) {
+		assertion.toHaveRunCommandSuccessfully(cmd);
 	}
 	assertion.toHaveAllowedCommands(rubric.allowedCommands);
 	for (const tool of rubric.mustCallTool ?? []) {

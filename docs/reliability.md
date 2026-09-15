@@ -6,7 +6,7 @@
 
 <!-- review-deps: paths=package.json,agent-suites/**/scenarios.json -->
 
-`bun run test:unit` does not launch a host agent. `bun run test` runs the Cursor confidence gate. JSON suites only configure direct runs.
+`bun run test` and `bun run test:unit` do not launch a host agent. JSON suites only configure direct runs. Provider-backed capability, tour, matrix, and reliability runs are manual.
 
 How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
 
@@ -14,8 +14,8 @@ How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
 
 | Surface | Target |
 | --- | --- |
-| Each confidence scenario | At least 19 of 20 runs have no behavior failure |
-| Each confidence scenario | At least 19 of 20 runs have no infrastructure failure |
+| Each capability scenario | At least 19 of 20 runs have no behavior failure |
+| Each capability scenario | At least 19 of 20 runs have no infrastructure failure |
 | Judge scenario | At least 19 of 20 judge passes |
 | Qualification run | No worktree leak, recording error, or judge-format error |
 | Deterministic controls | Every known-good and known-bad control returns the expected verdict |
@@ -30,13 +30,12 @@ How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
 # Host not ready does not fail this command.
 node packages/test/dist/cli.js --check --suites-dir agent-suites
 
-# Required pull request gate on Cursor.
+# Offline product tests.
 bun run test
-bun run test:confidence
 
-# Product tour and complete reference.
+# Manual live capability suite and product tour.
+bun run test:capabilities
 bun run test:tour
-bun run test:reference
 
 # Manual host and reliability work.
 bun run test:matrix
@@ -47,7 +46,7 @@ bun run test:reliability
 bun run test:sdk:consumer
 ```
 
-The 20-run command runs the deterministic controls first. It then runs the six Cursor confidence scenarios 20 times. It prints the count for each scenario and fails when any threshold is missed.
+The 20-run command runs the deterministic controls first. It then runs the eleven Cursor capability scenarios 20 times. It prints the count for each scenario and fails when any threshold is missed.
 
 For compare scenarios, qualify the experiment result, not the number of arm
 transcripts. A declared failed control is an expected measurement. It is not a

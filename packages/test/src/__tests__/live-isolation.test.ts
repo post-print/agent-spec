@@ -63,6 +63,17 @@ describe("live-isolation", () => {
 		expect(args).toContain("/repo/hosts/gemini.mjs");
 	});
 
+	it("uses an explicit CLI entrypoint for detached viewer children", () => {
+		const { args } = buildLiveScenarioCommand({
+			cliPath: "/repo/dist/cli.js",
+			cwd: "/repo",
+			suiteName: "routing",
+			scenarioName: "dialogue",
+			suitesDir: "agent-suites",
+		});
+		expect(args[0]).toBe("/repo/dist/cli.js");
+	});
+
 	it("forwards --rubrics-dir to the child CLI", () => {
 		const { args } = buildLiveScenarioCommand({
 			cwd: "/repo",

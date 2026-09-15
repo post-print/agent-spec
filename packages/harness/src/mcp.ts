@@ -4,6 +4,8 @@ import { isAbsolute, join } from "node:path";
 export type McpServerConfig =
 	| {
 			type?: "stdio";
+			/** Display-only tool inventory for catalogs and reports. Never sent to the host. */
+			tools?: string[];
 			command: string;
 			args?: string[];
 			env?: Record<string, string>;
@@ -12,6 +14,8 @@ export type McpServerConfig =
 	  }
 	| {
 			type?: "http" | "sse";
+			/** Display-only tool inventory for catalogs and reports. Never sent to the host. */
+			tools?: string[];
 			url: string;
 			headers?: Record<string, string>;
 			auth?: {

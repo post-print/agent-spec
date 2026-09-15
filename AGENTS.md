@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent cold-start in this repo -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
 <!-- review-deps: paths=package.json,skeleton.toml,.github/workflows/test.yml -->
 
@@ -30,7 +30,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
 - Host-agent runs need host auth. Default is subscription after CLI login: `npx agent-test login` (Cursor SDK store), Claude Code login, or `codex login`. The Cursor app login does not count. Pass `--auth-mode api-key` (alias `--auth-method`) plus `CURSOR_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` / `CODEX_API_KEY` to bill an API key. Per-host `*_AUTH_MODE` env vars still work when the flag is omitted. Copy `.env.example`. The CLI does not auto-load `.env`.
 - The judge and the default user simulator use the same host family as the test agent. The judge runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns the judge off.
-- `bun run test:unit` and `bun run test:sandbox-safe` do not launch a host agent. `bun run test` launches a real host agent and can incur provider usage.
+- `bun run test`, `bun run test:unit`, and `bun run test:sandbox-safe` do not launch a host agent. Provider-backed capability, tour, matrix, and reliability runs are manual.
 
 ## First hour
 
@@ -50,13 +50,13 @@ The full local check (`bun run check` = lint + typecheck + unit tests + build) n
 
 Use `bun run lint` / `bunx biome` (pinned 2.5.12). A global `biome` on PATH is often older and will fail this repo's config.
 
-Host-agent proof after host login:
+Offline product tests:
 
 ```bash
 bun run test
 ```
 
-`bun run test` runs the six-scenario Cursor confidence gate. `bun run test:tour` and `bun run test:reference` run the showcase suites. `bun run test:matrix` and `bun run test:reliability` are manual. `bun run test:sdk:consumer` needs no host credentials.
+Manual host-agent proof after host login uses `bun run test:capabilities` or `bun run test:tour`. `bun run test:matrix` and `bun run test:reliability` are also manual. `bun run test:sdk:consumer` needs no host credentials. CI does not launch a provider-backed host.
 
 ## Validation split
 
@@ -67,7 +67,7 @@ bun run test
 | TypeScript under `packages/` (scoped) | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed |
 | TypeScript under `packages/` (full) | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions) |
 | Viewer e2e (Playwright) | `bunx playwright install chromium` then `bun run test:e2e` |
-| Host-agent suite | `bun run test` for Cursor confidence. Run `test:matrix` and `test:reliability` manually. |
+| Host-agent suite | `bun run test:capabilities` for supported `runAgentTest` capabilities. Run `test:matrix` and `test:reliability` manually. |
 
 `validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Hash review proof lives in `.skeleton/review-lock.json`. After a complete re-read, attest explicit paths only:
 

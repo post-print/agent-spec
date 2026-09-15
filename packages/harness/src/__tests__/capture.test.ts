@@ -182,6 +182,28 @@ describe("capture", () => {
 		expect(trace.shellCommands.some((cmd) => cmd.includes("validate:changed"))).toBe(true);
 	});
 
+	it("captures Cursor shell success from the structured result", () => {
+		const trace = buildTraceFromSdkMessages([
+			{
+				type: "tool_call",
+				call_id: "shell-1",
+				name: "shell",
+				args: { command: "bun test" },
+			},
+			{
+				type: "tool_call",
+				call_id: "shell-1",
+				name: "shell",
+				args: { command: "bun test" },
+				result: {
+					status: "success",
+					value: { exitCode: 0, stdout: "pass", stderr: "" },
+				},
+			},
+		]);
+		expect(trace.toolCalls[0]).toMatchObject({ exitCode: 0, succeeded: true });
+	});
+
 	it("does not treat skill-name prose as an invoke", () => {
 		const trace = buildTraceFromSdkMessages([
 			{

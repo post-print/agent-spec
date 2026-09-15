@@ -56,15 +56,14 @@ export function renderViewerCompareBoard(summary: ViewerCompareSummary): string 
 	if (summary.metrics.length === 0 && summary.gates.length === 0) {
 		return "";
 	}
-	const lines = [
-		...summary.metrics.map((metric) => `<li>${escapeHtml(metric.line)}</li>`),
-		...summary.gates.map((gate) => {
-			const status = gate.passed ? "compare-winner-pass" : "compare-winner-fail";
-			return `<li class="${status}">${escapeHtml(gate.line)}</li>`;
-		}),
-	];
-	return `<section class="compare-winners">
-  <h3>Winners</h3>
+	const lines = summary.gates.map((gate) => {
+		const status = gate.passed ? "compare-winner-pass" : "compare-winner-fail";
+		return `<li class="${status}">${escapeHtml(gate.line)}</li>`;
+	});
+	return lines.length === 0
+		? ""
+		: `<section class="compare-winners">
+  <h3>Decision checks</h3>
   <ul>${lines.join("")}</ul>
 </section>`;
 }

@@ -3,7 +3,7 @@ import type { ViewerCatalog } from "../../src/viewer/catalog.js";
 /** In-memory catalog. Covers skip, host pin, context, and compare layouts. */
 export const e2eCatalog: ViewerCatalog = {
 	suitesDir: "/tmp/agent-test-e2e-suites",
-	defaultSelectedHosts: ["cursor"],
+	defaultSelectedHosts: [],
 	suites: [
 		{
 			name: "smoke",
@@ -52,11 +52,14 @@ export const e2eCatalog: ViewerCatalog = {
 							label: "alpha",
 							description: 'Alpha workspace. <img onerror="window.__arm=1">',
 							prompt: "Read word.txt. Reply alpha.",
+							rubric: { mustReadPath: ["word.txt"], must: ["alpha"] },
 						},
 						{
 							id: "b",
 							label: "beta",
 							description: "Beta workspace.",
+							prompt: "Read word.txt.",
+							rubric: { mustReadPath: ["word.txt"] },
 						},
 					],
 				},
@@ -65,10 +68,30 @@ export const e2eCatalog: ViewerCatalog = {
 					prompt: "Answer from the catalog.",
 					rubric: {},
 					compare: [
-						{ id: "skel-clean", label: "skeleton clean" },
-						{ id: "none-clean", label: "no skill clean" },
-						{ id: "skel-messy", label: "skeleton messy" },
-						{ id: "none-messy", label: "no skill messy" },
+						{
+							id: "skel-clean",
+							label: "skeleton clean",
+							prompt: "Run clean with Skeleton.",
+							rubric: {},
+						},
+						{
+							id: "none-clean",
+							label: "no skill clean",
+							prompt: "Run clean without a skill.",
+							rubric: {},
+						},
+						{
+							id: "skel-messy",
+							label: "skeleton messy",
+							prompt: "Run messy with Skeleton.",
+							rubric: {},
+						},
+						{
+							id: "none-messy",
+							label: "no skill messy",
+							prompt: "Run messy without a skill.",
+							rubric: {},
+						},
 					],
 					gates: [
 						{ metric: "turns", winner: "skel-clean", loser: "none-messy" },

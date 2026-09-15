@@ -40,6 +40,20 @@ describe("validate-suite", () => {
 		).toEqual([]);
 	});
 
+	it("accepts a mustRunSuccessfully list", () => {
+		const suite: AgentSuiteFile = {
+			name: "ok",
+			scenarios: [
+				{
+					name: "repair",
+					prompt: "Repair the bug and run bun test.",
+					rubric: { mustRunSuccessfully: ["bun test"] },
+				},
+			],
+		};
+		expect(validateSuiteFile("/tmp/scenarios.json", suite)).toEqual([]);
+	});
+
 	it("rejects invalid tier enum", () => {
 		const suite: AgentSuiteFile = {
 			name: "bad",

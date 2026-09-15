@@ -139,6 +139,7 @@ function validateRubric(
 		"must",
 		"mustNot",
 		"mustRun",
+		"mustRunSuccessfully",
 		"allowedCommands",
 		"mustCallTool",
 		"mustCallToolsInOrder",

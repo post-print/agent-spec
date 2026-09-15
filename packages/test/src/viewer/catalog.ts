@@ -1,19 +1,39 @@
 import { resolve } from "node:path";
 
-import type { AgentHost, ContextMode } from "@post-print/agent-harness";
+import {
+	type AgentHost,
+	type ContextMode,
+	type McpServerConfig,
+	mergeMcpServers,
+	skillPathsFromSetting,
+} from "@post-print/agent-harness";
 
-import { compareArmDescription, compareArmLabel, resolveCompareArms } from "../compare-scenario.js";
+import {
+	applyCompareArm,
+	compareArmDescription,
+	compareArmLabel,
+	resolveCompareArms,
+} from "../compare-scenario.js";
 import { discoverSuites } from "../discover-suites.js";
 import { resolveSuiteHosts } from "../hosts.js";
 import { loadSuiteFile } from "../load-suite.js";
-import type { CompareGate, ScenarioRubric } from "../types.js";
+import type { CompareGate, CompareJudgeMetric, ScenarioRubric } from "../types.js";
 
 export interface ViewerCatalogArm {
 	id: string;
 	label: string;
 	description?: string;
-	prompt?: string;
+	prompt: string;
+	rubric: ScenarioRubric;
 	contextMode?: ContextMode;
+	contextSources?: string[];
+	suppliedMcp?: ViewerSuppliedMcpServer[];
+	suppliedSkills?: string[];
+}
+
+export interface ViewerSuppliedMcpServer {
+	name: string;
+	tools: string[];
 }
 
 export interface ViewerCatalogScenario {
@@ -26,7 +46,10 @@ export interface ViewerCatalogScenario {
 	rubric: ScenarioRubric;
 	compare?: ViewerCatalogArm[];
 	gates?: CompareGate[];
+	judgeMetrics?: CompareJudgeMetric[];
 	contextSources?: string[];
+	suppliedMcp?: ViewerSuppliedMcpServer[];
+	suppliedSkills?: string[];
 }
 
 export interface ViewerCatalogSuite {
@@ -63,6 +86,25 @@ export interface ViewerJob {
 	prompt: string;
 }
 
+function suppliedMcp(
+	defaults: Record<string, McpServerConfig> | undefined,
+	overrides: Record<string, McpServerConfig> | undefined,
+): ViewerSuppliedMcpServer[] | undefined {
+	const servers = mergeMcpServers(defaults, overrides);
+	if (!servers) return undefined;
+	return Object.entries(servers).map(([name, config]) => ({
+		name,
+		tools: [...(config.tools ?? [])],
+	}));
+}
+
+function suppliedSkills(
+	setting: Parameters<typeof skillPathsFromSetting>[0],
+): string[] | undefined {
+	const paths = skillPathsFromSetting(setting);
+	return paths.length > 0 ? paths : undefined;
+}
+
 /** Load suite JSON for the viewer. Omit MCP server env and other secrets. */
 export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Promise<ViewerCatalog> {
 	const suitesDir = resolve(options.cwd, options.suitesDir);
@@ -79,9 +121,12 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 			}),
 			scenarios: suite.scenarios.map((scenario) => {
 				const arms = resolveCompareArms(scenario.compare).map((entry) => {
+					const effective = applyCompareArm(scenario, entry.id);
 					const arm: ViewerCatalogArm = {
 						id: entry.id,
 						label: compareArmLabel(entry.arm, entry.id),
+						prompt: effective.prompt,
+						rubric: effective.rubric,
 						contextMode:
 							entry.arm.contextMode ??
 							scenario.contextMode ??
@@ -92,10 +137,15 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 					if (description) {
 						arm.description = description;
 					}
-					const prompt = entry.arm.prompt?.trim();
-					if (prompt) {
-						arm.prompt = prompt;
+					const contextSources = [
+						...(suite.defaults?.contextSources ?? []),
+						...(effective.contextSources ?? []),
+					].filter((value) => typeof value === "string" && value.trim().length > 0);
+					if (contextSources.length > 0) {
+						arm.contextSources = contextSources;
 					}
+					arm.suppliedMcp = suppliedMcp(suite.defaults?.mcpServers, effective.mcpServers);
+					arm.suppliedSkills = suppliedSkills(effective.skills ?? suite.defaults?.skills);
 					return arm;
 				});
 				const row: ViewerCatalogScenario = {
@@ -120,9 +170,14 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 				if (contextSources.length > 0) {
 					row.contextSources = contextSources;
 				}
+				row.suppliedMcp = suppliedMcp(suite.defaults?.mcpServers, scenario.mcpServers);
+				row.suppliedSkills = suppliedSkills(scenario.skills ?? suite.defaults?.skills);
 				if (arms.length > 0) {
 					row.compare = arms;
 					if (scenario.compare?.gates?.length) row.gates = scenario.compare.gates;
+					if (scenario.compare?.judgeMetrics?.length) {
+						row.judgeMetrics = scenario.compare.judgeMetrics;
+					}
 				}
 				return row;
 			}),
@@ -131,15 +186,14 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 	suites.sort((left, right) => left.name.localeCompare(right.name));
 	return {
 		suitesDir,
-		defaultSelectedHosts: ["cursor"],
+		defaultSelectedHosts: [],
 		suites,
 	};
 }
 
 /** Expand a viewer run into one job per host cell, or per compare arm. */
 export function expandViewerJobs(catalog: ViewerCatalog, request: ViewerRunRequest): ViewerJob[] {
-	const selectedHosts =
-		request.hosts && request.hosts.length > 0 ? request.hosts : catalog.defaultSelectedHosts;
+	const selectedHosts = request.hosts ?? catalog.defaultSelectedHosts;
 	const suites = request.suite
 		? catalog.suites.filter((suite) => suite.name === request.suite)
 		: catalog.suites;

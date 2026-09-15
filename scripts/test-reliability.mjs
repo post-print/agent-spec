@@ -20,7 +20,7 @@ for (let run = 1; run <= totalRuns; run += 1) {
 		const reports = await runAllSuites({
 			cwd: root,
 			suitesDir: "agent-suites",
-			filter: "confidence",
+			filter: "test-sdk-capabilities",
 			host: "cursor",
 			judge: true,
 			worktree: true,
@@ -43,7 +43,7 @@ for (let run = 1; run <= totalRuns; run += 1) {
 	} finally {
 		await cleanupStagingSession(stagingSessionId);
 	}
-	console.log(`Confidence run ${run}/${totalRuns} finished.`);
+	console.log(`Capability run ${run}/${totalRuns} finished.`);
 }
 
 const failures = [];
@@ -51,10 +51,10 @@ for (const [scenario, row] of rows) {
 	if (row.runs !== totalRuns) failures.push(`${scenario}: ran ${row.runs} times`);
 	if (row.behavior < 19) failures.push(`${scenario}: ${row.behavior}/20 runs had no behavior failure`);
 	if (row.infrastructure < 19) failures.push(`${scenario}: ${row.infrastructure}/20 runs had no infrastructure failure`);
-	if (scenario === "uses one skill well" && row.judge < 19) failures.push(`${scenario}: ${row.judge}/20 judge passes`);
+	if (scenario === "scores a judge question" && row.judge < 19) failures.push(`${scenario}: ${row.judge}/20 judge passes`);
 	console.log(`${scenario}: behavior ${row.behavior}/20, infrastructure ${row.infrastructure}/20${row.judge ? `, judge ${row.judge}/20` : ""}`);
 }
-if (rows.size !== 6) failures.push(`Expected 6 scenarios but measured ${rows.size}.`);
+if (rows.size !== 11) failures.push(`Expected 11 scenarios but measured ${rows.size}.`);
 if (fatalFailure) failures.push(fatalFailure);
 if (failures.length) throw new Error(`Reliability qualification failed:\n${failures.join("\n")}`);
 console.log("Reliability qualification passed.");

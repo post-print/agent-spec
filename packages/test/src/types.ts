@@ -38,6 +38,8 @@ export interface ScenarioRubric {
 	/** Substring that must not appear in assistant text, commands, artifacts, or tool args. Tool results are ignored. */
 	mustNot?: string[];
 	mustRun?: string[];
+	/** Shell command substring that must be observed with a successful structured execution result. */
+	mustRunSuccessfully?: string[];
 	/**
 	 * When set, every shell statement must include one listed fragment.
 	 * Combined commands split on `&&`, `||`, `;`, `|`, and newlines.
@@ -278,6 +280,11 @@ export interface JudgeVerdictResult {
 	question: string;
 	pass: boolean;
 	rationale: string;
+	evidence?: string[];
+	/** Exact prompt sent to the judge classifier. */
+	prompt?: string;
+	/** Exact text returned by the judge classifier. */
+	response?: string;
 	infraError?: string;
 	parseError?: string;
 	rawSdkStatus?: string;

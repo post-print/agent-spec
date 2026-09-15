@@ -10,7 +10,7 @@ Status: implemented.
 
 ## Goal
 
-Replace the old examples with tests that teach the product, define the public contract, and provide a stable pull request gate.
+Replace the old examples with tests that teach the product and define the public contract, while keeping provider-backed execution manual.
 
 ```mermaid
 flowchart LR
@@ -24,14 +24,16 @@ flowchart LR
 ## Decisions
 
 - `tour` is a seven-scenario product tour.
-- `reference` is the complete runnable reference.
-- `confidence` is the six-scenario Cursor pull request gate.
+- `test-sdk-capabilities` is an eleven-scenario manual live check of supported
+  `runAgentTest` behavior.
+- Configuration mechanics live in the suite authoring guide and internal test
+  fixtures, not in a runnable peer suite.
 - Each scenario starts in a new sealed workspace.
 - Most scenarios use one small TypeScript task-list project.
 - Skill tests use a separate copy so the skill cannot affect other tests.
 - Test names, prompts, descriptions, questions, and failures use Simple English.
-- Host matrices and the 20-run qualification are manual.
-- CI runs offline checks and uses Cursor only when its key exists.
+- Capability, tour, host-matrix, and 20-run qualification runs are manual.
+- CI runs offline product checks and never launches a provider-backed host.
 
 ## Comparison contract
 
@@ -43,13 +45,13 @@ The old `compare.faster` and `compare.cheaper` fields are removed. Configuration
 
 The product tour covers project facts, diagnosis, repair, MCP, skills, three MCP workflows, and a control-versus-tool experiment.
 
-The reference covers suite defaults, overrides, context, workspaces, skills, MCP, seed patches, every deterministic matcher, ordered tools, sidecar rubrics, skip, routing, review depth, two-arm gates, named arms, judge metrics, and informational metrics.
+The suite authoring guide and internal fixtures cover defaults, overrides, validation, CLI behavior, viewer behavior, cancellation, persistence, routing, and review-depth conventions without provider usage.
 
-The confidence gate covers exact text, one file read, one repair, ordered MCP calls, one skill judge, and the sealed boundary.
+The manual capability suite covers reply scoring, forbidden tools, file reads, writes and commands, ordered MCP calls, provided context, seed patches, sealed workspaces, supplied skills, judge scoring, and comparison gates.
 
 SDK coverage packs both packages, installs them in a clean Node 22 project, compiles public imports, runs a fake adapter, inspects comparison results, and runs the installed CLI. A separate manual smoke calls the direct API on Cursor, Claude, and Codex.
 
-The reliability command runs deterministic good and bad controls, then runs Cursor confidence 20 times. Each scenario needs at least 19 clean behavior runs and 19 clean infrastructure runs. The judge needs at least 19 passes. Any workspace leak, recording error, or judge-format error fails the qualification.
+The reliability command runs deterministic good and bad controls, then runs the Cursor capability suite 20 times. Each scenario needs at least 19 clean behavior runs and 19 clean infrastructure runs. The judge needs at least 19 passes. Any workspace leak, recording error, or judge-format error fails the qualification.
 
 ## Verification
 
@@ -57,5 +59,5 @@ The reliability command runs deterministic good and bad controls, then runs Curs
 - Unit tests must cover every gate form in pass and fail cases.
 - Console, viewer, HTML, and debug output must show arm outcomes and gates.
 - The installed package test must need no host credentials.
-- The Cursor confidence gate is the required live pull request proof.
-- The host matrix and 20-run qualification remain manual proofs.
+- CI product checks remain offline.
+- The capability suite, host matrix, and 20-run qualification remain manual proofs.

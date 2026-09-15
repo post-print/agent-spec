@@ -1,5 +1,21 @@
-import { reportCss } from "../html-report.js";
+import { describeCompareGate } from "../compare-scenario.js";
+import type { ScenarioRubric } from "../types.js";
 import type { ViewerCatalog, ViewerCatalogScenario, ViewerCatalogSuite } from "./catalog.js";
+import type { ViewerBootstrap } from "./events.js";
+
+export interface ViewerRenderedResult {
+	suite: string;
+	scenario: string;
+	host: string;
+	html: string;
+}
+
+export interface ViewerPageRenderOptions {
+	baseCss?: string;
+	headerLede?: string;
+	overviewHtml?: string;
+	results?: ViewerRenderedResult[];
+}
 
 function escapeHtml(value: string): string {
 	return value
@@ -29,6 +45,7 @@ function viewerCss(): string {
     margin-bottom: 1.25rem;
   }
   .toolbar-block { display: grid; gap: 0.35rem; }
+	.run-history { min-width: min(26rem, 80vw); }
   .toolbar-label { color: var(--muted); font-size: 0.75rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
   .host-toggles, .toolbar-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
   .host-toggles label { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.85rem; }
@@ -76,6 +93,8 @@ function viewerCss(): string {
   .host-tab[data-status="passed"] { color: var(--pass); }
   .host-tab[data-status="failed"] { color: var(--fail); }
   .host-tab[data-status="skipped"], .host-tab[data-status="skip"] { color: var(--muted); }
+  .host-tab[hidden], .host-empty-selection[hidden] { display: none; }
+  .host-empty-selection { color: var(--muted); font-size: .78rem; }
   .host-status { display: inline-flex; align-items: center; }
   .cell-status { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }
   .scenario-live { display: grid; gap: 0.75rem; }
@@ -272,56 +291,376 @@ function viewerCss(): string {
   @media (prefers-reduced-motion: reduce) {
     .chat-progress span, .bubble.is-streaming .bubble-text::after { animation: none; }
   }
+  .scenario-card {
+    background: linear-gradient(135deg, color-mix(in oklch, var(--panel) 94%, white), var(--panel));
+    padding: 1rem 1.05rem;
+  }
+  .scenario-detail { gap: 0.4rem; }
+  .scenario-detail strong { font-size: 1.05rem; letter-spacing: -0.01em; }
+  .scenario-toolbar { gap: 0.45rem 0.85rem; padding-top: 0.6rem; border-top: 1px solid var(--border); }
+  .host-runs { display: flex; gap: 0.4rem; align-items: center; }
+  .host-runs-label { color: var(--muted); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+  .host-tablist { gap: 0.25rem; }
+  .host-tab { gap: 0.28rem; padding: 0.25rem 0.45rem; font-size: 0.82rem; }
+  body { background: oklch(0.155 0.015 250); }
+  .viewer-shell { max-width: none; min-height: 100dvh; padding: 0; }
+  .viewer-topbar {
+    position: sticky; inset-block-start: 0; z-index: 10;
+    display: grid; grid-template-columns: minmax(12rem, .7fr) minmax(18rem, 1.2fr) minmax(14rem, 1fr);
+    align-items: center; gap: 1rem; min-height: 4.5rem;
+    padding: .75rem clamp(1rem, 2.5vw, 2rem);
+    background: color-mix(in oklch, var(--bg) 92%, transparent);
+    border-block-end: 1px solid var(--border); backdrop-filter: blur(18px);
+  }
+  .viewer-identity { display: flex; align-items: baseline; gap: .65rem; min-width: 0; }
+  .viewer-identity .brand { color: var(--pass); }
+  .viewer-identity h1 { font-size: 1.05rem; white-space: nowrap; }
+  .run-context { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .5rem; min-width: 0; }
+  .run-history { width: 100%; min-width: 0; border-radius: 7px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: .42rem .6rem; }
+  .run-banner { margin: 0; overflow: hidden; color: var(--muted); font-size: .78rem; text-align: end; text-overflow: ellipsis; white-space: nowrap; }
+  .viewer-command-row { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem 1rem; padding: .55rem clamp(1rem, 2.5vw, 2rem); background: var(--panel-2); border-block-end: 1px solid var(--border); }
+  .viewer-command-row .toolbar-block { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .55rem; }
+  .viewer-command-row .host-toggles { gap: .25rem .55rem; }
+  .viewer-command-row .parallel-control { display: inline-flex; align-items: center; gap: .35rem; color: var(--muted); font-size: .78rem; white-space: nowrap; }
+  .viewer-command-row .run-toggle { min-width: 5.75rem; margin-inline-start: auto; padding-block: .3rem; font-size: .78rem; }
+  .run-progress { margin: 0; padding: .7rem clamp(1rem, 2.5vw, 2rem); border: 0; border-block-end: 1px solid var(--border); border-radius: 0; background: var(--bg); }
+  .run-progress-track { height: .35rem; }
+  .viewer-workspace { display: grid; grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr); min-height: calc(100dvh - 7.5rem); }
+  .test-navigator { position: sticky; inset-block-start: 7.5rem; align-self: start; height: calc(100dvh - 7.5rem); overflow: auto; padding: 1.15rem .75rem 2rem; background: color-mix(in oklch, var(--panel-2) 72%, var(--bg)); border-inline-end: 1px solid var(--border); }
+  .test-navigator-heading { display: flex; justify-content: space-between; align-items: end; padding-inline: .5rem; margin-block-end: 1rem; }
+  .section-label, .scenario-path { margin: 0; color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .test-navigator-heading h2 { margin: .1rem 0 0; font-size: 1rem; }
+  .test-picker, .test-picker-label { display: none; }
+  .test-tree { display: grid; gap: 1.1rem; }
+  .test-nav-suite { display: grid; gap: .35rem; }
+  .test-nav-suite > header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding-inline: .45rem; }
+  .test-nav-suite > header h2 { margin: 0; color: var(--muted); font-size: .72rem; letter-spacing: .05em; text-transform: uppercase; }
+  .test-nav-suite > header p { display: none; }
+  .test-nav-suite > header .run-suite { padding: .12rem .35rem; color: var(--muted); border: 0; background: transparent; font-size: .7rem; }
+  .test-nav-items { display: grid; gap: .18rem; }
+  .test-nav-item { display: grid; grid-template-columns: .6rem minmax(0, 1fr); align-items: start; gap: .55rem; width: 100%; padding: .5rem .55rem; border-color: transparent; background: transparent; text-align: start; }
+  .test-nav-item:hover { background: color-mix(in oklch, var(--text) 5%, transparent); }
+  .test-nav-item[aria-current="true"] { background: color-mix(in oklch, var(--pass) 9%, var(--panel)); border-color: color-mix(in oklch, var(--pass) 28%, var(--border)); }
+  .test-nav-status { width: .48rem; height: .48rem; margin-block-start: .28rem; border: 1px solid var(--muted); border-radius: 50%; }
+  .test-nav-item[data-status="running"] .test-nav-status { border-color: var(--skip); background: var(--skip); box-shadow: 0 0 0 3px color-mix(in oklch, var(--skip) 14%, transparent); }
+  .test-nav-item[data-status="passed"] .test-nav-status { border-color: var(--pass); background: var(--pass); }
+  .test-nav-item[data-status="failed"] .test-nav-status { border-color: var(--fail); background: var(--fail); }
+  .test-nav-item[data-status="skipped"] .test-nav-status { border-color: var(--skip); }
+  .test-nav-copy { display: grid; min-width: 0; }
+  .test-nav-copy strong { overflow: hidden; font-size: .82rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+  .test-nav-copy small { overflow: hidden; color: var(--muted); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+  .test-stage { min-width: 0; padding: clamp(1rem, 3vw, 2.25rem); }
+  .test-stage > .suite { display: block; margin: 0; }
+  .test-stage > .suite > .suite-header { display: none; }
+  .test-stage .scenario-list { display: contents; }
+  .scenario-card, .scenario-card[data-selected="true"] { max-width: 76rem; margin-inline: auto; padding: 0; gap: 0; overflow: hidden; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 36px oklch(0 0 0 / .16); }
+  .scenario-card[hidden] { display: none; }
+  .scenario-focus-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: clamp(1rem, 2vw, 1.5rem); border-block-end: 1px solid var(--border); }
+  .scenario-heading-copy { display: grid; gap: .3rem; min-width: 0; }
+  .scenario-heading-copy h2 { margin: 0; font-size: clamp(1.25rem, 2.5vw, 1.75rem); letter-spacing: -.025em; }
+  .scenario-heading-copy .suite-description { max-width: 62ch; color: var(--muted); font-size: .9rem; }
+  .scenario-heading-copy .scenario-lede { max-width: 62ch; font-size: .9rem; }
+  .focus-verdict { display: inline-flex; align-items: center; gap: .4rem; flex: none; padding: .28rem .55rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+  .focus-verdict > span { width: .45rem; height: .45rem; border-radius: 50%; background: currentColor; }
+  .focus-verdict[data-status="running"] { color: var(--skip); }
+  .focus-verdict[data-status="passed"] { color: var(--pass); }
+  .focus-verdict[data-status="failed"] { color: var(--fail); }
+  .scenario-definition { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(15rem, .7fr); gap: .8rem; padding: clamp(1rem, 2vw, 1.5rem); background: color-mix(in oklch, var(--panel) 88%, var(--bg)); }
+  .test-intent, .criteria-panel, .compare-definition, .comparison-criteria { min-width: 0; padding: .9rem; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }
+  .prompt-preview { margin: .45rem 0 0; color: var(--text); font-size: .94rem; line-height: 1.55; }
+	.task-metadata { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .55rem; margin-block-start: .75rem; padding-block-start: .65rem; border-block-start: 1px solid var(--border); }
+	.task-metadata + .task-metadata { margin-block-start: .55rem; padding-block-start: 0; border-block-start: 0; }
+	.task-metadata .task-meta-label { color: var(--muted); font-size: .66rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+	.task-metadata p { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.6; }
+	.task-metadata code { padding: .08rem .28rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow-wrap: anywhere; }
+  .criteria-panel > summary { display: flex; justify-content: space-between; gap: .5rem; cursor: pointer; font-size: .82rem; font-weight: 650; }
+  .criteria-summary { color: var(--muted); font-size: .72rem; font-weight: 400; }
+  .criterion-groups { display: grid; gap: .65rem; margin-block-start: .75rem; }
+  .criterion-group { display: grid; gap: .35rem; padding-block-start: .6rem; border-block-start: 1px solid var(--border); }
+  .criterion-group:first-child { padding-block-start: 0; border-block-start: 0; }
+  .criterion-group h4 { margin: 0; color: var(--muted); font-size: .66rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+  .criterion-group p { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
+  .criterion-list { display: grid; gap: .28rem; margin: 0; padding: 0; list-style: none; }
+  .criterion-list li { color: var(--text); font-size: .78rem; line-height: 1.4; }
+  .criterion-list code { padding: .08rem .28rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow-wrap: anywhere; }
+  .criteria-empty { margin: .7rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+	.compare-definition { grid-column: 1 / -1; }
+  .comparison-intro { margin: .35rem 0 0; color: var(--muted); font-size: .78rem; }
+  .compare-definition { padding: 0; background: transparent; border: 0; }
+  .compare-definition-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin-block-start: .55rem; }
+  .compare-definition-tab-input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+  .compare-definition-tab { padding: .35rem .65rem; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-size: .78rem; }
+  .compare-definition-tab-input:checked + .compare-definition-tab { color: var(--text); background: color-mix(in oklch, var(--pass) 12%, var(--panel-2)); border-color: color-mix(in oklch, var(--pass) 36%, var(--border)); }
+  .compare-definition-tab-input:focus-visible + .compare-definition-tab { outline: 2px solid var(--pass); outline-offset: 2px; }
+  .compare-definition-grid { display: grid; grid-template-columns: minmax(0, 1fr); margin-block-start: .55rem; }
+  .compare-arm-definition { min-width: 0; overflow: hidden; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }
+  .compare-definition-tabbed .compare-arm-definition { display: none; }
+  .compare-arm-header { display: grid; gap: .2rem; padding: .8rem .9rem; border-block-end: 1px solid var(--border); }
+  .compare-arm-header h3 { margin: 0; font-size: .95rem; }
+  .compare-arm-description { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
+  .compare-arm-definition .test-intent, .compare-arm-definition .criteria-panel { border: 0; border-radius: 0; }
+  .compare-arm-definition .test-intent { background: transparent; }
+  .compare-arm-definition .criteria-panel { border-block-start: 1px solid var(--border); background: color-mix(in oklch, var(--panel-2) 82%, var(--bg)); }
+  .scenario-toolbar { justify-content: space-between; gap: .75rem 1rem; padding: .8rem clamp(1rem, 2vw, 1.5rem); background: var(--panel); border-block: 1px solid var(--border); }
+  .host-runs-label { font-size: .65rem; }
+  .host-tab { padding: .3rem .5rem; background: transparent; }
+  .host-tab[aria-selected="true"] { color: var(--text); background: color-mix(in oklch, var(--pass) 11%, var(--panel-2)); }
+  .scenario-actions .run-toggle { min-width: 5.6rem; padding: .28rem .55rem; font-size: .78rem; }
+  .scenario-live { padding: clamp(1rem, 2vw, 1.5rem); background: var(--bg); }
+  .scenario-live .host-empty { padding: 2rem; text-align: center; border: 1px dashed var(--border); border-radius: 8px; }
+  @container (max-width: 48rem) { .scenario-definition { grid-template-columns: minmax(0, 1fr); } .compare-definition { grid-column: auto; } }
+  @media (max-width: 800px) {
+    .viewer-topbar { position: static; grid-template-columns: minmax(0, 1fr); gap: .6rem; padding-block: .85rem; }
+    .viewer-identity { justify-content: space-between; }
+    .run-context { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+    .run-banner { text-align: start; }
+    .viewer-command-row { position: sticky; inset-block-start: 0; z-index: 9; }
+    .viewer-workspace { display: block; min-height: 0; }
+    .test-navigator { position: static; height: auto; padding: .75rem 1rem; border-inline-end: 0; border-block-end: 1px solid var(--border); }
+    .test-navigator-heading, .test-tree { display: none; }
+    .test-picker-label { display: block; margin-block-end: .25rem; color: var(--muted); font-size: .68rem; font-weight: 700; text-transform: uppercase; }
+    .test-picker { display: block; width: 100%; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--text); }
+    .test-stage { padding: .8rem; }
+    .scenario-focus-header { align-items: center; }
+    .scenario-definition { grid-template-columns: minmax(0, 1fr); }
+    .compare-definition { grid-column: auto; }
+    .scenario-toolbar { align-items: flex-start; }
+    .host-runs { align-items: flex-start; flex-direction: column; }
+  }
+  @media (max-width: 480px) { .scenario-focus-header { display: grid; } .focus-verdict { justify-self: start; } .scenario-toolbar { display: grid; } .scenario-actions { width: 100%; } .scenario-actions .primary { flex: 1; } .viewer-command-row .run-toggle { width: 100%; margin-inline-start: 0; } }
 `;
 }
 
-function rubricSummary(scenario: ViewerCatalogScenario): string {
-	const parts: string[] = [
-		scenario.contextMode === "host-native" ? "host-native context" : "harness preamble",
-	];
-	const rubric = scenario.rubric;
-	if (rubric.must?.length) {
-		parts.push(`must ${rubric.must.join(", ")}`);
-	}
-	if (rubric.mustNot?.length) {
-		parts.push(`must not ${rubric.mustNot.join(", ")}`);
-	}
-	if (rubric.mustRun?.length) {
-		parts.push(`run ${rubric.mustRun.join(", ")}`);
-	}
-	if (rubric.allowedCommands) {
-		parts.push(
-			rubric.allowedCommands.length > 0
-				? `allow ${rubric.allowedCommands.join(", ")}`
-				: "allow no shell",
-		);
-	}
-	if (rubric.mustCallTool?.length) {
-		parts.push(`call ${rubric.mustCallTool.join(", ")}`);
-	}
-	if (rubric.mustReadPath?.length) {
-		parts.push(`read ${rubric.mustReadPath.join(", ")}`);
-	}
-	if (rubric.mustInvokeSkill?.length) {
-		parts.push(`skill ${rubric.mustInvokeSkill.join(", ")}`);
-	}
-	if (rubric.judge) {
-		parts.push("judge");
-	}
-	if (scenario.contextSources?.length) {
-		parts.push(`contextSources ${scenario.contextSources.join(", ")}`);
-	}
-	return parts.join(" · ");
+interface CriterionGroup {
+	title: string;
+	intro?: string;
+	items: string[];
 }
 
-function defaultScenarioHost(suite: ViewerCatalogSuite, scenario: ViewerCatalogScenario): string {
+function criterionCode(value: string): string {
+	return `<code>${escapeHtml(value)}</code>`;
+}
+
+interface ViewerCriteriaTarget {
+	rubric: ScenarioRubric;
+	contextSources?: string[];
+	suppliedMcp?: Array<{ name: string; tools: string[] }>;
+	suppliedSkills?: string[];
+}
+
+function renderAllowedCommands(target: ViewerCriteriaTarget): string {
+	const commands = target.rubric.allowedCommands;
+	if (commands === undefined) return "";
+	const list = commands.length
+		? commands.map(criterionCode).join('<span aria-hidden="true">, </span>')
+		: '<span class="task-command-empty">None</span>';
+	return `<div class="task-metadata task-allowed-commands"><span class="task-meta-label">Allowed commands</span><p>${list}</p></div>`;
+}
+
+function renderProvidedContext(target: ViewerCriteriaTarget): string {
+	if (!target.contextSources?.length) return "";
+	const sources = target.contextSources
+		.map(criterionCode)
+		.join('<span aria-hidden="true">, </span>');
+	return `<div class="task-metadata task-provided-context"><span class="task-meta-label">Provided context</span><p>${sources}</p></div>`;
+}
+
+function renderSuppliedResources(target: ViewerCriteriaTarget, showEmpty = false): string {
+	const servers = target.suppliedMcp ?? [];
+	const tools = [...new Set(servers.flatMap((server) => server.tools))];
+	const skills = target.suppliedSkills ?? [];
+	const value = (items: string[]): string =>
+		items.length
+			? items.map(criterionCode).join('<span aria-hidden="true">, </span>')
+			: '<span class="task-resource-empty">None</span>';
+	if (!showEmpty && servers.length === 0 && skills.length === 0) return "";
+	return `<div class="task-resources">
+      <div class="task-metadata"><span class="task-meta-label">Supplied MCP servers</span><p>${value(servers.map((server) => server.name))}</p></div>
+      <div class="task-metadata"><span class="task-meta-label">Supplied MCP tools</span><p>${value(tools)}</p></div>
+      <div class="task-metadata"><span class="task-meta-label">Supplied skills</span><p>${value(skills)}</p></div>
+    </div>`;
+}
+
+function renderPassCriteria(target: ViewerCriteriaTarget): { count: number; html: string } {
+	const groups: CriterionGroup[] = [];
+	const rubric = target.rubric;
+	const reply: string[] = [];
+	for (const text of rubric.must ?? []) {
+		reply.push(`Final reply must include ${criterionCode(text)}.`);
+	}
+	for (const text of rubric.mustNot ?? []) {
+		reply.push(`The run must not contain ${criterionCode(text)}.`);
+	}
+	if (reply.length) groups.push({ title: "Reply", items: reply });
+
+	if (rubric.mustRun?.length || rubric.mustRunSuccessfully?.length) {
+		groups.push({
+			title: "Required commands",
+			items: [
+				...(rubric.mustRun ?? []).map(
+					(command) => `Must run a command matching ${criterionCode(command)}.`,
+				),
+				...(rubric.mustRunSuccessfully ?? []).map(
+					(command) => `Must run a command matching ${criterionCode(command)} successfully.`,
+				),
+			],
+		});
+	}
+	const tools = [
+		...(rubric.mustCallTool ?? []).map((tool) => `Must call ${criterionCode(tool)}.`),
+		...(rubric.mustCallToolsInOrder ?? []).map(
+			(tool, index) => `${index + 1}. Call ${criterionCode(tool)}.`,
+		),
+		...(rubric.mustNotCallTool ?? []).map((tool) => `Must not call ${criterionCode(tool)}.`),
+	];
+	if (tools.length) {
+		groups.push({
+			title: "Tools",
+			intro: rubric.mustCallToolsInOrder?.length ? "Ordered tool calls are numbered." : undefined,
+			items: tools,
+		});
+	}
+
+	const files = [
+		...(rubric.mustReadPath ?? []).map(
+			(path) => `Must read a path matching ${criterionCode(path)}.`,
+		),
+		...(rubric.mustNotReadPath ?? []).map(
+			(path) => `Must not read a path matching ${criterionCode(path)}.`,
+		),
+	];
+	if (files.length) groups.push({ title: "Files", items: files });
+
+	const skills = [
+		...(rubric.mustInvokeSkill ?? []).map((skill) => `Must use ${criterionCode(skill)}.`),
+		...(rubric.mustNotInvokeSkill ?? []).map((skill) => `Must not use ${criterionCode(skill)}.`),
+	];
+	if (skills.length) groups.push({ title: "Skills", items: skills });
+
+	const routing = [
+		...(rubric.handsOnRouting
+			? ["Must announce hands-on routing before the first tool call."]
+			: []),
+		...(rubric.tier ? [`Must announce the ${criterionCode(rubric.tier)} tier.`] : []),
+		...(rubric.reviewDepth
+			? [`Must announce ${criterionCode(rubric.reviewDepth)} review depth.`]
+			: []),
+		...(rubric.routingBlock ? ["Must announce a routing block."] : []),
+	];
+	if (routing.length) groups.push({ title: "Routing", items: routing });
+
+	if (rubric.judge?.length) {
+		groups.push({
+			title: "Judge",
+			intro: "A judge evaluates these questions after the run.",
+			items: rubric.judge.map((item) =>
+				escapeHtml(typeof item === "string" ? item : item.question),
+			),
+		});
+	}
+	const count = groups.reduce((total, group) => total + Math.max(group.items.length, 1), 0);
+	const html = groups
+		.map(
+			(group) =>
+				`<section class="criterion-group"><h4>${escapeHtml(group.title)}</h4>${group.intro ? `<p>${escapeHtml(group.intro)}</p>` : ""}${group.items.length ? `<ul class="criterion-list">${group.items.map((item) => `<li>${item}</li>`).join("")}</ul>` : ""}</section>`,
+		)
+		.join("");
+	return { count, html };
+}
+
+function armLabel(scenario: ViewerCatalogScenario, id: string): string {
+	return scenario.compare?.find((arm) => arm.id === id)?.label ?? id;
+}
+
+function renderComparisonCriteria(scenario: ViewerCatalogScenario): {
+	count: number;
+	html: string;
+} {
+	const items = scenario.gates?.length
+		? scenario.gates.map(
+				(gate) => `${escapeHtml(describeCompareGate(gate, (id) => armLabel(scenario, id)))}.`,
+			)
+		: (scenario.compare ?? []).map(
+				(arm) => `${escapeHtml(arm.label)} must pass all of its criteria.`,
+			);
+	return {
+		count: items.length,
+		html: `<section class="criterion-group"><h4>Arm results</h4><ul class="criterion-list">${items.map((item) => `<li>${item}</li>`).join("")}</ul></section>`,
+	};
+}
+
+function renderCompareArm(arm: NonNullable<ViewerCatalogScenario["compare"]>[number]): string {
+	const criteria = renderPassCriteria(arm);
+	return `<article class="compare-arm-definition" data-compare-arm-definition="${escapeHtml(arm.id)}">
+      <header class="compare-arm-header">
+        <p class="section-label">Arm</p>
+        <h3>${escapeHtml(arm.label)}</h3>
+        ${arm.description ? `<p class="compare-arm-description">${escapeHtml(arm.description)}</p>` : ""}
+      </header>
+      <section class="test-intent">
+        <p class="section-label">Task</p>
+        <p class="prompt-preview">${escapeHtml(arm.prompt)}</p>
+        ${renderAllowedCommands(arm)}
+        ${renderProvidedContext(arm)}
+		${renderSuppliedResources(arm, true)}
+      </section>
+      <details class="criteria-panel" open>
+        <summary><span>Pass criteria</span><span class="criteria-summary">${criteria.count ? `${criteria.count} ${criteria.count === 1 ? "check" : "checks"}` : "Completion only"}</span></summary>
+        ${criteria.html ? `<div class="criterion-groups">${criteria.html}</div>` : '<p class="criteria-empty">This arm passes when it completes without a runner error.</p>'}
+      </details>
+    </article>`;
+}
+
+function comparisonDefinitionGroupId(
+	suite: ViewerCatalogSuite,
+	scenario: ViewerCatalogScenario,
+): string {
+	return `cd-${suite.name}-${scenario.name}`
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+}
+
+function renderCompareDefinition(
+	suite: ViewerCatalogSuite,
+	scenario: ViewerCatalogScenario,
+): string {
+	const arms = scenario.compare ?? [];
+	const group = comparisonDefinitionGroupId(suite, scenario);
+	const tabs = arms
+		.map((arm, index) => {
+			const id = `${group}-${arm.id}`;
+			return `<input type="radio" class="compare-definition-tab-input" name="${escapeHtml(group)}" id="${escapeHtml(id)}"${index === 0 ? " checked" : ""}>
+            <label class="compare-definition-tab" role="tab" for="${escapeHtml(id)}">${escapeHtml(arm.label)}</label>`;
+		})
+		.join("");
+	const rules = arms
+		.map(
+			(arm) =>
+				`.${group}:has(#${group}-${arm.id}:checked) [data-compare-arm-definition="${arm.id}"]{display:block}`,
+		)
+		.join("");
+	return `<style>${rules}</style>
+        <section class="compare-definition compare-definition-tabbed ${escapeHtml(group)}">
+          <p class="section-label">Arms</p>
+          <div class="compare-definition-tabs" role="tablist" aria-label="Comparison arm definitions">${tabs}</div>
+          <div class="compare-definition-grid">${arms.map(renderCompareArm).join("")}</div>
+        </section>`;
+}
+
+function defaultScenarioHost(
+	suite: ViewerCatalogSuite,
+	scenario: ViewerCatalogScenario,
+	defaultSelectedHosts: string[],
+): string {
 	if (scenario.host && suite.hosts.includes(scenario.host)) {
 		return scenario.host;
 	}
-	if (suite.hosts.includes("cursor")) {
-		return "cursor";
+	const configured = suite.hosts.find((host) => defaultSelectedHosts.includes(host));
+	if (configured) {
+		return configured;
 	}
-	return suite.hosts[0] ?? "cursor";
+	return suite.hosts.length === 1 ? (suite.hosts[0] ?? "") : "";
 }
 
 function hostIsSkipped(scenario: ViewerCatalogScenario, host: string): boolean {
@@ -347,80 +686,283 @@ function renderHostChrome(
 			return `<button type="button" class="host-tab" role="tab" aria-label="${escapeHtml(host)}" data-cell="${escapeHtml(`${suite.name}::${scenario.name}::${host}`)}" data-host="${escapeHtml(host)}" aria-selected="${selected ? "true" : "false"}"${skipped ? " disabled" : ""}>${escapeHtml(host)} <span class="cell-status muted" aria-hidden="true">${skipped ? "skip" : "idle"}</span></button>`;
 		})
 		.join("");
-	return `<div class="host-tablist" role="tablist">${tabs}</div>`;
+	return `<div class="host-runs"><span class="host-runs-label">Run host</span><div class="host-tablist" role="tablist">${tabs}</div><span class="host-empty-selection" hidden>No selected host can run this test.</span></div>`;
 }
 
-function renderHostPanels(suite: ViewerCatalogSuite, selectedHost: string): string {
+function renderHostPanels(
+	suite: ViewerCatalogSuite,
+	scenario: ViewerCatalogScenario,
+	selectedHost: string,
+	results: ViewerRenderedResult[],
+	canRun: boolean,
+): string {
 	return suite.hosts
 		.map((host) => {
 			const selected = host === selectedHost;
-			return `<div class="host-panel" data-host-panel="${escapeHtml(host)}" role="tabpanel"${selected ? "" : " hidden"}><p class="host-empty">No run yet.</p></div>`;
+			const result = results.find(
+				(item) =>
+					item.suite === suite.name && item.scenario === scenario.name && item.host === host,
+			);
+			const hostHeading = !canRun && suite.hosts.length > 1 ? `<h3>${escapeHtml(host)}</h3>` : "";
+			return `<div class="host-panel" data-host-panel="${escapeHtml(host)}" role="tabpanel"${canRun && !selected ? " hidden" : ""}>${hostHeading}${result?.html ?? '<p class="host-empty">No run yet.</p>'}</div>`;
 		})
 		.join("");
 }
 
-function renderScenarioCard(suite: ViewerCatalogSuite, scenario: ViewerCatalogScenario): string {
-	const selectedHost = defaultScenarioHost(suite, scenario);
-	const runDisabled = hostIsSkipped(scenario, selectedHost);
-	const compare = scenario.compare
-		? scenario.compare
-				.map(
-					(arm) =>
-						`<p class="arm-note">${escapeHtml(arm.label)}: ${escapeHtml(arm.description ?? arm.prompt ?? "")}</p>`,
-				)
-				.join("")
-		: "";
+function renderScenarioCard(
+	suite: ViewerCatalogSuite,
+	scenario: ViewerCatalogScenario,
+	results: ViewerRenderedResult[],
+	canRun: boolean,
+	defaultSelectedHosts: string[],
+	selected: boolean,
+): string {
+	const selectedHost = defaultScenarioHost(suite, scenario, defaultSelectedHosts);
+	const runDisabled = !selectedHost || hostIsSkipped(scenario, selectedHost);
+	const hasResult = results.some(
+		(item) => item.suite === suite.name && item.scenario === scenario.name,
+	);
 	const key = escapeHtml(`${suite.name}::${scenario.name}`);
-	return `<article class="scenario-card" data-scenario-card="${key}">
-    <div class="scenario-detail">
-      <strong>${escapeHtml(scenario.name)}</strong>
-      ${scenario.description ? `<p class="scenario-lede">${escapeHtml(scenario.description)}</p>` : ""}
-      <p class="prompt-preview">${escapeHtml(scenario.prompt)}</p>
-      <p class="rubric-line">${escapeHtml(rubricSummary(scenario))}</p>
-      ${compare}
+	const criteria = renderPassCriteria(scenario);
+	const comparisonCriteria = scenario.compare ? renderComparisonCriteria(scenario) : undefined;
+	const definition = comparisonCriteria
+		? `<section class="test-intent comparison-task">
+		  <p class="section-label">Comparison task</p>
+		  <p class="prompt-preview">${escapeHtml(scenario.prompt)}</p>
+		</section>
+		<section class="comparison-criteria">
+          <p class="section-label">Comparison pass criteria</p>
+          <p class="comparison-intro">Each arm runs independently. These checks decide whether the comparison passes.</p>
+          <div class="criterion-groups">${comparisonCriteria.html}</div>
+        </section>
+        ${renderCompareDefinition(suite, scenario)}`
+		: `<section class="test-intent">
+          <p class="section-label">Task</p>
+          <p class="prompt-preview">${escapeHtml(scenario.prompt)}</p>
+          ${renderAllowedCommands(scenario)}
+		  ${renderProvidedContext(scenario)}
+		  ${renderSuppliedResources(scenario)}
+        </section>
+        <details class="criteria-panel" open>
+		  <summary><span>Pass criteria</span><span class="criteria-summary">${criteria.count ? `${criteria.count} ${criteria.count === 1 ? "check" : "checks"}` : "Completion only"}</span></summary>
+		  ${criteria.html ? `<div class="criterion-groups">${criteria.html}</div>` : '<p class="criteria-empty">The scenario passes when it completes without a runner error.</p>'}
+        </details>`;
+	return `<article class="scenario-card" data-scenario-card="${key}" data-selected="${selected ? "true" : "false"}"${selected ? "" : " hidden"}>
+    <header class="scenario-focus-header">
+      <div class="scenario-heading-copy">
+        <p class="scenario-path">${escapeHtml(suite.name)} <span aria-hidden="true">/</span> test</p>
+        ${suite.description ? `<p class="suite-description">${escapeHtml(suite.description)}</p>` : ""}
+        <h2>${escapeHtml(scenario.name)}</h2>
+        ${scenario.description ? `<p class="scenario-lede">${escapeHtml(scenario.description)}</p>` : ""}
+      </div>
+      <span class="focus-verdict" data-focus-verdict="${key}" data-status="idle"><span aria-hidden="true"></span>Not run</span>
+    </header>
+    <div class="scenario-definition">
+      ${definition}
     </div>
     <div class="scenario-toolbar">
       ${renderHostChrome(suite, scenario, selectedHost)}
       <div class="scenario-actions">
-        <button class="primary run-cell" data-suite="${escapeHtml(suite.name)}" data-scenario="${escapeHtml(scenario.name)}" data-host="${escapeHtml(selectedHost)}"${runDisabled ? " disabled" : ""}>Run</button>
-        <button class="run-row" data-suite="${escapeHtml(suite.name)}" data-scenario="${escapeHtml(scenario.name)}"${scenario.skip ? " disabled" : ""}>Run selected hosts</button>
+		<button class="primary run-toggle run-cell" data-start-label="Start test" data-suite="${escapeHtml(suite.name)}" data-scenario="${escapeHtml(scenario.name)}" data-host="${escapeHtml(selectedHost)}"${scenario.skip || !canRun ? ' disabled data-fixed-disabled="1"' : runDisabled ? " disabled" : ""}>Start test</button>
       </div>
     </div>
-    <div class="scenario-live" hidden data-live-row="${key}" data-live-slot="${key}">
-      <div class="host-panels">${renderHostPanels(suite, selectedHost)}</div>
+    <div class="scenario-live"${hasResult ? "" : " hidden"} data-live-row="${key}" data-live-slot="${key}">
+      <div class="host-panels">${renderHostPanels(suite, scenario, selectedHost, results, canRun)}</div>
     </div>
   </article>`;
 }
 
-function renderSuiteSection(suite: ViewerCatalogSuite): string {
-	const cards = suite.scenarios.map((scenario) => renderScenarioCard(suite, scenario)).join("");
+function renderSuiteSection(
+	suite: ViewerCatalogSuite,
+	results: ViewerRenderedResult[],
+	canRun: boolean,
+	defaultSelectedHosts: string[],
+	firstScenarioKey: string,
+): string {
+	const cards = suite.scenarios
+		.map((scenario) =>
+			renderScenarioCard(
+				suite,
+				scenario,
+				results,
+				canRun,
+				defaultSelectedHosts,
+				`${suite.name}::${scenario.name}` === firstScenarioKey,
+			),
+		)
+		.join("");
 	return `
 <section class="suite" data-suite="${escapeHtml(suite.name)}">
-  <header class="suite-header">
-    <div class="suite-title">
-      <h2>${escapeHtml(suite.name)}</h2>
-      ${suite.description ? `<p class="muted">${escapeHtml(suite.description)}</p>` : ""}
-    </div>
-    <button class="run-suite" data-suite="${escapeHtml(suite.name)}">Run suite</button>
-  </header>
   <div class="scenario-list">${cards}</div>
 </section>`;
+}
+
+function renderTestNavigator(
+	catalog: ViewerCatalog,
+	firstScenarioKey: string,
+	canRun: boolean,
+): string {
+	const groups = catalog.suites
+		.map((suite) => {
+			const tests = suite.scenarios
+				.map((scenario) => {
+					const key = `${suite.name}::${scenario.name}`;
+					const selected = key === firstScenarioKey;
+					const status = scenario.skip ? "skipped" : "idle";
+					return `<button type="button" class="test-nav-item" data-select-scenario="${escapeHtml(key)}" data-status="${status}" aria-current="${selected ? "true" : "false"}">
+            <span class="test-nav-status" aria-hidden="true"></span>
+            <span class="test-nav-copy"><strong>${escapeHtml(scenario.name)}</strong>${scenario.description ? `<small>${escapeHtml(scenario.description)}</small>` : ""}</span>
+          </button>`;
+				})
+				.join("");
+			return `<section class="test-nav-suite" data-nav-suite="${escapeHtml(suite.name)}">
+        <header><div><h2>${escapeHtml(suite.name)}</h2>${suite.description ? `<p>${escapeHtml(suite.description)}</p>` : ""}</div><button class="run-toggle run-suite" data-start-label="Start suite" data-suite="${escapeHtml(suite.name)}"${canRun ? "" : ' disabled data-fixed-disabled="1"'}>Start suite</button></header>
+        <div class="test-nav-items">${tests}</div>
+      </section>`;
+		})
+		.join("");
+	const options = catalog.suites
+		.flatMap((suite) =>
+			suite.scenarios.map((scenario) => {
+				const key = `${suite.name}::${scenario.name}`;
+				return `<option value="${escapeHtml(key)}"${key === firstScenarioKey ? " selected" : ""}>${escapeHtml(suite.name)} / ${escapeHtml(scenario.name)}</option>`;
+			}),
+		)
+		.join("");
+	return `<aside class="test-navigator" aria-label="Tests">
+    <div class="test-navigator-heading"><div><p class="section-label">Test catalog</p><h2>${catalog.suites.reduce((sum, suite) => sum + suite.scenarios.length, 0)} tests</h2></div></div>
+    <label class="test-picker-label" for="test-picker">Selected test</label>
+    <select class="test-picker" id="test-picker">${options}</select>
+    <nav class="test-tree" aria-label="Test catalog">${groups}</nav>
+  </aside>`;
 }
 
 function clientScript(): string {
 	return `
 (function () {
-  var catalog = JSON.parse(document.getElementById("catalog-data").textContent);
+  var bootstrap = JSON.parse(document.getElementById("bootstrap-data").textContent);
+  var catalog = bootstrap.catalog;
   var source = null;
   var runId = null;
+	var selectedRunId = bootstrap.selectedRunId || null;
   var cancelRequested = false;
+	var activeRunRequest = null;
+	var viewedRunHosts = null;
   var progress = { total: 0, completed: 0, passed: 0, failed: 0, skipped: 0, seen: {}, experiments: {} };
+	var selectedScenarioKey = document.querySelector("[data-scenario-card][data-selected='true']")?.getAttribute("data-scenario-card") || null;
+
+	function selectScenario(key) {
+		if (!key) return;
+		selectedScenarioKey = key;
+		document.querySelectorAll("[data-scenario-card]").forEach(function (card) {
+			var selected = card.getAttribute("data-scenario-card") === key;
+			card.dataset.selected = selected ? "true" : "false";
+			card.hidden = !selected;
+		});
+		document.querySelectorAll("[data-select-scenario]").forEach(function (item) {
+			item.setAttribute("aria-current", item.getAttribute("data-select-scenario") === key ? "true" : "false");
+		});
+		var picker = document.getElementById("test-picker");
+		if (picker) picker.value = key;
+	}
+
+	function syncScenarioStatus(suite, scenario) {
+		var key = suite + "::" + scenario;
+		var card = document.querySelector('[data-scenario-card="' + key + '"]');
+		if (!card) return;
+		var labels = Array.prototype.map.call(card.querySelectorAll(".cell-status"), function (node) { return node.textContent; });
+		var status = labels.indexOf("failed") !== -1 ? "failed"
+			: labels.some(function (label) { return label === "running" || label === "starting" || label === "cancelling"; }) ? "running"
+			: labels.indexOf("passed") !== -1 ? "passed"
+			: labels.length > 0 && labels.every(function (label) { return label === "skip" || label === "skipped" || label === "cancelled"; }) ? "skipped"
+			: "idle";
+		document.querySelectorAll('[data-select-scenario="' + key + '"]').forEach(function (item) { item.dataset.status = status; });
+		var verdict = document.querySelector('[data-focus-verdict="' + key + '"]');
+		if (verdict) {
+			verdict.dataset.status = status;
+			verdict.lastChild.textContent = status === "idle" ? "Not run" : status.charAt(0).toUpperCase() + status.slice(1);
+		}
+	}
 
   function selectedHosts() {
     return Array.prototype.map.call(document.querySelectorAll("[data-host-toggle]:checked"), function (box) {
       return box.value;
     });
   }
+
+	function updateHostSelectionControls() {
+		var hasSelectedHost = selectedHosts().length > 0;
+		syncScenarioHostChoices();
+		document.querySelectorAll(".run-toggle").forEach(function (button) {
+			if (button.dataset.runAction !== "stop") {
+				var hasTarget = button.classList.contains("run-cell")
+					? !!button.getAttribute("data-host")
+					: hasSelectedHost;
+				button.disabled = !hasTarget || button.dataset.fixedDisabled === "1";
+			}
+		});
+	}
+
+	function syncScenarioHostChoices() {
+		var hosts = Array.isArray(viewedRunHosts) ? viewedRunHosts : selectedHosts();
+		var isFiltered = hosts.length > 0;
+		document.querySelectorAll("[data-scenario-card]").forEach(function (card) {
+			var tabs = Array.prototype.slice.call(card.querySelectorAll(".host-tab"));
+			if (tabs.length === 0) return;
+			tabs.forEach(function (tab) {
+				var eligible = !tab.disabled && (!isFiltered || hosts.indexOf(tab.getAttribute("data-host")) !== -1);
+				tab.hidden = isFiltered && !eligible;
+			});
+			var current = tabs.find(function (tab) { return tab.getAttribute("aria-selected") === "true" && !tab.hidden && !tab.disabled; });
+			var available = tabs.find(function (tab) { return !tab.hidden && !tab.disabled; });
+			if (!current && isFiltered && available) {
+				selectHostTab(card, available.getAttribute("data-host"));
+				current = available;
+			}
+			var empty = card.querySelector(".host-empty-selection");
+			if (empty) empty.hidden = !!available;
+			if (!available) {
+				tabs.forEach(function (tab) { tab.setAttribute("aria-selected", "false"); });
+				card.querySelectorAll("[data-host-panel]").forEach(function (panel) { panel.hidden = true; });
+				var run = card.querySelector("button.run-cell");
+				if (run) {
+					run.setAttribute("data-host", "");
+					run.disabled = true;
+				}
+			}
+		});
+	}
+
+	function scopedRunControl(request) {
+		if (!request) return null;
+		if (request.scenario) {
+			return document.querySelector('.run-cell[data-suite="' + request.suite + '"][data-scenario="' + request.scenario + '"]');
+		}
+		if (request.suite) return document.querySelector('.run-suite[data-suite="' + request.suite + '"]');
+		return null;
+	}
+
+	function setRunControls(status, request) {
+		activeRunRequest = status === "idle" ? null : request || activeRunRequest;
+		document.querySelectorAll(".run-toggle").forEach(function (button) {
+			button.textContent = button.dataset.startLabel || "Start run";
+			button.dataset.runAction = "start";
+			button.classList.remove("danger");
+		});
+		updateHostSelectionControls();
+		if (status === "idle") return;
+		document.querySelectorAll(".run-toggle").forEach(function (button) { button.disabled = true; });
+		var controls = [document.getElementById("run-selection"), scopedRunControl(activeRunRequest)];
+		controls.forEach(function (button) {
+			if (!button) return;
+			button.dataset.runAction = "stop";
+			button.textContent = status === "cancelling"
+				? "Stopping…"
+				: button.id === "run-selection" ? "Stop run" : (button.classList.contains("run-suite") ? "Stop suite" : "Stop test");
+			button.classList.add("danger");
+			button.disabled = status === "cancelling";
+		});
+	}
 
   function parallelHosts() {
     return document.getElementById("parallel-hosts").checked;
@@ -431,7 +973,7 @@ function clientScript(): string {
   }
 
   function runnableTargets(body) {
-    var requestedHosts = body.hosts && body.hosts.length ? body.hosts : catalog.defaultSelectedHosts;
+    var requestedHosts = Array.isArray(body.hosts) ? body.hosts : catalog.defaultSelectedHosts;
     var total = 0;
     catalog.suites.forEach(function (suite) {
       if (body.suite && suite.name !== body.suite) {
@@ -723,11 +1265,129 @@ function clientScript(): string {
     markRunningIdle();
   }
 
-  function setCancelButton(label, disabled) {
-    var button = document.getElementById("cancel-run");
-    button.textContent = label;
-    button.disabled = disabled;
-  }
+	function resetViewerCards() {
+		closeAllChats();
+		document.querySelectorAll("[data-host-panel]").forEach(function (panel) {
+			panel.innerHTML = '<p class="host-empty">No run yet.</p>';
+		});
+		document.querySelectorAll(".scenario-live").forEach(function (live) { live.hidden = true; });
+		document.querySelectorAll(".cell-status").forEach(function (status) {
+			if (status.textContent !== "skip") {
+				status.textContent = "idle";
+				status.className = "cell-status muted";
+			}
+		});
+		catalog.suites.forEach(function (suite) {
+			suite.scenarios.forEach(function (scenario) { syncScenarioStatus(suite.name, scenario.name); });
+		});
+	}
+
+	function runLabel(run) {
+		var scope = run.request && (run.request.scenario || run.request.suite) || "all tests";
+		var time = new Date(run.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+		return time + " · " + scope + " · " + run.status;
+	}
+
+	function renderRunHistory(runs) {
+		bootstrap.runs = runs;
+		var select = document.getElementById("run-history");
+		select.replaceChildren();
+		var idle = document.createElement("option");
+		idle.value = "";
+		idle.textContent = "Tests · no run selected";
+		select.appendChild(idle);
+		runs.forEach(function (run) {
+			var option = document.createElement("option");
+			option.value = run.id;
+			option.textContent = runLabel(run);
+			select.appendChild(option);
+		});
+		select.value = selectedRunId || "";
+	}
+
+	function completedRunBanner(run) {
+		if (run.status === "cancelled") return "Run cancelled.";
+		if (run.status !== "completed") return "Run " + run.id + " · " + run.status + ".";
+		var counts = (run.reports || []).reduce(function (total, report) {
+			total.passed += report.passed || 0;
+			total.failed += report.failed || 0;
+			total.skipped += report.skipped || 0;
+			return total;
+		}, { passed: 0, failed: 0, skipped: 0 });
+		return "Run finished. " + counts.passed + " passed. " + counts.failed + " failed. " + counts.skipped + " skipped.";
+	}
+
+	async function refreshRunHistory() {
+		if (!bootstrap.capabilities.canRun) return;
+		var response = await fetch("/api/runs");
+		if (!response.ok) return;
+		renderRunHistory(await response.json());
+	}
+
+	async function selectRun(id) {
+		selectedRunId = id || null;
+		viewedRunHosts = null;
+		if (source) { source.close(); source = null; }
+		runId = null;
+		cancelRequested = false;
+		resetViewerCards();
+		if (!selectedRunId) {
+			setRunBanner("Choose tests to run.");
+			setRunControls("idle");
+			renderRunHistory(bootstrap.runs || []);
+			return;
+		}
+		var response = await fetch("/api/runs/" + selectedRunId);
+		if (!response.ok) return;
+		var payload = await response.json();
+		viewedRunHosts = Array.isArray(payload.run.request && payload.run.request.hosts) ? payload.run.request.hosts : null;
+		syncScenarioHostChoices();
+		(payload.fragments || []).forEach(function (fragment) {
+			var card = document.querySelector('[data-scenario-card="' + fragment.suite + "::" + fragment.scenario + '"]');
+			var panel = card && card.querySelector('[data-host-panel="' + fragment.host + '"]');
+			if (!card || !panel) return;
+			panel.innerHTML = fragment.html;
+			var live = card.querySelector(".scenario-live");
+			if (live) live.hidden = false;
+			markCell(fragment, fragment.skipped ? "skipped" : fragment.passed ? "passed" : "failed", fragment.skipped ? "status-skipped" : fragment.passed ? "status-passed" : "status-failed");
+		});
+		var preferred = (payload.fragments || []).find(function (fragment) { return !fragment.skipped && !fragment.passed; }) || (payload.fragments || [])[0];
+		if (preferred) selectScenario(preferred.suite + "::" + preferred.scenario, false);
+		if (payload.run.status === "cancelled") {
+			markRunTargets(payload.run.request || {}, "cancelled", "status-skipped");
+		}
+		setRunBanner(completedRunBanner(payload.run));
+		renderRunHistory((bootstrap.runs || []).map(function (item) { return item.id === payload.run.id ? payload.run : item; }));
+		if (payload.run.status === "running" || payload.run.status === "cancelling") {
+			runId = payload.run.id;
+			setRunControls(payload.run.status === "cancelling" ? "cancelling" : "running", payload.run.request);
+			source = new EventSource("/api/runs/" + runId + "/events");
+			source.onmessage = function (message) { handleEvent(JSON.parse(message.data)); };
+		} else {
+			setRunControls("idle");
+		}
+	}
+
+	function requestRunStop() {
+		if (!runId || cancelRequested) return;
+		cancelRequested = true;
+		setRunBanner("Stopping the run.");
+		setRunControls("cancelling", activeRunRequest);
+		cancelOpenChats();
+		fetch("/api/runs/" + runId + "/cancel", { method: "POST" }).then(function (response) {
+			if (!response.ok && cancelRequested) {
+				setRunBanner("Stop failed.");
+				cancelRequested = false;
+				setRunControls("running", activeRunRequest);
+			}
+		}).catch(function () {
+			if (cancelRequested) {
+				setRunBanner("Stop failed.");
+				cancelRequested = false;
+				setRunControls("running", activeRunRequest);
+			}
+		});
+	}
 
   function showCancelledNote(article, text) {
     if (!article) {
@@ -1259,7 +1919,7 @@ function clientScript(): string {
         return { passed: false, line: gate.metric + ": one arm did not report a value. Fail." };
       }
       var passed = winnerValue < loserValue;
-      return { passed: passed, line: winner.label + " must beat " + loser.label + " on " + gate.metric + " (" + winnerValue + " vs " + loserValue + "). " + (passed ? "Pass." : "Fail.") };
+      return { passed: passed, line: winner.label + " must use fewer " + gate.metric + " than " + loser.label + " (" + winnerValue + " vs " + loserValue + "). " + (passed ? "Pass." : "Fail.") };
     });
   }
 
@@ -1293,7 +1953,6 @@ function clientScript(): string {
       summarizeMetric(rows, "turns", "Turns"),
       summarizeMetric(rows, "tokens", "Tokens"),
       summarizeMetric(rows, "tools", "Tools"),
-	  summarizeMetric(rows, "durationMs", "Duration"),
     ];
     var gateLines = summarizeGates(rows, scenario.gates);
     var existing = wrap.querySelector(".compare-winners");
@@ -1333,6 +1992,7 @@ function clientScript(): string {
         node.setAttribute("data-status", label);
       }
     });
+		syncScenarioStatus(event.suite, event.scenario);
   }
 
   function metricPart(count, one, many) {
@@ -1441,10 +2101,11 @@ function clientScript(): string {
         return;
       }
       setRunBanner("Run " + event.runId + " started.");
-      setCancelButton("Cancel run", false);
+      setRunControls("running", activeRunRequest);
       return;
     }
     if (event.type === "run_finished") {
+	  var wasCancelled = cancelRequested;
       finishProgress(event);
       hideAllRunning();
       sealAllChats();
@@ -1456,13 +2117,16 @@ function clientScript(): string {
           "Run finished. " + progress.passed + " passed. " + progress.failed + " failed. " + progress.skipped + " skipped."
         );
       }
-      setCancelButton("Cancel run", true);
+      setRunControls("idle");
       cancelRequested = false;
       runId = null;
       if (source) {
         source.close();
         source = null;
       }
+	  void refreshRunHistory().then(function () {
+		if (!wasCancelled) return selectRun(event.runId);
+	  });
       return;
     }
     if (cancelRequested) {
@@ -1479,6 +2143,21 @@ function clientScript(): string {
       }
       return;
     }
+	if (event.type === "scenario_result") {
+		fetch("/api/runs/" + (runId || selectedRunId)).then(function (response) {
+			return response.ok ? response.json() : null;
+		}).then(function (payload) {
+			if (!payload || selectedRunId !== payload.run.id) return;
+			var fragment = (payload.fragments || []).find(function (item) {
+				return item.suite === event.suite && item.scenario === event.scenario && item.host === event.host;
+			});
+			if (!fragment) return;
+			var card = scenarioCard(event);
+			var panel = card && card.querySelector('[data-host-panel="' + event.host + '"]');
+			if (panel) panel.innerHTML = fragment.html;
+		}).catch(function () {});
+		return;
+	}
     if (event.type === "cell_started") {
       markCell(event, "running", "status-skipped");
       startChat(event);
@@ -1589,7 +2268,7 @@ function clientScript(): string {
   }
 
   function markRunTargets(body, label, statusClass) {
-    var hosts = body.hosts && body.hosts.length ? body.hosts : catalog.defaultSelectedHosts;
+    var hosts = Array.isArray(body.hosts) ? body.hosts : catalog.defaultSelectedHosts;
     catalog.suites.forEach(function (suite) {
       if (body.suite && suite.name !== body.suite) {
         return;
@@ -1612,6 +2291,11 @@ function clientScript(): string {
   }
 
   async function startRun(body) {
+	if (!bootstrap.capabilities.canRun) return;
+	if (Array.isArray(body.hosts) && body.hosts.length === 0) {
+		setRunBanner("Select at least one host.");
+		return;
+	}
     if (runId) {
       setRunBanner(
         cancelRequested
@@ -1620,6 +2304,11 @@ function clientScript(): string {
       );
       return;
     }
+	resetViewerCards();
+	activeRunRequest = body;
+	viewedRunHosts = Array.isArray(body.hosts) ? body.hosts : null;
+	syncScenarioHostChoices();
+	setRunControls("running", body);
     resetProgress(body);
     markRunTargets(body, "starting", "status-skipped");
     var firstCard = document.querySelector(
@@ -1639,6 +2328,7 @@ function clientScript(): string {
       delete card.dataset.followHost;
     });
     if (firstCard) {
+		selectScenario(firstCard.getAttribute("data-scenario-card"), false);
       var live = firstCard.querySelector(".scenario-live");
       if (live) {
         live.hidden = false;
@@ -1663,12 +2353,15 @@ function clientScript(): string {
         progress = { total: 0, completed: 0, passed: 0, failed: 0, skipped: 0, seen: {} };
         renderProgress();
         markRunTargets(body, "idle", "muted");
+		setRunControls("idle");
         return;
       }
       runId = payload.runId;
+		selectedRunId = runId;
+		await refreshRunHistory();
       cancelRequested = false;
       setRunBanner("Run " + runId + " started.");
-      setCancelButton("Cancel run", false);
+		setRunControls("running", body);
       if (source) {
         source.close();
       }
@@ -1686,39 +2379,29 @@ function clientScript(): string {
     } catch (error) {
       setRunBanner(error instanceof Error ? error.message : String(error));
       markRunTargets(body, "idle", "muted");
+	  setRunControls("idle");
     }
   }
 
-  document.getElementById("run-selection").addEventListener("click", function () {
+  document.getElementById("run-selection").addEventListener("click", function (event) {
+	if (event.currentTarget.dataset.runAction === "stop") return requestRunStop();
     startRun({ hosts: selectedHosts(), parallelHosts: parallelHosts() });
   });
-  document.getElementById("cancel-run").addEventListener("click", function () {
-    if (!runId || cancelRequested) {
-      return;
-    }
-    cancelRequested = true;
-    setRunBanner("Cancelling the run.");
-    setCancelButton("Cancelling", true);
-    cancelOpenChats();
-    fetch("/api/runs/" + runId + "/cancel", { method: "POST" }).then(function (response) {
-      if (!response.ok && cancelRequested) {
-        setRunBanner("Cancel failed.");
-        setCancelButton("Cancel run", false);
-        cancelRequested = false;
-      }
-    }).catch(function () {
-      if (cancelRequested) {
-        setRunBanner("Cancel failed.");
-        setCancelButton("Cancel run", false);
-        cancelRequested = false;
-      }
-    });
-  });
+	document.querySelectorAll("[data-host-toggle]").forEach(function (toggle) {
+		toggle.addEventListener("change", updateHostSelectionControls);
+	});
+	document.getElementById("run-history").addEventListener("change", function (event) {
+		void selectRun(event.target.value);
+	});
   document.body.addEventListener("click", function (event) {
     var button = event.target.closest("button");
     if (!button) {
       return;
     }
+		if (button.classList.contains("test-nav-item")) {
+			selectScenario(button.getAttribute("data-select-scenario"), false);
+			return;
+		}
     if (button.classList.contains("host-tab")) {
       var card = button.closest("[data-scenario-card]");
       if (card) {
@@ -1727,6 +2410,7 @@ function clientScript(): string {
       }
     }
     if (button.classList.contains("run-cell")) {
+	  if (button.dataset.runAction === "stop") return requestRunStop();
       startRun({
         suite: button.getAttribute("data-suite"),
         scenario: button.getAttribute("data-scenario"),
@@ -1734,15 +2418,8 @@ function clientScript(): string {
         parallelHosts: false,
       });
     }
-    if (button.classList.contains("run-row")) {
-      startRun({
-        suite: button.getAttribute("data-suite"),
-        scenario: button.getAttribute("data-scenario"),
-        hosts: selectedHosts(),
-        parallelHosts: parallelHosts(),
-      });
-    }
     if (button.classList.contains("run-suite")) {
+	  if (button.dataset.runAction === "stop") return requestRunStop();
       startRun({
         suite: button.getAttribute("data-suite"),
         hosts: selectedHosts(),
@@ -1750,52 +2427,108 @@ function clientScript(): string {
       });
     }
   });
+	document.getElementById("test-picker")?.addEventListener("change", function (event) {
+		selectScenario(event.target.value, false);
+	});
+
+	renderRunHistory(bootstrap.runs || []);
+	selectScenario(selectedScenarioKey, false);
+	updateHostSelectionControls();
+	if (selectedRunId && bootstrap.capabilities.canRun) void selectRun(selectedRunId);
+	if (bootstrap.capabilities.canRun) setInterval(function () { void refreshRunHistory(); }, 1000);
 })();
 `;
 }
 
-export function renderViewerPage(catalog: ViewerCatalog): string {
+function staticNavigationScript(): string {
+	return `
+(function () {
+  function selectScenario(key) {
+    document.querySelectorAll("[data-scenario-card]").forEach(function (card) {
+      var selected = card.getAttribute("data-scenario-card") === key;
+      card.dataset.selected = selected ? "true" : "false";
+      card.hidden = !selected;
+    });
+    document.querySelectorAll("[data-select-scenario]").forEach(function (item) {
+      item.setAttribute("aria-current", item.getAttribute("data-select-scenario") === key ? "true" : "false");
+    });
+    var picker = document.getElementById("test-picker");
+    if (picker) picker.value = key;
+  }
+  document.body.addEventListener("click", function (event) {
+    var item = event.target.closest("[data-select-scenario]");
+    if (item) selectScenario(item.getAttribute("data-select-scenario"));
+  });
+  document.getElementById("test-picker")?.addEventListener("change", function (event) {
+    selectScenario(event.target.value);
+  });
+})();
+`;
+}
+
+export function renderViewerPage(
+	input: ViewerCatalog | ViewerBootstrap,
+	options: ViewerPageRenderOptions = {},
+): string {
+	const bootstrap: ViewerBootstrap =
+		"catalog" in input ? input : { catalog: input, runs: [], capabilities: { canRun: true } };
+	const catalog = bootstrap.catalog;
+	const canRun = bootstrap.capabilities.canRun;
+	const firstScenarioKey = catalog.suites[0]?.scenarios[0]
+		? `${catalog.suites[0].name}::${catalog.suites[0].scenarios[0].name}`
+		: "";
 	const hostToggles = Array.from(new Set(catalog.suites.flatMap((suite) => suite.hosts)))
 		.map((host) => {
 			const checked = catalog.defaultSelectedHosts.includes(host) ? " checked" : "";
 			return `<label><input type="checkbox" data-host-toggle value="${escapeHtml(host)}"${checked}>${escapeHtml(host)}</label>`;
 		})
 		.join("");
-	const suites = catalog.suites.map(renderSuiteSection).join("\n");
+	const suites = catalog.suites
+		.map((suite) =>
+			renderSuiteSection(
+				suite,
+				options.results ?? [],
+				canRun,
+				catalog.defaultSelectedHosts,
+				firstScenarioKey,
+			),
+		)
+		.join("\n");
+	const navigator = renderTestNavigator(catalog, firstScenarioKey, canRun);
+	const historyOptions = [
+		`<option value="">Tests · no run selected</option>`,
+		...bootstrap.runs.map((run) => {
+			const selected = run.id === bootstrap.selectedRunId ? " selected" : "";
+			return `<option value="${escapeHtml(run.id)}"${selected}>${escapeHtml(run.id)} · ${escapeHtml(run.status)}</option>`;
+		}),
+	].join("");
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>agent-test viewer</title>
+  <title>agent-test ${canRun ? "viewer" : "report"}</title>
   <style>
-${reportCss()}
+${options.baseCss ?? ""}
 ${viewerCss()}
   </style>
 </head>
 <body>
-  <main>
-    <header class="report-header">
-      <p class="brand">agent-test</p>
-      <h1>Suite viewer</h1>
-      <p class="lede">This page lists every scenario before a run.</p>
-      <p class="warn">Run starts a live host agent.</p>
+  <main class="viewer-shell">
+    <header class="viewer-topbar">
+      <div class="viewer-identity"><p class="brand">agent-test</p><h1>${canRun ? "Test viewer" : "Run report"}</h1></div>
+	  <div class="run-context">
+		<label class="toolbar-label" for="run-history">Viewing run</label>
+		<select class="run-history" id="run-history" aria-label="Run history"${canRun ? "" : " disabled"}>${historyOptions}</select>
+	  </div>
+      <p class="run-banner${canRun ? "" : " lede"}" id="run-banner" aria-live="polite">${canRun ? "Choose a test to inspect or run." : escapeHtml(options.headerLede ?? "Read-only report.")}</p>
     </header>
-    <section class="toolbar">
-      <div class="toolbar-block">
-        <p class="toolbar-label">Hosts</p>
-        <div class="host-toggles">${hostToggles}</div>
-      </div>
-      <div class="toolbar-block">
-        <p class="toolbar-label">Run order</p>
-        <label><input type="checkbox" id="parallel-hosts"> Run hosts together</label>
-      </div>
-      <div class="toolbar-actions">
-        <button class="primary" id="run-selection">Run selection</button>
-        <button class="danger" id="cancel-run" disabled>Cancel run</button>
-      </div>
-      <p class="run-banner" id="run-banner"></p>
-    </section>
+	<div class="viewer-command-row">
+      <div class="toolbar-block"><p class="toolbar-label">Hosts</p><div class="host-toggles">${hostToggles}</div></div>
+      <label class="parallel-control"><input type="checkbox" id="parallel-hosts" checked> Run hosts together</label>
+      <button class="primary run-toggle" id="run-selection" data-start-label="Start run"${canRun ? "" : ' disabled data-fixed-disabled="1"'}>Start run</button>
+    </div>
+	${options.overviewHtml ?? ""}
     <section class="run-progress" id="run-progress" aria-live="polite" hidden>
       <div class="run-progress-head">
         <p class="run-progress-title">0 of 0 tests finished</p>
@@ -1810,11 +2543,15 @@ ${viewerCss()}
         <span class="progress-remaining">Remaining <strong>0</strong></span>
       </div>
     </section>
-    ${suites}
+    <div class="viewer-workspace">
+      ${navigator}
+      <section class="test-stage" aria-label="Selected test">${suites}</section>
+    </div>
   </main>
-  <script type="application/json" id="catalog-data">${embedJson(catalog)}</script>
-  <script>
-${clientScript()}
+	<script type="application/json" id="catalog-data">${embedJson(catalog)}</script>
+  <script type="application/json" id="bootstrap-data">${embedJson(bootstrap)}</script>
+  <script type="text/javascript">
+${canRun ? clientScript() : staticNavigationScript()}
   </script>
 </body>
 </html>

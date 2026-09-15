@@ -20,6 +20,7 @@
 			"mcpServers": {
 				"echo": {
 					"type": "stdio",
+					"tools": ["echo", "lookup", "search_tasks", "get_task", "task_index"],
 					"command": "node",
 					"args": ["packages/test/fixtures/mcp-echo/server.mjs"]
 				}

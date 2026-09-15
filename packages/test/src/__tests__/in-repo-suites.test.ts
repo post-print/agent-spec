@@ -15,9 +15,11 @@ const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 describe("in-repo suites", () => {
 	it("validates every host-agent suite without launching an agent", async () => {
 		const paths = await discoverSuites(join(repoRoot, "agent-suites"));
-		expect(paths.some((path) => path.endsWith(join("confidence", "scenarios.json")))).toBe(true);
+		expect(
+			paths.some((path) => path.endsWith(join("test-sdk-capabilities", "scenarios.json"))),
+		).toBe(true);
 		expect(paths.some((path) => path.endsWith(join("tour", "scenarios.json")))).toBe(true);
-		expect(paths.some((path) => path.endsWith(join("reference", "scenarios.json")))).toBe(true);
+		expect(paths).toHaveLength(2);
 		for (const suitePath of paths) {
 			const suite = await loadSuiteFile(suitePath);
 			expect(validateSuiteFile(suitePath, suite)).toEqual([]);
@@ -43,17 +45,23 @@ describe("in-repo suites", () => {
 		expect(report.ok).toBe(true);
 	});
 
-	it("keeps confidence as a six-scenario host proof", async () => {
+	it("keeps the manual live suite focused on runAgentTest capabilities", async () => {
 		const paths = await discoverSuites(join(repoRoot, "agent-suites"));
-		const suitePath = paths.find((path) => path.endsWith(join("confidence", "scenarios.json")));
+		const suitePath = paths.find((path) =>
+			path.endsWith(join("test-sdk-capabilities", "scenarios.json")),
+		);
 		expect(suitePath).toBeDefined();
 		if (!suitePath) {
 			return;
 		}
 		const suite = await loadSuiteFile(suitePath);
-		expect(suite.scenarios).toHaveLength(6);
+		expect(suite.scenarios).toHaveLength(11);
 		expect(suite.scenarios.map((scenario) => scenario.name)).toContain(
-			"uses two MCP tools in order",
+			"captures ordered MCP tool calls",
+		);
+		expect(suite.scenarios.map((scenario) => scenario.name)).toContain("applies a seed patch");
+		expect(suite.scenarios.map((scenario) => scenario.name)).toContain(
+			"runs comparison arms and gates",
 		);
 	});
 

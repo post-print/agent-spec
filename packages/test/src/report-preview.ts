@@ -1,13 +1,37 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import type { HostAuthMode } from "@post-print/agent-harness";
+import type { SuiteRunReport } from "./types.js";
+import type { ViewerRunRequest } from "./viewer/catalog.js";
 
 /** Preview process exits after this idle time. */
 export const REPORT_PREVIEW_IDLE_MS = 30 * 60 * 1000;
+
+export interface DetachedViewerManifest {
+	/** CLI entrypoint that started this session; isolated reruns execute this, not the session server. */
+	cliPath?: string;
+	cwd: string;
+	suitesDir: string;
+	rubricsDir?: string;
+	judge?: boolean;
+	timeoutMs?: number;
+	authMode?: HostAuthMode;
+	adapterModules?: string[];
+	workers?: number;
+	worktree?: boolean;
+	keepRecordings?: boolean;
+	allowUserInput?: boolean;
+	debug?: boolean;
+	debugDir?: string;
+	request?: ViewerRunRequest;
+	reports: SuiteRunReport[];
+}
 
 const PREVIEW_HOST = "127.0.0.1";
 
@@ -106,6 +130,45 @@ export async function startDetachedReportPreview(filePath: string): Promise<stri
 	}
 }
 
+/** Start the active unified viewer around one completed CLI run. */
+export async function startDetachedViewer(
+	manifest: DetachedViewerManifest,
+): Promise<string | undefined> {
+	const serverPath = resolveViewerServerEntry();
+	if (!serverPath) return undefined;
+	const manifestDir = await mkdtemp(join(tmpdir(), "agent-test-viewer-"));
+	const manifestPath = join(manifestDir, "session.json");
+	await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`, { encoding: "utf8", mode: 0o600 });
+	const child = spawn(
+		process.execPath,
+		[serverPath, manifestPath, String(REPORT_PREVIEW_IDLE_MS)],
+		{
+			detached: true,
+			stdio: ["ignore", "pipe", "ignore"],
+		},
+	);
+	if (!child.stdout) {
+		child.kill();
+		await rm(manifestDir, { recursive: true, force: true });
+		return undefined;
+	}
+	try {
+		const line = await readFirstLine(child.stdout, 3000);
+		if (!isLocalPreviewUrl(line)) {
+			child.kill();
+			await rm(manifestDir, { recursive: true, force: true });
+			return undefined;
+		}
+		child.stdout.destroy();
+		child.unref();
+		return line;
+	} catch {
+		killPreviewChild(child);
+		await rm(manifestDir, { recursive: true, force: true });
+		return undefined;
+	}
+}
+
 function isLocalPreviewUrl(url: string): boolean {
 	return /^http:\/\/127\.0\.0\.1:\d+\/$/.test(url);
 }
@@ -119,6 +182,14 @@ function resolvePreviewServerEntry(): string | undefined {
 	if (existsSync(ts)) {
 		return ts;
 	}
+	return undefined;
+}
+
+function resolveViewerServerEntry(): string | undefined {
+	const js = fileURLToPath(new URL("./viewer/session-server.js", import.meta.url));
+	const ts = fileURLToPath(new URL("./viewer/session-server.ts", import.meta.url));
+	if (existsSync(js)) return js;
+	if (existsSync(ts)) return ts;
 	return undefined;
 }
 

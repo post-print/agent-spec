@@ -19,6 +19,10 @@ export interface JudgeVerdict {
 	pass: boolean;
 	rationale: string;
 	evidence?: string[];
+	/** Exact classifier input retained for report inspection. */
+	prompt?: string;
+	/** Exact classifier output retained for report inspection. */
+	response?: string;
 	/** Present when the judge SDK run failed (distinct from a criterion miss). */
 	infraError?: string;
 	/** Present when the judge returned an unparseable contract (distinct from infra). */
@@ -680,6 +684,7 @@ async function runJudgePromptOnce(
 	pass: boolean;
 	rationale: string;
 	evidence: string[];
+	response?: string;
 	error?: string;
 	infraError?: string;
 	parseError?: string;
@@ -722,6 +727,7 @@ async function runJudgePromptOnce(
 			pass: false,
 			rationale,
 			evidence: [],
+			response: result.text,
 			error: rationale,
 			parseError: rationale,
 			durationMs,
@@ -733,6 +739,7 @@ async function runJudgePromptOnce(
 		pass: parsed.pass,
 		rationale: parsed.rationale,
 		evidence: parsed.evidence,
+		response: result.text,
 		durationMs,
 		usage,
 		retryable: false,
@@ -746,6 +753,7 @@ async function runJudgePrompt(
 	pass: boolean;
 	rationale: string;
 	evidence: string[];
+	response?: string;
 	error?: string;
 	infraError?: string;
 	parseError?: string;
@@ -938,6 +946,8 @@ async function judgeCriteria(
 			pass: parsed.pass,
 			rationale: parsed.rationale,
 			evidence: parsed.evidence,
+			prompt,
+			response: parsed.response,
 			infraError: parsed.infraError,
 			parseError: parsed.parseError,
 			rawSdkStatus: parsed.rawSdkStatus,

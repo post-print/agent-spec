@@ -40,7 +40,7 @@ import {
 	getLiveStagingSessionRoot,
 	setLiveStagingRootOverride,
 } from "./record-trace.js";
-import { shouldStartReportPreview, startDetachedReportPreview } from "./report-preview.js";
+import { shouldStartReportPreview, startDetachedViewer } from "./report-preview.js";
 import { registerLiveRunHandlers, runAllSuites, selectedRunNeedsJudge } from "./run-suite.js";
 import {
 	type FailOnMode,
@@ -49,7 +49,8 @@ import {
 	summarizeReports,
 } from "./suite-summary.js";
 import { configureCliColor, theme } from "./theme.js";
-import type { CompareArmId } from "./types.js";
+import type { CompareArmId, SuiteRunReport } from "./types.js";
+import { loadViewerCatalog } from "./viewer/catalog.js";
 import { startViewerCli } from "./viewer/cli.js";
 import { suppressNoisyRuntimeWarnings } from "./warnings.js";
 import { parseWorkerCount } from "./worker-pool.js";
@@ -163,7 +164,7 @@ export function formatHelp(): string {
 		"A run checks the suite and host first.",
 		"",
 		"  login                           Store a Cursor SDK login. Codex uses `codex login`.",
-		"  viewer                          Open a localhost catalog. Run buttons start live agents.",
+		"  viewer                          Open the unified localhost catalog and session run history.",
 		"  --check                         Check the suite and host. Do not launch an agent.",
 		"  --help, -h                      Print this help.",
 		"",
@@ -187,7 +188,7 @@ export function formatHelp(): string {
 		"  --workers <n>                   Parallel live agents (1-32). Viewer default 4. CLI default 1.",
 		"  --debug                         Keep recordings and write a debug bundle",
 		"  --debug-dir <path>              Debug session parent directory",
-		"  --report-out <path>             HTML report file or directory",
+		"  --report-out <path>             Self-contained read-only HTML report file or directory",
 		"  --no-html-report                Skip the HTML report",
 		"  --no-worktree                   Run in the caller checkout (needs AGENT_TEST_ALLOW_IN_PLACE=1)",
 		"",
@@ -507,9 +508,35 @@ export function resolveHtmlReportWritePath(
 	return resolveReportOutput(reportOut).htmlPath;
 }
 
-async function htmlReportTip(label: string, reportPath: string): Promise<string> {
+async function htmlReportTip(
+	label: string,
+	reportPath: string,
+	reports: SuiteRunReport[],
+	args: ParsedCliArgs,
+): Promise<string> {
 	if (shouldStartReportPreview()) {
-		const url = await startDetachedReportPreview(reportPath);
+		const url = await startDetachedViewer({
+			cliPath: process.argv[1],
+			cwd: args.cwd,
+			suitesDir: args.suitesDir,
+			rubricsDir: args.rubricsDir,
+			judge: args.judge,
+			timeoutMs: args.timeoutMs,
+			authMode: args.authMode,
+			adapterModules: args.adapterModules,
+			workers: args.workers,
+			worktree: args.worktree,
+			keepRecordings: args.keepRecordings,
+			allowUserInput: args.allowUserInput,
+			debug: args.debug,
+			debugDir: args.debugDir,
+			request: {
+				...(args.filter ? { suite: args.filter } : {}),
+				...(args.scenarioFilter ? { scenario: args.scenarioFilter } : {}),
+				...(args.hosts?.length ? { hosts: args.hosts } : args.host ? { hosts: [args.host] } : {}),
+			},
+			reports,
+		});
 		if (url) {
 			return theme.fileTip(label, url);
 		}
@@ -791,15 +818,21 @@ async function main(): Promise<number> {
 
 			if (args.htmlReport && reports.length > 0) {
 				try {
+					const catalog = await loadViewerCatalog({
+						cwd: args.cwd,
+						suitesDir: args.suitesDir,
+						rubricsDir: args.rubricsDir,
+					}).catch(() => undefined);
 					const reportPath = await writeHtmlReport(
 						reports,
 						{
 							host: args.host,
 							suitesDir: args.suitesDir,
+							...(catalog ? { catalog } : {}),
 						},
 						resolveHtmlReportWritePath(args.htmlReport, args.reportOut),
 					);
-					console.log(`\n${await htmlReportTip("HTML report", reportPath)}`);
+					console.log(`\n${await htmlReportTip("View report", reportPath, reports, args)}`);
 				} catch (error) {
 					console.warn(
 						theme.warn(

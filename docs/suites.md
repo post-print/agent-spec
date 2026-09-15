@@ -12,7 +12,7 @@ Layout:
 
 ```
 agent-suites/
-  confidence/
+  test-sdk-capabilities/
     scenarios.json
   fixtures/
     task-list/
@@ -73,6 +73,7 @@ Deterministic matchers read the transcript. Each row states which parts of the t
 | `must` | Each string appears in assistant reply text. Tool results, commands, and artifacts do not count. |
 | `mustNot` | None of the strings appear in text, commands, artifacts, or tool args. Tool results are ignored. |
 | `mustRun` | Each string appears in a shell command. |
+| `mustRunSuccessfully` | Each string appears in a structured shell tool call that reports success (for example, exit code 0). Missing execution status fails the check. |
 | `allowedCommands` | Every shell statement includes one listed fragment. Combined commands split on `&&`, `||`, `;`, `|`, and newlines. An empty list forbids every shell command. Omit the key for no allowlist. |
 | `mustCallTool` | A tool name substring matches. `name:fragment` also requires the fragment in JSON args or the tool result. |
 | `mustCallToolsInOrder` | Each tool matches from left to right. Extra calls can appear between required calls. Each required item uses one call. |
@@ -96,6 +97,11 @@ Set `allowedCommands` when Shell is allowed, but only some commands are legal. T
 ## Compare
 
 A compare scenario runs two or more live arms. Each arm must have a `description`. That note says what the arm tests. Each arm can override prompt, host, context mode, workspace, skills, context, MCP, seed, `allowUserSkills`, and extra rubric checks.
+
+Write the parent `prompt` as the comparison question when every arm supplies its
+own prompt. The viewer presents that parent as the experiment task; MCP servers,
+tools, context, and skills are shown on the individual arms where they actually
+apply.
 
 Use `compare.a` and `compare.b` for two arms. If you omit `label`, arm a is named control. Arm b is named experimental.
 
@@ -191,13 +197,17 @@ When `compare.arms` has more than two arms, name winner-versus-loser pairs. A 2x
 }
 ```
 
-Use separate workspaces when one arm has a skill and the other does not. Put `mustInvokeSkill` on the skill arm only. The runnable examples live under `agent-suites/reference` and `agent-suites/tour`.
+Use separate workspaces when one arm has a skill and the other does not. Put `mustInvokeSkill` on the skill arm only. The runnable product example lives under `agent-suites/tour`; less-common configuration shapes are covered by the package test fixtures.
 
 ### Breaking compare change
 
 `compare.faster` and `compare.cheaper` were removed. `--check` rejects them. Move each old value to a gate. Use `turns` for `faster` and `tokens` for `cheaper`. There are no aliases and no second scoring path.
 
 ## MCP servers
+
+Each server may include a display-only `tools` list. The viewer uses it to show
+which MCP tools are supplied to a scenario or comparison arm. The runner strips
+this metadata before sending the connection configuration to the host.
 
 Attach stdio or HTTP/SSE servers on suite defaults or on a scenario. Ambient project and user MCP configuration is not loaded.
 

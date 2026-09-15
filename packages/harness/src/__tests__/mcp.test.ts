@@ -60,4 +60,21 @@ describe("mcp helpers", () => {
 			headers: { Authorization: "Bearer abc" },
 		});
 	});
+
+	it("strips display-only tool metadata before host configuration", () => {
+		expect(
+			resolveMcpServers(
+				{
+					tasks: {
+						type: "stdio",
+						tools: ["search_tasks", "get_task"],
+						command: "node",
+					},
+				},
+				{ cwd: "/tmp/workspace" },
+			),
+		).toEqual({
+			tasks: { type: "stdio", command: "node", cwd: "/tmp/workspace" },
+		});
+	});
 });

@@ -4,6 +4,7 @@ import {
 	buildCompareResult,
 	type CompareStoryArm,
 	type CompareStoryFields,
+	describeCompareGate,
 	describeCompareOutcome,
 } from "./compare-scenario.js";
 import type {
@@ -167,6 +168,13 @@ function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
 			needle: command,
 		});
 	}
+	for (const command of rubric.mustRunSuccessfully ?? []) {
+		specs.push({
+			text: `run ${quoteExcerpt(command)} successfully`,
+			matcher: "toHaveRunCommandSuccessfully",
+			needle: command,
+		});
+	}
 	if (rubric.allowedCommands !== undefined) {
 		specs.push({
 			text: "shell commands stay on the allowlist",
@@ -317,11 +325,9 @@ function buildCompareMetricSection(
 		compare.gates,
 	);
 	const outcomes = describeCompareOutcome(result);
+	const labels = new Map(compare.arms.map((arm) => [arm.id, arm.label]));
 	const checks: StoryCheck[] = (compare.gates ?? []).map((gate) => ({
-		text:
-			"winner" in gate
-				? `${gate.winner} beats ${gate.loser} on ${gate.metric}`
-				: `${gate.arm} ${gate.metric} is ${gate.operator} ${gate.value}`,
+		text: describeCompareGate(gate, (id) => labels.get(id) ?? id),
 		status: failures.some((failure) => failure.matcher === `compareGate:${gate.metric}`)
 			? "fail"
 			: "pass",
@@ -396,12 +402,10 @@ export function describeRubricChecks(
 				lines.push(`${arm.label}: ${arm.description}`);
 			}
 		}
-		for (const gate of normalized.gates ?? [])
-			lines.push(
-				"winner" in gate
-					? `${gate.winner} beats ${gate.loser} on ${gate.metric}`
-					: `${gate.arm} ${gate.metric} is ${gate.operator} ${gate.value}`,
-			);
+		const labels = new Map(normalized.arms.map((arm) => [arm.id, arm.label]));
+		for (const gate of normalized.gates ?? []) {
+			lines.push(describeCompareGate(gate, (id) => labels.get(id) ?? id));
+		}
 		for (const arm of normalized.arms) {
 			for (const spec of rubricCheckSpecs(arm.rubric)) {
 				lines.push(`${arm.label}: ${spec.text}`);

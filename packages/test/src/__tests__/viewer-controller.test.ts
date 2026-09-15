@@ -22,8 +22,8 @@ const catalog: ViewerCatalog = {
 					prompt: "Read word.txt.",
 					rubric: {},
 					compare: [
-						{ id: "a", label: "alpha" },
-						{ id: "b", label: "beta" },
+						{ id: "a", label: "alpha", prompt: "Read alpha.", rubric: {} },
+						{ id: "b", label: "beta", prompt: "Read beta.", rubric: {} },
 					],
 				},
 			],
@@ -80,7 +80,7 @@ describe("viewer run controller", () => {
 		expect(events.at(-1)).toMatchObject({ type: "run_finished", passed: 4, failed: 0 });
 	});
 
-	it("treats an empty hosts list as the default selected hosts", async () => {
+	it("rejects an explicitly empty host selection", () => {
 		const started: string[] = [];
 		const runner: ViewerRunner = {
 			async runJob(job, emit) {
@@ -97,13 +97,14 @@ describe("viewer run controller", () => {
 			},
 		};
 		const controller = createViewerRunController({ catalog, runner });
-		const { runId } = controller.start({
-			suite: "smoke",
-			scenario: "hello",
-			hosts: [],
-		});
-		await waitForHistory(controller, runId);
-		expect(started).toEqual(["cursor"]);
+		expect(() =>
+			controller.start({
+				suite: "smoke",
+				scenario: "hello",
+				hosts: [],
+			}),
+		).toThrow("No matching scenarios to run");
+		expect(started).toEqual([]);
 	});
 
 	it("caps parallel jobs with maxParallelAgents", async () => {
@@ -134,6 +135,55 @@ describe("viewer run controller", () => {
 		});
 		await waitForHistory(controller, runId);
 		expect(peak).toBe(1);
+	});
+
+	it("waits for the shared compare finalizer before publishing the authoritative result", async () => {
+		let finalized = 0;
+		const runner: ViewerRunner = {
+			async runJob(job, emit) {
+				emit({
+					type: "scenario_result",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					arm: job.arm,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						passed: true,
+						failures: [],
+						durationMs: 2,
+					},
+				});
+			},
+			async finalizeCompare(input) {
+				finalized += 1;
+				return {
+					suite: input.suite,
+					scenario: input.scenario.name,
+					passed: true,
+					failures: [],
+					durationMs: 3,
+					judgeVerdicts: [
+						{
+							id: "shared",
+							question: "Did both arms work?",
+							pass: true,
+							rationale: "Both worked.",
+						},
+					],
+				};
+			},
+		};
+		const controller = createViewerRunController({ catalog, runner });
+		const { runId } = controller.start({ suite: "smoke", scenario: "pair" });
+		const events = await waitForHistory(controller, runId);
+
+		expect(finalized).toBe(1);
+		expect(controller.run(runId)?.reports[0]?.results[0]?.judgeVerdicts?.[0]?.id).toBe("shared");
+		expect(
+			events.some((event) => event.type === "scenario_result" && event.arm === undefined),
+		).toBe(true);
 	});
 
 	it("followViewerRun keeps events that arrive during the first flush", async () => {
@@ -203,5 +253,42 @@ describe("viewer run controller", () => {
 		expect(controller.cancel(runId)).toBe(true);
 		await waitForHistory(controller, runId);
 		expect(aborted).toBe(true);
+		expect(controller.run(runId)?.status).toBe("cancelled");
+	});
+
+	it("keeps imported and newly completed runs as immutable session history", async () => {
+		const imported = {
+			id: "imported",
+			request: { suite: "smoke" },
+			status: "completed" as const,
+			startedAt: "2026-09-15T00:00:00.000Z",
+			finishedAt: "2026-09-15T00:01:00.000Z",
+			reports: [],
+		};
+		const runner: ViewerRunner = {
+			async runJob(job, emit) {
+				emit({
+					type: "scenario_result",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						passed: true,
+						failures: [],
+						durationMs: 4,
+					},
+				});
+			},
+		};
+		const controller = createViewerRunController({ catalog, runner, initialRuns: [imported] });
+		const { runId } = controller.start({ suite: "smoke", scenario: "hello" });
+		await waitForHistory(controller, runId);
+		expect(controller.runs().map((run) => run.id)).toEqual(["imported", runId]);
+		expect(controller.run(runId)).toMatchObject({ status: "completed", reports: [{ passed: 1 }] });
+		const snapshot = controller.run("imported");
+		if (snapshot) snapshot.status = "cancelled";
+		expect(controller.run("imported")?.status).toBe("completed");
 	});
 });

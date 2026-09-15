@@ -62,6 +62,7 @@ export {
 export {
 	type HtmlReportMeta,
 	renderHtmlReport,
+	renderScenarioResult,
 	reportCss,
 	writeHtmlReport,
 } from "./html-report.js";
@@ -105,6 +106,10 @@ export {
 	scenarioNeedsJudge,
 	selectedRunNeedsJudge,
 } from "./run-suite.js";
+export {
+	type FinalizeScenarioResultInput,
+	finalizeScenarioResult,
+} from "./scenario-finalizer.js";
 export {
 	ANNOUNCE_STOP_MATCHERS,
 	resolveScenarioRetryMaxAttempts,
@@ -189,7 +194,14 @@ export {
 	type ViewerJob,
 	type ViewerRunRequest,
 } from "./viewer/catalog.js";
-export { encodeViewerEvent, parseViewerEvent, type ViewerEvent } from "./viewer/events.js";
+export {
+	encodeViewerEvent,
+	parseViewerEvent,
+	type ViewerBootstrap,
+	type ViewerEvent,
+	type ViewerRunRecord,
+	type ViewerRunStatus,
+} from "./viewer/events.js";
 export { listenViewer } from "./viewer/server.js";
 export {
 	DEFAULT_CLI_WORKERS,

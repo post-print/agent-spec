@@ -103,6 +103,8 @@ export function scenarioSettleMs(previousExitCode?: number): number {
 }
 
 export interface SpawnLiveScenarioOptions {
+	/** CLI entrypoint to execute. Detached viewer sessions must not reuse their server entrypoint. */
+	cliPath?: string;
 	cwd: string;
 	suiteName: string;
 	scenarioName: string;
@@ -150,7 +152,9 @@ export interface LiveScenarioCommand {
 /** Build the Node subprocess command for one live scenario (same CLI entry as the parent). */
 export function buildLiveScenarioCommand(options: SpawnLiveScenarioOptions): LiveScenarioCommand {
 	const cliPath =
-		process.argv[1] ?? resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
+		options.cliPath ??
+		process.argv[1] ??
+		resolve(options.cwd, "node_modules/@post-print/agent-test/dist/cli.js");
 	const args = [cliPath, "--scenario", options.scenarioName];
 	if (options.suiteFilter) {
 		args.push("--suite", options.suiteFilter);
@@ -281,7 +285,11 @@ export async function spawnLiveScenario(
 			cwd: options.cwd,
 			env,
 			stdio: captureEvents
-				? ["inherit", "inherit", "pipe", "pipe"]
+				? // Viewer children stream structured activity through fd 3. Do not inherit
+					// the detached session server's one-shot startup stdout pipe: it is closed
+					// after the server publishes its URL and would crash child console output
+					// with EPIPE before it can write its authoritative result.
+					["ignore", "ignore", "pipe", "pipe"]
 				: ["inherit", "inherit", "pipe"],
 		});
 		if (captureEvents) {

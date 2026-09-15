@@ -64,7 +64,11 @@ describe("comparison gates", () => {
 			gates,
 		);
 		expect(assertCompareGates(gates, result)).toEqual([]);
-		expect(evaluateCompareGates(gates, result).every((gate) => gate.passed)).toBe(true);
+		const evaluated = evaluateCompareGates(gates, result);
+		expect(evaluated.every((gate) => gate.passed)).toBe(true);
+		expect(evaluated[0]?.message).toBe("control is expected to fail");
+		expect(evaluated[1]?.message).toBe("tool is expected to pass");
+		expect(evaluated[2]?.message).toBe("tool must use fewer tokens than control");
 	});
 
 	it("fails a tie and missing metric", () => {
@@ -140,5 +144,25 @@ describe("comparison gates", () => {
 			hostInput: "Exact prompt",
 			durationMs: 11,
 		});
+	});
+
+	it("carries per-arm compare judge metrics into isolated viewer arms", () => {
+		const scenario = {
+			name: "judge arms",
+			prompt: "Base",
+			rubric: { judge: [{ id: "shared", question: "Is it clear?" }] },
+			compare: {
+				arms: [
+					{ id: "one", description: "First", prompt: "One" },
+					{ id: "two", description: "Second", prompt: "Two" },
+				],
+				judgeMetrics: [{ id: "quality", question: "Is this high quality?" }],
+			},
+		};
+		const arm = applyCompareArm(scenario, "one");
+		expect(arm.rubric.judge).toEqual([
+			{ id: "shared", question: "Is it clear?" },
+			{ id: "quality", question: "Is this high quality?" },
+		]);
 	});
 });

@@ -63,6 +63,30 @@ describe("viewer events", () => {
 		expect(parseViewerEvent(encodeViewerEvent(event))).toEqual(event);
 	});
 
+	it("round-trips the authoritative scenario result", () => {
+		const event = {
+			type: "scenario_result" as const,
+			suite: "smoke",
+			scenario: "hello",
+			host: "cursor",
+			result: {
+				suite: "smoke",
+				scenario: "hello",
+				passed: false,
+				failures: [
+					{
+						matcher: "mustInclude",
+						message: "missing token",
+						category: "rubric_miss" as const,
+						evidence: "reply was empty",
+					},
+				],
+				durationMs: 12,
+			},
+		};
+		expect(parseViewerEvent(encodeViewerEvent(event))).toEqual(event);
+	});
+
 	it("ignores blank and invalid lines", () => {
 		expect(parseViewerEvent("")).toBeUndefined();
 		expect(parseViewerEvent("{not-json")).toBeUndefined();

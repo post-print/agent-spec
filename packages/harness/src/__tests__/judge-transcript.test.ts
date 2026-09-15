@@ -47,7 +47,7 @@ describe("judgeTrace host auth", () => {
 	it("tells the classifier to score outcomes from tool results", async () => {
 		let prompt = "";
 		const { judgeTrace } = await import("../judge.js");
-		await judgeTrace(
+		const result = await judgeTrace(
 			{
 				messages: [{ role: "assistant", content: "done" }],
 				toolCalls: [
@@ -78,6 +78,9 @@ describe("judgeTrace host auth", () => {
 		expect(prompt).toContain("result:");
 		expect(prompt).toContain("mcp echo ok");
 		expect(prompt).toMatch(/tool results/i);
+		expect(result.verdicts[0]?.prompt).toBe(prompt);
+		expect(result.verdicts[0]?.response).toContain('"verdict":"yes"');
+		expect(result.verdicts[0]?.evidence).toEqual(["mcp echo ok"]);
 	});
 
 	it("scores with an injected classifier on the OpenAI host", async () => {

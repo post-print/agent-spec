@@ -140,6 +140,39 @@ describe("expectTrace", () => {
 		expect(failures[0]?.evidence).toContain("shellCommands=");
 	});
 
+	it("requires a matching command to report successful execution", () => {
+		const successful: AgentTrace = {
+			...sampleTrace,
+			toolCalls: [{ name: "Shell", args: { command: "bun test" }, succeeded: true, exitCode: 0 }],
+			shellCommands: ["bun test"],
+		};
+		expect(assertRubric(successful, { mustRunSuccessfully: ["bun test"] })).toHaveLength(0);
+
+		const failed = assertRubric(
+			{
+				...successful,
+				toolCalls: [
+					{ name: "Shell", args: { command: "bun test" }, succeeded: false, exitCode: 1 },
+				],
+			},
+			{ mustRunSuccessfully: ["bun test"] },
+		);
+		expect(failed[0]).toMatchObject({ matcher: "toHaveRunCommandSuccessfully" });
+		expect(failed[0]?.message).toContain("did not succeed");
+	});
+
+	it("fails successful-command scoring when execution status is unavailable", () => {
+		const failures = assertRubric(
+			{
+				...sampleTrace,
+				toolCalls: [{ name: "Shell", args: { command: "bun test" }, result: "all pass" }],
+				shellCommands: ["bun test"],
+			},
+			{ mustRunSuccessfully: ["bun test"] },
+		);
+		expect(failures[0]?.message).toContain("did not report execution status");
+	});
+
 	it("passes allowedCommands when every shell segment matches the list", () => {
 		const trace: AgentTrace = {
 			...sampleTrace,

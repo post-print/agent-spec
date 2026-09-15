@@ -1,8 +1,13 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-
+import { renderScenarioResult, reportCss } from "../html-report.js";
 import { DEFAULT_VIEWER_WORKERS } from "../worker-pool.js";
 import type { ViewerCatalog, ViewerRunRequest } from "./catalog.js";
-import { encodeViewerEvent, type ViewerEvent } from "./events.js";
+import {
+	encodeViewerEvent,
+	type ViewerBootstrap,
+	type ViewerEvent,
+	type ViewerRunRecord,
+} from "./events.js";
 import { createLiveViewerRunner, type LiveViewerRunnerOptions } from "./live-runner.js";
 import { renderViewerPage } from "./page.js";
 import {
@@ -20,6 +25,10 @@ export interface ListenViewerOptions extends LiveViewerRunnerOptions {
 	runner?: ViewerRunner;
 	/** Parallel live agents. Default 4. */
 	workers?: number;
+	initialRuns?: ViewerRunRecord[];
+	selectedRunId?: string;
+	idleMs?: number;
+	onClose?: () => void | Promise<void>;
 }
 
 export interface ViewerServerHandle {
@@ -32,10 +41,42 @@ export async function listenViewer(options: ListenViewerOptions): Promise<Viewer
 		catalog: options.catalog,
 		runner: options.runner ?? createLiveViewerRunner(options),
 		maxParallelAgents: options.workers ?? DEFAULT_VIEWER_WORKERS,
+		initialRuns: options.initialRuns,
 	});
+	let idle: ReturnType<typeof setTimeout> | undefined;
+	let closed = false;
+	const bumpIdle = (): void => {
+		if (!options.idleMs) return;
+		if (idle) clearTimeout(idle);
+		idle = setTimeout(() => {
+			void close();
+		}, options.idleMs);
+	};
 	const server = createServer((req, res) => {
-		void handleViewerRequest(req, res, options.catalog, controller);
+		bumpIdle();
+		void handleViewerRequest(req, res, options.catalog, controller, options.selectedRunId);
 	});
+	const close = (): Promise<void> =>
+		new Promise((resolveClose, rejectClose) => {
+			if (closed) {
+				resolveClose();
+				return;
+			}
+			closed = true;
+			if (idle) {
+				clearTimeout(idle);
+				idle = undefined;
+			}
+			const active = controller.activeRunId();
+			if (active) controller.cancel(active);
+			server.close((error) => {
+				if (error) {
+					rejectClose(error);
+					return;
+				}
+				Promise.resolve(options.onClose?.()).then(() => resolveClose(), rejectClose);
+			});
+		});
 	await new Promise<void>((resolveListen, reject) => {
 		server.once("error", reject);
 		server.listen(options.port ?? 0, VIEWER_HOST, () => resolveListen());
@@ -45,22 +86,10 @@ export async function listenViewer(options: ListenViewerOptions): Promise<Viewer
 		server.close();
 		throw new Error("viewer has no port");
 	}
+	bumpIdle();
 	return {
 		url: `http://${VIEWER_HOST}:${addr.port}/`,
-		close: () =>
-			new Promise((resolveClose, rejectClose) => {
-				const active = controller.activeRunId();
-				if (active) {
-					controller.cancel(active);
-				}
-				server.close((error) => {
-					if (error) {
-						rejectClose(error);
-						return;
-					}
-					resolveClose();
-				});
-			}),
+		close,
 	};
 }
 
@@ -69,15 +98,54 @@ async function handleViewerRequest(
 	res: ServerResponse,
 	catalog: ViewerCatalog,
 	controller: ViewerRunController,
+	selectedRunId?: string,
 ): Promise<void> {
 	const url = new URL(req.url ?? "/", "http://127.0.0.1");
 	const path = url.pathname;
 	if (req.method === "GET" && (path === "/" || path === "/index.html")) {
-		write(res, 200, "text/html; charset=utf-8", renderViewerPage(catalog));
+		const runs = controller.runs();
+		const bootstrap: ViewerBootstrap = {
+			catalog,
+			runs,
+			selectedRunId: selectedRunId ?? runs.at(-1)?.id,
+			capabilities: { canRun: true },
+		};
+		write(
+			res,
+			200,
+			"text/html; charset=utf-8",
+			renderViewerPage(bootstrap, { baseCss: reportCss() }),
+		);
 		return;
 	}
 	if (req.method === "GET" && path === "/api/catalog") {
 		writeJson(res, 200, catalog);
+		return;
+	}
+	if (req.method === "GET" && path === "/api/runs") {
+		writeJson(res, 200, controller.runs());
+		return;
+	}
+	const detailMatch = path.match(/^\/api\/runs\/([^/]+)$/);
+	if (req.method === "GET" && detailMatch?.[1]) {
+		const run = controller.run(detailMatch[1]);
+		if (!run) {
+			writeJson(res, 404, { error: "Run not found" });
+			return;
+		}
+		writeJson(res, 200, {
+			run,
+			fragments: run.reports.flatMap((report) =>
+				report.results.map((result) => ({
+					suite: report.suite,
+					scenario: result.scenario,
+					host: report.host,
+					passed: result.passed,
+					skipped: result.skipped,
+					html: renderScenarioResult(result, report.host),
+				})),
+			),
+		});
 		return;
 	}
 	if (req.method === "POST" && path === "/api/runs") {

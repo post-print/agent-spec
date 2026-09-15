@@ -268,6 +268,7 @@ export interface SdkToolPayload {
 
 export interface SdkMessage {
 	type?: string;
+	status?: string;
 	/** Cursor SDK tool_call — tool name at event root (read, shell, edit, …). */
 	name?: string;
 	args?: Record<string, unknown>;
@@ -380,9 +381,35 @@ function toolResultFromEvent(event: SdkMessage): string | undefined {
 	return serializeToolResult(event.result) ?? serializeToolResult(event.tool?.output);
 }
 
+/** Extract an execution result without guessing from human-readable output. */
+export function normalizeToolExecutionStatus(result: unknown): {
+	succeeded?: boolean;
+	exitCode?: number;
+} {
+	if (!result || typeof result !== "object") return {};
+	const record = result as Record<string, unknown>;
+	const directExitCode = record.exitCode ?? record.exit_code;
+	if (typeof directExitCode === "number" && Number.isFinite(directExitCode)) {
+		return { succeeded: directExitCode === 0, exitCode: directExitCode };
+	}
+	if (typeof record.succeeded === "boolean") return { succeeded: record.succeeded };
+	if (typeof record.isError === "boolean") return { succeeded: !record.isError };
+	if (record.status === "error") return { succeeded: false };
+	for (const nested of [record.value, record.result]) {
+		const status = normalizeToolExecutionStatus(nested);
+		if (status.succeeded !== undefined || status.exitCode !== undefined) return status;
+	}
+	return {};
+}
+
+function isShellToolName(name: string): boolean {
+	return /^(shell|bash)$/i.test(name);
+}
+
 function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 	if (event.type === "tool_call" && event.name) {
 		const result = toolResultFromEvent(event);
+		const execution = isShellToolName(event.name) ? normalizeToolExecutionStatus(event.result) : {};
 		const args =
 			event.args !== undefined && typeof event.args === "object" && !Array.isArray(event.args)
 				? (event.args as Record<string, unknown>)
@@ -393,6 +420,7 @@ function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 			name: event.name,
 			args,
 			...(result !== undefined ? { result } : {}),
+			...execution,
 		};
 	}
 
@@ -414,10 +442,12 @@ function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 		}
 	}
 	const result = toolResultFromEvent(event);
+	const execution = isShellToolName(name) ? normalizeToolExecutionStatus(event.result) : {};
 	return {
 		name,
 		args,
 		...(result !== undefined ? { result } : {}),
+		...execution,
 	};
 }
 
@@ -502,6 +532,12 @@ export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): vo
 						name: toolCall.name,
 						args: toolCall.args ?? previous.args,
 						result: toolCall.result ?? previous.result,
+						...((toolCall.succeeded ?? previous.succeeded) !== undefined
+							? { succeeded: toolCall.succeeded ?? previous.succeeded }
+							: {}),
+						...((toolCall.exitCode ?? previous.exitCode) !== undefined
+							? { exitCode: toolCall.exitCode ?? previous.exitCode }
+							: {}),
 					};
 				}
 			} else {

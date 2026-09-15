@@ -51,6 +51,10 @@ export interface AgentToolCall {
 	args?: Record<string, unknown>;
 	/** Tool output when the SDK stream includes it (including MCP tools). */
 	result?: string;
+	/** Structured execution outcome when the host reports one. */
+	succeeded?: boolean;
+	/** Exact process exit code when the host reports one. */
+	exitCode?: number;
 	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy traces. */
 	seq?: number;
 }

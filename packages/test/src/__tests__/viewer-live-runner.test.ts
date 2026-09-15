@@ -18,10 +18,12 @@ describe("live viewer runner", () => {
 			cwd: "/tmp",
 			suitesDir: "agent-suites",
 			missingAuth: () => undefined,
-			spawnLiveScenario: async () => {
+			spawnLiveScenario: async (options) => {
 				order.push("spawn");
+				expect(options.cliPath).toBe("/repo/dist/cli.js");
 				return { exitCode: 0, stderr: "" };
 			},
+			cliPath: "/repo/dist/cli.js",
 		});
 		await runner.runJob(
 			job,
@@ -52,7 +54,10 @@ describe("live viewer runner", () => {
 		expect(
 			events.some((event) => event.type === "error" && event.message.includes("git init")),
 		).toBe(true);
-		expect(events.at(-1)).toMatchObject({ type: "cell_finished", passed: false });
+		expect(events).toContainEqual(
+			expect.objectContaining({ type: "cell_finished", passed: false }),
+		);
+		expect(events.at(-1)).toMatchObject({ type: "scenario_result", result: { passed: false } });
 	});
 
 	it("does not emit a failure when the run is aborted", async () => {
@@ -70,5 +75,44 @@ describe("live viewer runner", () => {
 		await runner.runJob(job, (event) => events.push(event), abort.signal);
 		expect(events.some((event) => event.type === "error")).toBe(false);
 		expect(events.some((event) => event.type === "cell_finished")).toBe(false);
+	});
+
+	it("finalizes scheduled compare arms through the shared runner boundary", async () => {
+		const runner = createLiveViewerRunner({ cwd: "/tmp", suitesDir: "agent-suites", judge: false });
+		const makeResult = (tokens: number) => ({
+			suite: "smoke",
+			scenario: "pair",
+			passed: true,
+			failures: [],
+			durationMs: tokens,
+			trace: {
+				messages: [{ role: "assistant" as const, content: "ok" }],
+				toolCalls: [],
+				shellCommands: [],
+				artifacts: {},
+				usage: { totalTokens: tokens },
+			},
+		});
+		const result = await runner.finalizeCompare?.({
+			suite: "smoke",
+			host: "cursor",
+			scenario: {
+				name: "pair",
+				prompt: "Compare.",
+				rubric: {},
+				compare: [
+					{ id: "a", label: "control", prompt: "Control.", rubric: {} },
+					{ id: "b", label: "candidate", prompt: "Candidate.", rubric: {} },
+				],
+				gates: [{ metric: "tokens", winner: "b", loser: "a" }],
+			},
+			armResults: new Map([
+				["a", makeResult(20)],
+				["b", makeResult(10)],
+			]),
+		});
+
+		expect(result?.passed).toBe(true);
+		expect(result?.compare?.gateResults?.[0]).toMatchObject({ passed: true, left: 10, right: 20 });
 	});
 });

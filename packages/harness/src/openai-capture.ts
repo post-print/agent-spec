@@ -135,11 +135,16 @@ function applyItem(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 		return;
 	}
 	if (type === "command_execution" && item.command) {
+		const exitCode =
+			typeof item.exit_code === "number" && Number.isFinite(item.exit_code)
+				? item.exit_code
+				: undefined;
 		acc.shellCommands.push(item.command);
 		acc.toolCalls.push({
 			name: "Shell",
 			args: { command: item.command, cwd: item.path },
 			result: item.aggregated_output,
+			...(exitCode !== undefined ? { exitCode, succeeded: exitCode === 0 } : {}),
 			seq: acc.nextSeq++,
 		});
 		return;

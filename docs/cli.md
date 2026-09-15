@@ -49,7 +49,7 @@ In-repo suites list `hosts: ["cursor", "claude", "openai"]`. A run without `--ho
 
 ## Suite viewer
 
-`agent-test viewer` opens a localhost page. The page lists every suite and scenario before a run.
+`agent-test viewer` opens the unified localhost viewer with an empty run history. The catalog lists every suite and scenario before a run.
 
 ```bash
 npx agent-test viewer --suites-dir agent-suites
@@ -57,7 +57,9 @@ npx agent-test viewer --suites-dir agent-suites
 
 The server binds `127.0.0.1` only. Cursor is selected by default. Host tabs list every suite host.
 
-Run starts a live host agent. A progress bar shows how many tests finished, passed, failed, skipped, and remain. The live chat sits under the scenario. Each host has its own tab. The result of that run sits under the chat. A failed run lists the reason. Setup phases and host errors show in that same pane. A Context delivery panel visualizes the route, shows the exact initial user input submitted through the builtin adapter, and lists every harness-preamble file with its reason and exact text. Native runs state the unobserved host-owned boundary. A running mark shows while the host agent replies. It goes away when the cell finishes. Cancel run stops the live host agent. The banner shows Cancelling the run until the child stops. The chat then shows Cancelled. Each compare arm has a tab. Select a tab to see that arm's chat. A compare cell lists the measured turns, tokens, tools, and duration after the arms finish. Compare arms of one cell run together. Hosts run one after another unless you tick Run hosts together. `--workers` sets how many agents run at once. The viewer default is 4. The range is 1-32.
+Run starts a live host agent. A progress bar shows how many tests finished, passed, failed, skipped, and remain. Setup, loaded context, chat, scoring evidence, judge rationale, usage, trace details, and the final result all stay under the same scenario. Context delivery shows the exact initial input submitted through builtin adapters and every harness-preamble file with its reason and exact text; native runs state the unobserved host-owned boundary. Each host has its own tab; compare arms are tabbed. Cancel run stops the live host agent and moves through Cancelling to Cancelled.
+
+The run selector keeps every run created during the current viewer process. Starting a rerun creates a new entry. You can inspect an older result while the active run continues; the running entry stays marked. History is not persisted after the viewer process exits. Hosts run together by default; `--workers` sets the shared live-agent limit. The viewer default is 4. The range is 1-32.
 
 `--port` sets the listen port. `0` picks a free port.
 
@@ -91,7 +93,7 @@ Removed flags fail with a message: `--live`, `--record`, `--record-fixtures`, `-
 | `--debug-dir <path>` | Parent directory for that bundle. Default `$TMPDIR/agent-spec`. |
 | `--no-worktree` | Run in the caller checkout. Needs `AGENT_TEST_ALLOW_IN_PLACE=1`. |
 
-A TTY live run prints a localhost HTML preview. Cmd-click the `http://` URL to open the browser. The preview exits after 30 minutes idle. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip it. That prints a file path. Cursor opens the file path in the editor. Context delivery shows the submitted input and any harness preamble files.
+A TTY live run prints a `View report` localhost URL. It opens the same catalog-first viewer with the completed run selected, the whole suites directory available, and rerun controls active. That detached viewer exits after 30 minutes without page or API activity; browsing or starting a run resets the timer. It binds only to `127.0.0.1` and keeps at most one active run. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip the active viewer and print the self-contained HTML path instead. Context delivery remains available in either view.
 
 A compare verdict lists checks under each arm. Each check shows pass or fail. A single scenario keeps the criteria and result labels.
 
@@ -107,7 +109,7 @@ The CLI does not load `.env`. Export variables in the shell. Copy `.env.example`
 | --- | --- | --- |
 | `AGENT_TEST_DEBUG` | Unset | Same as `--debug` when set. |
 | `AGENT_TEST_HOST_LOGS` | Unset | Print host SDK INFO lines. `--debug` also prints them. |
-| `AGENT_TEST_NO_REPORT_PREVIEW` | Unset | Skip the TTY HTML preview. |
+| `AGENT_TEST_NO_REPORT_PREVIEW` | Unset | Skip the active viewer launched for a TTY report. |
 | `AGENT_TEST_QUIET` | Unset | Reduce live clock output. |
 | `AGENT_TEST_TIMEOUT_MS` | `600000` | Agent deadline. |
 | `AGENT_TEST_LIVE_RETRIES` | `3` | Judge infrastructure attempts. |
@@ -125,14 +127,13 @@ Auth variables live in [hosts.md](hosts.md).
 
 | Script | What it runs |
 | --- | --- |
-| `bun run test` | The Cursor confidence gate. `--fail-on=behavior`. |
-| `bun run test:confidence` | The Cursor confidence gate. |
+| `bun run test` | Offline sandbox-safe product tests. |
+| `bun run test:capabilities` | Eleven manual live `runAgentTest` capability checks on Cursor. |
 | `bun run test:tour` | The seven-scenario product tour on Cursor. |
-| `bun run test:reference` | The complete runnable reference on Cursor. |
-| `bun run test:matrix` | Confidence on all built-in hosts. Run this manually. |
+| `bun run test:matrix` | Capabilities on all built-in hosts. Run this manually. |
 | `bun run test:sdk:consumer` | The installed-package contract without host credentials. |
 | `bun run test:sdk:hosts` | The direct API smoke on all built-in hosts. Run this manually. |
-| `bun run test:reliability` | Twenty Cursor confidence runs. Run this manually. |
+| `bun run test:reliability` | Twenty Cursor capability runs. Run this manually. |
 | `bun run test:e2e` | Playwright checks for the suite viewer and the HTML report. |
 
 Pass extra flags after `--`:

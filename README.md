@@ -32,14 +32,13 @@ First consumer hour: [docs/getting-started.md](docs/getting-started.md). Topic i
 
 ## Example suites
 
-The repository includes three runnable suites. They are designed as a short
+The repository includes two runnable suites. They are designed as a short
 learning path, not as hidden fixtures:
 
 | Suite | What it shows | Command |
 | --- | --- | --- |
-| `confidence` | Six low-variance pull-request checks | `bun run test:confidence` |
+| `test-sdk-capabilities` | Eleven manual live checks for supported `runAgentTest` capabilities | `bun run test:capabilities` |
 | `tour` | A product tour, including MCP workflows and a tool experiment | `bun run test:tour` |
-| `reference` | One example for each public suite feature | `bun run test:reference` |
 
 Start with [Getting started](docs/getting-started.md), then read the
 [suite authoring guide](docs/suites.md). Every live scenario starts in a new
@@ -78,13 +77,13 @@ node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --sui
 node packages/test/dist/cli.js --check --suites-dir agent-suites
 ```
 
-Host-agent suite (host key or CLI/SDK login; incurs provider usage):
+Offline product tests:
 
 ```bash
 bun run test
 ```
 
-`bun run test` runs the six-scenario Cursor confidence gate. `bun run test:tour` runs the product tour. `bun run test:reference` runs the full reference. Run `bun run test:matrix` and `bun run test:reliability` manually.
+Manual live suites require host auth and incur provider usage. `bun run test:capabilities` runs the supported `runAgentTest` capability checks on Cursor. `bun run test:tour` runs the product tour. `bun run test:matrix` checks the capabilities on all built-in hosts. `bun run test:reliability` repeats the capability suite for qualification.
 
 The installed-package contract needs no host credentials:
 

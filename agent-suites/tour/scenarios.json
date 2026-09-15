@@ -1,6 +1,6 @@
 {
   "name": "tour",
-  "description": "A short tour of the main agent-test features.",
+  "description": "A guided tour of agent-test: project work, diagnosis, repair, MCP tools, skills, and controlled comparisons.",
   "hosts": ["cursor", "claude", "openai"],
   "defaults": {
     "host": "cursor",
@@ -28,8 +28,7 @@
         "mustRun": ["bun test"],
         "allowedCommands": ["bun test", "pwd", "rg", "cat", "sed", "find", "ls", "head", "tail", "git status", "git diff"],
         "mustReadPath": ["src/status.ts", "tests/status.test.ts"],
-        "mustNotCallTool": ["Write", "Edit"],
-        "mustNotInvokeSkill": ["typescript"]
+        "mustNotCallTool": ["Write", "Edit"]
       }
     },
     {
@@ -38,10 +37,9 @@
       "prompt": "Repair the status bug in src/status.ts. Change only that source file. Run bun test. End with TASK_STATUS_FIXED.",
       "rubric": {
         "must": ["TASK_STATUS_FIXED"],
-        "mustRun": ["bun test"],
+        "mustRunSuccessfully": ["bun test"],
         "allowedCommands": ["bun test", "pwd", "rg", "cat", "sed", "find", "ls", "head", "tail", "git status", "git diff"],
-        "mustCallTool": ["Write:src/status.ts"],
-        "mustNotInvokeSkill": ["typescript"]
+        "mustCallTool": ["Write:src/status.ts"]
       }
     },
     {
@@ -50,6 +48,7 @@
       "mcpServers": {
         "tasks": {
           "type": "stdio",
+          "tools": ["echo", "lookup", "search_tasks", "get_task", "task_index"],
           "command": "node",
           "args": ["packages/test/fixtures/mcp-echo/server.mjs"]
         }
@@ -75,15 +74,16 @@
     },
     {
       "name": "compares three MCP workflows",
-      "description": "The scenario measures an old summary, a search path, and a direct detail path.",
+      "description": "Determines which task lookup workflow is most accurate and efficient.",
       "mcpServers": {
         "tasks": {
           "type": "stdio",
+          "tools": ["echo", "lookup", "search_tasks", "get_task", "task_index"],
           "command": "node",
           "args": ["packages/test/fixtures/mcp-echo/server.mjs"]
         }
       },
-      "prompt": "Find the current due date for TASK-104. Reply with the date only.",
+      "prompt": "Determine which task lookup workflow provides the most accurate result with the fewest tools and tokens.",
       "compare": {
         "arms": [
           {
@@ -123,7 +123,8 @@
           { "metric": "outcome", "arm": "summary-only", "operator": "equal", "value": "fail" },
           { "metric": "outcome", "arm": "search-detail", "operator": "equal", "value": "pass" },
           { "metric": "outcome", "arm": "direct-detail", "operator": "equal", "value": "pass" },
-          { "metric": "tools", "winner": "direct-detail", "loser": "search-detail" }
+          { "metric": "tools", "winner": "direct-detail", "loser": "search-detail" },
+          { "metric": "tokens", "winner": "direct-detail", "loser": "search-detail" }
         ]
       },
       "rubric": {}
@@ -148,6 +149,7 @@
           "mcpServers": {
             "tasks": {
               "type": "stdio",
+              "tools": ["echo", "lookup", "search_tasks", "get_task", "task_index"],
               "command": "node",
               "args": ["packages/test/fixtures/mcp-echo/server.mjs"]
             }

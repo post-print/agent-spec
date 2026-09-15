@@ -77,16 +77,13 @@ describe("viewer compare metrics", () => {
 		});
 	});
 
-	it("renders a winners list", () => {
+	it("omits a redundant winners list when there are no decision gates", () => {
 		const html = renderViewerCompareBoard(
 			summarizeViewerCompare([
 				{ id: "a", label: "alpha", turns: 2, tokens: 300, tools: 1 },
 				{ id: "b", label: "beta", turns: 1, tokens: 200, tools: 1 },
 			]),
 		);
-		expect(html).toContain("Winners");
-		expect(html).toContain("Turns: beta wins (2 vs 1).");
-		expect(html).toContain("Tokens: beta wins (300 vs 200).");
-		expect(html).toContain("Tools: tie (1 vs 1).");
+		expect(html).toBe("");
 	});
 });

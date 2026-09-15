@@ -21,18 +21,22 @@ import { displayToolPath } from "./scenario-story.js";
 import { summarizeReports } from "./suite-summary.js";
 import type {
 	CompareArmResult,
+	CompareGate,
 	ScenarioResult,
 	StoryCheck,
 	StorySection,
 	SuiteRunReport,
 	UsageStats,
 } from "./types.js";
-import { renderViewerCompareBoard, summarizeViewerCompare } from "./viewer/compare-metrics.js";
+import type { ViewerCatalog } from "./viewer/catalog.js";
+import type { ViewerBootstrap } from "./viewer/events.js";
+import { renderViewerPage, type ViewerRenderedResult } from "./viewer/page.js";
 
 export interface HtmlReportMeta {
 	generatedAt?: Date;
 	host?: string;
 	suitesDir?: string;
+	catalog?: ViewerCatalog;
 }
 
 function escapeHtml(value: string): string {
@@ -133,6 +137,11 @@ const MATCHER_LABELS: Record<string, { label: string; hint?: string }> = {
 	mustNotInclude: FORBIDDEN_BEHAVIOR,
 	mustRun: MISSING_COMMAND,
 	toHaveRunCommand: MISSING_COMMAND,
+	mustRunSuccessfully: MISSING_COMMAND,
+	toHaveRunCommandSuccessfully: {
+		label: "Command did not pass",
+		hint: "The required command was missing, failed, or did not report a structured execution status.",
+	},
 	allowedCommands: FORBIDDEN_COMMAND,
 	toHaveAllowedCommands: FORBIDDEN_COMMAND,
 	mustCallTool: MISSING_TOOL,
@@ -353,10 +362,22 @@ function renderJudgeVerdicts(result: ScenarioResult): string {
 		.map((verdict) => {
 			const badge = verdict.pass ? "pass" : "fail";
 			const icon = verdict.pass ? "✓" : "✗";
+			const evidence = verdict.evidence?.length
+				? `<ul class="judge-evidence">${verdict.evidence.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+				: "";
+			const exchange =
+				verdict.prompt || verdict.response
+					? `<details class="judge-exchange"><summary>Judge conversation</summary><div class="judge-chat">
+${verdict.prompt ? `<div class="judge-turn judge-input"><span>Input</span><pre>${escapeHtml(verdict.prompt)}</pre></div>` : ""}
+${verdict.response ? `<div class="judge-turn judge-response"><span>Response</span><pre>${escapeHtml(verdict.response)}</pre></div>` : ""}
+</div></details>`
+					: "";
 			return `
 <article class="verdict verdict-${badge}">
   <p class="question"><span class="verdict-icon">${icon}</span>${escapeHtml(verdict.question)}</p>
   <p class="rationale">${escapeHtml(verdict.rationale)}</p>
+	${evidence}
+	${exchange}
 </article>`;
 		})
 		.join("\n");
@@ -581,14 +602,61 @@ function renderCompareMetricRow(
 </tr>`;
 }
 
-function renderNamedCompareMetricRow(label: string, cells: string[]): string {
+function renderNamedCompareMetricRow(
+	label: string,
+	cells: string[],
+	values?: Array<number | undefined>,
+): string {
+	const numeric = (values ?? []).filter((value): value is number => value !== undefined);
+	const low = numeric.length > 1 ? Math.min(...numeric) : undefined;
+	const high = numeric.length > 1 ? Math.max(...numeric) : undefined;
 	return `<tr>
   <th scope="row">${escapeHtml(label)}</th>
-  ${cells.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}
+  ${cells
+		.map((cell, index) => {
+			const value = values?.[index];
+			const state =
+				value !== undefined && low !== high
+					? value === low
+						? "is-better"
+						: value === high
+							? "is-worse"
+							: ""
+					: "";
+			return `<td class="${state}">${escapeHtml(cell)}</td>`;
+		})
+		.join("")}
 </tr>`;
 }
 
-function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]): string {
+function outcomeCell(arm: CompareArmResult, gates: CompareGate[] | undefined): string {
+	if (arm.passed === undefined) return "<td>n/a</td>";
+	if (arm.passed) return '<td class="is-outcome-pass">pass</td>';
+	const expected = gates?.some(
+		(gate) =>
+			!("winner" in gate) &&
+			gate.arm === arm.id &&
+			gate.metric === "outcome" &&
+			gate.operator === "equal" &&
+			gate.value === "fail",
+	);
+	return expected
+		? '<td class="is-expected-failure">expected fail</td>'
+		: '<td class="is-outcome-fail">fail</td>';
+}
+
+function renderOutcomeRow(
+	arms: CompareArmResult[],
+	gates: CompareGate[] | undefined,
+	includeDelta = false,
+): string {
+	return `<tr><th scope="row">Outcome</th>${arms.map((arm) => outcomeCell(arm, gates)).join("")}${includeDelta ? '<td class="delta-flat">n/a</td>' : ""}</tr>`;
+}
+
+function renderTwoArmCompareMetrics(
+	arms: [CompareArmResult, CompareArmResult],
+	gates: CompareGate[] | undefined,
+): string {
 	const [left, right] = arms;
 	const aTurns = compareArmTurns(left);
 	const bTurns = compareArmTurns(right);
@@ -597,10 +665,6 @@ function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]):
 	const bTools = armToolCount(right);
 	const toolDelta = aTools !== undefined && bTools !== undefined ? bTools - aTools : undefined;
 	const totalDelta = tokenDelta(left, right, "total");
-	const durationDelta =
-		left.durationMs !== undefined && right.durationMs !== undefined
-			? right.durationMs - left.durationMs
-			: undefined;
 	return `
   <div class="compare-table-wrap">
     <table class="compare-table">
@@ -613,19 +677,21 @@ function renderTwoArmCompareMetrics(arms: [CompareArmResult, CompareArmResult]):
         </tr>
       </thead>
       <tbody>
-		${renderCompareMetricRow("Outcome", left.passed === undefined ? "n/a" : left.passed ? "pass" : "fail", right.passed === undefined ? "n/a" : right.passed ? "pass" : "fail", undefined, "n/a")}
+		${renderOutcomeRow(arms, gates, true)}
         ${renderCompareMetricRow("Turns", formatArmTurns(left), formatArmTurns(right), turnDelta, formatSigned(turnDelta))}
         ${renderCompareMetricRow("Tokens", formatArmTokens(left, "total"), formatArmTokens(right, "total"), totalDelta, formatSigned(totalDelta))}
         ${renderCompareMetricRow("In", formatArmTokens(left, "input"), formatArmTokens(right, "input"), tokenDelta(left, right, "input"), formatSigned(tokenDelta(left, right, "input")))}
         ${renderCompareMetricRow("Out", formatArmTokens(left, "output"), formatArmTokens(right, "output"), tokenDelta(left, right, "output"), formatSigned(tokenDelta(left, right, "output")))}
         ${renderCompareMetricRow("Tools", aTools === undefined ? "n/a" : formatInteger(aTools), bTools === undefined ? "n/a" : formatInteger(bTools), toolDelta, formatSigned(toolDelta))}
-		${renderCompareMetricRow("Duration", left.durationMs === undefined ? "n/a" : formatDuration(left.durationMs), right.durationMs === undefined ? "n/a" : formatDuration(right.durationMs), durationDelta, formatSigned(durationDelta))}
       </tbody>
     </table>
   </div>`;
 }
 
-function renderNamedCompareMetrics(arms: CompareArmResult[]): string {
+function renderNamedCompareMetrics(
+	arms: CompareArmResult[],
+	gates: CompareGate[] | undefined,
+): string {
 	return `
   <div class="compare-table-wrap">
     <table class="compare-table">
@@ -636,17 +702,16 @@ function renderNamedCompareMetrics(arms: CompareArmResult[]): string {
         </tr>
       </thead>
       <tbody>
-		${renderNamedCompareMetricRow(
-			"Outcome",
-			arms.map((arm) => (arm.passed === undefined ? "n/a" : arm.passed ? "pass" : "fail")),
-		)}
+		${renderOutcomeRow(arms, gates)}
         ${renderNamedCompareMetricRow(
 					"Turns",
 					arms.map((arm) => formatArmTurns(arm)),
+					arms.map(compareArmTurns),
 				)}
         ${renderNamedCompareMetricRow(
 					"Tokens",
 					arms.map((arm) => formatArmTokens(arm, "total")),
+					arms.map(compareArmTokens),
 				)}
         ${renderNamedCompareMetricRow(
 					"In",
@@ -662,11 +727,8 @@ function renderNamedCompareMetrics(arms: CompareArmResult[]): string {
 						const tools = armToolCount(arm);
 						return tools === undefined ? "n/a" : formatInteger(tools);
 					}),
+					arms.map(armToolCount),
 				)}
-		${renderNamedCompareMetricRow(
-			"Duration",
-			arms.map((arm) => (arm.durationMs === undefined ? "n/a" : formatDuration(arm.durationMs))),
-		)}
       </tbody>
     </table>
   </div>`;
@@ -681,37 +743,22 @@ function renderCompareMetrics(result: ScenarioResult): string {
 	if (arms.length === 0) {
 		return "";
 	}
-	const callouts = describeCompareOutcome(compare);
-	const calloutList =
-		callouts.length > 0
-			? `<ul class="compare-callouts">${callouts.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
-			: "";
 	const twoArm = arms.length === 2 && arms[0] && arms[1];
+	const callouts = describeCompareOutcome(compare);
+	const calloutList = callouts.length
+		? `<details class="compare-details"><summary>Arm details</summary><ul class="compare-callouts">${callouts.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>`
+		: "";
 	const lede = twoArm
-		? `${arms[0].label} vs ${arms[1].label}. Δ is B minus A. A lower turn count and a lower token count is better.`
-		: `${arms.map((arm) => arm.label).join(", ")}. A lower turn count and a lower token count is better. Named pairs do not pick one winner.`;
-	const winners = renderViewerCompareBoard(
-		summarizeViewerCompare(
-			arms.map((arm) => ({
-				id: arm.id,
-				label: arm.label,
-				turns: compareArmTurns(arm),
-				tokens: compareArmTokens(arm),
-				tools: arm.trace ? arm.trace.toolCalls.length : undefined,
-				durationMs: arm.durationMs,
-			})),
-			compare.gateResults,
-		),
-	);
+		? `${arms[0].label} vs ${arms[1].label}. Lower is better: green is lowest and red is highest.`
+		: `${arms.map((arm) => arm.label).join(", ")}. Lower is better: green is lowest and red is highest. Ties are neutral.`;
 	return `
-<section class="compare">
+<section class="compare comparison-metrics">
   <header class="compare-header">
-    <h3>Comparison</h3>
+    <h4>Comparison metrics</h4>
     <p class="muted">${escapeHtml(lede)}</p>
   </header>
-  ${winners}
+	${twoArm ? renderTwoArmCompareMetrics([arms[0], arms[1]], compare.gates) : renderNamedCompareMetrics(arms, compare.gates)}
   ${calloutList}
-  ${twoArm ? renderTwoArmCompareMetrics([arms[0], arms[1]]) : renderNamedCompareMetrics(arms)}
 </section>`;
 }
 
@@ -765,8 +812,16 @@ function renderArmColumn(arm: CompareArmResult, index: number): string {
 	${renderArmFailures(arm)}
   </header>
   ${arm.contextMode || arm.contextFiles || arm.hostInput ? renderContextPanel(arm.contextFiles, arm.contextMode, arm.hostInput) : ""}
-  ${renderChat(arm.trace, arm.prompt)}
+  ${renderTraceDetails(arm.trace, arm.prompt)}
 </article>`;
+}
+
+function renderTraceDetails(trace: AgentTrace | undefined, prompt?: string): string {
+	const tools = trace?.toolCalls.length ?? 0;
+	const shell = trace?.shellCommands.length ?? 0;
+	const messages = trace?.messages.length ?? 0;
+	const label = `${messages} messages · ${tools} tools${shell ? ` · ${shell} shell command${shell === 1 ? "" : "s"}` : ""}`;
+	return `<details class="trace-details" open><summary>Conversation & evidence <span>${escapeHtml(label)}</span></summary>${renderChat(trace, prompt)}</details>`;
 }
 
 function renderCompareConversations(result: ScenarioResult, host?: string): string {
@@ -775,19 +830,10 @@ function renderCompareConversations(result: ScenarioResult, host?: string): stri
 		return `<section class="conversation">
     <h3>Conversation</h3>
     ${result.contextMode || result.contextFiles || result.hostInput ? renderContextPanel(result.contextFiles, result.contextMode, result.hostInput) : ""}
-    ${renderChat(result.trace, result.prompt)}
+			${renderTraceDetails(result.trace, result.prompt)}
   </section>`;
 	}
 	const arms = compareResultArms(compare);
-	if (arms.length <= 2) {
-		return `
-<div class="compare-layout">
-  <div class="compare-arms" data-arm-count="${arms.length}">
-    ${arms.map((arm, index) => renderArmColumn(arm, index)).join("")}
-  </div>
-  ${renderCompareMetrics(result)}
-</div>`;
-	}
 	const group = compareTabGroupId(result, host);
 	const tablist = arms
 		.map((arm, index) => {
@@ -808,16 +854,7 @@ function renderCompareConversations(result: ScenarioResult, host?: string): stri
   <div class="compare-arms" data-arm-count="${arms.length}">
     ${arms.map((arm, index) => renderArmColumn(arm, index)).join("")}
   </div>
-  ${renderCompareMetrics(result)}
 </div>`;
-}
-
-function renderStoryList(title: string, lines: string[] | undefined): string {
-	if (!lines || lines.length === 0) {
-		return "";
-	}
-	const items = lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
-	return `<section class="story-block"><h3>${escapeHtml(title)}</h3><ul class="story-list">${items}</ul></section>`;
 }
 
 function renderStoryCheck(check: StoryCheck): string {
@@ -827,7 +864,7 @@ function renderStoryCheck(check: StoryCheck): string {
 
 function renderStorySection(section: StorySection): string {
 	const titled = Boolean(section.title);
-	const title = section.title ? `<h3>${escapeHtml(section.title)}</h3>` : `<h3>Criteria</h3>`;
+	const title = section.title ? `<h4>${escapeHtml(section.title)}</h4>` : "";
 	const description = section.description
 		? `<p class="story-section-description">${escapeHtml(section.description)}</p>`
 		: "";
@@ -835,50 +872,46 @@ function renderStorySection(section: StorySection): string {
 		section.checks.length > 0
 			? `<ul class="story-checks">${section.checks.map(renderStoryCheck).join("")}</ul>`
 			: "";
-	const notes =
-		section.notes && section.notes.length > 0
-			? `<ul class="story-notes">${section.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>`
-			: "";
 	const titledClass = titled ? " story-section-titled" : "";
-	return `<section class="story-section${titledClass}">${title}${description}${checks}${notes}</section>`;
+	return `<div class="story-section${titledClass}">${title}${description}${checks}</div>`;
 }
 
-function renderStory(result: ScenarioResult): string {
+function renderStory(result: ScenarioResult, comparison = ""): string {
 	const story = result.story;
-	if (!story) {
+	if (!story && !comparison) {
 		return "";
 	}
-	if (story.sections && story.sections.length > 0) {
-		const titled = story.sections.some((section) => section.title);
-		if (!titled && story.sections.length === 1 && story.sections[0]) {
-			const section = story.sections[0];
-			const criteria =
-				section.checks.length > 0
-					? `<section class="story-block"><h3>Criteria</h3><ul class="story-checks">${section.checks.map(renderStoryCheck).join("")}</ul></section>`
-					: "";
-			return `<div class="story">${criteria}${renderStoryList("Result", [
-				...(section.notes ?? []),
-				...story.verdict,
-			])}</div>`;
-		}
-		const sections = story.sections.map(renderStorySection).join("");
-		const leftover = story.verdict.length > 0 ? renderStoryList("Result", story.verdict) : "";
-		return `<div class="story story-sections">${sections}${leftover}</div>`;
-	}
-	return `<div class="story">
-    ${renderStoryList("Criteria", story.criteria)}
-    ${renderStoryList("Result", [...story.result, ...story.verdict])}
-  </div>`;
+	const sections = story?.sections?.filter((section) => section.checks.length > 0) ?? [];
+	const storyCriteria = sections.length
+		? sections.map(renderStorySection).join("")
+		: story?.criteria.length
+			? `<ul class="story-checks">${story.criteria
+					.map((text) => renderStoryCheck({ text, status: result.passed ? "pass" : "fail" }))
+					.join("")}</ul>`
+			: "";
+	const fallbackCompareCriteria = result.compare?.gateResults?.length
+		? `<div class="story-section story-section-titled"><h4>Compare</h4><ul class="story-checks">${result.compare.gateResults
+				.map((gate) =>
+					renderStoryCheck({
+						text: gate.message,
+						status: gate.passed ? "pass" : "fail",
+					}),
+				)
+				.join("")}</ul></div>`
+		: "";
+	const criteria = storyCriteria || fallbackCompareCriteria;
+	if (!criteria && !comparison) return "";
+	return `<div class="story"><section class="story-criteria"><h3>Pass criteria</h3>${criteria}${comparison}</section></div>`;
 }
 
-function renderScenario(result: ScenarioResult, host?: string): string {
-	const open = result.skipped ? "" : !result.passed || result.compare ? " open" : "";
-	const failures = result.story ? "" : renderFailures(result);
+export function renderScenarioResult(result: ScenarioResult, host?: string): string {
+	const open = result.skipped ? "" : " open";
+	const failures = renderFailures(result);
 	const judgeVerdicts = renderJudgeVerdicts(result);
 	const tokens = formatTokensBadge(result);
 	const usageDetail = result.compare ? "" : renderUsageDetail(usageOf(result));
 	const traceMeta = result.compare ? "" : renderTraceMeta(result);
-	const story = renderStory(result);
+	const story = renderStory(result, renderCompareMetrics(result));
 	const diagnostics =
 		story || failures || judgeVerdicts
 			? `<div class="diagnostics">
@@ -912,21 +945,6 @@ function renderScenario(result: ScenarioResult, host?: string): string {
   ${renderCompareConversations(result, host)}
   </div>
 </details>`;
-}
-
-function renderSuite(report: SuiteRunReport): string {
-	const scenarios = report.results.map((result) => renderScenario(result, report.host)).join("\n");
-	return `
-<section class="suite">
-  <header class="suite-header">
-    <div class="suite-title">
-      <h2>${escapeHtml(report.suite)}</h2>
-      <span class="host">${escapeHtml(report.host)}</span>
-    </div>
-    <p class="suite-counts"><span>${formatInteger(report.passed)} passed</span><span>${formatInteger(report.failed)} failed</span><span>${formatInteger(report.skipped)} skipped</span></p>
-  </header>
-  ${scenarios}
-</section>`;
 }
 
 export function reportCss(): string {
@@ -1085,10 +1103,12 @@ function sharedReportCss(): string {
   .diagnostics section { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.7rem; min-width: 0; }
   .conversation { min-width: 0; }
 
-  .story { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.85rem; margin-bottom: 0.85rem; }
-  .story-sections { display: flex; flex-direction: column; gap: 0.85rem; }
-  .story-block h3, .story-section h3 { margin: 0 0 0.35rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-  .story-section-titled h3 { text-transform: none; letter-spacing: 0; font-size: 0.9rem; color: var(--text); }
+	.story { margin-bottom: 0.85rem; }
+	.story-criteria { display: grid; gap: 0.55rem; }
+	.story-criteria > h3 { margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+	.story-section { display: grid; gap: 0.3rem; }
+	.story-section + .story-section { padding-block-start: 0.55rem; border-block-start: 1px solid var(--border); }
+	.story-section h4 { margin: 0; font-size: 0.84rem; color: var(--text); }
   .story-section-description { margin: 0 0 0.4rem; color: var(--muted); font-size: 0.82rem; }
   .story-list, .story-checks, .story-notes { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.25rem; color: var(--text); }
   .story-checks { list-style: none; padding-left: 0; }
@@ -1113,6 +1133,15 @@ function sharedReportCss(): string {
   .verdict-fail .verdict-icon { color: var(--fail); }
   .question { margin: 0; font-size: 0.85rem; font-weight: 600; }
   .rationale { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--muted); }
+	.judge-evidence { margin: 0.35rem 0 0; padding-inline-start: 1.1rem; color: var(--muted); font-size: 0.78rem; }
+	.judge-exchange { margin-block-start: 0.5rem; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+	.judge-exchange > summary { cursor: pointer; padding: 0.4rem 0.55rem; color: var(--muted); font-size: 0.75rem; font-weight: 650; }
+	.judge-exchange[open] > summary { border-block-end: 1px solid var(--border); background: var(--panel); }
+	.judge-chat { display: grid; gap: 0.55rem; padding: 0.55rem; }
+	.judge-turn { display: grid; gap: 0.25rem; min-width: 0; }
+	.judge-turn > span { color: var(--muted); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+	.judge-turn pre { max-height: 22rem; margin: 0; padding: 0.5rem; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: #0b1017; color: var(--text); font: 0.72rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+	.judge-response pre { border-inline-start: 3px solid var(--pass); }
 
   .chat {
     display: flex;
@@ -1206,9 +1235,14 @@ function sharedReportCss(): string {
   .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.88rem; max-width: min(42rem, 94%); }
 
   .tool-card {
-    max-width: min(44rem, 100%);
-    border-radius: 10px;
-    padding: 0.65rem 0.75rem;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.3rem 0.55rem;
+	width: fit-content;
+	max-width: min(40rem, 100%);
+	border-radius: 7px;
+	padding: 0.38rem 0.5rem;
     border: 1px solid color-mix(in srgb, var(--tool) 35%, var(--border));
     background: var(--tool-bubble);
     word-spacing: normal;
@@ -1217,25 +1251,25 @@ function sharedReportCss(): string {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    font-size: 0.82rem;
+	font-size: 0.74rem;
     font-weight: 700;
     color: var(--tool);
   }
-  .tool-icon { font-size: 0.85rem; }
+	.tool-icon { display: none; }
   .tool-name { font-weight: 700; }
   .tool-args {
-    margin-top: 0.45rem;
-    display: grid;
-    gap: 0.35rem;
-    padding-top: 0.45rem;
-    border-top: 1px solid color-mix(in srgb, var(--tool) 20%, var(--border));
+	margin-top: 0;
+	display: grid;
+	gap: 0.22rem;
+	padding-top: 0;
+	border-top: 0;
   }
   .tool-arg {
     display: grid;
-    grid-template-columns: 6.25rem minmax(0, 1fr);
-    gap: 0.4rem 0.65rem;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: 0.3rem 0.45rem;
     align-items: start;
-    font-size: 0.8rem;
+	font-size: 0.72rem;
   }
   .tool-arg-key { color: var(--muted); padding-top: 0.2rem; }
   .tool-arg code {
@@ -1243,16 +1277,23 @@ function sharedReportCss(): string {
     color: var(--text);
     background: #0b1017;
     border-radius: 6px;
-    padding: 0.28rem 0.45rem;
+	padding: 0.18rem 0.35rem;
     overflow-wrap: anywhere;
     word-break: break-word;
     white-space: pre-wrap;
-    line-height: 1.4;
+	line-height: 1.3;
   }
 
   .shell-commands { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
   .shell-commands li { font-size: 0.8rem; background: #0b1017; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.5rem; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+  .trace-details { margin-top: 0.75rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .trace-details summary { cursor: pointer; display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.55rem 0.7rem; font-size: 0.82rem; font-weight: 650; }
+  .trace-details summary span { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .trace-details[open] summary { border-bottom: 1px solid var(--border); background: var(--panel-2); }
+  .trace-details > .chat, .trace-details > h4, .trace-details > .shell-commands, .trace-details > .empty { margin-inline: 0.7rem; }
+  .trace-details > .chat { margin-block: 0.7rem; }
+  .trace-details > .shell-commands { margin-bottom: 0.7rem; }
 
   .compare-layout {
     container-type: inline-size;
@@ -1342,7 +1383,8 @@ function sharedReportCss(): string {
     padding: 0.85rem 0.9rem 1rem;
   }
   .compare-header { margin-bottom: 0.65rem; }
-  .compare-header h3 { margin-bottom: 0.2rem; }
+  .compare-header h3, .compare-header h4 { margin-bottom: 0.2rem; }
+  .story-criteria > .comparison-metrics { margin-top: 0.85rem; padding: 0.8rem 0 0; background: transparent; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
   .compare-winners { margin: 0 0 0.75rem; }
   .compare-winners h3 { margin-bottom: 0.35rem; }
   .compare-winners ul {
@@ -1355,12 +1397,13 @@ function sharedReportCss(): string {
   .compare-winner-pass { color: var(--pass); }
   .compare-winner-fail { color: var(--fail); }
   .compare-callouts {
-    margin: 0 0 0.75rem;
+	margin: 0.5rem 0 0;
     padding-left: 1.1rem;
     display: grid;
     gap: 0.25rem;
     font-size: 0.85rem;
   }
+  .compare-details { margin-top: 0.65rem; color: var(--muted); font-size: 0.78rem; }
   .compare-table-wrap { overflow-x: auto; }
   .compare-table {
     width: 100%;
@@ -1378,8 +1421,13 @@ function sharedReportCss(): string {
   .delta-up { color: var(--fail); }
   .delta-down { color: var(--pass); }
   .delta-flat { color: var(--muted); }
+  .compare-table td.is-better { color: var(--pass); font-weight: 650; background: color-mix(in srgb, var(--pass) 12%, transparent); }
+  .compare-table td.is-worse { color: var(--fail); font-weight: 650; background: color-mix(in srgb, var(--fail) 12%, transparent); }
+	.compare-table td.is-outcome-pass { color: var(--pass); font-weight: 650; }
+	.compare-table td.is-outcome-fail { color: var(--fail); font-weight: 650; background: color-mix(in srgb, var(--fail) 12%, transparent); }
+	.compare-table td.is-expected-failure { color: var(--muted); font-weight: 650; background: color-mix(in srgb, var(--muted) 9%, transparent); }
   .is-better { color: var(--pass); font-weight: 650; }
-  .is-worse { color: var(--muted); }
+  .is-worse { color: var(--fail); font-weight: 650; }
 
   @container (max-width: 44rem) {
     .compare-arms { grid-template-columns: minmax(0, 1fr); }
@@ -1406,31 +1454,14 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
 	const host = meta.host ?? (hostNames.length > 0 ? hostNames.join(", ") : "unknown");
 	const runUsage = summarizeReports(reports).usage;
 
-	const suitesHtml = reports.map(renderSuite).join("\n");
-
 	const suiteWord = reports.length === 1 ? "suite" : "suites";
-	return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>agent-test report</title>
-<style>${sharedReportCss()}</style>
-</head>
-<body>
-<main>
-  <header class="report-header">
-    <p class="brand">agent-test</p>
-    <h1>Run report</h1>
-    <p class="lede">${escapeHtml(String(host))} · ${formatInteger(reports.length)} ${suiteWord}${meta.suitesDir ? ` · ${escapeHtml(meta.suitesDir)}` : ""}</p>
-  </header>
-  <section class="summary" aria-label="Run verdict">
+	const overviewHtml = `<section class="summary" aria-label="Run verdict">
     <div class="stats">
       <span class="stat stat-pass"><strong>${formatInteger(totalPassed)}</strong><span>passed</span></span>
       <span class="stat stat-fail"><strong>${formatInteger(totalFailed)}</strong><span>failed</span></span>
       <span class="stat stat-skip"><strong>${formatInteger(totalSkipped)}</strong><span>skipped</span></span>
     </div>
-    <p class="when">Generated ${escapeHtml(generatedAt.toISOString())}</p>
+    <p class="when">${escapeHtml(String(host))} · ${formatInteger(reports.length)} ${suiteWord}${meta.suitesDir ? ` · ${escapeHtml(meta.suitesDir)}` : ""} · Generated ${escapeHtml(generatedAt.toISOString())}</p>
   </section>
   <section class="guide" aria-labelledby="guide-heading">
     <h2 id="guide-heading">How to read this report</h2>
@@ -1442,12 +1473,76 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
       <li>Context delivery shows the exact submitted user input and any harness preamble files.</li>
     </ol>
   </section>
-  ${renderCostSection(runUsage)}
-  ${suitesHtml}
-</main>
-</body>
-</html>
-`;
+  ${renderCostSection(runUsage)}`;
+	const catalog = meta.catalog ?? viewerCatalogFromReports(reports, meta.suitesDir);
+	const runId = "report";
+	const bootstrap: ViewerBootstrap = {
+		catalog,
+		runs: [
+			{
+				id: runId,
+				request: {},
+				status: "completed",
+				startedAt: generatedAt.toISOString(),
+				finishedAt: generatedAt.toISOString(),
+				reports: [],
+			},
+		],
+		selectedRunId: runId,
+		capabilities: { canRun: false },
+	};
+	const results: ViewerRenderedResult[] = reports.flatMap((report) =>
+		report.results.map((result) => ({
+			suite: report.suite,
+			scenario: result.scenario,
+			host: report.host,
+			html: renderScenarioResult(result, report.host),
+		})),
+	);
+	return renderViewerPage(bootstrap, {
+		baseCss: sharedReportCss(),
+		headerLede: `${host} · ${meta.suitesDir ?? catalog.suitesDir}`,
+		overviewHtml,
+		results,
+	});
+}
+
+function viewerCatalogFromReports(
+	reports: SuiteRunReport[],
+	suitesDir = "agent-suites",
+): ViewerCatalog {
+	const suites = new Map<string, ViewerCatalog["suites"][number]>();
+	for (const report of reports) {
+		let suite = suites.get(report.suite);
+		if (!suite) {
+			suite = { name: report.suite, hosts: [], scenarios: [] };
+			suites.set(report.suite, suite);
+		}
+		if (!suite.hosts.includes(report.host)) suite.hosts.push(report.host);
+		for (const result of report.results) {
+			if (suite.scenarios.some((scenario) => scenario.name === result.scenario)) continue;
+			suite.scenarios.push({
+				name: result.scenario,
+				description: result.description,
+				prompt: "",
+				rubric: {},
+				...(result.skipped ? { skip: true } : {}),
+				...(result.compare
+					? {
+							compare: compareResultArms(result.compare).map((arm) => ({
+								id: arm.id,
+								label: arm.label,
+								description: arm.description,
+								prompt: arm.prompt ?? result.prompt ?? "",
+								rubric: {},
+							})),
+							gates: result.compare.gates,
+						}
+					: {}),
+			});
+		}
+	}
+	return { suitesDir, defaultSelectedHosts: [], suites: [...suites.values()] };
 }
 
 /**

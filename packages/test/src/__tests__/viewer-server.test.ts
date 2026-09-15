@@ -26,6 +26,23 @@ const fakeRunner: ViewerRunner = {
 		emit({ type: "text", text: "fake assistant reply", ...cell });
 		emit({ type: "tool", name: "Read", args: { path: "README.md" }, ...cell });
 		emit({ type: "cell_finished", ...cell, passed: true, durationMs: 4 });
+		emit({
+			type: "scenario_result",
+			...cell,
+			result: {
+				suite: job.suite,
+				scenario: job.scenario,
+				passed: true,
+				failures: [],
+				durationMs: 4,
+				trace: {
+					messages: [{ role: "assistant", content: "fake assistant reply" }],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+				},
+			},
+		});
 	},
 };
 
@@ -56,10 +73,10 @@ describe("viewer server", () => {
 			const page = await fetch(handle.url);
 			expect(page.status).toBe(200);
 			const html = await page.text();
-			expect(html).toContain("Suite viewer");
+			expect(html).toContain("<title>agent-test viewer</title>");
 			expect(html).toContain("hello direct");
-			expect(html).toContain("Run starts a live host agent.");
-			expect(html).toContain('class="primary run-cell"');
+			expect(html).toContain("Choose a test to inspect or run.");
+			expect(html).toContain("run-toggle run-cell");
 			expect(html).toContain('data-live-slot="smoke::hello direct"');
 			expect(html).toContain("live-status");
 			expect(html).toContain("compare-tablist");
@@ -90,8 +107,49 @@ describe("viewer server", () => {
 			).toBe(true);
 			expect(events.some((event) => event.type === "tool" && event.name === "Read")).toBe(true);
 			expect(events.at(-1)).toMatchObject({ type: "run_finished", passed: 1, failed: 0 });
+			const runs = (await (await fetch(new URL("/api/runs", handle.url))).json()) as Array<{
+				id: string;
+			}>;
+			expect(runs.map((run) => run.id)).toContain(runId);
+			const detail = await fetch(new URL(`/api/runs/${runId}`, handle.url));
+			expect(detail.status).toBe(200);
+			expect(await detail.text()).toContain("fake assistant reply");
 		} finally {
 			await handle.close();
 		}
+	});
+
+	it("imports a completed run and closes after its idle timeout", async () => {
+		const catalog = await loadViewerCatalog({
+			cwd: repoRoot,
+			suitesDir: join(repoRoot, "packages/test/fixtures"),
+		});
+		let markClosed: (() => void) | undefined;
+		const closed = new Promise<void>((resolveClosed) => {
+			markClosed = resolveClosed;
+		});
+		const handle = await listenViewer({
+			catalog,
+			cwd: repoRoot,
+			suitesDir: join(repoRoot, "packages/test/fixtures"),
+			runner: fakeRunner,
+			initialRuns: [
+				{
+					id: "imported",
+					request: { suite: "smoke" },
+					status: "completed",
+					startedAt: "2026-09-15T00:00:00.000Z",
+					finishedAt: "2026-09-15T00:01:00.000Z",
+					reports: [],
+				},
+			],
+			selectedRunId: "imported",
+			idleMs: 20,
+			onClose: () => markClosed?.(),
+		});
+		const page = await (await fetch(handle.url)).text();
+		expect(page).toContain("imported");
+		await closed;
+		await handle.close();
 	});
 });

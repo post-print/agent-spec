@@ -9,11 +9,14 @@ import {
 	subprocessFailureMessage,
 } from "../live-isolation.js";
 import { createLiveStagingSessionId } from "../record-trace.js";
+import { finalizeScheduledCompareScenario } from "../run-suite.js";
 import type { ViewerJob } from "./catalog.js";
 import type { ViewerEvent, ViewerEventEnvelope } from "./events.js";
 import type { ViewerRunner } from "./run-controller.js";
 
 export interface LiveViewerRunnerOptions {
+	/** CLI entrypoint to use for isolated children when the viewer runs in a detached server. */
+	cliPath?: string;
 	cwd: string;
 	suitesDir: string;
 	rubricsDir?: string;
@@ -21,6 +24,11 @@ export interface LiveViewerRunnerOptions {
 	timeoutMs?: number;
 	authMode?: HostAuthMode;
 	adapterModules?: string[];
+	worktree?: boolean;
+	keepRecordings?: boolean;
+	allowUserInput?: boolean;
+	debug?: boolean;
+	debugDir?: string;
 	/** Override host auth probe. Tests inject this. */
 	missingAuth?: (host: ViewerJob["host"]) => string | undefined;
 	/** Override isolated spawn. Tests inject this. */
@@ -39,20 +47,41 @@ function envelope(job: ViewerJob): ViewerEventEnvelope {
 /** Spawn one isolated child per viewer job. Forward NDJSON events to the UI. */
 export function createLiveViewerRunner(options: LiveViewerRunnerOptions): ViewerRunner {
 	return {
+		finalizeCompare: (input) =>
+			finalizeScheduledCompareScenario({
+				...input,
+				cwd: options.cwd,
+				judge: options.judge,
+			}),
 		async runJob(job, emit, signal) {
 			const cell = envelope(job);
-			emit({ type: "cell_started", ...cell });
-			emit({ type: "status", text: "Starting isolated child.", ...cell });
-			const missing = (options.missingAuth ?? missingAgentAuth)(job.host);
-			if (missing) {
-				emit({ type: "error", message: missing, ...cell });
+			const emitFailure = (message: string): void => {
+				emit({ type: "error", message, ...cell });
 				emit({
 					type: "cell_finished",
 					...cell,
 					passed: false,
 					durationMs: 0,
-					failures: [{ matcher: "liveScenario", message: missing }],
+					failures: [{ matcher: "liveScenario", message }],
 				});
+				emit({
+					type: "scenario_result",
+					...cell,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						prompt: job.prompt,
+						passed: false,
+						durationMs: 0,
+						failures: [{ matcher: "liveScenario", message, category: "agent_runtime" }],
+					},
+				});
+			};
+			emit({ type: "cell_started", ...cell });
+			emit({ type: "status", text: "Starting isolated child.", ...cell });
+			const missing = (options.missingAuth ?? missingAgentAuth)(job.host);
+			if (missing) {
+				emitFailure(missing);
 				return;
 			}
 			if (signal.aborted) {
@@ -66,6 +95,7 @@ export function createLiveViewerRunner(options: LiveViewerRunnerOptions): Viewer
 			let finished = false;
 			try {
 				const result = await spawn({
+					cliPath: options.cliPath,
 					cwd: options.cwd,
 					suiteName: job.suite,
 					scenarioName: job.scenario,
@@ -75,11 +105,16 @@ export function createLiveViewerRunner(options: LiveViewerRunnerOptions): Viewer
 					host: job.host,
 					compareArm: job.arm,
 					stagingSessionId: createLiveStagingSessionId(),
-					judge: options.judge,
+					judge: job.arm ? false : options.judge,
 					timeoutMs: options.timeoutMs,
 					noTimeout: options.timeoutMs === 0,
 					authMode: options.authMode,
 					adapterModules: options.adapterModules,
+					worktree: options.worktree,
+					keepRecordings: options.keepRecordings,
+					allowUserInput: options.allowUserInput,
+					debug: options.debug,
+					debugDir: options.debugDir,
 					signal,
 					onViewerEvent: (event: ViewerEvent) => {
 						if (event.type === "cell_finished") {
@@ -96,28 +131,14 @@ export function createLiveViewerRunner(options: LiveViewerRunnerOptions): Viewer
 				}
 				if (!finished && result.exitCode !== 0) {
 					const message = subprocessFailureMessage(result.exitCode, result.stderr);
-					emit({ type: "error", message, ...cell });
-					emit({
-						type: "cell_finished",
-						...cell,
-						passed: false,
-						durationMs: 0,
-						failures: [{ matcher: "liveScenario", message }],
-					});
+					emitFailure(message);
 				}
 			} catch (error) {
 				if (signal.aborted) {
 					return;
 				}
 				const message = error instanceof Error ? error.message : String(error);
-				emit({ type: "error", message, ...cell });
-				emit({
-					type: "cell_finished",
-					...cell,
-					passed: false,
-					durationMs: 0,
-					failures: [{ matcher: "liveScenario", message }],
-				});
+				emitFailure(message);
 			} finally {
 				signal.removeEventListener("abort", onAbort);
 			}

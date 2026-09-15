@@ -1,4 +1,11 @@
-import type { ContextMode, ScenarioContextFile, ScenarioContextReason } from "../types.js";
+import type {
+	ContextMode,
+	ScenarioContextFile,
+	ScenarioContextReason,
+	ScenarioResult,
+	SuiteRunReport,
+} from "../types.js";
+import type { ViewerCatalog, ViewerRunRequest } from "./catalog.js";
 
 export interface ViewerEventEnvelope {
 	suite: string;
@@ -22,6 +29,24 @@ export interface ViewerJudgeVerdictEvent {
 export type ViewerContextReason = ScenarioContextReason;
 export type ViewerContextFile = ScenarioContextFile;
 
+export type ViewerRunStatus = "running" | "cancelling" | "cancelled" | "completed";
+
+export interface ViewerRunRecord {
+	id: string;
+	request: ViewerRunRequest;
+	status: ViewerRunStatus;
+	startedAt: string;
+	finishedAt?: string;
+	reports: SuiteRunReport[];
+}
+
+export interface ViewerBootstrap {
+	catalog: ViewerCatalog;
+	runs: ViewerRunRecord[];
+	selectedRunId?: string;
+	capabilities: { canRun: boolean };
+}
+
 export type ViewerEvent =
 	| { type: "run_started"; runId: string }
 	| { type: "run_finished"; runId: string; passed: number; failed: number; skipped: number }
@@ -38,6 +63,7 @@ export type ViewerEvent =
 	  } & ViewerEventEnvelope)
 	| ({ type: "text"; text: string } & ViewerEventEnvelope)
 	| ({ type: "tool"; name: string; args?: Record<string, unknown> } & ViewerEventEnvelope)
+	| ({ type: "scenario_result"; result: ScenarioResult } & ViewerEventEnvelope)
 	| ({
 			type: "cell_finished";
 			passed: boolean;
@@ -64,6 +90,7 @@ const EVENT_TYPES = new Set<ViewerEvent["type"]>([
 	"context",
 	"text",
 	"tool",
+	"scenario_result",
 	"cell_finished",
 	"judge",
 	"error",

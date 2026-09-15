@@ -35,6 +35,7 @@ export interface ClaudeContentBlock {
 	input?: unknown;
 	tool_use_id?: string;
 	content?: unknown;
+	is_error?: boolean;
 }
 
 export interface ClaudeTraceAccumulator extends TraceAccumulator {
@@ -168,6 +169,12 @@ function pushToolCall(
 				name: toolCall.name,
 				args: toolCall.args ?? previous.args,
 				result: toolCall.result ?? previous.result,
+				...((toolCall.succeeded ?? previous.succeeded) !== undefined
+					? { succeeded: toolCall.succeeded ?? previous.succeeded }
+					: {}),
+				...((toolCall.exitCode ?? previous.exitCode) !== undefined
+					? { exitCode: toolCall.exitCode ?? previous.exitCode }
+					: {}),
 			};
 		}
 		return;
@@ -205,8 +212,12 @@ function handleContentBlocks(acc: ClaudeTraceAccumulator, blocks: ClaudeContentB
 				const existingIndex = acc.toolCallIndexByToolUseId.get(toolUseId);
 				if (existingIndex !== undefined) {
 					const previous = acc.toolCalls[existingIndex];
-					if (previous && result !== undefined) {
-						acc.toolCalls[existingIndex] = { ...previous, result };
+					if (previous) {
+						acc.toolCalls[existingIndex] = {
+							...previous,
+							...(result !== undefined ? { result } : {}),
+							...(typeof block.is_error === "boolean" ? { succeeded: !block.is_error } : {}),
+						};
 					}
 					continue;
 				}

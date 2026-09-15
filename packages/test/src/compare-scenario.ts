@@ -18,6 +18,7 @@ const RUBRIC_ARRAY_KEYS = [
 	"must",
 	"mustNot",
 	"mustRun",
+	"mustRunSuccessfully",
 	"allowedCommands",
 	"mustCallTool",
 	"mustCallToolsInOrder",
@@ -114,6 +115,39 @@ export function buildCompareResult(
 		gates,
 	};
 }
+
+/** Shared compare verdict boundary for CLI and viewer-scheduled arm runs. */
+export function finalizeCompareOutcome(
+	arms: CompareArmResult[],
+	gates?: CompareGate[],
+	options: { evaluateGates?: boolean } = {},
+): { compare: ScenarioCompareResult; failures: AssertionFailure[] } {
+	const compare = buildCompareResult(arms, gates);
+	const experimentMode = Boolean(gates?.length);
+	const failures = arms.flatMap((arm) =>
+		prefixCompareFailures(
+			arm.label,
+			experimentMode
+				? (arm.failures ?? []).filter((failure) => failure.category !== "rubric_miss")
+				: (arm.failures ?? []),
+		),
+	);
+	if (options.evaluateGates !== false) {
+		finalizeCompareGates(compare, failures);
+	}
+	return { compare, failures };
+}
+
+/** Attach authoritative gate evidence after any per-arm judge metrics have completed. */
+export function finalizeCompareGates(
+	compare: ScenarioCompareResult,
+	failures: AssertionFailure[],
+): void {
+	compare.gateResults = evaluateCompareGates(compare.gates, compare);
+	if (failures.every((failure) => failure.category === "rubric_miss")) {
+		failures.push(...assertCompareGates(compare.gates, compare));
+	}
+}
 export function compareArmTokens(arm: CompareArmResult): number | undefined {
 	return resolvedTotalTokens(arm.trace?.usage);
 }
@@ -127,6 +161,32 @@ export function formatCompareTurns(turns: number): string {
 	return turns === 1 ? "1 turn" : `${turns} turns`;
 }
 
+export function describeCompareGate(
+	gate: CompareGate,
+	label: (id: CompareArmId) => string = (id) => id,
+): string {
+	if ("winner" in gate) {
+		if (gate.metric === "outcome") {
+			return `${label(gate.winner)} must pass while ${label(gate.loser)} fails`;
+		}
+		return `${label(gate.winner)} must use fewer ${gate.metric} than ${label(gate.loser)}`;
+	}
+	if (gate.metric === "outcome" && gate.operator === "equal") {
+		return `${label(gate.arm)} is expected to ${gate.value}`;
+	}
+	const operator =
+		gate.operator === "equal"
+			? "must equal"
+			: gate.operator === "lessThan"
+				? "must be less than"
+				: gate.operator === "atMost"
+					? "must be at most"
+					: gate.operator === "atLeast"
+						? "must be at least"
+						: "must be greater than";
+	return `${label(gate.arm)} ${gate.metric} ${operator} ${gate.value}`;
+}
+
 export function requireCompareArm(scenario: AgentScenario, side: CompareArmId): AgentScenario {
 	if (!resolveCompareArms(scenario.compare).some((entry) => entry.id === side))
 		throw new Error(`Scenario ${scenario.name} has no compare arm ${side}`);
@@ -136,6 +196,10 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 	const { compare, ...rest } = scenario;
 	const arm = resolveCompareArms(compare).find((entry) => entry.id === side)?.arm;
 	if (!arm) return rest;
+	const rubric = mergeArmRubric(rest.rubric, arm.rubric);
+	if (compare?.judgeMetrics?.length) {
+		rubric.judge = [...(rubric.judge ?? []), ...compare.judgeMetrics];
+	}
 	return {
 		...rest,
 		prompt: arm.prompt ?? rest.prompt,
@@ -149,7 +213,7 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 		allowUserSkills: arm.allowUserSkills ?? rest.allowUserSkills,
 		seedPatch: arm.seedPatch ?? rest.seedPatch,
 		seedStageOnly: arm.seedStageOnly ?? rest.seedStageOnly,
-		rubric: mergeArmRubric(rest.rubric, arm.rubric),
+		rubric,
 	};
 }
 
@@ -253,7 +317,7 @@ export function evaluateCompareGates(
 				passed,
 				left,
 				right,
-				message: `${gate.winner} must beat ${gate.loser} on ${gate.metric}`,
+				message: describeCompareGate(gate),
 			};
 		}
 		const arm = byId.get(gate.arm);
@@ -264,7 +328,7 @@ export function evaluateCompareGates(
 			passed,
 			left,
 			right: gate.value,
-			message: `${gate.arm} ${gate.metric} must be ${gate.operator} ${gate.value}`,
+			message: describeCompareGate(gate),
 		};
 	});
 }

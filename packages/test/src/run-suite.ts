@@ -59,6 +59,8 @@ import {
 	compareResultArms,
 	compareStoryFields,
 	evaluateCompareGates,
+	finalizeCompareGates,
+	finalizeCompareOutcome,
 	plainDescription,
 	prefixCompareFailures,
 	requireCompareArm,
@@ -106,6 +108,7 @@ import {
 	writeAgentStartMarker,
 	writeStagingResult,
 } from "./record-trace.js";
+import { finalizeScenarioResult } from "./scenario-finalizer.js";
 import { resolveScenarioRetryMaxAttempts, shouldRetryAnnounceStopFlake } from "./scenario-retry.js";
 import {
 	type CallerHeadSnapshot,
@@ -114,7 +117,7 @@ import {
 	seedScenarioWorktree,
 } from "./scenario-seed.js";
 import { buildScenarioStory, pathFromArgs, quoteExcerpt } from "./scenario-story.js";
-import { buildScenarioResultUsage, totalTokensFromScenarioUsage } from "./scenario-usage.js";
+import { totalTokensFromScenarioUsage } from "./scenario-usage.js";
 import { summarizeReportResults } from "./suite-summary.js";
 import { theme } from "./theme.js";
 import type {
@@ -131,6 +134,7 @@ import type {
 	SuiteRunReport,
 } from "./types.js";
 import { validateSuiteFile } from "./validate-suite.js";
+import type { ViewerCatalogScenario } from "./viewer/catalog.js";
 import { viewerContextFiles } from "./viewer/context-files.js";
 import { emitViewerEvent } from "./viewer/emit.js";
 import type { ViewerEventEnvelope } from "./viewer/events.js";
@@ -141,6 +145,13 @@ const packageVersion = (require("../package.json") as { version: string }).versi
 
 let activeWorktreeCleanup: (() => Promise<void>) | undefined;
 let activeCallerHeadRestore: { cwd: string; snapshot: CallerHeadSnapshot } | undefined;
+
+interface CompareArmRun {
+	id: CompareArmId;
+	label: string;
+	scenario: AgentScenario;
+	result: ScenarioResult;
+}
 let liveSignalHandlersRegistered = false;
 
 function setCallerHeadRestore(cwd: string, snapshot: CallerHeadSnapshot): void {
@@ -405,6 +416,9 @@ function toJudgeVerdictResults(
 		id: string;
 		pass: boolean;
 		rationale: string;
+		evidence?: string[];
+		prompt?: string;
+		response?: string;
 		infraError?: string;
 		parseError?: string;
 		rawSdkStatus?: string;
@@ -421,6 +435,9 @@ function toJudgeVerdictResults(
 			id: string;
 			pass: boolean;
 			rationale: string;
+			evidence?: string[];
+			prompt?: string;
+			response?: string;
 			infraError?: string;
 			parseError?: string;
 			rawSdkStatus?: string;
@@ -436,6 +453,9 @@ function toJudgeVerdictResults(
 			question: questionForCriterion(criteria, extended.id),
 			pass: extended.pass,
 			rationale: extended.rationale,
+			evidence: extended.evidence,
+			prompt: extended.prompt,
+			response: extended.response,
 			infraError: extended.infraError,
 			parseError: extended.parseError,
 			rawSdkStatus: extended.rawSdkStatus,
@@ -907,28 +927,9 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				}
 
 				const durationMs = Math.round(performance.now() - started);
-				const passed = failures.length === 0;
-				const usageFields = buildScenarioResultUsage({
-					agentUsage: compareResult
-						? sumUsageParts(compareResultArms(compareResult).map((arm) => arm.trace?.usage))
-						: scenarioTrace?.usage,
-					judgeVerdicts,
-				});
-				const story = buildScenarioStory({
-					rubric: scenario.rubric,
-					trace: scenarioTrace,
-					passed,
-					failures,
-					judgeVerdicts,
-					compare: compareResult
-						? attachCompareStoryResults(compareStoryFields(scenario), compareResult)
-						: undefined,
-				});
-				const scenarioResult: ScenarioResult = {
+				const scenarioResult = finalizeScenarioResult({
 					suite: suite.name,
-					scenario: scenario.name,
-					description: plainDescription(scenario.description),
-					prompt: scenario.prompt,
+					scenario,
 					contextMode:
 						childSidecar?.contextMode ??
 						scenario.contextMode ??
@@ -936,16 +937,20 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 						"harness-preamble",
 					contextFiles: childSidecar?.contextFiles,
 					hostInput: childSidecar?.hostInput,
-					passed,
 					failures,
 					durationMs,
 					attempts,
 					judgeVerdicts,
 					trace: scenarioTrace,
 					compare: compareResult,
-					story,
-					...usageFields,
-				};
+					storyCompare: compareResult
+						? attachCompareStoryResults(compareStoryFields(scenario), compareResult)
+						: undefined,
+					agentUsage: compareResult
+						? sumUsageParts(compareResultArms(compareResult).map((arm) => arm.trace?.usage))
+						: scenarioTrace?.usage,
+				});
+				const { passed, story } = scenarioResult;
 				const debugBundleDir = await maybeWriteDebugBundle({
 					debug,
 					cwd: options.cwd,
@@ -1661,33 +1666,19 @@ async function runAgentTestOnce(
 			worktreeHandle = undefined;
 		}
 
-		const passed = failures.length === 0;
-		const story = buildScenarioStory({
-			rubric: scenario.rubric,
-			trace,
-			passed,
-			failures,
-			judgeVerdicts,
-		});
-		const scenarioResult: ScenarioResult = {
+		const scenarioResult = finalizeScenarioResult({
 			suite: suiteName,
-			scenario: scenario.name,
-			description: plainDescription(scenario.description),
-			prompt: scenario.prompt,
+			scenario,
 			contextMode,
 			contextFiles,
 			hostInput,
-			passed,
 			failures,
 			durationMs,
 			judgeVerdicts,
 			trace,
-			story,
-			...buildScenarioResultUsage({
-				agentUsage: session.usage ?? trace?.usage,
-				judgeVerdicts,
-			}),
-		};
+			agentUsage: session.usage ?? trace?.usage,
+		});
+		const { passed, story } = scenarioResult;
 		const armMetrics = {
 			id: runOptions?.compareArm ?? "cell",
 			label: runOptions?.compareArm ?? "cell",
@@ -1745,6 +1736,11 @@ async function runAgentTestOnce(
 				authMode: getProcessAuthMode(),
 			});
 			scenarioResult.debugBundleDir = debugBundleDir;
+			emitViewerEvent({
+				type: "scenario_result",
+				...viewerEnvelope,
+				result: scenarioResult,
+			});
 
 			emitScenarioVerdict({
 				passed,
@@ -1847,12 +1843,7 @@ async function runCompareAgentTestOnce(
 		rubricsDir,
 	};
 
-	const armRuns: Array<{
-		id: CompareArmId;
-		label: string;
-		scenario: AgentScenario;
-		result: ScenarioResult;
-	}> = [];
+	const armRuns: CompareArmRun[] = [];
 	for (const entry of resolvedArms) {
 		const armScenario = applyCompareArm(scenario, entry.id);
 		const label = compareArmLabel(entry.arm, entry.id);
@@ -1884,90 +1875,18 @@ async function runCompareAgentTestOnce(
 		);
 		armRuns.push({ id: entry.id, label, scenario: armScenario, result });
 	}
-
-	const experimentMode = (scenario.compare?.gates?.length ?? 0) > 0;
-	const failures: AssertionFailure[] = armRuns.flatMap((arm) =>
-		prefixCompareFailures(
-			arm.label,
-			experimentMode
-				? arm.result.failures.filter((failure) => failure.category !== "rubric_miss")
-				: arm.result.failures,
-		),
-	);
-	const compareResult = buildCompareResult(
-		armRuns.map((arm) => ({
-			id: arm.id,
-			label: arm.label,
-			description: compareArmDescription(resolvedArms.find((entry) => entry.id === arm.id)?.arm),
-			prompt: arm.scenario.prompt,
-			trace: arm.result.trace,
-			contextMode: arm.result.contextMode,
-			contextFiles: arm.result.contextFiles,
-			hostInput: arm.result.hostInput,
-			durationMs: arm.result.durationMs,
-			passed: !arm.result.failures.some((failure) => failure.category === "rubric_miss"),
-			failures: arm.result.failures,
-		})),
-		scenario.compare?.gates,
-	);
-	if (judge && !isChildProcess() && scenario.compare?.judgeMetrics?.length) {
-		for (const arm of compareResult.arms) {
-			if (!arm.trace) continue;
-			const judged = await runJudgeRubric(
-				arm.trace,
-				{ judge: scenario.compare.judgeMetrics },
-				cwd,
-				host,
-			);
-			arm.trace = judged.trace;
-			arm.judgeVerdicts = toJudgeVerdictResults(
-				judged.trace,
-				scenario.compare.judgeMetrics,
-				judged.verdicts,
-			);
-			arm.failures = [...(arm.failures ?? []), ...judged.failures];
-			failures.push(
-				...prefixCompareFailures(
-					arm.label,
-					judged.failures.filter((failure) => failure.category !== "rubric_miss"),
-				),
-			);
-		}
-	}
-	if (!isChildProcess()) {
-		compareResult.gateResults = evaluateCompareGates(compareResult.gates, compareResult);
-		if (failures.every((failure) => failure.category === "rubric_miss")) {
-			failures.push(...assertCompareGates(compareResult.gates, compareResult));
-		}
-	}
-
-	const deferJudgeToParent = isChildProcess();
-	const compareArms = compareResultArms(compareResult);
-	const firstTrace = compareArms[0]?.trace;
-	let judgeVerdicts: JudgeVerdictResult[] | undefined;
-	if (
-		judge &&
-		!deferJudgeToParent &&
-		failures.every((failure) => failure.category === "rubric_miss") &&
-		compareArms.length > 0 &&
-		compareArms.every((arm) => arm.trace)
-	) {
-		const criteria = collectCompareJudgeCriteria(scenario.rubric);
-		if (criteria.length > 0) {
-			logPhase(theme.judgePhase(criteria.length), { last: true });
-		}
-		const judged = await runCompareJudgeRubric(compareResult, scenario.rubric, cwd, host);
-		failures.push(...judged.failures);
-		if (firstTrace) {
-			judgeVerdicts = toJudgeVerdictResults(
-				{ ...firstTrace, judgeVerdicts: judged.verdicts },
-				criteria,
-				judged.verdicts,
-			);
-		}
-	}
-
 	const durationMs = Math.round(performance.now() - started);
+	const scenarioResult = await finalizeCompareArmRuns({
+		cwd,
+		suite: suiteName,
+		scenario,
+		host,
+		armRuns,
+		durationMs,
+		judge: Boolean(judge && !isChildProcess()),
+		evaluateGates: !isChildProcess(),
+	});
+	const { passed, story, failures, trace: firstTrace } = scenarioResult;
 	if (isChildProcess() && stagingSessionId) {
 		const sidecarArms: Record<string, LiveCompareArmSidecar> = {};
 		for (const arm of armRuns) {
@@ -1990,32 +1909,6 @@ async function runCompareAgentTestOnce(
 		});
 	}
 
-	const passed = failures.length === 0;
-	const story = buildScenarioStory({
-		rubric: scenario.rubric,
-		trace: firstTrace,
-		passed,
-		failures,
-		judgeVerdicts,
-		compare: attachCompareStoryResults(compareStoryFields(scenario), compareResult),
-	});
-	const scenarioResult: ScenarioResult = {
-		suite: suiteName,
-		scenario: scenario.name,
-		description: plainDescription(scenario.description),
-		prompt: scenario.prompt,
-		passed,
-		failures,
-		durationMs,
-		judgeVerdicts,
-		trace: firstTrace,
-		compare: compareResult,
-		story,
-		...buildScenarioResultUsage({
-			agentUsage: sumUsageParts(armRuns.map((arm) => arm.result.agentUsage)),
-			judgeVerdicts,
-		}),
-	};
 	if (!suppressEmit) {
 		const debugBundleDir = await maybeWriteDebugBundle({
 			debug,
@@ -2037,6 +1930,13 @@ async function runCompareAgentTestOnce(
 			authMode: getProcessAuthMode(),
 		});
 		scenarioResult.debugBundleDir = debugBundleDir;
+		emitViewerEvent({
+			type: "scenario_result",
+			suite: suiteName,
+			scenario: scenario.name,
+			host,
+			result: scenarioResult,
+		});
 		emitScenarioVerdict({
 			passed,
 			index: scenarioIndex,
@@ -2044,7 +1944,7 @@ async function runCompareAgentTestOnce(
 			name: scenario.name,
 			durationMs,
 			totalTokens: totalTokensFromScenarioUsage(scenarioResult.usage, firstTrace?.usage),
-			judgeVerdicts,
+			judgeVerdicts: scenarioResult.judgeVerdicts,
 			failures,
 			story,
 			debug,
@@ -2052,6 +1952,151 @@ async function runCompareAgentTestOnce(
 		});
 	}
 	return scenarioResult;
+}
+
+async function finalizeCompareArmRuns(options: {
+	cwd: string;
+	suite: string;
+	scenario: AgentScenario;
+	host: AgentHost;
+	armRuns: CompareArmRun[];
+	durationMs: number;
+	judge: boolean;
+	evaluateGates: boolean;
+}): Promise<ScenarioResult> {
+	const resolvedArms = resolveCompareArms(options.scenario.compare);
+	const finalized = finalizeCompareOutcome(
+		options.armRuns.map((arm) => ({
+			id: arm.id,
+			label: arm.label,
+			description: compareArmDescription(resolvedArms.find((entry) => entry.id === arm.id)?.arm),
+			prompt: arm.scenario.prompt,
+			trace: arm.result.trace,
+			contextMode: arm.result.contextMode,
+			contextFiles: arm.result.contextFiles,
+			hostInput: arm.result.hostInput,
+			durationMs: arm.result.durationMs,
+			passed: !arm.result.failures.some((failure) => failure.category === "rubric_miss"),
+			failures: arm.result.failures,
+		})),
+		options.scenario.compare?.gates,
+		{ evaluateGates: false },
+	);
+	const compareResult = finalized.compare;
+	const failures = finalized.failures;
+	if (options.judge && options.scenario.compare?.judgeMetrics?.length) {
+		for (const arm of compareResult.arms) {
+			if (!arm.trace) continue;
+			const judged = await runJudgeRubric(
+				arm.trace,
+				{ judge: options.scenario.compare.judgeMetrics },
+				options.cwd,
+				options.host,
+			);
+			arm.trace = judged.trace;
+			arm.judgeVerdicts = toJudgeVerdictResults(
+				judged.trace,
+				options.scenario.compare.judgeMetrics,
+				judged.verdicts,
+			);
+			arm.failures = [...(arm.failures ?? []), ...judged.failures];
+			failures.push(
+				...prefixCompareFailures(
+					arm.label,
+					judged.failures.filter((failure) => failure.category !== "rubric_miss"),
+				),
+			);
+		}
+	}
+	if (options.evaluateGates) finalizeCompareGates(compareResult, failures);
+	const compareArms = compareResultArms(compareResult);
+	const firstTrace = compareArms[0]?.trace;
+	let judgeVerdicts: JudgeVerdictResult[] | undefined;
+	if (
+		options.judge &&
+		failures.every((failure) => failure.category === "rubric_miss") &&
+		compareArms.length > 0 &&
+		compareArms.every((arm) => arm.trace)
+	) {
+		const criteria = collectCompareJudgeCriteria(options.scenario.rubric);
+		if (criteria.length > 0) logPhase(theme.judgePhase(criteria.length), { last: true });
+		const judged = await runCompareJudgeRubric(
+			compareResult,
+			options.scenario.rubric,
+			options.cwd,
+			options.host,
+		);
+		failures.push(...judged.failures);
+		if (firstTrace) {
+			judgeVerdicts = toJudgeVerdictResults(
+				{ ...firstTrace, judgeVerdicts: judged.verdicts },
+				criteria,
+				judged.verdicts,
+			);
+		}
+	}
+	return finalizeScenarioResult({
+		suite: options.suite,
+		scenario: options.scenario,
+		failures,
+		durationMs: options.durationMs,
+		judgeVerdicts,
+		trace: firstTrace,
+		compare: compareResult,
+		storyCompare: attachCompareStoryResults(compareStoryFields(options.scenario), compareResult),
+		agentUsage: sumUsageParts(options.armRuns.map((arm) => arm.result.agentUsage)),
+	});
+}
+
+/** Finalize viewer-scheduled compare arms through the same domain and judge path as the CLI. */
+export async function finalizeScheduledCompareScenario(options: {
+	cwd: string;
+	suite: string;
+	scenario: ViewerCatalogScenario;
+	host: AgentHost;
+	armResults: Map<string, ScenarioResult>;
+	judge?: boolean;
+}): Promise<ScenarioResult> {
+	const compareArms = options.scenario.compare ?? [];
+	const scenario: AgentScenario = {
+		name: options.scenario.name,
+		description: options.scenario.description,
+		prompt: options.scenario.prompt,
+		rubric: options.scenario.rubric,
+		compare: {
+			arms: compareArms.map((arm) => ({
+				id: arm.id,
+				label: arm.label,
+				description: arm.description,
+				prompt: arm.prompt,
+			})),
+			gates: options.scenario.gates,
+			judgeMetrics: options.scenario.judgeMetrics,
+		},
+	};
+	const armRuns = compareArms.flatMap((arm) => {
+		const result = options.armResults.get(arm.id);
+		return result
+			? [
+					{
+						id: arm.id,
+						label: arm.label,
+						scenario: applyCompareArm(scenario, arm.id),
+						result,
+					},
+				]
+			: [];
+	});
+	return finalizeCompareArmRuns({
+		cwd: options.cwd,
+		suite: options.suite,
+		scenario,
+		host: options.host,
+		armRuns,
+		durationMs: Math.max(0, ...armRuns.map((arm) => arm.result.durationMs)),
+		judge: options.judge !== false,
+		evaluateGates: true,
+	});
 }
 
 async function loadCompareResultFromStaging(
