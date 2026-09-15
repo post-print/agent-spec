@@ -2,6 +2,7 @@ import type {
 	AgentHost,
 	AgentTrace,
 	AgentUsage,
+	ContextMode,
 	ContextProfile,
 	McpServerConfig,
 	ScenarioUsageBreakdown,
@@ -10,11 +11,23 @@ import type {
 
 export type {
 	AgentUsage,
+	ContextMode,
 	McpServerConfig,
 	ScenarioUsageBreakdown,
 } from "@post-print/agent-harness";
 
 export type JudgeRubricItem = string | { id?: string; question: string };
+
+/** Why the runner put a file in the host preamble. */
+export type ScenarioContextReason = "contextSources" | "profile" | "skills";
+
+/** One preamble file the host received for a run. */
+export interface ScenarioContextFile {
+	path: string;
+	text: string;
+	reason: ScenarioContextReason;
+	why: string;
+}
 
 export interface ScenarioRubric {
 	tier?: "low" | "medium" | "high";
@@ -104,6 +117,8 @@ export interface CompareArm {
 	description?: string;
 	prompt?: string;
 	host?: AgentHost;
+	/** How workspace instructions reach the host. */
+	contextMode?: ContextMode;
 	profile?: ContextProfile;
 	workspace?: string;
 	skills?: SkillContextSetting;
@@ -147,6 +162,12 @@ export interface CompareArmResult {
 	passed?: boolean;
 	failures?: AssertionFailure[];
 	judgeVerdicts?: JudgeVerdictResult[];
+	/** Whether this arm used host discovery or a runner-built preamble. */
+	contextMode?: ContextMode;
+	/** Preamble files this arm sent to the host. */
+	contextFiles?: ScenarioContextFile[];
+	/** Exact initial user input submitted through a builtin host adapter. */
+	hostInput?: string;
 }
 
 export interface ScenarioCompareResult {
@@ -168,6 +189,8 @@ export interface AgentScenario {
 	compare?: ScenarioCompare;
 	prompt: string;
 	host?: AgentHost;
+	/** Default `harness-preamble` preserves agent-test 1.0 behavior. */
+	contextMode?: ContextMode;
 	profile?: ContextProfile;
 	/** Extra skill folders to overlay. Project skills in the git repo load without this. */
 	skills?: SkillContextSetting;
@@ -200,6 +223,8 @@ export interface AgentScenario {
 
 export interface AgentSuiteDefaults {
 	host?: AgentHost;
+	/** Default context delivery for scenarios in this suite. */
+	contextMode?: ContextMode;
 	profile?: ContextProfile;
 	/** Extra skill folders to overlay, or `"none"`. */
 	skills?: SkillContextSetting;
@@ -309,6 +334,12 @@ export interface ScenarioResult {
 	judgeUsage?: AgentUsage;
 	/** Scenario prompt sent to the host (for HTML conversation). */
 	prompt?: string;
+	/** Whether workspace instructions used host discovery or a runner-built preamble. */
+	contextMode?: ContextMode;
+	/** Preamble files this run sent to the host. */
+	contextFiles?: ScenarioContextFile[];
+	/** Exact initial user input submitted through a builtin host adapter. */
+	hostInput?: string;
 	/** Plain-language note. Says what this scenario tests. */
 	description?: string;
 	/** Full agent transcript when available (for HTML reports / debug bundles). */

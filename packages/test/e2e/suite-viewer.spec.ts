@@ -253,6 +253,8 @@ test.describe("suite viewer", () => {
 						{ type: "status", text: "Creating sealed workspace." },
 						{
 							type: "context",
+							mode: "harness-preamble",
+							hostInput: "Injected context\n\n---\nTask:\nReply with smoke.",
 							files: [
 								{
 									path: "brief.md",
@@ -288,11 +290,17 @@ test.describe("suite viewer", () => {
 			await expect(liveRow(page, "smoke", "hello")).toBeVisible();
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("running");
 			await expect(slot.locator(".live-status li")).toHaveText("Creating sealed workspace.");
+			await expect(slot.locator(".context-panel")).toBeVisible();
+			await expect(slot.locator(".context-panel-title")).toHaveText("Context delivery");
+			await expect(slot.locator(".context-panel-count")).toHaveText("Harness preamble · 1 file");
+			await expect(slot.locator(".context-flow")).toContainText("Scenario");
+			await expect(slot.locator(".context-host-input")).toContainText("Exact submitted user input");
+			await expect(slot.locator(".context-host-input")).toContainText("Reply with smoke.");
 			await expect(slot.locator(".context-path")).toHaveText("brief.md");
 			await expect(slot.locator(".context-why")).toHaveText(
 				"The scenario lists brief.md in contextSources.",
 			);
-			await expect(slot.locator(".bubble.role-context .bubble-text")).toContainText(
+			await expect(slot.locator(".context-file .context-body")).toContainText(
 				"agent-test-e2e-context",
 			);
 			await expect(slot.locator(".bubble.role-user .bubble-text")).toContainText(
@@ -511,7 +519,7 @@ test.describe("suite viewer", () => {
 			});
 			await runCell(page, "judge", "pair", "cursor").click();
 			const slot = liveSlot(page, "judge", "pair");
-			await expect(page.locator("#run-banner")).toContainText("2 passed");
+			await expect(page.locator("#run-banner")).toContainText("1 passed");
 			await expect(slot.locator(".compare-tablist")).toBeVisible();
 			await expect(slot.locator(".compare-tab")).toHaveCount(2);
 			await expect(slot.locator(".live-cell")).toHaveCount(2);
@@ -558,7 +566,7 @@ test.describe("suite viewer", () => {
 			for (const arm of Object.keys(metrics)) {
 				viewer.gates.release(`start:${arm}`);
 			}
-			await expect(page.locator("#run-banner")).toContainText("4 passed");
+			await expect(page.locator("#run-banner")).toContainText("1 passed");
 			await expect(slot.getByRole("tab", { name: "skeleton clean" })).toHaveAttribute(
 				"aria-selected",
 				"true",

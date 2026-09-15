@@ -145,11 +145,12 @@ export function cursorSettingSources(allowUserSkills: boolean): CursorSettingSou
 export function claudeSessionFlags(
 	authMode: "api-key" | "subscription",
 	allowUserSkills: boolean,
+	loadProjectContext = false,
 ): string[] {
 	if (allowUserSkills) {
 		return ["--strict-mcp-config", "--setting-sources", "user,project"];
 	}
-	if (authMode === "api-key") {
+	if (authMode === "api-key" && !loadProjectContext) {
 		return ["--bare"];
 	}
 	return ["--strict-mcp-config", "--setting-sources", "project"];

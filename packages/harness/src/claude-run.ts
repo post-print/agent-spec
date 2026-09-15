@@ -49,6 +49,8 @@ export interface ClaudeRunOptions {
 	authMode?: ClaudeAuthMode;
 	/** Load `~/.claude` user skills and settings. Default false. */
 	allowUserSkills?: boolean;
+	/** Let Claude discover project CLAUDE.md, rules, and skills from disk. */
+	loadProjectContext?: boolean;
 }
 
 export interface ClaudeRunResult {
@@ -305,11 +307,16 @@ function buildClaudeArgs(options: {
 	mcpConfigPath?: string;
 	authMode: ClaudeAuthMode;
 	allowUserSkills?: boolean;
+	loadProjectContext?: boolean;
 }): string[] {
 	const args = [
 		"-p",
 		options.prompt,
-		...claudeSessionFlags(options.authMode, options.allowUserSkills === true),
+		...claudeSessionFlags(
+			options.authMode,
+			options.allowUserSkills === true,
+			options.loadProjectContext === true,
+		),
 		"--output-format",
 		"stream-json",
 		"--verbose",
@@ -432,6 +439,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			mcpConfigPath: mcpConfig?.path,
 			authMode,
 			allowUserSkills: options.allowUserSkills === true,
+			loadProjectContext: options.loadProjectContext === true,
 		});
 
 		const execute = async (): Promise<ClaudeRunResult> => {

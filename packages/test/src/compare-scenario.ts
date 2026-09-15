@@ -140,6 +140,7 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 		...rest,
 		prompt: arm.prompt ?? rest.prompt,
 		host: arm.host ?? rest.host,
+		contextMode: arm.contextMode ?? rest.contextMode,
 		profile: arm.profile ?? rest.profile,
 		workspace: arm.workspace ?? rest.workspace,
 		skills: arm.skills ?? rest.skills,
@@ -305,15 +306,42 @@ export function applySidecarCompareDurations(
 	compare: ScenarioCompareResult,
 	sidecar?: {
 		compare?: {
-			a?: { durationMs?: number };
-			b?: { durationMs?: number };
-			arms?: Record<string, { durationMs?: number }>;
+			a?: Pick<CompareArmResult, "contextFiles" | "contextMode" | "durationMs" | "hostInput">;
+			b?: Pick<CompareArmResult, "contextFiles" | "contextMode" | "durationMs" | "hostInput">;
+			arms?: Record<
+				string,
+				Pick<CompareArmResult, "contextFiles" | "contextMode" | "durationMs" | "hostInput">
+			>;
 		};
 	},
 ): ScenarioCompareResult {
 	if (!sidecar?.compare) return compare;
 	const arms = compareResultArms(compare).map((arm) => ({
 		...arm,
+		contextMode:
+			sidecar.compare?.arms?.[arm.id]?.contextMode ??
+			(arm.id === "a"
+				? sidecar.compare?.a?.contextMode
+				: arm.id === "b"
+					? sidecar.compare?.b?.contextMode
+					: undefined) ??
+			arm.contextMode,
+		contextFiles:
+			sidecar.compare?.arms?.[arm.id]?.contextFiles ??
+			(arm.id === "a"
+				? sidecar.compare?.a?.contextFiles
+				: arm.id === "b"
+					? sidecar.compare?.b?.contextFiles
+					: undefined) ??
+			arm.contextFiles,
+		hostInput:
+			sidecar.compare?.arms?.[arm.id]?.hostInput ??
+			(arm.id === "a"
+				? sidecar.compare?.a?.hostInput
+				: arm.id === "b"
+					? sidecar.compare?.b?.hostInput
+					: undefined) ??
+			arm.hostInput,
 		durationMs:
 			sidecar.compare?.arms?.[arm.id]?.durationMs ??
 			(arm.id === "a"

@@ -2,9 +2,9 @@
 
 <!-- source-of-truth: host auth and custom adapters -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
-<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/auth-mode.ts,packages/harness/src/cursor-auth.ts,packages/harness/src/openai-run.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
+<!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/context.ts,packages/harness/src/adapters/index.ts,packages/harness/src/auth-mode.ts,packages/harness/src/cursor-auth.ts,packages/harness/src/claude-run.ts,packages/harness/src/openai-run.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
 
 A **host** is the coding-agent runtime that executes a scenario. Builtin slugs are `cursor`, `claude`, and `openai`. A consumer repo can register another slug.
 
@@ -26,7 +26,19 @@ The Cursor app login does not feed the SDK. Run `npx agent-test login`. That com
 
 Resolution order: `--auth-mode`, then `runAgent({ authMode })`, then `CURSOR_AUTH_MODE` / `CLAUDE_AUTH_MODE` / `OPENAI_AUTH_MODE`, then subscription.
 
-Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`.
+Claude `api-key` mode uses `--bare` for compatibility preamble runs. A `host-native` run uses `--setting-sources project` with either auth mode so Claude can discover project `CLAUDE.md`, rules, and skills.
+
+## Native workspace discovery
+
+`contextMode: "host-native"` uses each host's own project discovery and sends the scenario prompt unchanged.
+
+| Host | Current project discovery used by agent-test |
+| --- | --- |
+| Cursor | Project `.cursor/rules`, root `AGENTS.md` / `CLAUDE.md`, and project skills including `.agents/skills`, `.cursor/skills`, `.claude/skills`, and `.codex/skills`. |
+| Claude | `CLAUDE.md` / `.claude/CLAUDE.md`, `.claude/rules`, and `.claude/skills` through the project setting source. Claude does not read `AGENTS.md` unless `CLAUDE.md` imports it. |
+| Codex | Scoped `AGENTS.md` instructions and repository `.agents/skills` while user configuration remains isolated. |
+
+These are host-version contracts and can change. The report records the exact initial user input agent-test submitted. Host-owned system instructions and native discovery are not exposed as one inspectable payload, so it does not infer that a particular workspace file loaded. Package-generated files are ordinary on-disk workspace context only after the package or fixture actually creates them.
 
 OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the child gets a temp home with only the Codex login file. Subscription mode uses that login and strips stale API keys from the child env.
 
@@ -116,6 +128,8 @@ const session = await runAgent({
   prompt: "…",
 });
 ```
+
+Set `mode: "host-native"` on `loadContext` to send only the scenario prompt through a builtin adapter and leave workspace discovery to the host. The default is `harness-preamble` for compatibility.
 
 `runAgent` / `runCursorAgent` / `runClaudeAgent` / `runOpenaiAgent` accept `timeoutMs` and `failOnUserInput` (default `true`). Set `failOnUserInput: false` to start a user simulator. The next host turn receives the original task plus the transcript.
 

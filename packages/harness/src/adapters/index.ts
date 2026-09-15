@@ -41,6 +41,25 @@ function sessionFromTrace(
 	};
 }
 
+/** Build the exact initial user input for a builtin host. */
+export function buildHostPrompt(
+	options: Pick<RunAgentOptions, "context" | "outputContract" | "prompt">,
+): string {
+	if (options.context.mode === "host-native") {
+		if (options.context.preamble.trim().length > 0) {
+			throw new Error("host-native context mode cannot send a harness preamble");
+		}
+		if (options.outputContract) {
+			throw new Error("host-native context mode cannot send a harness output contract");
+		}
+		return options.prompt;
+	}
+	const contract = options.outputContract
+		? `\n\n${buildRoutingContract(options.outputContract)}\n`
+		: "";
+	return `${options.context.preamble}\n\n---\n${contract}Task:\n${options.prompt}`;
+}
+
 /** Cursor SDK adapter — requires optional @cursor/sdk peer plus a key or `agent-test login`. */
 export class CursorAdapter implements HostAdapter {
 	readonly host = "cursor" as const;
@@ -48,10 +67,7 @@ export class CursorAdapter implements HostAdapter {
 	async run(options: RunAgentOptions): Promise<AgentSession> {
 		const started = performance.now();
 		try {
-			const contract = options.outputContract
-				? `\n\n${buildRoutingContract(options.outputContract)}\n`
-				: "";
-			const prompt = `${options.context.preamble}\n\n---\n${contract}Task:\n${options.prompt}`;
+			const prompt = buildHostPrompt(options);
 
 			const {
 				trace: streamedTrace,
@@ -134,10 +150,7 @@ export class ClaudeAdapter implements HostAdapter {
 	async run(options: RunAgentOptions): Promise<AgentSession> {
 		const started = performance.now();
 		try {
-			const contract = options.outputContract
-				? `\n\n${buildRoutingContract(options.outputContract)}\n`
-				: "";
-			const prompt = `${options.context.preamble}\n\n---\n${contract}Task:\n${options.prompt}`;
+			const prompt = buildHostPrompt(options);
 
 			const {
 				trace: streamedTrace,
@@ -154,6 +167,7 @@ export class ClaudeAdapter implements HostAdapter {
 				onDeadlineStart: options.onDeadlineStart,
 				onAgentEvent: options.onAgentEvent,
 				allowUserSkills: options.allowUserSkills === true,
+				loadProjectContext: options.context.mode === "host-native",
 				authMode: options.authMode,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);
@@ -218,10 +232,7 @@ export class OpenaiAdapter implements HostAdapter {
 	async run(options: RunAgentOptions): Promise<AgentSession> {
 		const started = performance.now();
 		try {
-			const contract = options.outputContract
-				? `\n\n${buildRoutingContract(options.outputContract)}\n`
-				: "";
-			const prompt = `${options.context.preamble}\n\n---\n${contract}Task:\n${options.prompt}`;
+			const prompt = buildHostPrompt(options);
 
 			const {
 				trace: streamedTrace,

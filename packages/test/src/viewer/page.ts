@@ -184,12 +184,56 @@ function viewerCss(): string {
   .context-path {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.82rem;
-    margin: 0 0 0.25rem;
+    display: block;
   }
   .context-why {
     color: var(--muted);
     font-size: 0.8rem;
-    margin: 0 0 0.45rem;
+    display: block;
+    margin-top: 0.15rem;
+  }
+  .context-panel {
+    margin: 0 0 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--skip) 10%, var(--panel-2));
+    padding: 0.55rem 0.75rem;
+  }
+  .context-panel-summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .context-panel-count { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
+  .context-flow { display: flex; align-items: center; gap: 0.35rem; margin: 0.55rem 0; flex-wrap: wrap; }
+  .context-flow-node { border: 1px solid var(--border); border-radius: 999px; background: var(--panel); padding: 0.2rem 0.55rem; font-size: 0.78rem; font-weight: 650; }
+  .context-flow-mode { border-color: var(--skip); }
+  .context-flow-arrow { color: var(--muted); }
+  .context-host-input { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0.4rem 0.55rem; margin-top: 0.45rem; }
+  .context-host-input summary { cursor: pointer; font-size: 0.82rem; font-weight: 700; }
+  .context-panel-lede, .context-empty { color: var(--muted); font-size: 0.85rem; margin: 0.45rem 0 0; }
+  .context-files { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.4rem; }
+  .context-file {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 0.4rem 0.55rem;
+  }
+  .context-file[data-reason="contextSources"] { border-left: 3px solid var(--skip); }
+  .context-file[data-reason="skills"] { border-left: 3px solid var(--tool); }
+  .context-file[data-reason="profile"] { border-left: 3px solid var(--muted); }
+  .context-file summary { cursor: pointer; }
+  .context-body {
+    margin: 0.45rem 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    max-height: 18rem;
+    overflow: auto;
   }
   .chat-running {
     display: inline-flex;
@@ -232,7 +276,9 @@ function viewerCss(): string {
 }
 
 function rubricSummary(scenario: ViewerCatalogScenario): string {
-	const parts: string[] = [];
+	const parts: string[] = [
+		scenario.contextMode === "host-native" ? "host-native context" : "harness preamble",
+	];
 	const rubric = scenario.rubric;
 	if (rubric.must?.length) {
 		parts.push(`must ${rubric.must.join(", ")}`);
@@ -618,6 +664,10 @@ function clientScript(): string {
     if (result) {
       result.remove();
     }
+    var contextPanel = article.querySelector(".context-panel");
+    if (contextPanel) {
+      contextPanel.remove();
+    }
     var panel = article.closest("[data-host-panel]");
     var empty = panel ? panel.querySelector(".host-empty") : null;
     if (empty) {
@@ -961,31 +1011,118 @@ function clientScript(): string {
     }
   }
 
-  function appendContextFiles(chat, files) {
-    (files || []).forEach(function (file) {
-      var row = document.createElement("div");
-      row.className = "chat-row side-left";
-      var bubble = document.createElement("div");
-      bubble.className = "bubble role-context";
-      var label = document.createElement("div");
-      label.className = "bubble-label";
-      label.textContent = "Context";
-      var path = document.createElement("p");
-      path.className = "context-path";
-      path.textContent = file.path || "context";
-      var why = document.createElement("p");
-      why.className = "context-why";
-      why.textContent = file.why || "The runner loaded this file into the host preamble.";
-      var body = document.createElement("div");
-      body.className = "bubble-text";
-      body.textContent = file.text || "";
-      bubble.appendChild(label);
-      bubble.appendChild(path);
-      bubble.appendChild(why);
-      bubble.appendChild(body);
-      row.appendChild(bubble);
-      chat.appendChild(row);
+  function appendContextPanel(article, mode, files, hostInput) {
+    if (!article) {
+      return;
+    }
+    var existing = article.querySelector(".context-panel");
+    if (existing) {
+      existing.remove();
+    }
+    var list = files || [];
+    var panel = document.createElement("details");
+    panel.className = "context-panel";
+    panel.open = true;
+    panel.setAttribute("data-context-mode", mode || "harness-preamble");
+    panel.setAttribute("data-file-count", String(list.length));
+    var summary = document.createElement("summary");
+    summary.className = "context-panel-summary";
+    var title = document.createElement("span");
+    title.className = "context-panel-title";
+    title.textContent = "Context delivery";
+    var count = document.createElement("span");
+    count.className = "context-panel-count";
+    count.textContent = mode === "host-native"
+      ? "Host-native"
+      : "Harness preamble · " + (list.length === 1 ? "1 file" : list.length + " files");
+    summary.appendChild(title);
+    summary.appendChild(count);
+    panel.appendChild(summary);
+
+    var flow = document.createElement("div");
+    flow.className = "context-flow";
+    flow.setAttribute("aria-label", "Scenario prompt delivery path");
+    ["Scenario", "→", mode === "host-native" ? "Host discovery" : "Harness preamble", "→", "Host"].forEach(function (label, index) {
+      var item = document.createElement("span");
+      item.className = index === 1 || index === 3
+        ? "context-flow-arrow"
+        : "context-flow-node" + (index === 2 ? " context-flow-mode" : "");
+      item.textContent = label;
+      flow.appendChild(item);
     });
+    panel.appendChild(flow);
+
+    if (typeof hostInput === "string") {
+      var input = document.createElement("details");
+      input.className = "context-host-input";
+      input.open = true;
+      var inputSummary = document.createElement("summary");
+      inputSummary.textContent = "Exact submitted user input";
+      var inputBody = document.createElement("pre");
+      inputBody.className = "context-body";
+      inputBody.textContent = hostInput;
+      input.appendChild(inputSummary);
+      input.appendChild(inputBody);
+      panel.appendChild(input);
+    }
+
+    if (mode === "host-native") {
+      var nativeLede = document.createElement("p");
+      nativeLede.className = "context-panel-lede";
+      nativeLede.textContent = "No harness preamble. Workspace files remain on disk for the host to discover.";
+      panel.appendChild(nativeLede);
+      var nativeUnknown = document.createElement("p");
+      nativeUnknown.className = "context-empty";
+      nativeUnknown.textContent = "Host-owned system instructions and native discovery are not exposed as one inspectable payload. agent-test does not claim which workspace instructions or skills the host loaded.";
+      panel.appendChild(nativeUnknown);
+    } else if (list.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "context-empty";
+      empty.textContent = "No preamble files. The agent received the prompt only.";
+      panel.appendChild(empty);
+    } else {
+      var lede = document.createElement("p");
+      lede.className = "context-panel-lede";
+      lede.textContent = "These files were in the host preamble for this run.";
+      panel.appendChild(lede);
+      var ol = document.createElement("ol");
+      ol.className = "context-files";
+      list.forEach(function (file) {
+        var item = document.createElement("li");
+        var details = document.createElement("details");
+        details.className = "context-file";
+        details.open = list.length === 1;
+        details.setAttribute("data-reason", file.reason || "profile");
+        details.setAttribute("data-path", file.path || "context");
+        var fileSummary = document.createElement("summary");
+        var path = document.createElement("span");
+        path.className = "context-path";
+        path.textContent = file.path || "context";
+        var why = document.createElement("span");
+        why.className = "context-why";
+        why.textContent = file.why || "The runner loaded this file into the host preamble.";
+        fileSummary.appendChild(path);
+        fileSummary.appendChild(why);
+        var body = document.createElement("pre");
+        body.className = "context-body";
+        body.textContent = file.text || "";
+        details.appendChild(fileSummary);
+        details.appendChild(body);
+        item.appendChild(details);
+        ol.appendChild(item);
+      });
+      panel.appendChild(ol);
+    }
+    var chat = article.querySelector(".chat");
+    if (chat) {
+      article.insertBefore(panel, chat);
+    } else {
+      article.appendChild(panel);
+    }
+  }
+
+  function appendContextFiles(chat, mode, files, hostInput) {
+		appendContextPanel(chat ? chat.closest("article.live-cell") : null, mode, files, hostInput);
   }
 
   function displayToolPath(path) {
@@ -1369,7 +1506,7 @@ function clientScript(): string {
       }
       var contextChat = ensurePane(event);
       if (contextChat) {
-        appendContextFiles(contextChat, event.files);
+        appendContextFiles(contextChat, event.mode, event.files, event.hostInput);
       }
       return;
     }

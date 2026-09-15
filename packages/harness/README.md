@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent-harness package -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
 <!-- review-deps: paths=packages/harness/src/*.ts,packages/harness/src/**/*.ts,packages/harness/package.json -->
 
@@ -25,6 +25,18 @@ const session = await runAgent({
   prompt: "…",
 });
 ```
+
+For a host-native session, keep the scenario prompt unchanged and let the host discover its supported project files:
+
+```ts
+const context = await loadContext({
+  cwd: sealed.path,
+  profile: "cursor",
+  mode: "host-native",
+});
+```
+
+`harness-preamble` remains the default for compatibility. It composes selected context sources and optional skill catalogs into the submitted user input.
 
 Replay-based testing is deprecated and removed. `runAgent` always launches the selected agent host. Untyped calls with `host: "replay"` fail with migration guidance.
 
@@ -73,11 +85,11 @@ For `agent-test`, put adapters in `agent-test.config.mjs` or pass `--adapter ./h
 
 Set `classifierHost` to `cursor`, `claude`, or `openai`, or implement `classify()`. A custom host without one cannot run the judge.
 
-Claude `api-key` mode uses `--bare`. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass to Codex as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the Codex child gets a temp home with only its login file.
+Claude `api-key` mode uses `--bare` for harness-preamble runs and project setting sources for host-native runs. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass to Codex as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the Codex child gets a temp home with only its login file.
 
 ## Skills
 
-The sealed workspace is a git repo. Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skills`, and `.claude/skills` inside that folder. Optional `skills` paths only overlay extra folders that are not already in that repo. Host-global user skills stay out unless `allowUserSkills` is true. The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees, Claude `--setting-sources project` or `--bare`, and Codex `--ignore-user-config` plus an auth-only temp home. The judge scores any criterion against the full transcript, including tool names, args, and results. A tool result is an outcome.
+The sealed workspace is a git repo. Each host discovers its own project skill roots: Cursor uses `.cursor/skills` and `.agents/skills`, Claude uses `.claude/skills`, and Codex uses `.agents/skills`. Optional `skills` paths are only used by harness-preamble mode to build a synthetic catalog. Host-global user skills stay out unless `allowUserSkills` is true. The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees, Claude project-only settings or `--bare`, and Codex `--ignore-user-config` plus an auth-only temp home. The judge scores any criterion against the full transcript, including tool names, args, and results. A tool result is an outcome.
 
 ## Isolation
 

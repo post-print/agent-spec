@@ -20,6 +20,21 @@ describe("viewerContextFiles", () => {
 		]);
 	});
 
+	it("keeps a marked skill catalog chunk", () => {
+		expect(
+			viewerContextFiles("<!-- skills/catalog -->\n## Skill catalog\n\n| Skill | Path |", [
+				"skills/catalog",
+			]),
+		).toEqual([
+			{
+				path: "skills/catalog",
+				text: "## Skill catalog\n\n| Skill | Path |",
+				reason: "skills",
+				why: "The scenario skills setting loaded skills/catalog.",
+			},
+		]);
+	});
+
 	it("keeps a fallback path when a chunk has no marker", () => {
 		expect(viewerContextFiles("plain preamble", ["AGENTS.md"])).toEqual([
 			{

@@ -18,6 +18,7 @@ export function classifyContextReason(
 		return "contextSources";
 	}
 	if (
+		needle === "skills/catalog" ||
 		/(?:^|\/)SKILL\.md$/.test(needle) ||
 		/(?:^|\/)\.agents\/skills\//.test(needle) ||
 		/(?:^|\/)\.claude\/skills\//.test(needle)

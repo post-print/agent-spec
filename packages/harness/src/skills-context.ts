@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-/** Project skill trees used by Cursor, Claude, Codex, and similar hosts. */
+/** Project skill trees preserved for host discovery or explicit preamble simulation. */
 export const SKILL_ROOTS = [
 	".agents/skills",
 	".cursor/skills",
@@ -106,7 +106,7 @@ export function skillPathsFromSetting(setting: SkillContextSetting | undefined):
 	return normalizeSkillContext(setting).include ?? [];
 }
 
-function normalizeSkillContext(setting: SkillContextSetting | undefined): {
+export function normalizeSkillContext(setting: SkillContextSetting | undefined): {
 	mode: SkillContextMode;
 	include: string[];
 } {
@@ -215,7 +215,7 @@ export async function loadSkillContext(
 	const parts: string[] = [];
 
 	if (options.mode === "catalog" || options.mode === "full") {
-		parts.push(buildCatalogSection(skills));
+		parts.push(`<!-- skills/catalog -->\n${buildCatalogSection(skills)}`);
 		sources.push("skills/catalog");
 	}
 
@@ -235,5 +235,3 @@ export async function loadSkillContext(
 		catalog: skills,
 	};
 }
-
-export { normalizeSkillContext };

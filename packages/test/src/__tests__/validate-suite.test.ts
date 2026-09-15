@@ -583,4 +583,50 @@ describe("validate-suite", () => {
 		const issues = validateSuiteFile("/tmp/scenarios.json", suite);
 		expect(issues.some((issue) => issue.field === "skills")).toBe(true);
 	});
+
+	it("accepts host-native context when the workspace owns all context", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "native",
+				defaults: { contextMode: "host-native", skills: "none" },
+				scenarios: [{ name: "case", prompt: "test", rubric: {} }],
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects contextSources and synthetic skills for a host-native scenario", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad-native",
+			scenarios: [
+				{
+					name: "case",
+					prompt: "test",
+					contextMode: "host-native",
+					contextSources: ["brief.md"],
+					skills: [".agents/skills/probe/SKILL.md"],
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.filter((issue) => issue.field === "contextMode")).toHaveLength(2);
+	});
+
+	it("rejects synthetic help inherited by a host-native compare arm", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad-arm",
+			defaults: { skills: [".agents/skills/probe/SKILL.md"] },
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "test",
+					compare: {
+						a: { description: "native", contextMode: "host-native" },
+						b: { description: "preamble" },
+					},
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.message.includes("synthetic catalog"))).toBe(true);
+	});
 });

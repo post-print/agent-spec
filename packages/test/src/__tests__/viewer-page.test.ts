@@ -73,6 +73,9 @@ describe("viewer page", () => {
 		expect(html).toContain("chat-running");
 		expect(html).toContain("hideAllRunning");
 		expect(html).toContain("appendContextFiles");
+		expect(html).toContain("appendContextPanel");
+		expect(html).toContain("Context delivery");
+		expect(html).toContain("Exact submitted user input");
 		expect(html).toContain("context-why");
 		expect(html.split("scrollIntoView").length - 1).toBe(1);
 		expect(html).toContain("dataset.followHost");

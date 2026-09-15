@@ -2,9 +2,9 @@
 
 <!-- source-of-truth: agent-test CLI flags and check versus live -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
-<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json,packages/test/src/worker-pool.ts,packages/test/src/viewer/**/*.ts -->
+<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json,packages/test/src/worker-pool.ts,packages/test/src/viewer/**/*.ts,packages/test/src/context-panel.ts,packages/test/src/html-report.ts -->
 
 `agent-test` launches a host agent and scores the transcript. Every live run runs `--check` first.
 
@@ -57,7 +57,7 @@ npx agent-test viewer --suites-dir agent-suites
 
 The server binds `127.0.0.1` only. Cursor is selected by default. Host tabs list every suite host.
 
-Run starts a live host agent. A progress bar shows how many tests finished, passed, failed, skipped, and remain. The live chat sits under the scenario. Each host has its own tab. The result of that run sits under the chat. A failed run lists the reason. Setup phases and host errors show in that same pane. The chat shows loaded context files. Each file says why the runner loaded it. A running mark shows while the host agent replies. It goes away when the cell finishes. Cancel run stops the live host agent. The banner shows Cancelling the run until the child stops. The chat then shows Cancelled. Each compare arm has a tab. Select a tab to see that arm's chat. A compare cell lists the measured turns, tokens, tools, and duration after the arms finish. Compare arms of one cell run together. Hosts run one after another unless you tick Run hosts together. `--workers` sets how many agents run at once. The viewer default is 4. The range is 1-32.
+Run starts a live host agent. A progress bar shows how many tests finished, passed, failed, skipped, and remain. The live chat sits under the scenario. Each host has its own tab. The result of that run sits under the chat. A failed run lists the reason. Setup phases and host errors show in that same pane. A Context delivery panel visualizes the route, shows the exact initial user input submitted through the builtin adapter, and lists every harness-preamble file with its reason and exact text. Native runs state the unobserved host-owned boundary. A running mark shows while the host agent replies. It goes away when the cell finishes. Cancel run stops the live host agent. The banner shows Cancelling the run until the child stops. The chat then shows Cancelled. Each compare arm has a tab. Select a tab to see that arm's chat. A compare cell lists the measured turns, tokens, tools, and duration after the arms finish. Compare arms of one cell run together. Hosts run one after another unless you tick Run hosts together. `--workers` sets how many agents run at once. The viewer default is 4. The range is 1-32.
 
 `--port` sets the listen port. `0` picks a free port.
 
@@ -91,7 +91,7 @@ Removed flags fail with a message: `--live`, `--record`, `--record-fixtures`, `-
 | `--debug-dir <path>` | Parent directory for that bundle. Default `$TMPDIR/agent-spec`. |
 | `--no-worktree` | Run in the caller checkout. Needs `AGENT_TEST_ALLOW_IN_PLACE=1`. |
 
-A TTY live run prints a localhost HTML preview. Cmd-click the `http://` URL to open the browser. The preview exits after 30 minutes idle. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip it. That prints a file path. Cursor opens the file path in the editor.
+A TTY live run prints a localhost HTML preview. Cmd-click the `http://` URL to open the browser. The preview exits after 30 minutes idle. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip it. That prints a file path. Cursor opens the file path in the editor. Context delivery shows the submitted input and any harness preamble files.
 
 A compare verdict lists checks under each arm. Each check shows pass or fail. A single scenario keeps the criteria and result labels.
 
