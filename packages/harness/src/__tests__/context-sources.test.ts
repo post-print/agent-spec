@@ -26,4 +26,26 @@ describe("contextSources", () => {
 		expect(context.sources).not.toContain(".skeleton/customize/brief.md");
 		expect(context.preamble).toContain("agent-test-depth-context-6d2a");
 	});
+
+	it("rejects prompt-only context in host-native mode", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-harness-native-context-"));
+		await writeFile(join(dir, "brief.md"), "hidden", "utf8");
+		await expect(
+			loadContext({ cwd: dir, mode: "host-native", contextSources: ["brief.md"] }),
+		).rejects.toThrow("does not allow contextSources prompt injection");
+	});
+
+	it("rejects a synthetic skill catalog in host-native mode", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-harness-native-skill-"));
+		await expect(
+			loadContext({ cwd: dir, mode: "host-native", skills: [".agents/skills/probe"] }),
+		).rejects.toThrow("does not allow a synthetic skills catalog");
+	});
+
+	it("leaves workspace discovery to the host in host-native mode", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "agent-harness-native-disk-"));
+		await writeFile(join(dir, "AGENTS.md"), "native only", "utf8");
+		const context = await loadContext({ cwd: dir, mode: "host-native" });
+		expect(context).toMatchObject({ mode: "host-native", sources: [], preamble: "" });
+	});
 });

@@ -12,6 +12,7 @@ import type {
 	SkillContextSetting,
 } from "@post-print/agent-harness";
 import {
+	buildHostPrompt,
 	cancelActiveClaudeRun,
 	cancelActiveCursorRun,
 	cancelActiveOpenaiRun,
@@ -23,6 +24,7 @@ import {
 	findWorkingTreeLeak,
 	formatWorkingTreeLeak,
 	getProcessAuthMode,
+	isBuiltinAgentHost,
 	judgeCompareTraces,
 	judgeTrace,
 	loadContext,
@@ -94,6 +96,7 @@ import {
 	getStagingAgentStartPath,
 	getStagingResultPath,
 	getStagingTracePath,
+	type LiveCompareArmSidecar,
 	type LiveScenarioResultSidecar,
 	loadStagingResult,
 	loadStagingTrace,
@@ -666,6 +669,7 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 						scenario: scenario.name,
 						description: plainDescription(scenario.description),
 						prompt: scenario.prompt,
+						contextMode: scenario.contextMode ?? suite.defaults?.contextMode ?? "harness-preamble",
 						passed: true,
 						failures: [],
 						skipped: true,
@@ -925,6 +929,13 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 					scenario: scenario.name,
 					description: plainDescription(scenario.description),
 					prompt: scenario.prompt,
+					contextMode:
+						childSidecar?.contextMode ??
+						scenario.contextMode ??
+						suite.defaults?.contextMode ??
+						"harness-preamble",
+					contextFiles: childSidecar?.contextFiles,
+					hostInput: childSidecar?.hostInput,
 					passed,
 					failures,
 					durationMs,
@@ -1148,6 +1159,7 @@ async function runAgentTestBody(options: RunAgentTestOptions): Promise<ScenarioR
 			suiteName,
 			options.scenario,
 			defaultHost,
+			options.defaults?.contextMode,
 			options.defaults?.profile,
 			options.defaults?.skills,
 			options.defaults?.contextSources,
@@ -1224,6 +1236,7 @@ async function runAgentTestOnce(
 	suiteName: string,
 	scenario: AgentScenario,
 	defaultHost: AgentHost,
+	defaultContextMode?: AgentScenario["contextMode"],
 	defaultProfile?: AgentScenario["profile"],
 	defaultSkills?: SkillContextSetting,
 	defaultContextSources?: string[],
@@ -1247,6 +1260,7 @@ async function runAgentTestOnce(
 	const started = performance.now();
 	const debug = isDebugEnabled({ debug: debugFlag });
 	const suppressEmit = runOptions?.suppressEmit === true;
+	const requestedContextMode = scenario.contextMode ?? defaultContextMode ?? "harness-preamble";
 
 	if (scenario.skip) {
 		const skipLabel =
@@ -1260,6 +1274,7 @@ async function runAgentTestOnce(
 			scenario: scenario.name,
 			description: plainDescription(scenario.description),
 			prompt: scenario.prompt,
+			contextMode: requestedContextMode,
 			passed: true,
 			failures: [],
 			skipped: true,
@@ -1279,6 +1294,7 @@ async function runAgentTestOnce(
 			suiteName,
 			scenario,
 			defaultHost,
+			defaultContextMode,
 			defaultProfile,
 			defaultSkills,
 			defaultContextSources,
@@ -1306,6 +1322,7 @@ async function runAgentTestOnce(
 	}
 
 	const host = scenario.host ?? defaultHost;
+	const contextMode = scenario.contextMode ?? defaultContextMode ?? "harness-preamble";
 	const profile = scenario.profile ?? defaultProfile ?? defaultProfileForHost(host);
 	const skills = scenario.skills ?? defaultSkills;
 	const contextSources = mergeContextSources(defaultContextSources, scenario.contextSources);
@@ -1375,11 +1392,16 @@ async function runAgentTestOnce(
 	try {
 		const context = await loadContext({
 			cwd: runCwd,
+			mode: contextMode,
 			profile,
 			skills,
 			contextSources,
 		});
-		const outputContract = outputContractForRubric(scenario.rubric);
+		const outputContract =
+			contextMode === "host-native" ? undefined : outputContractForRubric(scenario.rubric);
+		const hostInput = isBuiltinAgentHost(host)
+			? buildHostPrompt({ context, outputContract, prompt: scenario.prompt })
+			: undefined;
 		const agentStartMarkerPath =
 			isChildProcess() && stagingSessionId
 				? getStagingAgentStartPath(
@@ -1402,8 +1424,14 @@ async function runAgentTestOnce(
 				text: contextFiles.map((file) => file.why).join(" "),
 				...viewerEnvelope,
 			});
-			emitViewerEvent({ type: "context", files: contextFiles, ...viewerEnvelope });
 		}
+		emitViewerEvent({
+			type: "context",
+			mode: contextMode,
+			files: contextFiles,
+			hostInput,
+			...viewerEnvelope,
+		});
 		emitViewerEvent({ type: "prompt", text: scenario.prompt, ...viewerEnvelope });
 		logPhase(theme.phase("agent", theme.phaseDim("started")));
 		const agentStarted = performance.now();
@@ -1615,6 +1643,9 @@ async function runAgentTestOnce(
 					passed: failures.length === 0,
 					failures,
 					durationMs,
+					contextMode,
+					contextFiles,
+					hostInput,
 				},
 			);
 		}
@@ -1643,6 +1674,9 @@ async function runAgentTestOnce(
 			scenario: scenario.name,
 			description: plainDescription(scenario.description),
 			prompt: scenario.prompt,
+			contextMode,
+			contextFiles,
+			hostInput,
 			passed,
 			failures,
 			durationMs,
@@ -1758,6 +1792,7 @@ async function runCompareAgentTestOnce(
 	suiteName: string,
 	scenario: AgentScenario,
 	defaultHost: AgentHost,
+	defaultContextMode?: AgentScenario["contextMode"],
 	defaultProfile?: AgentScenario["profile"],
 	defaultSkills?: SkillContextSetting,
 	defaultContextSources?: string[],
@@ -1794,6 +1829,7 @@ async function runCompareAgentTestOnce(
 		cwd,
 		suiteName,
 		defaultHost,
+		defaultContextMode,
 		defaultProfile,
 		defaultSkills,
 		defaultContextSources,
@@ -1825,6 +1861,7 @@ async function runCompareAgentTestOnce(
 			shared.suiteName,
 			armScenario,
 			shared.defaultHost,
+			shared.defaultContextMode,
 			shared.defaultProfile,
 			shared.defaultSkills,
 			shared.defaultContextSources,
@@ -1864,6 +1901,9 @@ async function runCompareAgentTestOnce(
 			description: compareArmDescription(resolvedArms.find((entry) => entry.id === arm.id)?.arm),
 			prompt: arm.scenario.prompt,
 			trace: arm.result.trace,
+			contextMode: arm.result.contextMode,
+			contextFiles: arm.result.contextFiles,
+			hostInput: arm.result.hostInput,
 			durationMs: arm.result.durationMs,
 			passed: !arm.result.failures.some((failure) => failure.category === "rubric_miss"),
 			failures: arm.result.failures,
@@ -1929,9 +1969,14 @@ async function runCompareAgentTestOnce(
 
 	const durationMs = Math.round(performance.now() - started);
 	if (isChildProcess() && stagingSessionId) {
-		const sidecarArms: Record<string, { durationMs: number }> = {};
+		const sidecarArms: Record<string, LiveCompareArmSidecar> = {};
 		for (const arm of armRuns) {
-			sidecarArms[arm.id] = { durationMs: arm.result.durationMs };
+			sidecarArms[arm.id] = {
+				durationMs: arm.result.durationMs,
+				contextMode: arm.result.contextMode,
+				contextFiles: arm.result.contextFiles,
+				hostInput: arm.result.hostInput,
+			};
 		}
 		await writeStagingResult(getStagingResultPath(stagingSessionId, suiteName, scenario.name), {
 			passed: failures.length === 0,

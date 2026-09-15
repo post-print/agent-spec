@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: the direct-agent test package -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
 <!-- review-deps: paths=packages/test/src/*.ts,packages/test/src/**/*.ts,packages/test/package.json -->
 
@@ -22,13 +22,16 @@ const result = await runAgentTest({
   scenario: {
     name: "uses the project instructions",
     description: "Checks that the agent reads AGENTS.md.",
+    contextMode: "host-native",
     prompt: "Review the current change.",
-    rubric: { mustReadPath: ["AGENTS.md"] },
+    rubric: { reviewDepth: "standard" },
   },
 });
 ```
 
-The default host is Cursor. Set `scenario.host`, `defaults.host`, or the top-level `host` option to `claude` or `openai`. The scenario host wins over the top-level override, which wins over suite defaults. The default suite name is `direct`. Sealed-workspace isolation, judging, timeout enforcement, and announce-stop retry are enabled by default.
+The default host is Cursor. Set `contextMode: "host-native"` to send the scenario prompt unchanged and let the host discover its supported workspace context. The compatibility default, `harness-preamble`, composes configured sources and synthetic skill catalogs into the submitted input. Set `scenario.host`, `defaults.host`, or the top-level `host` option to `claude` or `openai`. The scenario host wins over the top-level override, which wins over suite defaults. The default suite name is `direct`. Sealed-workspace isolation, judging, timeout enforcement, and announce-stop retry are enabled by default.
+
+The viewer and HTML report render a compact context-delivery path for every run. They include the exact initial user input submitted through built-in adapters and a file-by-file preamble breakdown. In host-native mode, they also state that the host's internal system instructions and native discovery result are host-owned and not exposed as one exact context blob.
 
 ## JSON suites and CLI
 

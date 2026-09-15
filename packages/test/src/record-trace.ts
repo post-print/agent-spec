@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import type { AgentTrace } from "@post-print/agent-harness";
 import { enrichTrace } from "@post-print/agent-harness";
 
-import type { AssertionFailure } from "./types.js";
+import type { AssertionFailure, ContextMode, ScenarioContextFile } from "./types.js";
 
 export const LIVE_STAGING_DIR_NAME = "agent-spec";
 
@@ -115,12 +115,18 @@ export function getStagingResultPath(
 
 export interface LiveCompareArmSidecar {
 	durationMs: number;
+	contextMode?: ContextMode;
+	contextFiles?: ScenarioContextFile[];
+	hostInput?: string;
 }
 
 export interface LiveScenarioResultSidecar {
 	passed: boolean;
 	failures: AssertionFailure[];
 	durationMs: number;
+	contextMode?: ContextMode;
+	contextFiles?: ScenarioContextFile[];
+	hostInput?: string;
 	compare?: {
 		a?: LiveCompareArmSidecar;
 		b?: LiveCompareArmSidecar;

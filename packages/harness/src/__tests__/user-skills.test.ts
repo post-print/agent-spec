@@ -60,6 +60,14 @@ describe("user skills isolation", () => {
 		]);
 	});
 
+	it("lets Claude api-key discover project context in host-native mode", () => {
+		expect(claudeSessionFlags("api-key", false, true)).toEqual([
+			"--strict-mcp-config",
+			"--setting-sources",
+			"project",
+		]);
+	});
+
 	it("keeps Codex on --ignore-user-config unless the run allows user skills", () => {
 		expect(openaiUserConfigArgs(false)).toEqual(["--ignore-user-config"]);
 		expect(openaiUserConfigArgs(true)).toEqual([]);

@@ -2,6 +2,7 @@ import { access, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
+	type ContextMode,
 	type ContextProfile,
 	isHostSlug,
 	isKnownAgentHost,
@@ -40,6 +41,12 @@ function unknownHostMessage(host: unknown): string {
 }
 
 const VALID_PROFILES = new Set<ContextProfile>(["shared", "cursor", "claude", "skeleton"]);
+const VALID_CONTEXT_MODES = new Set<ContextMode>(["host-native", "harness-preamble"]);
+function injectsSkillCatalog(value: AgentScenario["skills"]): boolean {
+	if (value === undefined || value === "none") return false;
+	if (Array.isArray(value)) return value.length > 0;
+	return (value as { mode?: string }).mode !== "none";
+}
 function isValidSkillSetting(value: unknown): boolean {
 	if (value === "none") {
 		return true;
@@ -220,6 +227,15 @@ function validateScenario(
 	if (scenario.host !== undefined && !isKnownHostId(scenario.host)) {
 		pushIssue(issues, suitePath, "host", unknownHostMessage(scenario.host), scenario.name);
 	}
+	if (scenario.contextMode !== undefined && !VALID_CONTEXT_MODES.has(scenario.contextMode)) {
+		pushIssue(
+			issues,
+			suitePath,
+			"contextMode",
+			`contextMode must be host-native|harness-preamble, got ${JSON.stringify(scenario.contextMode)}`,
+			scenario.name,
+		);
+	}
 	if ("replayTrace" in scenario) {
 		pushIssue(issues, suitePath, "replayTrace", REPLAY_DEPRECATION, scenario.name);
 	}
@@ -302,6 +318,15 @@ function validateCompareArmFields(
 	}
 	if (arm.host !== undefined && !isKnownHostId(arm.host)) {
 		pushIssue(issues, suitePath, `${fieldPrefix}.host`, unknownHostMessage(arm.host), scenarioName);
+	}
+	if (arm.contextMode !== undefined && !VALID_CONTEXT_MODES.has(arm.contextMode)) {
+		pushIssue(
+			issues,
+			suitePath,
+			`${fieldPrefix}.contextMode`,
+			`contextMode must be host-native|harness-preamble, got ${JSON.stringify(arm.contextMode)}`,
+			scenarioName,
+		);
 	}
 	if (arm.workspace !== undefined) {
 		const parsed = parseScenarioWorkspace(arm.workspace);
@@ -658,6 +683,14 @@ function validateDefaults(
 	if (defaults.host !== undefined && !isKnownHostId(defaults.host)) {
 		pushIssue(issues, suitePath, "defaults.host", unknownHostMessage(defaults.host));
 	}
+	if (defaults.contextMode !== undefined && !VALID_CONTEXT_MODES.has(defaults.contextMode)) {
+		pushIssue(
+			issues,
+			suitePath,
+			"defaults.contextMode",
+			`contextMode must be host-native|harness-preamble, got ${JSON.stringify(defaults.contextMode)}`,
+		);
+	}
 	if (defaults.profile !== undefined && !VALID_PROFILES.has(defaults.profile)) {
 		pushIssue(
 			issues,
@@ -727,6 +760,36 @@ export function validateSuiteFile(
 	validateDefaults(issues, suitePath, suite);
 	for (const scenario of suite.scenarios) {
 		validateScenario(issues, suitePath, scenario);
+		const effectiveScenarios = scenario.compare
+			? resolveCompareArms(scenario.compare).map((entry) => applyCompareArm(scenario, entry.id))
+			: [scenario];
+		for (const effective of effectiveScenarios) {
+			const mode = effective.contextMode ?? suite.defaults?.contextMode ?? "harness-preamble";
+			if (mode !== "host-native") continue;
+			const contextSources = [
+				...(suite.defaults?.contextSources ?? []),
+				...(effective.contextSources ?? []),
+			].filter((source) => typeof source === "string" && source.trim().length > 0);
+			if (contextSources.length > 0) {
+				pushIssue(
+					issues,
+					suitePath,
+					"contextMode",
+					"host-native contextMode cannot use contextSources because they are injected into the prompt",
+					scenario.name,
+				);
+			}
+			const skills = effective.skills ?? suite.defaults?.skills;
+			if (injectsSkillCatalog(skills)) {
+				pushIssue(
+					issues,
+					suitePath,
+					"contextMode",
+					"host-native contextMode cannot use skills because agent-test injects a synthetic catalog",
+					scenario.name,
+				);
+			}
+		}
 	}
 	return issues;
 }

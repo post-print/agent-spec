@@ -25,6 +25,8 @@ describe("viewer events", () => {
 			suite: "depth",
 			scenario: "uses injected context",
 			host: "cursor",
+			mode: "harness-preamble" as const,
+			hostInput: "Exact submitted input",
 			files: [
 				{
 					path: "brief.md",

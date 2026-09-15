@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent-spec reliability targets and verification commands -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
 <!-- review-deps: paths=package.json,agent-suites/**/scenarios.json -->
 

@@ -40,21 +40,24 @@ test.describe("html report preview", () => {
 		await expect(later.locator(".badge")).toHaveText("skipped");
 		await expect(broken.locator(".badge")).toHaveText("failed");
 
-		await hello.locator("summary").click();
+		await hello.locator(":scope > summary").click();
 		await expect(hello).toHaveAttribute("open", "");
 		await expect(hello.getByText("1,234 tokens")).toBeVisible();
+		await expect(hello.getByText("Context delivery")).toBeVisible();
+		await expect(hello.locator(".context-path")).toHaveText("brief.md");
+		await expect(hello.getByText("DEPTH_CONTEXT token: agent-test-e2e-context")).toBeVisible();
 		await expect(hello.getByText("Criteria")).toBeVisible();
 		await expect(hello.getByText('reply includes "smoke"')).toBeVisible();
 		await expect(hello.getByText("medium")).toBeVisible();
 		await expect(hello.getByText("skeleton")).toBeVisible();
-		await hello.locator("summary").click();
+		await hello.locator(":scope > summary").click();
 		await expect(hello).not.toHaveAttribute("open", "");
 	});
 
 	test("keeps streamed markup escaped and shortens sealed tool paths", async ({ page }) => {
 		report = await openReport(page);
 		const hello = scenarioDetails(page, "hello");
-		await hello.locator("summary").click();
+		await hello.locator(":scope > summary").click();
 		await expect(
 			hello.getByText("Reply with smoke. <script>window.__xss=1</script>").first(),
 		).toBeVisible();
@@ -83,11 +86,11 @@ test.describe("html report preview", () => {
 		await expect(mismatch.getByText("assistant text omitted the required phrase")).toBeVisible();
 
 		const empty = scenarioDetails(page, "no-trace");
-		await empty.locator("summary").click();
+		await empty.locator(":scope > summary").click();
 		await expect(empty.getByText("No transcript recorded for this scenario.")).toBeVisible();
 
 		const legacy = scenarioDetails(page, "legacy");
-		await legacy.locator("summary").click();
+		await legacy.locator(":scope > summary").click();
 		await expect(legacy.getByText("Emission order wasn't recorded")).toBeVisible();
 		await expect(legacy.getByText("Legacy trace message")).toBeVisible();
 		await expect(legacy.getByRole("heading", { name: "Tool calls" })).toBeVisible();
@@ -101,6 +104,12 @@ test.describe("html report preview", () => {
 		await expect(pair.locator('[data-arm-id="b"]')).toBeVisible();
 		await expect(pair.getByText("alpha-compare-a7c1")).toBeVisible();
 		await expect(pair.getByText("beta-compare-b3e9")).toBeVisible();
+		await expect(pair.locator('[data-arm-id="a"] .context-body')).toContainText(
+			"alpha workspace word",
+		);
+		await expect(pair.locator('[data-arm-id="b"] .context-body')).toContainText(
+			"beta workspace word",
+		);
 		await expect(pair.getByText("Arm A")).toBeVisible();
 		await expect(pair.getByText("Arm B")).toBeVisible();
 		await expect(pair.getByRole("heading", { name: "Comparison" })).toBeVisible();

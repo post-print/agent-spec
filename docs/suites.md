@@ -2,9 +2,9 @@
 
 <!-- source-of-truth: JSON suite and scenario authoring -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
-<!-- review-deps: paths=packages/test/src/types.ts,packages/test/src/compare-scenario.ts,packages/test/src/validate-suite.ts,packages/test/src/command-allowlist.ts,packages/test/src/expect.ts,agent-suites/**/scenarios.json -->
+<!-- review-deps: paths=packages/harness/src/context.ts,packages/harness/src/adapters/index.ts,packages/test/src/types.ts,packages/test/src/run-suite.ts,packages/test/src/compare-scenario.ts,packages/test/src/validate-suite.ts,packages/test/src/command-allowlist.ts,packages/test/src/expect.ts,agent-suites/**/scenarios.json -->
 
 A **suite** is `agent-suites/<name>/scenarios.json`. A **scenario** is one prompt plus a rubric. JSON loads into `runAgentTest`. It is not a stored answer.
 
@@ -28,7 +28,7 @@ agent-suites/
 | `name` | Suite id. |
 | `description` | Optional note. |
 | `hosts` | Host matrix. A run expands once per host. `--host` filters the list. |
-| `defaults` | Host, profile, skills, context, MCP, workspace, `allowUserSkills`. |
+| `defaults` | Host, context mode, profile, skills, context, MCP, workspace, `allowUserSkills`. |
 | `scenarios` | Scenario list. |
 
 `defaults.host` must appear in `hosts` when both are set. An empty `hosts` list fails `--check`.
@@ -42,6 +42,7 @@ agent-suites/
 | `prompt` | User prompt sent to the host. |
 | `compare` | Two or more live arms. See Compare below. |
 | `host` | Pin this scenario to one host. A matrix run skips it on the other hosts. |
+| `contextMode` | `host-native` or `harness-preamble`. Default `harness-preamble` for 1.0 compatibility. |
 | `profile` | Context profile: `shared`, `cursor`, `claude`, or `skeleton`. |
 | `workspace` | Caller-relative folder that becomes the sealed repo. Omit or `"."` copies HEAD. |
 | `skills` | Extra repo-relative skill folders, or `"none"`. |
@@ -56,6 +57,10 @@ agent-suites/
 Scenario `workspace` wins over suite `defaults.workspace`. Scenario `allowUserSkills` wins over the suite default.
 
 `contextSources` and `skills` are relative to the workspace root when `workspace` is a subfolder. A bare `contextSources` name is a file in that root.
+
+Use `contextMode: "host-native"` when a scenario is meant to represent an ordinary host session in the sealed workspace. In that mode agent-test sends the scenario prompt unchanged and lets the host discover supported workspace instructions, rules, and skills from disk. It rejects `contextSources` and non-`none` `skills` because those fields build a synthetic prompt catalog. Profile selection and rubric-derived routing prompt additions are also disabled. Files already present in the workspace remain valid treatment behavior.
+
+`harness-preamble` keeps the 1.0 behavior: agent-test reads the selected profile, `contextSources`, and declared skills, then prepends the result to the task. Reports label every such file as prompt-injected context. This mode is useful for controlled simulations, but it is not evidence of an arbitrary host-native session.
 
 Sidecar rubrics: omit inline rubric keys when a sibling `rubrics.json` / `scenarios.rubric.json` or `--rubrics-dir` supplies them.
 
@@ -90,7 +95,7 @@ Set `allowedCommands` when Shell is allowed, but only some commands are legal. T
 
 ## Compare
 
-A compare scenario runs two or more live arms. Each arm must have a `description`. That note says what the arm tests. Each arm can override prompt, host, workspace, skills, context, MCP, seed, `allowUserSkills`, and extra rubric checks.
+A compare scenario runs two or more live arms. Each arm must have a `description`. That note says what the arm tests. Each arm can override prompt, host, context mode, workspace, skills, context, MCP, seed, `allowUserSkills`, and extra rubric checks.
 
 Use `compare.a` and `compare.b` for two arms. If you omit `label`, arm a is named control. Arm b is named experimental.
 

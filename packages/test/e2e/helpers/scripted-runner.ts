@@ -1,3 +1,4 @@
+import type { ContextMode } from "../../src/types.js";
 import type { ViewerJob } from "../../src/viewer/catalog.js";
 import type {
 	ViewerContextFile,
@@ -9,7 +10,7 @@ import type { ViewerRunner } from "../../src/viewer/run-controller.js";
 
 export type ScriptedStep =
 	| { type: "status"; text: string }
-	| { type: "context"; files: ViewerContextFile[] }
+	| { type: "context"; mode?: ContextMode; files: ViewerContextFile[]; hostInput?: string }
 	| { type: "prompt"; text?: string }
 	| { type: "text"; text: string }
 	| { type: "tool"; name: string; args?: Record<string, unknown> }
@@ -105,7 +106,13 @@ export function createScriptedRunner(options: {
 					continue;
 				}
 				if (step.type === "context") {
-					emit({ type: "context", files: step.files, ...cell });
+					emit({
+						type: "context",
+						mode: step.mode ?? "harness-preamble",
+						files: step.files,
+						hostInput: step.hostInput,
+						...cell,
+					});
 					continue;
 				}
 				if (step.type === "prompt") {

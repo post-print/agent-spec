@@ -27,6 +27,9 @@ import type { SkillContextMode } from "./skills-context.js";
 export type { McpServerConfig } from "./mcp.js";
 export type { RoutingContract } from "./routing-contract.js";
 
+/** How workspace instructions reach the host for this run. */
+export type ContextMode = "host-native" | "harness-preamble";
+
 export type {
 	SkillContextMode,
 	SkillContextOptions,
@@ -90,9 +93,11 @@ export interface AgentTrace {
 }
 
 export interface LoadedContext {
+	/** Host discovery only, or a runner-built prompt preamble. Absent means preamble compatibility. */
+	mode?: ContextMode;
 	profile: ContextProfile;
 	cwd: string;
-	/** Repo-relative paths loaded for the agent prompt preamble. */
+	/** Repo-relative paths loaded for the agent prompt preamble. Empty in host-native mode. */
 	sources: string[];
 	preamble: string;
 	/** Skill catalog / full SKILL.md loading mode when enabled. */

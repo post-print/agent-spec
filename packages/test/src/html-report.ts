@@ -16,6 +16,7 @@ import {
 	describeCompareOutcome,
 	formatCompareTurns,
 } from "./compare-scenario.js";
+import { renderContextPanel } from "./context-panel.js";
 import { displayToolPath } from "./scenario-story.js";
 import { summarizeReports } from "./suite-summary.js";
 import type {
@@ -763,6 +764,7 @@ function renderArmColumn(arm: CompareArmResult, index: number): string {
     ${renderArmMetrics(arm)}
 	${renderArmFailures(arm)}
   </header>
+  ${arm.contextMode || arm.contextFiles || arm.hostInput ? renderContextPanel(arm.contextFiles, arm.contextMode, arm.hostInput) : ""}
   ${renderChat(arm.trace, arm.prompt)}
 </article>`;
 }
@@ -772,6 +774,7 @@ function renderCompareConversations(result: ScenarioResult, host?: string): stri
 	if (!compare) {
 		return `<section class="conversation">
     <h3>Conversation</h3>
+    ${result.contextMode || result.contextFiles || result.hostInput ? renderContextPanel(result.contextFiles, result.contextMode, result.hostInput) : ""}
     ${renderChat(result.trace, result.prompt)}
   </section>`;
 	}
@@ -1151,6 +1154,55 @@ function sharedReportCss(): string {
     background: color-mix(in srgb, var(--skip) 14%, var(--panel-2));
     max-width: min(44rem, 94%);
   }
+  .context-panel {
+    margin: 0 0 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--skip) 10%, var(--panel-2));
+    padding: 0.55rem 0.75rem;
+  }
+  .context-panel-summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .context-panel-count { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
+  .context-flow { display: flex; align-items: center; gap: 0.35rem; margin: 0.55rem 0; flex-wrap: wrap; }
+  .context-flow-node { border: 1px solid var(--border); border-radius: 999px; background: var(--panel); padding: 0.2rem 0.55rem; font-size: 0.78rem; font-weight: 650; }
+  .context-flow-mode { border-color: var(--skip); }
+  .context-flow-arrow { color: var(--muted); }
+  .context-host-input { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0.4rem 0.55rem; margin-top: 0.45rem; }
+  .context-host-input summary { cursor: pointer; font-size: 0.82rem; font-weight: 700; }
+  .context-panel-lede, .context-empty { color: var(--muted); font-size: 0.85rem; margin: 0.45rem 0 0; }
+  .context-files { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.4rem; }
+  .context-file {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 0.4rem 0.55rem;
+  }
+  .context-file[data-reason="contextSources"] { border-left: 3px solid var(--skip); }
+  .context-file[data-reason="skills"] { border-left: 3px solid var(--tool); }
+  .context-file[data-reason="profile"] { border-left: 3px solid var(--muted); }
+  .context-file summary { cursor: pointer; }
+  .context-path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem;
+    display: block;
+  }
+  .context-why { color: var(--muted); font-size: 0.8rem; display: block; margin-top: 0.15rem; }
+  .context-body {
+    margin: 0.45rem 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    max-height: 18rem;
+    overflow: auto;
+  }
   .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.88rem; max-width: min(42rem, 94%); }
 
   .tool-card {
@@ -1387,6 +1439,7 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
       <li>Open a scenario for the criteria and the result. A compare scenario shows each arm, then turns, tokens, and tools.</li>
       <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
       <li>In is prompt and context. Out is generated text.</li>
+      <li>Context delivery shows the exact submitted user input and any harness preamble files.</li>
     </ol>
   </section>
   ${renderCostSection(runUsage)}

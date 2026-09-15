@@ -50,6 +50,7 @@ describe("skills-context", () => {
 		const loaded = await loadSkillContext(repoRoot, [".claude/skills/grill/SKILL.md"]);
 		expect(loaded.mode).toBe("catalog");
 		expect(loaded.catalog.map((skill) => skill.relPath)).toEqual([".claude/skills/grill/SKILL.md"]);
+		expect(loaded.preamble).toContain("<!-- skills/catalog -->");
 		expect(loaded.preamble).toContain("## Skill catalog");
 		expect(loaded.preamble).toContain(".claude/skills/grill/SKILL.md");
 		expect(loaded.preamble).not.toContain("crystallize");

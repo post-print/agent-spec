@@ -1,8 +1,12 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { loadSkillContext, type SkillContextSetting } from "./skills-context.js";
-import type { ContextProfile, LoadedContext } from "./types.js";
+import {
+	loadSkillContext,
+	normalizeSkillContext,
+	type SkillContextSetting,
+} from "./skills-context.js";
+import type { ContextMode, ContextProfile, LoadedContext } from "./types.js";
 
 const SHARED_SOURCES = [
 	"AGENTS.md",
@@ -159,6 +163,8 @@ function resolveContextSourcePath(rel: string): string {
 
 export interface LoadContextOptions {
 	cwd: string;
+	/** Default keeps the 1.0 runner-built preamble behavior. */
+	mode?: ContextMode;
 	profile?: ContextProfile;
 	/** none | catalog (index) | full (catalog + all SKILL.md bodies). */
 	skills?: SkillContextSetting;
@@ -172,7 +178,27 @@ export interface LoadContextOptions {
 
 /** Load canonical agent context files from the repo. */
 export async function loadContext(options: LoadContextOptions): Promise<LoadedContext> {
+	const mode = options.mode ?? "harness-preamble";
 	const profile = options.profile ?? "shared";
+	if (mode === "host-native") {
+		const contextSources = (options.contextSources ?? []).filter(
+			(source) => typeof source === "string" && source.trim().length > 0,
+		);
+		if (contextSources.length > 0) {
+			throw new Error("host-native context mode does not allow contextSources prompt injection");
+		}
+		if (normalizeSkillContext(options.skills).mode !== "none") {
+			throw new Error("host-native context mode does not allow a synthetic skills catalog");
+		}
+		return {
+			mode,
+			profile,
+			cwd: options.cwd,
+			sources: [],
+			preamble: "",
+			skillsMode: "none",
+		};
+	}
 	const seen = new Set<string>();
 	const parts: string[] = [];
 	const loaded: string[] = [];
@@ -240,6 +266,7 @@ export async function loadContext(options: LoadContextOptions): Promise<LoadedCo
 	}
 
 	return {
+		mode,
 		profile,
 		cwd: options.cwd,
 		sources: loaded,

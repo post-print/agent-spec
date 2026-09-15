@@ -2,9 +2,9 @@
 
 <!-- source-of-truth: sealed workspace isolation and debug evidence -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
-<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/harness/src/openai-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts -->
+<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/harness/src/openai-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts,packages/test/src/viewer/context-files.ts,packages/test/src/context-panel.ts -->
 
 A **sealed workspace** is a temp git repo that the host must not leave. The runner fails the scenario when a tool path leaves that folder. A leftover caller-tree check still restores leaked caller edits.
 
@@ -27,7 +27,7 @@ Cursor file tools and shell tools use the same selected workspace. Cursor can st
 
 ## Skills
 
-Hosts load project skills from `.agents/skills`, `.cursor/skills`, `.codex/skills`, and `.claude/skills` inside the sealed folder.
+The sealed folder preserves project instruction and skill trees. Which ones load is a host contract, not an agent-test contract: Cursor currently discovers all four project skill roots, Claude documents `.claude/skills`, and Codex documents `.agents/skills`.
 
 The `skills` field only overlays extra repo-relative folders that are not already in that repo. `"none"` adds no extra overlay.
 
@@ -37,9 +37,18 @@ The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with 
 
 ## Context
 
-`loadContext` builds a preamble from profile sources. Profiles are `shared`, `cursor`, `claude`, and `skeleton`.
+`contextMode` states how workspace context reaches the host.
 
-`contextSources` adds files after the profile sources. When `workspace` is a subfolder, a bare name is a file in that workspace root.
+| Mode | Delivery | Claim boundary |
+| --- | --- | --- |
+| `host-native` | The exact scenario prompt; workspace files stay on disk for the host. | agent-test does not claim which supported files the host discovered or loaded. |
+| `harness-preamble` | A prompt preamble built from a profile, `contextSources`, and declared skills. | Simulated context, not an arbitrary host-native session. |
+
+`harness-preamble` is the compatibility default. Its profiles are `shared`, `cursor`, `claude`, and `skeleton`.
+
+`contextSources` adds files after the profile sources. When `workspace` is a subfolder, a bare name is a file in that workspace root. `host-native` rejects `contextSources` and synthetic skill-catalog injection.
+
+The viewer and HTML report show a delivery-path visual, the exact initial user input submitted through the builtin adapter, and every harness-preamble file. In native mode they separately state that host-owned system instructions and discovery are not exposed as one inspectable payload.
 
 The `skeleton` profile loads `skeleton.toml` when present. It falls back to `.skeleton/config.yaml` and legacy `customize.alwaysInclude` only when the TOML file is absent.
 

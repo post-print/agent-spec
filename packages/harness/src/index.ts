@@ -5,6 +5,7 @@ import type { AgentSession, ContextProfile, RunAgentOptions } from "./types.js";
 import { createJudgeUserSimulator } from "./user-simulator.js";
 
 export {
+	buildHostPrompt,
 	ClaudeAdapter,
 	CursorAdapter,
 	createAdapter,
@@ -233,6 +234,7 @@ export {
 	type AgentTrace,
 	type AgentUsage,
 	type BuiltinAgentHost,
+	type ContextMode,
 	type ContextProfile,
 	type HostAdapter,
 	isAgentHost,

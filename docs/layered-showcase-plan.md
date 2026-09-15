@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: decisions for the layered showcase -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
 <!-- review-deps: paths=agent-suites/**/scenarios.json,package.json,packages/test/src/types.ts,packages/test/src/compare-scenario.ts,scripts/test-sdk-*.mjs,scripts/test-reliability.mjs -->
 

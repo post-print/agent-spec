@@ -1,3 +1,5 @@
+import type { ContextMode, ScenarioContextFile, ScenarioContextReason } from "../types.js";
+
 export interface ViewerEventEnvelope {
 	suite: string;
 	scenario: string;
@@ -17,14 +19,8 @@ export interface ViewerJudgeVerdictEvent {
 	rationale: string;
 }
 
-export type ViewerContextReason = "contextSources" | "profile" | "skills";
-
-export interface ViewerContextFile {
-	path: string;
-	text: string;
-	reason: ViewerContextReason;
-	why: string;
-}
+export type ViewerContextReason = ScenarioContextReason;
+export type ViewerContextFile = ScenarioContextFile;
 
 export type ViewerEvent =
 	| { type: "run_started"; runId: string }
@@ -32,7 +28,14 @@ export type ViewerEvent =
 	| ({ type: "cell_started" } & ViewerEventEnvelope)
 	| ({ type: "status"; text: string } & ViewerEventEnvelope)
 	| ({ type: "prompt"; text: string } & ViewerEventEnvelope)
-	| ({ type: "context"; files: ViewerContextFile[] } & ViewerEventEnvelope)
+	| ({
+			type: "context";
+			/** Absent means harness-preamble for pre-1.1 event producers. */
+			mode?: ContextMode;
+			files: ViewerContextFile[];
+			/** Exact initial user input submitted through a builtin adapter. */
+			hostInput?: string;
+	  } & ViewerEventEnvelope)
 	| ({ type: "text"; text: string } & ViewerEventEnvelope)
 	| ({ type: "tool"; name: string; args?: Record<string, unknown> } & ViewerEventEnvelope)
 	| ({

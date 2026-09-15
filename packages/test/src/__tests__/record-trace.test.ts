@@ -40,6 +40,9 @@ describe("staging result sidecar", () => {
 		const payload = {
 			passed: false,
 			durationMs: 42,
+			contextMode: "host-native" as const,
+			contextFiles: [],
+			hostInput: "Exact prompt",
 			failures: [
 				{
 					matcher: "toHaveInvokedSkill",

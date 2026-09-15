@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: first consumer run of agent-test -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
 <!-- review-deps: paths=.env.example,package.json,packages/test/package.json,packages/test/src/validate-suite.ts,packages/test/src/types.ts -->
 
@@ -99,13 +99,14 @@ const result = await runAgentTest({
   cwd: process.cwd(),
   scenario: {
     name: "uses the project instructions",
+    contextMode: "host-native",
     prompt: "Review the current change.",
-    rubric: { mustReadPath: ["AGENTS.md"] },
+    rubric: { reviewDepth: "standard" },
   },
 });
 ```
 
-The default host is Cursor. Isolation, judging, timeout, and announce-stop retry stay on unless you turn them off. Set `rubric.allowedCommands` when only some shell commands are legal. Pass `--workers` to run more than one live agent at a time.
+The default host is Cursor. `host-native` sends the prompt unchanged and lets the selected host discover its supported project context. Use `harness-preamble` when the preamble itself is the treatment. Isolation, judging, timeout, and announce-stop retry stay on unless you turn them off. Set `rubric.allowedCommands` when only some shell commands are legal. Pass `--workers` to run more than one live agent at a time.
 
 ## Next
 

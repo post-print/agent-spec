@@ -74,6 +74,71 @@ describe("html-report", () => {
 		expect(html).toContain("2026-07-16T12:00:00.000Z");
 	});
 
+	it("renders the loaded context panel for a run", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					contextMode: "harness-preamble",
+					hostInput: "Injected context\n\n---\nTask:\nDo the task.",
+					contextFiles: [
+						{
+							path: "brief.md",
+							text: "DEPTH_CONTEXT token: agent-test-depth-context-6d2a",
+							reason: "contextSources",
+							why: "The scenario lists brief.md in contextSources.",
+						},
+					],
+					trace: {
+						messages: [{ role: "assistant", content: "ok" }],
+						toolCalls: [],
+						shellCommands: [],
+						artifacts: {},
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("Context delivery");
+		expect(html).toContain("Harness preamble · 1 file");
+		expect(html).toContain("Exact submitted user input");
+		expect(html).toContain("Task:\nDo the task.");
+		expect(html).toContain("brief.md");
+		expect(html).toContain("DEPTH_CONTEXT token: agent-test-depth-context-6d2a");
+		expect(html).toContain("Context delivery shows the exact submitted user input");
+	});
+
+	it("renders an empty loaded context panel", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					contextFiles: [],
+					trace: {
+						messages: [{ role: "assistant", content: "ok" }],
+						toolCalls: [],
+						shellCommands: [],
+						artifacts: {},
+					},
+				}),
+			]),
+		]);
+		expect(html).toContain("0 files");
+		expect(html).toContain("No preamble files. The agent received the prompt only.");
+	});
+
+	it("renders the host-native boundary with the exact submitted prompt", () => {
+		const html = renderHtmlReport([
+			makeReport([
+				makeResult({
+					contextMode: "host-native",
+					contextFiles: [],
+					hostInput: "Review this change.",
+				}),
+			]),
+		]);
+		expect(html).toContain("Host-native");
+		expect(html).toContain("Review this change.");
+		expect(html).toContain("not exposed as one inspectable payload");
+	});
+
 	it("renders token usage in scenario and suite summary", () => {
 		const html = renderHtmlReport([
 			makeReport([
@@ -171,6 +236,14 @@ describe("html-report", () => {
 								label: "alpha",
 								description: "Reads the alpha workspace word.",
 								prompt: "Read word.txt.",
+								contextFiles: [
+									{
+										path: "word.txt",
+										text: "alpha workspace word",
+										reason: "contextSources",
+										why: "The scenario lists word.txt in contextSources.",
+									},
+								],
 								durationMs: 1200,
 								passed: false,
 								failures: [{ matcher: "mustInclude", message: "The answer is wrong." }],
@@ -190,6 +263,14 @@ describe("html-report", () => {
 								label: "beta",
 								description: "Reads the beta workspace word.",
 								prompt: "Read word.txt.",
+								contextFiles: [
+									{
+										path: "word.txt",
+										text: "beta workspace word",
+										reason: "contextSources",
+										why: "The scenario lists word.txt in contextSources.",
+									},
+								],
 								durationMs: 800,
 								passed: true,
 								failures: [],
@@ -231,6 +312,8 @@ describe("html-report", () => {
 		expect(html).toContain("The answer is wrong.");
 		expect(html).toContain("alpha-compare-a7c1");
 		expect(html).toContain("beta-compare-b3e9");
+		expect(html).toContain("alpha workspace word");
+		expect(html).toContain("beta workspace word");
 		expect(html).toContain("Comparison");
 		expect(html).toContain("Winners");
 		expect(html).toContain("beta wins");

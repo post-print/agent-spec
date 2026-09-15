@@ -334,6 +334,9 @@ describe("runSuite isolateLive", () => {
 				return {
 					passed: false,
 					durationMs: 12,
+					contextMode: "host-native",
+					contextFiles: [],
+					hostInput: "Exact prompt",
 					failures: [
 						{
 							matcher: "toHaveReviewDepth",
@@ -355,6 +358,9 @@ describe("runSuite isolateLive", () => {
 
 		const failed = report.results.find((r) => r.scenario === "failing");
 		expect(failed?.passed).toBe(false);
+		expect(failed?.contextMode).toBe("host-native");
+		expect(failed?.contextFiles).toEqual([]);
+		expect(failed?.hostInput).toBe("Exact prompt");
 		expect(failed?.failures).toEqual([
 			{
 				matcher: "toHaveReviewDepth",

@@ -44,6 +44,14 @@ export function e2eReports(): SuiteRunReport[] {
 			usage: {
 				total: { totalTokens: 1234, inputTokens: 800, outputTokens: 434 },
 			},
+			contextFiles: [
+				{
+					path: "brief.md",
+					text: "DEPTH_CONTEXT token: agent-test-e2e-context",
+					reason: "contextSources",
+					why: "The scenario lists brief.md in contextSources.",
+				},
+			],
 			story: {
 				criteria: ['reply includes "smoke"'],
 				result: ['agent replied "smoke"', "no tools"],
@@ -147,6 +155,14 @@ export function e2eReports(): SuiteRunReport[] {
 						label: "alpha",
 						description: "Reads the alpha workspace word.",
 						prompt: "Read word.txt.",
+						contextFiles: [
+							{
+								path: "word.txt",
+								text: "alpha workspace word",
+								reason: "contextSources",
+								why: "The scenario lists word.txt in contextSources.",
+							},
+						],
 						durationMs: 1200,
 						trace: {
 							messages: [
@@ -164,6 +180,14 @@ export function e2eReports(): SuiteRunReport[] {
 						label: "beta",
 						description: "Reads the beta workspace word.",
 						prompt: "Read word.txt.",
+						contextFiles: [
+							{
+								path: "word.txt",
+								text: "beta workspace word",
+								reason: "contextSources",
+								why: "The scenario lists word.txt in contextSources.",
+							},
+						],
 						durationMs: 800,
 						trace: {
 							messages: [{ role: "assistant", content: "beta-compare-b3e9" }],

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import type { AgentHost } from "@post-print/agent-harness";
+import type { AgentHost, ContextMode } from "@post-print/agent-harness";
 
 import { compareArmDescription, compareArmLabel, resolveCompareArms } from "../compare-scenario.js";
 import { discoverSuites } from "../discover-suites.js";
@@ -13,6 +13,7 @@ export interface ViewerCatalogArm {
 	label: string;
 	description?: string;
 	prompt?: string;
+	contextMode?: ContextMode;
 }
 
 export interface ViewerCatalogScenario {
@@ -21,6 +22,7 @@ export interface ViewerCatalogScenario {
 	prompt: string;
 	skip?: boolean;
 	host?: AgentHost;
+	contextMode?: ContextMode;
 	rubric: ScenarioRubric;
 	compare?: ViewerCatalogArm[];
 	gates?: CompareGate[];
@@ -80,6 +82,11 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 					const arm: ViewerCatalogArm = {
 						id: entry.id,
 						label: compareArmLabel(entry.arm, entry.id),
+						contextMode:
+							entry.arm.contextMode ??
+							scenario.contextMode ??
+							suite.defaults?.contextMode ??
+							"harness-preamble",
 					};
 					const description = compareArmDescription(entry.arm);
 					if (description) {
@@ -95,6 +102,7 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 					name: scenario.name,
 					prompt: scenario.prompt,
 					rubric: scenario.rubric,
+					contextMode: scenario.contextMode ?? suite.defaults?.contextMode ?? "harness-preamble",
 				};
 				if (scenario.description) {
 					row.description = scenario.description;

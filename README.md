@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: package overview -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-14 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
 <!-- review-deps: paths=package.json,packages/*/package.json -->
 
@@ -46,6 +46,8 @@ Start with [Getting started](docs/getting-started.md), then read the
 sealed workspace. A compare scenario keeps each arm visible and reports one
 experiment outcome; an expected failed control arm does not make the
 experiment fail when its declared gates pass.
+
+Set `contextMode: "host-native"` to send the scenario prompt unchanged and let each host discover its supported project context. The default `harness-preamble` mode preserves 1.0 behavior. Reports and the live viewer show the exact initial user input submitted to built-in adapters, with any preamble files broken out visually.
 
 > **Deprecated and removed:** replay-based tests and committed replay traces are no longer supported. `host: "replay"`, `replayTrace`, `--record-fixtures`, and the old `--live` mode flag fail with migration guidance.
 

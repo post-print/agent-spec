@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { AgentTrace } from "@post-print/agent-harness";
 import {
 	applyCompareArm,
+	applySidecarCompareDurations,
 	assertCompareGates,
 	buildCompareResult,
 	compareArmTokens,
@@ -117,5 +118,27 @@ describe("comparison gates", () => {
 			"tool",
 		]);
 		expect(applyCompareArm(scenario, "tool").prompt).toBe("Use the tool.");
+	});
+
+	it("keeps context delivery evidence from isolated child sidecars", () => {
+		const result = buildCompareResult([arm("a", true, 1, 10, 0), arm("b", true, 1, 10, 0)]);
+		const merged = applySidecarCompareDurations(result, {
+			compare: {
+				arms: {
+					a: {
+						durationMs: 11,
+						contextMode: "host-native",
+						contextFiles: [],
+						hostInput: "Exact prompt",
+					},
+				},
+			},
+		});
+		expect(merged.a).toMatchObject({
+			contextMode: "host-native",
+			contextFiles: [],
+			hostInput: "Exact prompt",
+			durationMs: 11,
+		});
 	});
 });

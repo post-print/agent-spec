@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createAdapter } from "../adapters/index.js";
+import { buildHostPrompt, createAdapter } from "../adapters/index.js";
 import { loadContext } from "../context.js";
 
 async function fixtureRepo(): Promise<string> {
@@ -118,5 +118,28 @@ describe("createAdapter", () => {
 		expect(() => createAdapter("replay" as never)).toThrow(
 			"Replay-based testing is deprecated and no longer supported",
 		);
+	});
+});
+
+describe("buildHostPrompt", () => {
+	const context = {
+		mode: "host-native" as const,
+		profile: "shared" as const,
+		cwd: "/tmp/example",
+		sources: [],
+		preamble: "",
+	};
+
+	it("sends only the scenario prompt in host-native mode", () => {
+		expect(buildHostPrompt({ context, prompt: "Test." })).toBe("Test.");
+	});
+
+	it("rejects every harness prompt addition in host-native mode", () => {
+		expect(() =>
+			buildHostPrompt({ context: { ...context, preamble: "injected" }, prompt: "Test." }),
+		).toThrow("cannot send a harness preamble");
+		expect(() =>
+			buildHostPrompt({ context, outputContract: { tier: "low" }, prompt: "Test." }),
+		).toThrow("cannot send a harness output contract");
 	});
 });
