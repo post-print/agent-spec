@@ -109,6 +109,14 @@ function viewerCss(): string {
     border-left: 3px solid var(--border);
     padding: 0.45rem 0.7rem;
   }
+  .cell-result-head, .failure-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .cell-result-head .cell-result-verdict, .failure-section-head h3 { margin: 0; }
+  .copy-error { flex: none; padding: 0.2rem 0.45rem; font-size: 0.72rem; }
   .cell-result.status-passed { border-left-color: var(--pass); }
   .cell-result.status-failed { border-left-color: var(--fail); }
   .cell-result.status-skipped { border-left-color: var(--skip); }
@@ -583,9 +591,16 @@ function renderComparisonCriteria(scenario: ViewerCatalogScenario): {
 		: (scenario.compare ?? []).map(
 				(arm) => `${escapeHtml(arm.label)} must pass all of its criteria.`,
 			);
+	const acceptableBehavior = scenario.judgeMetrics?.length
+		? `<section class="criterion-group comparison-acceptable-behavior"><h4>Acceptable behavior</h4><p>The same questions are judged separately for every arm. The arm-result rules below decide which verdicts are required.</p><ul class="criterion-list">${scenario.judgeMetrics.map((metric) => `<li>${escapeHtml(metric.question)}</li>`).join("")}</ul></section>`
+		: "";
+	const sharedJudge = scenario.rubric.judge?.length
+		? `<section class="criterion-group comparison-shared-judge"><h4>Comparison judge</h4><p>One judge sees all completed arms and evaluates the comparison as a whole.</p><ul class="criterion-list">${scenario.rubric.judge.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : item.question)}</li>`).join("")}</ul></section>`
+		: "";
 	return {
-		count: items.length,
-		html: `<section class="criterion-group"><h4>Arm results</h4><ul class="criterion-list">${items.map((item) => `<li>${item}</li>`).join("")}</ul></section>`,
+		count:
+			items.length + (scenario.judgeMetrics?.length ?? 0) + (scenario.rubric.judge?.length ?? 0),
+		html: `${acceptableBehavior}${sharedJudge}<section class="criterion-group"><h4>Arm results</h4><ul class="criterion-list">${items.map((item) => `<li>${item}</li>`).join("")}</ul></section>`,
 	};
 }
 
@@ -1347,6 +1362,7 @@ function clientScript(): string {
 			var panel = card && card.querySelector('[data-host-panel="' + fragment.host + '"]');
 			if (!card || !panel) return;
 			panel.innerHTML = fragment.html;
+			installCopyErrorButtons(panel);
 			var live = card.querySelector(".scenario-live");
 			if (live) live.hidden = false;
 			markCell(fragment, fragment.skipped ? "skipped" : fragment.passed ? "passed" : "failed", fragment.skipped ? "status-skipped" : fragment.passed ? "status-passed" : "status-failed");
@@ -2011,6 +2027,78 @@ function clientScript(): string {
       .join(" · ");
   }
 
+  function failureText(container) {
+    var messages = Array.prototype.map.call(
+      container.querySelectorAll(".failure-message, .cell-result-failures li"),
+      function (node) { return node.textContent.trim(); }
+    ).filter(Boolean);
+    var evidence = Array.prototype.map.call(
+      container.querySelectorAll(".failure-evidence"),
+      function (node) { return node.textContent.trim(); }
+    ).filter(Boolean);
+    return messages.concat(evidence).join("\\n\\n");
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var input = document.createElement("textarea");
+      input.value = text;
+      input.setAttribute("readonly", "");
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      input.select();
+      var copied = document.execCommand("copy");
+      input.remove();
+      if (copied) resolve();
+      else reject(new Error("Clipboard copy failed"));
+    });
+  }
+
+  function copyErrorButton(container) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "copy-error";
+    button.textContent = "Copy error";
+    button.addEventListener("click", function () {
+      var text = failureText(container);
+      copyText(text).then(function () {
+        button.textContent = "Copied";
+        window.setTimeout(function () { button.textContent = "Copy error"; }, 1500);
+      }).catch(function () {
+        button.textContent = "Copy failed";
+        window.setTimeout(function () { button.textContent = "Copy error"; }, 1500);
+      });
+    });
+    return button;
+  }
+
+  function installCopyErrorButtons(root) {
+    root.querySelectorAll(".cell-result.status-failed").forEach(function (box) {
+      if (box.querySelector(".copy-error") || !box.querySelector(".cell-result-failures")) return;
+      var verdict = box.querySelector(".cell-result-verdict");
+      if (!verdict) return;
+      var head = document.createElement("div");
+      head.className = "cell-result-head";
+      box.insertBefore(head, verdict);
+      head.appendChild(verdict);
+      head.appendChild(copyErrorButton(box));
+    });
+    root.querySelectorAll("details.scenario.status-failed .diagnostics > section").forEach(function (section) {
+      if (section.querySelector(".copy-error") || !section.querySelector(".failures")) return;
+      var heading = section.querySelector("h3");
+      if (!heading || heading.textContent.trim() !== "What went wrong") return;
+      var head = document.createElement("div");
+      head.className = "failure-section-head";
+      section.insertBefore(head, heading);
+      head.appendChild(heading);
+      head.appendChild(copyErrorButton(section));
+    });
+  }
+
   function clearCellResult(event) {
     var article = document.getElementById(paneId(event));
     var existing = article ? article.querySelector(".cell-result") : null;
@@ -2062,6 +2150,7 @@ function clientScript(): string {
       box.appendChild(list);
     }
     article.appendChild(box);
+    installCopyErrorButtons(article);
   }
 
   function appendJudgeVerdicts(event) {
@@ -2155,6 +2244,7 @@ function clientScript(): string {
 			var card = scenarioCard(event);
 			var panel = card && card.querySelector('[data-host-panel="' + event.host + '"]');
 			if (panel) panel.innerHTML = fragment.html;
+			if (panel) installCopyErrorButtons(panel);
 		}).catch(function () {});
 		return;
 	}
@@ -2432,6 +2522,7 @@ function clientScript(): string {
 	});
 
 	renderRunHistory(bootstrap.runs || []);
+	installCopyErrorButtons(document);
 	selectScenario(selectedScenarioKey, false);
 	updateHostSelectionControls();
 	if (selectedRunId && bootstrap.capabilities.canRun) void selectRun(selectedRunId);

@@ -38,7 +38,10 @@ const fourArmCatalog: ViewerCatalog = {
 				{
 					name: "four arms",
 					prompt: "Read word.txt. Reply with only that word.",
-					rubric: { mustReadPath: ["word.txt"] },
+					rubric: {
+						mustReadPath: ["word.txt"],
+						judge: ["Which arm gives the safer complete answer?"],
+					},
 					suppliedMcp: [{ name: "tasks", tools: ["search_tasks", "get_task"] }],
 					suppliedSkills: [".agents/skills/catalog/SKILL.md"],
 					compare: [
@@ -69,6 +72,7 @@ const fourArmCatalog: ViewerCatalog = {
 							rubric: { mustReadPath: ["word.txt"] },
 						},
 					],
+					judgeMetrics: [{ id: "safe", question: "Is this answer safe and factually current?" }],
 					gates: [{ metric: "turns", winner: "skel-clean", loser: "none-messy" }],
 				},
 			],
@@ -128,6 +132,11 @@ describe("viewer page", () => {
 		expect(html).toContain("<code>search_tasks</code>");
 		expect(html).toContain("<code>.agents/skills/catalog/SKILL.md</code>");
 		expect(html).toContain("Each arm runs independently");
+		expect(html).toContain("Acceptable behavior");
+		expect(html).toContain("The same questions are judged separately for every arm.");
+		expect(html).toContain("Is this answer safe and factually current?");
+		expect(html).toContain("Comparison judge");
+		expect(html).toContain("Which arm gives the safer complete answer?");
 		expect(html).toContain("skeleton clean must use fewer turns than no skill messy.");
 		expect(html).toContain('data-compare-arm-definition="skel-clean"');
 		expect(html).toContain('aria-label="Comparison arm definitions"');
@@ -160,5 +169,7 @@ describe("viewer page", () => {
 		expect(html).toContain("Stopping the run.");
 		expect(html).toContain("Run cancelled.");
 		expect(html).toContain("chatIsOpen");
+		expect(html).toContain("Copy error");
+		expect(html).toContain("installCopyErrorButtons");
 	});
 });

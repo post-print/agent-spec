@@ -164,5 +164,6 @@ describe("comparison gates", () => {
 			{ id: "shared", question: "Is it clear?" },
 			{ id: "quality", question: "Is this high quality?" },
 		]);
+		expect(scenario.rubric.judge).toEqual([{ id: "shared", question: "Is it clear?" }]);
 	});
 });

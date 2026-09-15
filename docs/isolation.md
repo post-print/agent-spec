@@ -35,6 +35,8 @@ Host-global user skills stay out unless `allowUserSkills` is true. Those trees l
 
 The deny path uses Cursor `settingSources: ["project"]` plus a temp `HOME` with no skill trees. That temp home copies `~/.cursor/sdk` so subscription login still works. Claude uses `--setting-sources project` or `--bare`. Codex uses `--ignore-user-config` and a temp home that contains only `auth.json`. Cursor still indexes user skills from `os.homedir()` when `settingSources` omits `user`. The harness then points `HOME` at an empty tree for that Node process.
 
+An OpenAI scenario can set `networkAccess: true`. This changes only the Codex workspace-write sandbox's network setting. The sealed workspace path checks, temporary user home, and caller-tree leak guard remain active. Network access is off when the field is omitted or `false`, and the read-only judge never inherits it.
+
 ## Context
 
 `contextMode` states how workspace context reaches the host.

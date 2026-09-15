@@ -249,6 +249,7 @@ export class OpenaiAdapter implements HostAdapter {
 				onDeadlineStart: options.onDeadlineStart,
 				onAgentEvent: options.onAgentEvent,
 				allowUserSkills: options.allowUserSkills === true,
+				networkAccess: options.networkAccess === true,
 				authMode: options.authMode,
 			});
 			const gitDiffResult = await captureGitDiff(options.cwd);

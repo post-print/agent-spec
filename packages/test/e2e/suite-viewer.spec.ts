@@ -94,8 +94,17 @@ test.describe("suite viewer", () => {
 			).not.toContainText("Provided context");
 			await focusScenario(page, "judge", "pair");
 			const pairDefinition = page.locator('[data-scenario-card="judge::pair"] .compare-definition');
+			const pairCriteria = page.locator('[data-scenario-card="judge::pair"] .comparison-criteria');
+			await expect(pairCriteria.getByText("Acceptable behavior", { exact: true })).toBeVisible();
+			await expect(pairCriteria).toContainText("Is this answer safe and current?");
+			await expect(pairCriteria).toContainText(
+				"The same questions are judged separately for every arm.",
+			);
+			await expect(pairCriteria.getByText("Comparison judge", { exact: true })).toBeVisible();
+			await expect(pairCriteria).toContainText("Which completed answer is safer?");
 			await expect(pairDefinition.getByRole("tablist")).toBeVisible();
 			await expect(pairDefinition.getByText("Alpha workspace.")).toBeVisible();
+			await expect(pairDefinition).not.toContainText("Is this answer safe and current?");
 			await expect(pairDefinition.getByText("Beta workspace.")).toBeHidden();
 			await pairDefinition.locator("label.compare-definition-tab", { hasText: "beta" }).click();
 			await expect(pairDefinition.getByText("Beta workspace.")).toBeVisible();
@@ -467,6 +476,16 @@ test.describe("suite viewer", () => {
 			await expect(slot.locator(".verdict-fail .question")).toContainText("Was the reply useful?");
 			await expect(slot.locator(".verdict-fail .rationale")).toHaveText(
 				"The reply ignored the prompt.",
+			);
+			await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+				origin: new URL(viewer.url).origin,
+			});
+			const copy = slot.locator("button.copy-error");
+			await expect(copy).toBeVisible();
+			await copy.click();
+			await expect(copy).toHaveText("Copied");
+			expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+				'Reply must contain "smoke".',
 			);
 		});
 

@@ -65,6 +65,8 @@ export interface OpenaiRunOptions {
 	mcpServers?: Record<string, McpServerConfig>;
 	/** Load `~/.codex` user config and skills. Default false. */
 	allowUserSkills?: boolean;
+	/** Allow network access in a workspace-write sandbox. Default false. */
+	networkAccess?: boolean;
 }
 
 export interface OpenaiRunResult {
@@ -288,6 +290,7 @@ export function buildOpenaiExecArgs(options: {
 	sandbox?: "workspace-write" | "read-only";
 	mcpServers?: Record<string, McpServerConfig>;
 	allowUserSkills?: boolean;
+	networkAccess?: boolean;
 }): string[] {
 	const sandbox = options.sandbox ?? "workspace-write";
 	const args = [
@@ -305,6 +308,9 @@ export function buildOpenaiExecArgs(options: {
 		"-c",
 		"approval_policy=never",
 	];
+	if (sandbox === "workspace-write" && options.networkAccess === true) {
+		args.push("-c", "sandbox_workspace_write.network_access=true");
+	}
 	args.push(...buildOpenaiMcpConfigArgs(options.mcpServers));
 	const model =
 		options.model?.trim() ||
@@ -411,6 +417,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		sandbox: options.sandbox,
 		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
 		allowUserSkills: options.allowUserSkills === true,
+		networkAccess: options.networkAccess === true,
 	});
 	const runHome = options.allowUserSkills === true ? undefined : await createOpenaiRunHome();
 

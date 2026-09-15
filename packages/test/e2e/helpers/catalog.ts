@@ -45,7 +45,10 @@ export const e2eCatalog: ViewerCatalog = {
 					name: "pair",
 					description: "Two workspace arms.",
 					prompt: "Read word.txt.",
-					rubric: { mustReadPath: ["word.txt"] },
+					rubric: {
+						mustReadPath: ["word.txt"],
+						judge: ["Which completed answer is safer?"],
+					},
 					compare: [
 						{
 							id: "a",
@@ -62,6 +65,7 @@ export const e2eCatalog: ViewerCatalog = {
 							rubric: { mustReadPath: ["word.txt"] },
 						},
 					],
+					judgeMetrics: [{ id: "safe", question: "Is this answer safe and current?" }],
 				},
 				{
 					name: "four arms",

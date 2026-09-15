@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +9,37 @@ import { expandViewerJobs, loadViewerCatalog } from "../viewer/catalog.js";
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 describe("loadViewerCatalog", () => {
+	it("keeps compare judge criteria at comparison level", async () => {
+		const root = await mkdtemp(join(tmpdir(), "agent-test-viewer-catalog-"));
+		const suiteDir = join(root, "comparison");
+		await mkdir(suiteDir);
+		await writeFile(
+			join(suiteDir, "scenarios.json"),
+			JSON.stringify({
+				name: "comparison",
+				defaults: { host: "cursor" },
+				scenarios: [
+					{
+						name: "shared judge ownership",
+						prompt: "Compare the answers.",
+						rubric: { judge: [{ id: "shared", question: "Which answer is safer?" }] },
+						compare: {
+							a: { description: "Control." },
+							b: { description: "Candidate." },
+							judgeMetrics: [{ id: "safe", question: "Is this answer safe?" }],
+						},
+					},
+				],
+			}),
+		);
+
+		const catalog = await loadViewerCatalog({ cwd: root, suitesDir: root });
+		const scenario = catalog.suites[0]?.scenarios[0];
+		expect(scenario?.rubric.judge).toEqual([{ id: "shared", question: "Which answer is safer?" }]);
+		expect(scenario?.judgeMetrics).toEqual([{ id: "safe", question: "Is this answer safe?" }]);
+		expect(scenario?.compare?.every((arm) => arm.rubric.judge === undefined)).toBe(true);
+	});
+
 	it("lists fixture suites with prompt and rubric without selecting a host", async () => {
 		const catalog = await loadViewerCatalog({
 			cwd: repoRoot,

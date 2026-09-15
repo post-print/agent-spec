@@ -196,7 +196,7 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 	const { compare, ...rest } = scenario;
 	const arm = resolveCompareArms(compare).find((entry) => entry.id === side)?.arm;
 	if (!arm) return rest;
-	const rubric = mergeArmRubric(rest.rubric, arm.rubric);
+	const rubric = { ...mergeArmRubric(rest.rubric, arm.rubric) };
 	if (compare?.judgeMetrics?.length) {
 		rubric.judge = [...(rubric.judge ?? []), ...compare.judgeMetrics];
 	}

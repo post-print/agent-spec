@@ -49,12 +49,15 @@ agent-suites/
 | `contextSources` | Extra files loaded into the preamble. |
 | `mcpServers` | Inline MCP servers. Merge over suite defaults by server name. |
 | `allowUserSkills` | Load host-global user skills. Default `false`. |
+| `networkAccess` | OpenAI only. Set `true` to allow network access in the Codex workspace-write sandbox. Default `false`. |
 | `seedPatch` | Caller-repo patch path. Hunks are relative to the workspace. |
 | `seedStageOnly` | Stage the seed without a commit. |
 | `rubric` | Matchers and optional judge questions. |
 | `skip` | Skip this scenario. |
 
 Scenario `workspace` wins over suite `defaults.workspace`. Scenario `allowUserSkills` wins over the suite default.
+
+`networkAccess` is deliberately scenario-only. Omitted or `false` keeps the OpenAI child offline. `true` adds Codex's `sandbox_workspace_write.network_access=true` override without changing the sealed workspace or isolated user home. Other hosts ignore it.
 
 `contextSources` and `skills` are relative to the workspace root when `workspace` is a subfolder. A bare `contextSources` name is a file in that root.
 

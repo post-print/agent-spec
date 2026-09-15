@@ -210,6 +210,8 @@ export interface AgentScenario {
 	 * Default false. Keep false for a custom `workspace` fixture.
 	 */
 	allowUserSkills?: boolean;
+	/** OpenAI only: allow network access in the Codex workspace-write sandbox. Default false. */
+	networkAccess?: boolean;
 	/** Live-only: apply patch + commit in worktree so pr-mode branch diff exists. */
 	seedPatch?: string;
 	/** Live-only: with seedPatch, stage changes without committing (staged review mode). */

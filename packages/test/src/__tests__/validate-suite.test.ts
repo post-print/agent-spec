@@ -184,6 +184,37 @@ describe("validate-suite", () => {
 		expect(issues.some((issue) => issue.field === "allowUserSkills")).toBe(true);
 	});
 
+	it("accepts an explicit network opt-in", () => {
+		expect(
+			validateSuiteFile("/tmp/scenarios.json", {
+				name: "ok",
+				scenarios: [
+					{
+						name: "install",
+						prompt: "Install a package.",
+						networkAccess: true,
+						rubric: {},
+					},
+				],
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects a non-boolean networkAccess value", () => {
+		const issues = validateSuiteFile("/tmp/scenarios.json", {
+			name: "bad",
+			scenarios: [
+				{
+					name: "install",
+					prompt: "Install a package.",
+					networkAccess: "npm" as unknown as boolean,
+					rubric: {},
+				},
+			],
+		});
+		expect(issues.some((issue) => issue.field === "networkAccess")).toBe(true);
+	});
+
 	it("accepts a scenario description and arm descriptions", () => {
 		expect(
 			validateSuiteFile("/tmp/scenarios.json", {

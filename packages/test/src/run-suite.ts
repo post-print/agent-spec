@@ -1451,6 +1451,7 @@ async function runAgentTestOnce(
 				outputContract,
 				mcpServers,
 				allowUserSkills,
+				networkAccess: scenario.networkAccess === true,
 				authMode: getProcessAuthMode(),
 				timeoutMs: liveTimeoutMs,
 				failOnUserInput,

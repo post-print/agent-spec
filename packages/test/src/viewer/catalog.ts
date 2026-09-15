@@ -122,11 +122,15 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 			scenarios: suite.scenarios.map((scenario) => {
 				const arms = resolveCompareArms(scenario.compare).map((entry) => {
 					const effective = applyCompareArm(scenario, entry.id);
+					const armRubric = { ...effective.rubric };
+					delete armRubric.judge;
 					const arm: ViewerCatalogArm = {
 						id: entry.id,
 						label: compareArmLabel(entry.arm, entry.id),
 						prompt: effective.prompt,
-						rubric: effective.rubric,
+						// Compare judge questions are owned by the comparison, even though
+						// isolated arm execution temporarily merges them into this rubric.
+						rubric: armRubric,
 						contextMode:
 							entry.arm.contextMode ??
 							scenario.contextMode ??

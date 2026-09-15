@@ -137,6 +137,8 @@ export interface RunAgentOptions {
 	 * `~/.agents/skills`). Default false.
 	 */
 	allowUserSkills?: boolean;
+	/** Allow network access in an OpenAI Codex workspace-write sandbox. Default false. */
+	networkAccess?: boolean;
 	/** Host billing mode. Default is subscription when omitted. */
 	authMode?: HostAuthMode;
 	env?: Record<string, string>;

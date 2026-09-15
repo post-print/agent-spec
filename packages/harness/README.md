@@ -85,7 +85,7 @@ For `agent-test`, put adapters in `agent-test.config.mjs` or pass `--adapter ./h
 
 Set `classifierHost` to `cursor`, `claude`, or `openai`, or implement `classify()`. A custom host without one cannot run the judge.
 
-Claude `api-key` mode uses `--bare` for harness-preamble runs and project setting sources for host-native runs. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Suite MCP servers pass to Codex as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the Codex child gets a temp home with only its login file.
+Claude `api-key` mode uses `--bare` for harness-preamble runs and project setting sources for host-native runs. Subscription mode uses `--strict-mcp-config`. OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Pass `networkAccess: true` to add `-c sandbox_workspace_write.network_access=true` to that workspace-write child; omitted or `false` stays offline. Suite MCP servers pass to Codex as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the Codex child gets a temp home with only its login file.
 
 ## Skills
 

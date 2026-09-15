@@ -282,6 +282,15 @@ function validateScenario(
 			scenario.name,
 		);
 	}
+	if (scenario.networkAccess !== undefined && typeof scenario.networkAccess !== "boolean") {
+		pushIssue(
+			issues,
+			suitePath,
+			"networkAccess",
+			`networkAccess must be a boolean, got ${JSON.stringify(scenario.networkAccess)}`,
+			scenario.name,
+		);
+	}
 	if (scenario.seedStageOnly && !scenario.seedPatch) {
 		pushIssue(
 			issues,

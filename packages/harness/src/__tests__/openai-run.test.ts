@@ -47,7 +47,18 @@ describe("buildOpenaiExecArgs", () => {
 			"approval_policy=never",
 		]);
 		expect(args).not.toContain("--approve-for-me");
+		expect(args).not.toContain("sandbox_workspace_write.network_access=true");
 		expect(args.at(-1)).toBe("Say hello.");
+	});
+
+	it("enables network only when a workspace-write run opts in", () => {
+		const args = buildOpenaiExecArgs({
+			prompt: "Install a package.",
+			cwd: "/tmp/agent-harness-seal-test",
+			networkAccess: true,
+		});
+		expect(args).toContain("workspace-write");
+		expect(args).toContain("sandbox_workspace_write.network_access=true");
 	});
 
 	it("omits --ignore-user-config when user skills are allowed", () => {
@@ -67,7 +78,18 @@ describe("buildOpenaiExecArgs", () => {
 		});
 		expect(args).toContain("read-only");
 		expect(args).toContain("approval_policy=never");
+		expect(args).not.toContain("sandbox_workspace_write.network_access=true");
 		expect(args).not.toContain("--approve-for-me");
+	});
+
+	it("does not enable network for a read-only classifier", () => {
+		const args = buildOpenaiExecArgs({
+			prompt: "yes or no",
+			cwd: "/tmp/seal",
+			sandbox: "read-only",
+			networkAccess: true,
+		});
+		expect(args).not.toContain("sandbox_workspace_write.network_access=true");
 	});
 
 	it("passes stdio MCP servers as -c overrides", () => {

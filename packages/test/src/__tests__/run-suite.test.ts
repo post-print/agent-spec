@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+	clearRegisteredHostAdapters,
+	type RunAgentOptions,
+	registerHostAdapter,
+} from "@post-print/agent-harness";
+
 import { discoverSuites } from "../discover-suites.js";
 import * as liveIsolation from "../live-isolation.js";
 import * as recordTrace from "../record-trace.js";
@@ -124,6 +130,47 @@ describe("scenarioNeedsJudge", () => {
 });
 
 describe("runAgentTest direct host selection", () => {
+	it("forwards an explicit scenario network opt-in and defaults it off", async () => {
+		const observed: boolean[] = [];
+		registerHostAdapter({
+			host: "network-stub",
+			async run(options: RunAgentOptions) {
+				observed.push(options.networkAccess === true);
+				return {
+					host: "network-stub",
+					status: "completed",
+					durationMs: 1,
+					trace: {
+						messages: [{ role: "assistant", content: "done" }],
+						toolCalls: [],
+						shellCommands: [],
+						artifacts: {},
+					},
+				};
+			},
+		});
+		try {
+			for (const networkAccess of [true, undefined]) {
+				await runAgentTest({
+					cwd: process.cwd(),
+					scenario: {
+						name: `network-${String(networkAccess)}`,
+						prompt: "p",
+						host: "network-stub",
+						...(networkAccess === undefined ? {} : { networkAccess }),
+						rubric: { must: ["done"] },
+					},
+					worktree: false,
+					judge: false,
+					scenarioRetries: 0,
+				});
+			}
+			expect(observed).toEqual([true, false]);
+		} finally {
+			clearRegisteredHostAdapters();
+		}
+	});
+
 	it("defaults to Cursor and supports a Claude scenario override", async () => {
 		const cursorKey = process.env.CURSOR_API_KEY;
 		const cursorAuthMode = process.env.CURSOR_AUTH_MODE;
