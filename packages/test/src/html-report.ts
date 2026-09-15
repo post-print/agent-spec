@@ -211,7 +211,7 @@ function formatArgValue(key: string, value: unknown): { text: string; title?: st
 		const text = displayToolPath(value);
 		return text === value ? { text } : { text, title: value };
 	}
-	const raw = typeof value === "string" ? value : JSON.stringify(value);
+	const raw = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
 	const oneLine = raw.replaceAll("\n", " ↵ ");
 	return { text: oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine };
 }
