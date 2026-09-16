@@ -106,6 +106,7 @@ describe("viewer page", () => {
 		const html = renderViewerPage(catalog);
 		expect(html).toContain("<title>agent-test viewer</title>");
 		expect(html).toContain('<div id="viewer-root"></div>');
+		expect(html).toContain(".diagnostics { display: grid; grid-template-columns: minmax(0, 1fr);");
 		expect(html.split('id="catalog-data"').length - 1).toBe(1);
 		expect(html.split('id="bootstrap-data"').length - 1).toBe(1);
 		expect(html).toContain("\\u003cneedle.txt>");
