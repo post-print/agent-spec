@@ -82,6 +82,19 @@ describe("buildOpenaiExecArgs", () => {
 		expect(args).not.toContain("--approve-for-me");
 	});
 
+	it("allows a read-only classifier to inspect snapshots without git metadata", () => {
+		expect(
+			buildOpenaiExecArgs({
+				prompt: "Inspect evidence",
+				cwd: "/tmp/snapshot",
+				sandbox: "read-only",
+			}),
+		).toContain("--skip-git-repo-check");
+		expect(buildOpenaiExecArgs({ prompt: "Run task", cwd: "/tmp/workspace" })).not.toContain(
+			"--skip-git-repo-check",
+		);
+	});
+
 	it("does not enable network for a read-only classifier", () => {
 		const args = buildOpenaiExecArgs({
 			prompt: "yes or no",

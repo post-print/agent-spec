@@ -597,6 +597,32 @@ describe("expectTrace", () => {
 		).toHaveLength(0);
 	});
 
+	it("recognizes successful recursive rg content without accepting listings or citations", () => {
+		const trace: AgentTrace = {
+			messages: [],
+			shellCommands: [],
+			artifacts: {},
+			toolCalls: [
+				{
+					name: "Shell",
+					args: { command: "rg -n '.' docs" },
+					result: "docs/a.md:5:Canonical billing endpoint",
+					succeeded: true,
+				},
+			],
+		};
+		const call = trace.toolCalls[0];
+		if (!call) throw new Error("Missing search fixture");
+		expect(assertRubric(trace, { mustReadPath: ["docs/a.md"] })).toHaveLength(0);
+		for (const result of ["docs/a.md", "README.md:5:Read docs/a.md", "docs/a.md:5:"]) {
+			call.result = result;
+			expect(assertRubric(trace, { mustReadPath: ["docs/a.md"] })).toHaveLength(1);
+		}
+		call.result = "docs/a.md:5:Canonical billing endpoint";
+		call.succeeded = false;
+		expect(assertRubric(trace, { mustReadPath: ["docs/a.md"] })).toHaveLength(1);
+	});
+
 	it("fails mustNotReadPath only when a successful Read returned content for the path", () => {
 		const miss: AgentTrace = {
 			messages: [],

@@ -517,9 +517,18 @@ function shellAccessedPath(trace: AgentTrace, fragment: string): boolean {
 		if (!isShellToolName(call.name)) {
 			return false;
 		}
-		return JSON.stringify(call.args ?? {})
-			.toLowerCase()
-			.includes(needle);
+		const args = JSON.stringify(call.args ?? {}).toLowerCase();
+		if (args.includes(needle)) return true;
+		// Recursive content searches need not name each file in their arguments.
+		// Require successful, line-numbered content; a file listing or a citation
+		// in another document is not evidence that the target file was read.
+		const command = String(call.args?.command ?? call.args?.cmd ?? "");
+		if (!/\brg\s/.test(command) || call.succeeded !== true || typeof call.result !== "string")
+			return false;
+		return call.result.split("\n").some((line) => {
+			const match = /^(.+?):\d+:(.+)$/.exec(line);
+			return Boolean(match?.[1]?.toLowerCase().includes(needle));
+		});
 	});
 }
 

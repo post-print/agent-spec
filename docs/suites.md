@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: JSON suite and scenario authoring -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 
 <!-- review-deps: paths=packages/harness/src/context.ts,packages/harness/src/adapters/index.ts,packages/test/src/types.ts,packages/test/src/run-suite.ts,packages/test/src/compare-scenario.ts,packages/test/src/validate-suite.ts,packages/test/src/command-allowlist.ts,packages/test/src/expect.ts,agent-suites/**/scenarios.json -->
 
@@ -81,7 +81,7 @@ Deterministic matchers read the transcript. Each row states which parts of the t
 | `mustCallTool` | A tool name substring matches. `name:fragment` also requires the fragment in JSON args or the tool result. |
 | `mustCallToolsInOrder` | Each tool matches from left to right. Extra calls can appear between required calls. Each required item uses one call. |
 | `mustNotCallTool` | No matching tool call. |
-| `mustReadPath` | A Read-family arg or a Shell/Bash path access contains the substring. |
+| `mustReadPath` | A Read-family arg or a Shell/Bash path access contains the substring. Successful line-numbered `rg` output also counts when the matching path prefixes returned file content; filename listings and citations in another file do not. |
 | `mustNotReadPath` | No Read tool arg contains the substring. |
 | `mustInvokeSkill` | The agent reads that skill `SKILL.md` or a file under its references. The judge then scores follow-through. |
 | `mustNotInvokeSkill` | The agent does not read that skill path. |
@@ -116,7 +116,7 @@ The live verdict lists each arm. Shared rubric checks appear under every arm. Ex
 
 The suite viewer follows the same rule. It counts one completed result for each
 scenario and host, not one result for every arm. The arm tabs still show each
-arm's own outcome. For example, a stale-summary control may be red while the
+arm's own outcome after finalization. While a run is active, completed arms are labeled as awaiting the comparison verdict. Ready comparisons finalize within the worker limit without waiting for unrelated jobs. The viewer reports completed arms separately from completed tests and restores the live stream after reload. For example, a stale-summary control may be red while the
 comparison card and the run banner are green because the declared experiment
 gates passed. An arm that fails without an expected outcome gate remains an
 unexpected failure.
