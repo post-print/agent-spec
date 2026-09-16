@@ -1082,7 +1082,10 @@ function JudgeResponse({
 			}
 		>
 			{inline ? (
-				<p className="judge-answer-label">Answer</p>
+				<div className="judge-response-head">
+					<h3>{verdict.question}</h3>
+					<span className="judge-verdict-badge">{outcome}</span>
+				</div>
 			) : (
 				<div className="judge-response-head">
 					<h3>Judge response</h3>
@@ -1158,17 +1161,9 @@ function ResultCard({ result }: { result: ScenarioResult }) {
 	const selectedArm = arms.find((arm) => arm.id === armId) ?? arms[0];
 	const tokens = totalTokens(result);
 	const storySections = result.story?.sections?.filter((section) => section.checks.length) ?? [];
-	const storyCheckTexts = new Set(
-		storySections.length
-			? storySections.flatMap((section) => section.checks.map((check) => check.text))
-			: (result.story?.criteria ?? []),
+	const judgeQuestionTexts = new Set(
+		(result.judgeVerdicts ?? []).map((verdict) => verdict.question),
 	);
-	const unmatchedJudgeChecks: StoryCheck[] = (result.judgeVerdicts ?? [])
-		.filter((verdict) => !storyCheckTexts.has(verdict.question))
-		.map((verdict) => ({
-			text: verdict.question,
-			status: verdict.pass ? "pass" : "fail",
-		}));
 	return (
 		<details
 			className={`scenario status-${statusOfResult(result)}${result.compare ? " compare-scenario" : ""}`}
@@ -1203,18 +1198,21 @@ function ResultCard({ result }: { result: ScenarioResult }) {
 										{section.description ? (
 											<p className="story-section-description">{section.description}</p>
 										) : null}
-										<StoryChecks checks={section.checks} />
+										<StoryChecks
+											checks={section.checks.filter((check) => !judgeQuestionTexts.has(check.text))}
+										/>
 									</div>
 								))
 							) : result.story?.criteria.length ? (
 								<StoryChecks
-									checks={result.story.criteria.map((text) => ({
-										text,
-										status: result.passed ? "pass" : "fail",
-									}))}
+									checks={result.story.criteria
+										.filter((text) => !judgeQuestionTexts.has(text))
+										.map((text) => ({
+											text,
+											status: result.passed ? "pass" : "fail",
+										}))}
 								/>
 							) : null}
-							{unmatchedJudgeChecks.length ? <StoryChecks checks={unmatchedJudgeChecks} /> : null}
 							<JudgeResponses inline verdicts={result.judgeVerdicts} />
 						</section>
 					</div>

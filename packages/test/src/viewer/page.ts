@@ -74,6 +74,8 @@ function viewerCss(): string {
   .scenario-path { color: var(--muted); font-size: .7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
   .scenario-focus-header h2 { font-size: 1.2rem; line-height: 1.25; text-wrap: balance; }
   .scenario-focus-header .scenario-lede { color: var(--muted); font-size: .84rem; line-height: 1.4; }
+  .diagnostics { display: grid; grid-template-columns: minmax(0, 1fr); gap: .7rem; margin-bottom: .9rem; }
+  .diagnostics > * { min-width: 0; }
   .focus-verdict { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid var(--border); border-radius: 999px; padding: .22rem .55rem; color: var(--muted); font-size: .72rem; font-weight: 650; white-space: nowrap; }
   .focus-verdict > span { width: .45rem; height: .45rem; border-radius: 50%; background: currentColor; }
   .focus-verdict[data-status="passed"] { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, var(--border)); }

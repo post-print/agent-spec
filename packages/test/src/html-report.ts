@@ -982,7 +982,7 @@ function sharedReportCss(): string {
     .cost { margin-top: 0.85rem; display: grid; gap: 0.65rem; }
     .cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; }
     .guide { margin-top: 0.85rem; }
-    .diagnostics { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem; }
+    .diagnostics { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.7rem; margin-bottom: 0.9rem; }
     .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.45rem 0.75rem; }
   }
   @layer components {
@@ -1062,7 +1062,7 @@ function sharedReportCss(): string {
   .status-failed { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
   .status-skipped { color: var(--skip); border-color: color-mix(in srgb, var(--skip) 40%, transparent); }
   .scenario-body { padding: 0.7rem; }
-  .diagnostics { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem; }
+  .diagnostics { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.7rem; margin-bottom: 0.9rem; }
   .diagnostics section { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.7rem; min-width: 0; }
   .conversation { min-width: 0; }
 
