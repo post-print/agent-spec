@@ -109,10 +109,10 @@ describe("loadViewerCatalog", () => {
 			(scenario) => scenario.name === "compares three MCP workflows",
 		);
 		expect(compare?.description).toBe(
-			"Determines which task lookup workflow is most accurate and efficient.",
+			"Determines which task lookup workflow is accurate with the fewest tool calls.",
 		);
 		expect(compare?.prompt).toBe(
-			"Determine which task lookup workflow provides the most accurate result with the fewest tools and tokens.",
+			"Determine which task lookup workflow provides the most accurate result with the fewest tool calls.",
 		);
 		expect(compare?.compare?.map((arm) => arm.id)).toEqual([
 			"summary-only",
@@ -126,8 +126,8 @@ describe("loadViewerCatalog", () => {
 			tools: ["echo", "lookup", "search_tasks", "get_task", "task_index"],
 		});
 		expect(compare?.compare?.every((arm) => arm.suppliedMcp?.[0]?.name === "tasks")).toBe(true);
-		expect(compare?.gates).toHaveLength(5);
-		expect(compare?.gates).toContainEqual({
+		expect(compare?.gates).toHaveLength(4);
+		expect(compare?.gates).not.toContainEqual({
 			metric: "tokens",
 			winner: "direct-detail",
 			loser: "search-detail",

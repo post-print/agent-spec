@@ -24,6 +24,7 @@ export interface ViewerJudgeVerdictEvent {
 	question: string;
 	pass: boolean;
 	rationale: string;
+	evidence?: string[];
 }
 
 export type ViewerContextReason = ScenarioContextReason;
@@ -44,7 +45,14 @@ export interface ViewerBootstrap {
 	catalog: ViewerCatalog;
 	runs: ViewerRunRecord[];
 	selectedRunId?: string;
-	capabilities: { canRun: boolean };
+	/** Repository/workspace root used by the live agent runner. */
+	workspace?: string;
+	capabilities: { canRun: boolean; defaultWorkers?: number; maxWorkers?: number };
+	reportMeta?: {
+		host: string;
+		suitesDir: string;
+		generatedAt: string;
+	};
 }
 
 export type ViewerEvent =
@@ -63,6 +71,8 @@ export type ViewerEvent =
 	  } & ViewerEventEnvelope)
 	| ({ type: "text"; text: string } & ViewerEventEnvelope)
 	| ({ type: "tool"; name: string; args?: Record<string, unknown> } & ViewerEventEnvelope)
+	| ({ type: "judge_started"; id: string; question: string } & ViewerEventEnvelope)
+	| ({ type: "judge_text"; id: string; question: string; text: string } & ViewerEventEnvelope)
 	| ({ type: "scenario_result"; result: ScenarioResult } & ViewerEventEnvelope)
 	| ({
 			type: "cell_finished";
@@ -90,6 +100,8 @@ const EVENT_TYPES = new Set<ViewerEvent["type"]>([
 	"context",
 	"text",
 	"tool",
+	"judge_started",
+	"judge_text",
 	"scenario_result",
 	"cell_finished",
 	"judge",

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { renderScenarioResult, reportCss } from "../html-report.js";
-import { DEFAULT_VIEWER_WORKERS } from "../worker-pool.js";
+import { reportCss } from "../html-report.js";
+import { DEFAULT_VIEWER_WORKERS, MAX_WORKERS } from "../worker-pool.js";
 import type { ViewerCatalog, ViewerRunRequest } from "./catalog.js";
 import {
 	encodeViewerEvent,
@@ -40,7 +40,7 @@ export async function listenViewer(options: ListenViewerOptions): Promise<Viewer
 	const controller = createViewerRunController({
 		catalog: options.catalog,
 		runner: options.runner ?? createLiveViewerRunner(options),
-		maxParallelAgents: options.workers ?? DEFAULT_VIEWER_WORKERS,
+		maxParallelAgents: MAX_WORKERS,
 		initialRuns: options.initialRuns,
 	});
 	let idle: ReturnType<typeof setTimeout> | undefined;
@@ -54,7 +54,15 @@ export async function listenViewer(options: ListenViewerOptions): Promise<Viewer
 	};
 	const server = createServer((req, res) => {
 		bumpIdle();
-		void handleViewerRequest(req, res, options.catalog, controller, options.selectedRunId);
+		void handleViewerRequest(
+			req,
+			res,
+			options.catalog,
+			controller,
+			options.selectedRunId,
+			options.cwd,
+			options.workers ?? DEFAULT_VIEWER_WORKERS,
+		);
 	});
 	const close = (): Promise<void> =>
 		new Promise((resolveClose, rejectClose) => {
@@ -99,16 +107,24 @@ async function handleViewerRequest(
 	catalog: ViewerCatalog,
 	controller: ViewerRunController,
 	selectedRunId?: string,
+	workspace?: string,
+	defaultWorkers = DEFAULT_VIEWER_WORKERS,
 ): Promise<void> {
 	const url = new URL(req.url ?? "/", "http://127.0.0.1");
 	const path = url.pathname;
 	if (req.method === "GET" && (path === "/" || path === "/index.html")) {
 		const runs = controller.runs();
+		const activeRun = runs.find((run) => run.status === "running" || run.status === "cancelling");
 		const bootstrap: ViewerBootstrap = {
 			catalog,
 			runs,
-			selectedRunId: selectedRunId ?? runs.at(-1)?.id,
-			capabilities: { canRun: true },
+			selectedRunId: selectedRunId ?? activeRun?.id,
+			workspace,
+			capabilities: {
+				canRun: true,
+				defaultWorkers,
+				maxWorkers: controller.maxParallelAgents(),
+			},
 		};
 		write(
 			res,
@@ -133,19 +149,7 @@ async function handleViewerRequest(
 			writeJson(res, 404, { error: "Run not found" });
 			return;
 		}
-		writeJson(res, 200, {
-			run,
-			fragments: run.reports.flatMap((report) =>
-				report.results.map((result) => ({
-					suite: report.suite,
-					scenario: result.scenario,
-					host: report.host,
-					passed: result.passed,
-					skipped: result.skipped,
-					html: renderScenarioResult(result, report.host),
-				})),
-			),
-		});
+		writeJson(res, 200, { run });
 		return;
 	}
 	if (req.method === "POST" && path === "/api/runs") {

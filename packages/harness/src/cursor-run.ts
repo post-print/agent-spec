@@ -139,6 +139,7 @@ export interface JudgeClassifierOptions {
 	apiKey?: string;
 	authMode?: CursorAuthMode;
 	model?: { id: string; params?: Array<{ id: string; value: string }> };
+	onText?: (text: string) => void;
 }
 
 export interface JudgeSdkError {
@@ -394,6 +395,7 @@ export async function runJudgeClassifier(
 	}
 
 	const text = result.result?.trim() ?? "";
+	if (text) options.onText?.(text);
 	const rawStatus = result.status;
 	const status = rawStatus === "finished" ? "completed" : rawStatus;
 	const sdkError = extractJudgeSdkError(result.error);

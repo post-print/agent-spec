@@ -137,6 +137,40 @@ describe("viewer run controller", () => {
 		expect(peak).toBe(1);
 	});
 
+	it("uses a requested worker limit below the viewer maximum", async () => {
+		let current = 0;
+		let peak = 0;
+		const runner: ViewerRunner = {
+			async runJob(job, emit) {
+				current += 1;
+				peak = Math.max(peak, current);
+				await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+				current -= 1;
+				emit({
+					type: "cell_finished",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					arm: job.arm,
+					passed: true,
+					durationMs: 1,
+				});
+			},
+		};
+		const controller = createViewerRunController({ catalog, runner, maxParallelAgents: 2 });
+		const { runId } = controller.start({
+			suite: "smoke",
+			scenario: "pair",
+			hosts: ["cursor"],
+			workers: 1,
+		});
+		await waitForHistory(controller, runId);
+		expect(peak).toBe(1);
+		expect(() => controller.start({ suite: "smoke", scenario: "pair", workers: 3 })).toThrow(
+			"workers must be an integer 1-2",
+		);
+	});
+
 	it("waits for the shared compare finalizer before publishing the authoritative result", async () => {
 		let finalized = 0;
 		const runner: ViewerRunner = {
@@ -184,6 +218,127 @@ describe("viewer run controller", () => {
 		expect(
 			events.some((event) => event.type === "scenario_result" && event.arm === undefined),
 		).toBe(true);
+	});
+
+	it("waits for the scenario finalizer before completing a viewer run", async () => {
+		const runner: ViewerRunner = {
+			async runJob(job, emit) {
+				emit({
+					type: "scenario_result",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						passed: true,
+						failures: [],
+						durationMs: 2,
+					},
+				});
+			},
+			async finalizeScenario(input, emit) {
+				emit({
+					type: "judge_started",
+					suite: input.suite,
+					scenario: input.scenario.name,
+					host: input.host,
+					id: "quality",
+					question: "Did it work?",
+				});
+				emit({
+					type: "judge_text",
+					suite: input.suite,
+					scenario: input.scenario.name,
+					host: input.host,
+					id: "quality",
+					question: "Did it work?",
+					text: '{"verdict":"yes"}',
+				});
+				return {
+					...input.result,
+					judgeVerdicts: [
+						{
+							id: "quality",
+							question: "Did it work?",
+							pass: true,
+							rationale: "It worked.",
+						},
+					],
+				};
+			},
+		};
+		const controller = createViewerRunController({ catalog, runner });
+		const { runId } = controller.start({ suite: "smoke", scenario: "hello" });
+		const events = await waitForHistory(controller, runId);
+
+		expect(controller.run(runId)?.reports[0]?.results[0]?.judgeVerdicts?.[0]?.id).toBe("quality");
+		expect(events.some((event) => event.type === "judge_started")).toBe(true);
+		expect(events.some((event) => event.type === "judge_text")).toBe(true);
+		expect(events.at(-1)).toMatchObject({ type: "run_finished", passed: 1, failed: 0 });
+	});
+
+	it("starts a scenario judge before unrelated agent jobs finish", async () => {
+		let releaseSecondJob: () => void = () => undefined;
+		const secondJob = new Promise<void>((resolve) => {
+			releaseSecondJob = resolve;
+		});
+		const events: string[] = [];
+		const twoScenarioCatalog: ViewerCatalog = {
+			suitesDir: catalog.suitesDir,
+			defaultSelectedHosts: ["cursor"],
+			suites: [
+				{
+					name: "smoke",
+					hosts: ["cursor"],
+					scenarios: [
+						{ name: "first", prompt: "First", rubric: { judge: ["Did it work?"] } },
+						{ name: "second", prompt: "Second", rubric: {} },
+					],
+				},
+			],
+		};
+		const runner: ViewerRunner = {
+			async runJob(job, emit) {
+				if (job.scenario === "second") {
+					await secondJob;
+				}
+				emit({
+					type: "scenario_result",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						passed: true,
+						failures: [],
+						durationMs: 1,
+					},
+				});
+			},
+			async finalizeScenario(input, emit) {
+				events.push(`judge:${input.scenario.name}`);
+				emit({
+					type: "judge_started",
+					suite: input.suite,
+					scenario: input.scenario.name,
+					host: input.host,
+					id: "quality",
+					question: "Did it work?",
+				});
+				return input.result;
+			},
+		};
+		const controller = createViewerRunController({ catalog: twoScenarioCatalog, runner });
+		const { runId } = controller.start({ suite: "smoke", hosts: ["cursor"] });
+		for (let attempt = 0; attempt < 20 && events.length === 0; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		expect(events).toEqual(["judge:first"]);
+		expect(controller.history(runId)?.some((event) => event.type === "run_finished")).toBe(false);
+		releaseSecondJob();
+		await waitForHistory(controller, runId);
 	});
 
 	it("followViewerRun keeps events that arrive during the first flush", async () => {

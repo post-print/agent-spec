@@ -16,9 +16,7 @@ import {
 	describeCompareOutcome,
 	formatCompareTurns,
 } from "./compare-scenario.js";
-import { renderContextPanel } from "./context-panel.js";
 import { displayToolPath } from "./scenario-story.js";
-import { summarizeReports } from "./suite-summary.js";
 import type {
 	CompareArmResult,
 	CompareGate,
@@ -26,11 +24,10 @@ import type {
 	StoryCheck,
 	StorySection,
 	SuiteRunReport,
-	UsageStats,
 } from "./types.js";
 import type { ViewerCatalog } from "./viewer/catalog.js";
 import type { ViewerBootstrap } from "./viewer/events.js";
-import { renderViewerPage, type ViewerRenderedResult } from "./viewer/page.js";
+import { renderViewerPage } from "./viewer/page.js";
 
 export interface HtmlReportMeta {
 	generatedAt?: Date;
@@ -480,42 +477,6 @@ function renderTraceMeta(result: ScenarioResult): string {
 	return `<section class="scenario-meta"><h3>Trace stats</h3><div class="meta-grid">${html}</div></section>`;
 }
 
-function costItem(label: string, detail: string, value: string): string {
-	return `<div class="cost-item"><span class="cost-value">${escapeHtml(value)}</span><span class="cost-label">${escapeHtml(label)}</span><span class="cost-detail">${escapeHtml(detail)}</span></div>`;
-}
-
-function renderCostSection(usage: UsageStats | undefined): string {
-	if (!usage || usage.sumTotalTokens === undefined) {
-		return "";
-	}
-	const items = [costItem("Total", "Cost of this run", formatInteger(usage.sumTotalTokens))];
-	if (usage.sumInputTokens !== undefined) {
-		items.push(
-			costItem("In", "Prompt and context the host sent", formatInteger(usage.sumInputTokens)),
-		);
-	}
-	if (usage.sumOutputTokens !== undefined) {
-		items.push(costItem("Out", "Text the agent wrote", formatInteger(usage.sumOutputTokens)));
-	}
-	if (usage.scenariosWithUsage > 1 && usage.p50TotalTokens !== undefined) {
-		items.push(
-			costItem(
-				"Typical",
-				"Middle scenario. Half cost less than this.",
-				formatInteger(usage.p50TotalTokens),
-			),
-		);
-	}
-	if (usage.scenariosWithUsage > 1 && usage.maxTotalTokens !== undefined) {
-		items.push(costItem("Largest", "Heaviest scenario", formatInteger(usage.maxTotalTokens)));
-	}
-	return `<section class="cost" aria-labelledby="cost-heading">
-  <h2 id="cost-heading">Token cost</h2>
-  <p class="cost-lede">Tokens are cost, not the verdict. Pass and fail sit on each scenario.</p>
-  <div class="cost-grid">${items.join("")}</div>
-</section>`;
-}
-
 function formatSigned(value: number | undefined): string {
 	if (value === undefined) {
 		return "n/a";
@@ -811,7 +772,6 @@ function renderArmColumn(arm: CompareArmResult, index: number): string {
     ${renderArmMetrics(arm)}
 	${renderArmFailures(arm)}
   </header>
-  ${arm.contextMode || arm.contextFiles || arm.hostInput ? renderContextPanel(arm.contextFiles, arm.contextMode, arm.hostInput) : ""}
   ${renderTraceDetails(arm.trace, arm.prompt)}
 </article>`;
 }
@@ -829,7 +789,6 @@ function renderCompareConversations(result: ScenarioResult, host?: string): stri
 	if (!compare) {
 		return `<section class="conversation">
     <h3>Conversation</h3>
-    ${result.contextMode || result.contextFiles || result.hostInput ? renderContextPanel(result.contextFiles, result.contextMode, result.hostInput) : ""}
 			${renderTraceDetails(result.trace, result.prompt)}
   </section>`;
 	}
@@ -1183,55 +1142,6 @@ function sharedReportCss(): string {
     background: color-mix(in srgb, var(--skip) 14%, var(--panel-2));
     max-width: min(44rem, 94%);
   }
-  .context-panel {
-    margin: 0 0 0.85rem;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--skip) 10%, var(--panel-2));
-    padding: 0.55rem 0.75rem;
-  }
-  .context-panel-summary {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    cursor: pointer;
-    font-weight: 700;
-  }
-  .context-panel-count { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
-  .context-flow { display: flex; align-items: center; gap: 0.35rem; margin: 0.55rem 0; flex-wrap: wrap; }
-  .context-flow-node { border: 1px solid var(--border); border-radius: 999px; background: var(--panel); padding: 0.2rem 0.55rem; font-size: 0.78rem; font-weight: 650; }
-  .context-flow-mode { border-color: var(--skip); }
-  .context-flow-arrow { color: var(--muted); }
-  .context-host-input { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0.4rem 0.55rem; margin-top: 0.45rem; }
-  .context-host-input summary { cursor: pointer; font-size: 0.82rem; font-weight: 700; }
-  .context-panel-lede, .context-empty { color: var(--muted); font-size: 0.85rem; margin: 0.45rem 0 0; }
-  .context-files { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.4rem; }
-  .context-file {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--panel);
-    padding: 0.4rem 0.55rem;
-  }
-  .context-file[data-reason="contextSources"] { border-left: 3px solid var(--skip); }
-  .context-file[data-reason="skills"] { border-left: 3px solid var(--tool); }
-  .context-file[data-reason="profile"] { border-left: 3px solid var(--muted); }
-  .context-file summary { cursor: pointer; }
-  .context-path {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.82rem;
-    display: block;
-  }
-  .context-why { color: var(--muted); font-size: 0.8rem; display: block; margin-top: 0.15rem; }
-  .context-body {
-    margin: 0.45rem 0 0;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    font-size: 0.82rem;
-    line-height: 1.45;
-    max-height: 18rem;
-    overflow: auto;
-  }
   .bubble.role-system, .bubble.role-tool { background: var(--system-bubble); font-size: 0.88rem; max-width: min(42rem, 94%); }
 
   .tool-card {
@@ -1447,33 +1357,8 @@ function sharedReportCss(): string {
 /** Build a self-contained HTML report for a completed suite run. */
 export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta = {}): string {
 	const generatedAt = meta.generatedAt ?? new Date();
-	const totalPassed = reports.reduce((sum, report) => sum + report.passed, 0);
-	const totalFailed = reports.reduce((sum, report) => sum + report.failed, 0);
-	const totalSkipped = reports.reduce((sum, report) => sum + report.skipped, 0);
 	const hostNames = [...new Set(reports.map((report) => report.host).filter(Boolean))];
 	const host = meta.host ?? (hostNames.length > 0 ? hostNames.join(", ") : "unknown");
-	const runUsage = summarizeReports(reports).usage;
-
-	const suiteWord = reports.length === 1 ? "suite" : "suites";
-	const overviewHtml = `<section class="summary" aria-label="Run verdict">
-    <div class="stats">
-      <span class="stat stat-pass"><strong>${formatInteger(totalPassed)}</strong><span>passed</span></span>
-      <span class="stat stat-fail"><strong>${formatInteger(totalFailed)}</strong><span>failed</span></span>
-      <span class="stat stat-skip"><strong>${formatInteger(totalSkipped)}</strong><span>skipped</span></span>
-    </div>
-    <p class="when">${escapeHtml(String(host))} · ${formatInteger(reports.length)} ${suiteWord}${meta.suitesDir ? ` · ${escapeHtml(meta.suitesDir)}` : ""} · Generated ${escapeHtml(generatedAt.toISOString())}</p>
-  </section>
-  <section class="guide" aria-labelledby="guide-heading">
-    <h2 id="guide-heading">How to read this report</h2>
-    <ol>
-      <li>The verdict is pass or fail. Tokens are cost, not the score.</li>
-      <li>Open a scenario for the criteria and the result. A compare scenario shows each arm, then turns, tokens, and tools.</li>
-      <li>Typical is the middle scenario cost. Largest is the heaviest scenario.</li>
-      <li>In is prompt and context. Out is generated text.</li>
-      <li>Context delivery shows the exact submitted user input and any harness preamble files.</li>
-    </ol>
-  </section>
-  ${renderCostSection(runUsage)}`;
 	const catalog = meta.catalog ?? viewerCatalogFromReports(reports, meta.suitesDir);
 	const runId = "report";
 	const bootstrap: ViewerBootstrap = {
@@ -1485,25 +1370,19 @@ export function renderHtmlReport(reports: SuiteRunReport[], meta: HtmlReportMeta
 				status: "completed",
 				startedAt: generatedAt.toISOString(),
 				finishedAt: generatedAt.toISOString(),
-				reports: [],
+				reports,
 			},
 		],
 		selectedRunId: runId,
 		capabilities: { canRun: false },
+		reportMeta: {
+			host: String(host),
+			suitesDir: meta.suitesDir ?? catalog.suitesDir,
+			generatedAt: generatedAt.toISOString(),
+		},
 	};
-	const results: ViewerRenderedResult[] = reports.flatMap((report) =>
-		report.results.map((result) => ({
-			suite: report.suite,
-			scenario: result.scenario,
-			host: report.host,
-			html: renderScenarioResult(result, report.host),
-		})),
-	);
 	return renderViewerPage(bootstrap, {
 		baseCss: sharedReportCss(),
-		headerLede: `${host} · ${meta.suitesDir ?? catalog.suitesDir}`,
-		overviewHtml,
-		results,
 	});
 }
 

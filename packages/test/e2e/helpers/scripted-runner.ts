@@ -18,6 +18,8 @@ export type ScriptedStep =
 	| { type: "sleep"; ms: number }
 	| { type: "wait"; gate: string }
 	| { type: "throw"; message: string }
+	| { type: "judge_started"; id: string; question: string }
+	| { type: "judge_text"; id: string; question: string; text: string }
 	| { type: "judge"; verdicts: ViewerJudgeVerdictEvent[] }
 	| {
 			type: "finish";
@@ -152,6 +154,20 @@ export function createScriptedRunner(options: {
 				if (step.type === "judge") {
 					judgeVerdicts.push(...step.verdicts);
 					emit({ type: "judge", verdicts: step.verdicts, ...cell });
+					continue;
+				}
+				if (step.type === "judge_started") {
+					emit({ type: "judge_started", id: step.id, question: step.question, ...cell });
+					continue;
+				}
+				if (step.type === "judge_text") {
+					emit({
+						type: "judge_text",
+						id: step.id,
+						question: step.question,
+						text: step.text,
+						...cell,
+					});
 					continue;
 				}
 				if (step.type === "throw") {

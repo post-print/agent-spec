@@ -9,7 +9,7 @@ import {
 	subprocessFailureMessage,
 } from "../live-isolation.js";
 import { createLiveStagingSessionId } from "../record-trace.js";
-import { finalizeScheduledCompareScenario } from "../run-suite.js";
+import { finalizeScheduledCompareScenario, finalizeScheduledScenario } from "../run-suite.js";
 import type { ViewerJob } from "./catalog.js";
 import type { ViewerEvent, ViewerEventEnvelope } from "./events.js";
 import type { ViewerRunner } from "./run-controller.js";
@@ -47,6 +47,40 @@ function envelope(job: ViewerJob): ViewerEventEnvelope {
 /** Spawn one isolated child per viewer job. Forward NDJSON events to the UI. */
 export function createLiveViewerRunner(options: LiveViewerRunnerOptions): ViewerRunner {
 	return {
+		finalizeScenario: (input, emit) =>
+			finalizeScheduledScenario({
+				...input,
+				cwd: options.cwd,
+				judge: options.judge,
+				onJudgeEvent: (event) => {
+					const cell = { suite: input.suite, scenario: input.scenario.name, host: input.host };
+					if (event.type === "criterion_started") {
+						emit({ type: "judge_started", ...cell, id: event.id, question: event.question });
+					} else if (event.type === "text") {
+						emit({
+							type: "judge_text",
+							...cell,
+							id: event.id,
+							question: event.question,
+							text: event.text,
+						});
+					} else {
+						emit({
+							type: "judge",
+							...cell,
+							verdicts: [
+								{
+									id: event.verdict.id,
+									question: event.question,
+									pass: event.verdict.pass,
+									rationale: event.verdict.rationale,
+									evidence: event.verdict.evidence,
+								},
+							],
+						});
+					}
+				},
+			}),
 		finalizeCompare: (input) =>
 			finalizeScheduledCompareScenario({
 				...input,

@@ -141,6 +141,7 @@ export {
 	type CompareJudgePair,
 	formatTraceForJudge,
 	type JudgeCriterion,
+	type JudgeProgressEvent,
 	type JudgeTraceOptions,
 	type JudgeTraceResult,
 	type JudgeVerdict,

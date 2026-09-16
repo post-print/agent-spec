@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
-<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json,packages/test/src/worker-pool.ts,packages/test/src/viewer/**/*.ts,packages/test/src/context-panel.ts,packages/test/src/html-report.ts -->
+<!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/theme.ts,packages/test/package.json,packages/test/src/worker-pool.ts,packages/test/src/viewer/**/*.ts,packages/test/src/html-report.ts -->
 
 `agent-test` launches a host agent and scores the transcript. Every live run runs `--check` first.
 
@@ -57,7 +57,7 @@ npx agent-test viewer --suites-dir agent-suites
 
 The server binds `127.0.0.1` only. Cursor is selected by default. Host tabs list every suite host.
 
-Run starts a live host agent. A progress bar shows how many tests finished, passed, failed, skipped, and remain. Setup, loaded context, chat, scoring evidence, judge rationale, usage, trace details, and the final result all stay under the same scenario. Context delivery shows the exact initial input submitted through builtin adapters and every harness-preamble file with its reason and exact text; native runs state the unobserved host-owned boundary. Each host has its own tab; compare arms are tabbed. Cancel run stops the live host agent and moves through Cancelling to Cancelled.
+Run starts a live host agent. A progress bar shows how many tests finished, passed, failed, skipped, and remain. Each task includes a short **Starting context** summary that names supplied files, servers, tools, and skills. The recorded conversation shows the submitted task prompt. Setup, chat, scoring evidence, judge rationale, usage, trace details, and the final result all stay under the same scenario. Each host has its own tab; compare arms are tabbed. Cancel run stops the live host agent and moves through Cancelling to Cancelled.
 
 The run selector keeps every run created during the current viewer process. Starting a rerun creates a new entry. You can inspect an older result while the active run continues; the running entry stays marked. History is not persisted after the viewer process exits. Hosts run together by default; `--workers` sets the shared live-agent limit. The viewer default is 4. The range is 1-32.
 
@@ -93,7 +93,7 @@ Removed flags fail with a message: `--live`, `--record`, `--record-fixtures`, `-
 | `--debug-dir <path>` | Parent directory for that bundle. Default `$TMPDIR/agent-spec`. |
 | `--no-worktree` | Run in the caller checkout. Needs `AGENT_TEST_ALLOW_IN_PLACE=1`. |
 
-A TTY live run prints a `View report` localhost URL. It opens the same catalog-first viewer with the completed run selected, the whole suites directory available, and rerun controls active. That detached viewer exits after 30 minutes without page or API activity; browsing or starting a run resets the timer. It binds only to `127.0.0.1` and keeps at most one active run. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip the active viewer and print the self-contained HTML path instead. Context delivery remains available in either view.
+A TTY live run prints a `View report` localhost URL. It opens the same catalog-first viewer with the completed run selected, the whole suites directory available, and rerun controls active. That detached viewer exits after 30 minutes without page or API activity; browsing or starting a run resets the timer. It binds only to `127.0.0.1` and keeps at most one active run. Set `AGENT_TEST_NO_REPORT_PREVIEW=1` to skip the active viewer and print the self-contained HTML path instead. The **Starting context** summary remains available in either view.
 
 A compare verdict lists checks under each arm. Each check shows pass or fail. A single scenario keeps the criteria and result labels.
 

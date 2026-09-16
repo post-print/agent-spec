@@ -31,7 +31,8 @@ export const e2eCatalog: ViewerCatalog = {
 				{
 					name: "context brief",
 					prompt: "Use the brief.",
-					rubric: { mustReadPath: ["brief.md"] },
+					workspace: "fixtures/context-brief",
+					rubric: { allowedCommands: ["cat brief.md"], mustReadPath: ["brief.md"] },
 					contextSources: ["brief.md"],
 				},
 			],

@@ -18,6 +18,15 @@ export const VIEWER_MAX_PARALLEL_AGENTS = DEFAULT_VIEWER_WORKERS;
 
 export interface ViewerRunner {
 	runJob(job: ViewerJob, emit: (event: ViewerEvent) => void, signal: AbortSignal): Promise<void>;
+	finalizeScenario?(
+		input: {
+			suite: string;
+			scenario: ViewerCatalogScenario;
+			host: AgentHost;
+			result: ScenarioResult;
+		},
+		emit: (event: ViewerEvent) => void,
+	): Promise<ScenarioResult>;
 	finalizeCompare?(input: {
 		suite: string;
 		scenario: ViewerCatalogScenario;
@@ -44,6 +53,7 @@ interface ViewerRunSession {
 
 export interface ViewerRunController {
 	start(request: ViewerRunRequest): ViewerRunHandle;
+	maxParallelAgents(): number;
 	cancel(runId: string): boolean;
 	history(runId: string): ViewerEvent[] | undefined;
 	subscribe(runId: string, listener: (event: ViewerEvent) => void): () => void;
@@ -99,6 +109,7 @@ export function createViewerRunController(options: {
 
 	return {
 		activeRunId: () => activeId,
+		maxParallelAgents: () => maxParallel,
 		runs: () => [...sessions.values()].map(({ record }) => structuredClone(record)),
 		run: (runId) => {
 			const record = sessions.get(runId)?.record;
@@ -106,6 +117,12 @@ export function createViewerRunController(options: {
 		},
 		start(request) {
 			if (activeId) throw new Error("A viewer run is already in progress");
+			if (
+				request.workers !== undefined &&
+				(!Number.isInteger(request.workers) || request.workers < 1 || request.workers > maxParallel)
+			) {
+				throw new Error(`workers must be an integer 1-${maxParallel}`);
+			}
 			const jobs = expandViewerJobs(options.catalog, request);
 			if (jobs.length === 0) throw new Error("No matching scenarios to run");
 			const runId = `run-${Date.now()}`;
@@ -129,9 +146,10 @@ export function createViewerRunController(options: {
 			emit(current, { type: "run_started", runId });
 			current.done = runJobBatches({
 				jobs,
+				catalog: options.catalog,
 				hosts: request.hosts ?? options.catalog.defaultSelectedHosts,
 				parallelHosts: request.parallelHosts === true,
-				maxParallel,
+				maxParallel: request.workers ?? maxParallel,
 				signal: abort.signal,
 				runner: options.runner,
 				forward: (event) => emit(current, event),
@@ -361,6 +379,7 @@ async function runJobBatches(options: {
 	maxParallel: number;
 	signal: AbortSignal;
 	runner: ViewerRunner;
+	catalog: ViewerCatalog;
 	forward: (event: ViewerEvent) => void;
 }): Promise<void> {
 	const batches = options.parallelHosts
@@ -375,7 +394,40 @@ async function runJobBatches(options: {
 			options.maxParallel,
 			async (job) => {
 				try {
-					await options.runner.runJob(job, options.forward, options.signal);
+					let completedResult: ScenarioResult | undefined;
+					await options.runner.runJob(
+						job,
+						(event) => {
+							if (event.type === "scenario_result" && !job.arm) {
+								completedResult = event.result;
+								return;
+							}
+							options.forward(event);
+						},
+						options.signal,
+					);
+					if (
+						!completedResult ||
+						job.arm ||
+						!options.runner.finalizeScenario ||
+						options.signal.aborted
+					) {
+						if (completedResult)
+							options.forward({ type: "scenario_result", ...job, result: completedResult });
+						return;
+					}
+					const scenario = options.catalog.suites
+						.find((suite) => suite.name === job.suite)
+						?.scenarios.find((item) => item.name === job.scenario);
+					if (!scenario || scenario.compare?.length) {
+						options.forward({ type: "scenario_result", ...job, result: completedResult });
+						return;
+					}
+					const finalized = await options.runner.finalizeScenario(
+						{ suite: job.suite, scenario, host: job.host, result: completedResult },
+						options.forward,
+					);
+					options.forward({ type: "scenario_result", ...job, result: finalized });
 				} catch (error) {
 					if (options.signal.aborted) return;
 					const message = error instanceof Error ? error.message : String(error);

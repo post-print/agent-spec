@@ -15,6 +15,7 @@ export interface ClassifierOptions {
 	cwd: string;
 	prompt: string;
 	apiKey?: string;
+	onText?: (text: string) => void;
 }
 
 /** Missing credential message for the host classifier. Undefined when auth is present. */
@@ -90,18 +91,21 @@ export async function runClassifier(options: ClassifierOptions): Promise<JudgeCl
 				cwd: options.cwd,
 				prompt: options.prompt,
 				apiKey: options.apiKey,
+				onText: options.onText,
 			});
 		case "openai":
 			return runOpenaiClassifier({
 				cwd: options.cwd,
 				prompt: options.prompt,
 				apiKey: options.apiKey,
+				onText: options.onText,
 			});
 		default:
 			return runJudgeClassifier({
 				cwd: options.cwd,
 				prompt: options.prompt,
 				apiKey: options.apiKey,
+				onText: options.onText,
 			});
 	}
 }

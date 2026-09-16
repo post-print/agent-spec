@@ -57,6 +57,8 @@ recording, and judge-format errors always remain failures.
 
 Provider usage is captured on `AgentTrace` and `ScenarioResult`. Read/tool matchers provide deterministic grounding signals. Fuzzy `judge` criteria run against the full transcript, including tool calls and tool results. The judge uses the same host family as the test agent.
 
+Provider token usage is useful telemetry, but it is not a deterministic one-run comparison gate: hidden provider context and cache state can outweigh a shorter prompt or tool trace. Use tool-call or outcome gates for a single live comparison; establish token claims through a controlled repeated experiment.
+
 | Category | Meaning | `--fail-on=behavior` |
 | --- | --- | --- |
 | `rubric_miss` | Deterministic or judged behavior failed | Fails |

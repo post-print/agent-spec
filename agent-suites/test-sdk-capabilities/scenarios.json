@@ -110,14 +110,13 @@
     },
     {
       "name": "scores a judge question",
-      "description": "runAgentTest can ask a judge to score the completed transcript and return its rationale.",
-      "prompt": "Reply with exactly: JUDGE_SCORING_OK",
+      "description": "runAgentTest can ask a judge to score a qualitative recommendation and return its rationale.",
+      "prompt": "A teammate wants to ship a feature today because the tests pass, but there is no rollback plan. Write a concise recommendation that balances the delivery urgency with the operational risk.",
       "rubric": {
-        "must": ["JUDGE_SCORING_OK"],
         "judge": [
           {
-            "id": "exact-reply",
-            "question": "Did the agent reply with exactly JUDGE_SCORING_OK and no other content?"
+            "id": "balanced-recommendation",
+            "question": "Does the response make a clear, proportionate recommendation, explain the operational risk of shipping without a rollback plan, and propose a practical next step?"
           }
         ]
       }

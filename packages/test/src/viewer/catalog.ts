@@ -26,6 +26,8 @@ export interface ViewerCatalogArm {
 	prompt: string;
 	rubric: ScenarioRubric;
 	contextMode?: ContextMode;
+	/** Repository-relative source folder copied into this arm's sealed workspace. */
+	workspace?: string;
 	contextSources?: string[];
 	suppliedMcp?: ViewerSuppliedMcpServer[];
 	suppliedSkills?: string[];
@@ -43,6 +45,8 @@ export interface ViewerCatalogScenario {
 	skip?: boolean;
 	host?: AgentHost;
 	contextMode?: ContextMode;
+	/** Repository-relative source folder copied into the sealed workspace. */
+	workspace?: string;
 	rubric: ScenarioRubric;
 	compare?: ViewerCatalogArm[];
 	gates?: CompareGate[];
@@ -76,6 +80,8 @@ export interface ViewerRunRequest {
 	scenario?: string;
 	hosts?: AgentHost[];
 	parallelHosts?: boolean;
+	/** Maximum concurrent agent jobs for this run. */
+	workers?: number;
 }
 
 export interface ViewerJob {
@@ -136,6 +142,7 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 							scenario.contextMode ??
 							suite.defaults?.contextMode ??
 							"harness-preamble",
+						workspace: effective.workspace ?? ".",
 					};
 					const description = compareArmDescription(entry.arm);
 					if (description) {
@@ -157,6 +164,7 @@ export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Prom
 					prompt: scenario.prompt,
 					rubric: scenario.rubric,
 					contextMode: scenario.contextMode ?? suite.defaults?.contextMode ?? "harness-preamble",
+					workspace: scenario.workspace ?? suite.defaults?.workspace ?? ".",
 				};
 				if (scenario.description) {
 					row.description = scenario.description;

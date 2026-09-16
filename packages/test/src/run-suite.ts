@@ -6,6 +6,7 @@ import type {
 	AgentTrace,
 	HostAuthMode,
 	JudgeCriterion,
+	JudgeProgressEvent,
 	LiveAgentEvent,
 	McpServerConfig,
 	RoutingContract,
@@ -2100,6 +2101,66 @@ export async function finalizeScheduledCompareScenario(options: {
 	});
 }
 
+/** Finalize one viewer-scheduled scenario through the parent-owned judge path. */
+export async function finalizeScheduledScenario(options: {
+	cwd: string;
+	suite: string;
+	scenario: ViewerCatalogScenario;
+	host: AgentHost;
+	result: ScenarioResult;
+	judge?: boolean;
+	onJudgeEvent?: (event: JudgeProgressEvent) => void;
+}): Promise<ScenarioResult> {
+	const criteria = collectJudgeCriteria(options.scenario.rubric);
+	if (
+		options.judge === false ||
+		criteria.length === 0 ||
+		!options.result.trace ||
+		options.result.failures.length > 0
+	) {
+		return options.result;
+	}
+
+	const started = performance.now();
+	let trace = options.result.trace;
+	const failures = [...options.result.failures];
+	let judgeVerdicts: JudgeVerdictResult[] | undefined;
+	try {
+		const judged = await runJudgeRubric(
+			trace,
+			options.scenario.rubric,
+			options.cwd,
+			options.host,
+			options.onJudgeEvent,
+		);
+		failures.push(...judged.failures);
+		trace = judged.trace;
+		judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
+	} catch (error) {
+		failures.push(
+			assertionFailure(
+				"judge",
+				error instanceof Error ? error.message : "failed to judge viewer scenario",
+				"judge_infra",
+			),
+		);
+	}
+
+	return finalizeScenarioResult({
+		suite: options.suite,
+		scenario: options.scenario,
+		contextMode: options.result.contextMode,
+		contextFiles: options.result.contextFiles,
+		hostInput: options.result.hostInput,
+		failures,
+		durationMs: options.result.durationMs + Math.round(performance.now() - started),
+		attempts: options.result.attempts,
+		judgeVerdicts,
+		trace,
+		agentUsage: options.result.agentUsage ?? options.result.trace.usage,
+	});
+}
+
 async function loadCompareResultFromStaging(
 	stagingSessionId: string,
 	suiteName: string,
@@ -2190,6 +2251,7 @@ async function runJudgeRubric(
 	rubric: ScenarioRubric,
 	runCwd: string,
 	host: AgentHost,
+	onJudgeEvent?: (event: JudgeProgressEvent) => void,
 ): Promise<{
 	trace: AgentTrace;
 	failures: AssertionFailure[];
@@ -2200,7 +2262,7 @@ async function runJudgeRubric(
 		return { trace, failures: [], verdicts: [] };
 	}
 
-	const result = await judgeTrace(trace, criteria, { cwd: runCwd, host });
+	const result = await judgeTrace(trace, criteria, { cwd: runCwd, host, onEvent: onJudgeEvent });
 	if (result.skipped) {
 		return {
 			trace,

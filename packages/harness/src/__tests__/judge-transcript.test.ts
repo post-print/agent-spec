@@ -78,6 +78,8 @@ describe("judgeTrace host auth", () => {
 		expect(prompt).toContain("result:");
 		expect(prompt).toContain("mcp echo ok");
 		expect(prompt).toMatch(/tool results/i);
+		expect(prompt).toContain("exact, contiguous excerpts");
+		expect(prompt).toContain("Do not paraphrase, summarize, infer, or invent evidence.");
 		expect(result.verdicts[0]?.prompt).toBe(prompt);
 		expect(result.verdicts[0]?.response).toContain('"verdict":"yes"');
 		expect(result.verdicts[0]?.evidence).toEqual(["mcp echo ok"]);
@@ -115,6 +117,43 @@ describe("judgeTrace host auth", () => {
 				process.env.CURSOR_API_KEY = prior;
 			}
 		}
+	});
+
+	it("reports cumulative judge text while a criterion is being scored", async () => {
+		const { judgeTrace } = await import("../judge.js");
+		const events: Array<{ type: string; text?: string }> = [];
+		await judgeTrace(
+			{
+				messages: [{ role: "assistant", content: "hello" }],
+				toolCalls: [],
+				shellCommands: [],
+				artifacts: {},
+			},
+			[{ id: "quality", question: "Was the reply useful?" }],
+			{
+				cwd: process.cwd(),
+				host: "openai",
+				apiKey: "openai-test-key",
+				classify: async ({ onText }) => {
+					onText?.('{"verdict":"yes"');
+					onText?.('{"verdict":"yes","evidence":["hello"],"rationale":"useful"}');
+					return {
+						status: "completed",
+						text: '{"verdict":"yes","evidence":["hello"],"rationale":"useful"}',
+					};
+				},
+				onEvent: (event) => events.push(event),
+			},
+		);
+
+		expect(events.map((event) => event.type)).toEqual([
+			"criterion_started",
+			"text",
+			"text",
+			"criterion_finished",
+		]);
+		expect(events[1]?.text).toBe('{"verdict":"yes"');
+		expect(events[2]?.text).toContain('"rationale":"useful"');
 	});
 });
 

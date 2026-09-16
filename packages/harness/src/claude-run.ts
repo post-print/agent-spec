@@ -551,6 +551,7 @@ export async function runClaudeClassifier(options: {
 	prompt: string;
 	apiKey?: string;
 	bin?: string;
+	onText?: (text: string) => void;
 }): Promise<JudgeClassifierResult> {
 	const result = await runClaudeAgent({
 		cwd: options.cwd,
@@ -559,6 +560,9 @@ export async function runClaudeClassifier(options: {
 		bin: options.bin,
 		allowedTools: "",
 		failOnUserInput: true,
+		onAgentEvent: (event) => {
+			if (event.type === "text") options.onText?.(event.text);
+		},
 	});
 	const text = result.trace.messages
 		.filter((message) => message.role === "assistant")

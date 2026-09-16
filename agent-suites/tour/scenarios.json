@@ -74,7 +74,7 @@
     },
     {
       "name": "compares three MCP workflows",
-      "description": "Determines which task lookup workflow is most accurate and efficient.",
+      "description": "Determines which task lookup workflow is accurate with the fewest tool calls.",
       "mcpServers": {
         "tasks": {
           "type": "stdio",
@@ -83,7 +83,7 @@
           "args": ["packages/test/fixtures/mcp-echo/server.mjs"]
         }
       },
-      "prompt": "Determine which task lookup workflow provides the most accurate result with the fewest tools and tokens.",
+      "prompt": "Determine which task lookup workflow provides the most accurate result with the fewest tool calls.",
       "compare": {
         "arms": [
           {
@@ -123,8 +123,7 @@
           { "metric": "outcome", "arm": "summary-only", "operator": "equal", "value": "fail" },
           { "metric": "outcome", "arm": "search-detail", "operator": "equal", "value": "pass" },
           { "metric": "outcome", "arm": "direct-detail", "operator": "equal", "value": "pass" },
-          { "metric": "tools", "winner": "direct-detail", "loser": "search-detail" },
-          { "metric": "tokens", "winner": "direct-detail", "loser": "search-detail" }
+          { "metric": "tools", "winner": "direct-detail", "loser": "search-detail" }
         ]
       },
       "rubric": {}

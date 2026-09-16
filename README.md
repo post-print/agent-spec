@@ -46,7 +46,7 @@ sealed workspace. A compare scenario keeps each arm visible and reports one
 experiment outcome; an expected failed control arm does not make the
 experiment fail when its declared gates pass.
 
-Set `contextMode: "host-native"` to send the scenario prompt unchanged and let each host discover its supported project context. The default `harness-preamble` mode preserves 1.0 behavior. Reports and the live viewer show the exact initial user input submitted to built-in adapters, with any preamble files broken out visually.
+Set `contextMode: "host-native"` to send the scenario prompt unchanged and let each host discover its supported project context. The default `harness-preamble` mode preserves 1.0 behavior. Reports and the live viewer show a **Starting context** summary beside the task; the recorded conversation shows the submitted task prompt.
 
 > **Deprecated and removed:** replay-based tests and committed replay traces are no longer supported. `host: "replay"`, `replayTrace`, `--record-fixtures`, and the old `--live` mode flag fail with migration guidance.
 

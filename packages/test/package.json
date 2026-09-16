@@ -15,9 +15,10 @@
 		}
 	},
 	"scripts": {
-		"build": "bunx tsc --build",
+		"build": "bunx tsc --build && bun build ./src/viewer/main.tsx --outfile ./dist/viewer/client.js --target browser --minify --define 'process.env.NODE_ENV=\"production\"'",
 		"typecheck": "bunx tsc --build",
 		"lint": "bunx biome check .",
+		"lint:viewer": "bunx biome check src/viewer --error-on-warnings",
 		"lint:fix": "bunx biome check . --write",
 		"test": "bun test src",
 		"test:sandbox-safe": "bun test src --path-ignore-patterns '**/{scenario-seed,validate-seeds,cursor-login-check}.test.ts'",
@@ -27,11 +28,15 @@
 	},
 	"dependencies": {
 		"@post-print/agent-harness": "workspace:*",
-		"chalk": "6"
+		"chalk": "6",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.63.0",
 		"@types/node": "^26.1.1",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
 		"typescript": "~7.0.2"
 	},
 	"description": "Direct-agent scenario runner and CLI for agent-spec suites",

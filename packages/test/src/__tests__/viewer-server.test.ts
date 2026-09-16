@@ -75,13 +75,15 @@ describe("viewer server", () => {
 			const html = await page.text();
 			expect(html).toContain("<title>agent-test viewer</title>");
 			expect(html).toContain("hello direct");
-			expect(html).toContain("Choose a test to inspect or run.");
+			expect(html).not.toContain("Select one or more hosts to start a run.");
+			expect(html).toContain('"defaultWorkers":4');
+			expect(html).toContain('"maxWorkers":32');
 			expect(html).toContain("run-toggle run-cell");
-			expect(html).toContain('data-live-slot="smoke::hello direct"');
+			expect(html).toContain('id="viewer-root"');
+			expect(html).toContain('id="bootstrap-data"');
 			expect(html).toContain("live-status");
 			expect(html).toContain("compare-tablist");
 			expect(html).toContain("chat-running");
-			expect(html).toContain("source.close()");
 			expect(html).not.toContain('id="live-dock"');
 
 			const catalogJson = await fetch(new URL("/api/catalog", handle.url));

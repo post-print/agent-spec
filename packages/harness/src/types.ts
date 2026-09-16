@@ -164,7 +164,12 @@ export interface HostAdapter {
 	/** Builtin judge family when this adapter does not implement `classify`. */
 	classifierHost?: BuiltinAgentHost;
 	/** Optional judge/classifier. Use this or `classifierHost`. */
-	classify?(options: { cwd: string; prompt: string; apiKey?: string }): Promise<{
+	classify?(options: {
+		cwd: string;
+		prompt: string;
+		apiKey?: string;
+		onText?: (text: string) => void;
+	}): Promise<{
 		status: string;
 		text: string;
 		rawStatus?: string;

@@ -51,8 +51,17 @@ export interface JudgeTraceOptions {
 		cwd: string;
 		prompt: string;
 		apiKey?: string;
+		onText?: (text: string) => void;
 	}) => Promise<JudgeClassifierResult>;
+	/** Cumulative classifier text for the current criterion. */
+	onText?: (text: string) => void;
+	onEvent?: (event: JudgeProgressEvent) => void;
 }
+
+export type JudgeProgressEvent =
+	| { type: "criterion_started"; id: string; question: string }
+	| { type: "text"; id: string; question: string; text: string }
+	| { type: "criterion_finished"; question: string; verdict: JudgeVerdict };
 
 export interface JudgeTraceResult {
 	verdicts: JudgeVerdict[];
@@ -598,7 +607,9 @@ function buildJudgePrompt(transcript: string, question: string): string {
 		"The transcript includes assistant text, tool names, tool args, and tool results.",
 		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
 		"Reply with one JSON object only — no markdown fences, no text before or after:",
-		'{"verdict":"yes"|"no","evidence":["verbatim quote from transcript"],"rationale":"one sentence"}',
+		'{"verdict":"yes"|"no","evidence":["exact direct quote from transcript"],"rationale":"one sentence"}',
+		"Evidence must contain one or more exact, contiguous excerpts copied from the transcript in double quotes.",
+		"Do not paraphrase, summarize, infer, or invent evidence. If no exact quote supports the verdict, return an empty evidence array.",
 		'Use verdict "yes" only when evidence clearly supports the criterion.',
 		"",
 		"Transcript:",
@@ -622,7 +633,9 @@ export function buildCompareJudgePrompt(options: {
 		"The transcripts include assistant text, tool names, tool args, and tool results.",
 		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
 		"Reply with one JSON object only — no markdown fences, no text before or after:",
-		'{"verdict":"yes"|"no","evidence":["verbatim quote from a transcript"],"rationale":"one sentence"}',
+		'{"verdict":"yes"|"no","evidence":["exact direct quote from a transcript"],"rationale":"one sentence"}',
+		"Evidence must contain one or more exact, contiguous excerpts copied from a transcript in double quotes.",
+		"Do not paraphrase, summarize, infer, or invent evidence. If no exact quote supports the verdict, return an empty evidence array.",
 		'Use verdict "yes" only when evidence clearly supports the criterion.',
 		"",
 		`Arm A (${options.aLabel}):`,
@@ -648,7 +661,9 @@ export function buildMultiArmCompareJudgePrompt(options: {
 		"The transcripts include assistant text, tool names, tool args, and tool results.",
 		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
 		"Reply with one JSON object only — no markdown fences, no text before or after:",
-		'{"verdict":"yes"|"no","evidence":["verbatim quote from a transcript"],"rationale":"one sentence"}',
+		'{"verdict":"yes"|"no","evidence":["exact direct quote from a transcript"],"rationale":"one sentence"}',
+		"Evidence must contain one or more exact, contiguous excerpts copied from a transcript in double quotes.",
+		"Do not paraphrase, summarize, infer, or invent evidence. If no exact quote supports the verdict, return an empty evidence array.",
 		'Use verdict "yes" only when evidence clearly supports the criterion.',
 		"",
 		...armBlocks,
@@ -702,6 +717,7 @@ async function runJudgePromptOnce(
 		cwd: options.cwd,
 		prompt,
 		apiKey: options.apiKey,
+		onText: options.onText,
 	});
 	const durationMs = Math.round(performance.now() - started);
 	const usage = result.usage;
@@ -940,8 +956,24 @@ async function judgeCriteria(
 
 	for (const criterion of criteria) {
 		const prompt = buildPrompt(criterion.question);
-		const parsed = await runJudgePrompt(prompt, options);
-		verdicts.push({
+		options.onEvent?.({
+			type: "criterion_started",
+			id: criterion.id,
+			question: criterion.question,
+		});
+		const parsed = await runJudgePrompt(prompt, {
+			...options,
+			onText: (text) => {
+				options.onText?.(text);
+				options.onEvent?.({
+					type: "text",
+					id: criterion.id,
+					question: criterion.question,
+					text,
+				});
+			},
+		});
+		const verdict: JudgeVerdict = {
 			id: criterion.id,
 			pass: parsed.pass,
 			rationale: parsed.rationale,
@@ -957,7 +989,9 @@ async function judgeCriteria(
 			usage: parsed.usage,
 			transcriptChars: meta.transcriptChars,
 			promptChars: prompt.length,
-		});
+		};
+		verdicts.push(verdict);
+		options.onEvent?.({ type: "criterion_finished", question: criterion.question, verdict });
 		if (parsed.error) {
 			return {
 				verdicts,

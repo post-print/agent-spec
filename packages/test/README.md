@@ -33,7 +33,7 @@ The default host is Cursor. Set `contextMode: "host-native"` to send the scenari
 
 OpenAI scenarios can set `networkAccess: true` when the task must reach a package registry or another network service. It is scenario-only and defaults to `false`. The opt-in does not disable the sealed workspace, temporary user home, or leak checks, and it does not apply to the read-only judge.
 
-The viewer and HTML report render a compact context-delivery path for every run. They include the exact initial user input submitted through built-in adapters and a file-by-file preamble breakdown. In host-native mode, they also state that the host's internal system instructions and native discovery result are host-owned and not exposed as one exact context blob.
+The viewer and HTML report put a **Starting context** summary beside each task. It names supplied files, servers, tools, and skills, while the recorded conversation shows the submitted task prompt. In host-native mode, the summary states that the host discovers workspace files and instructions; agent-test does not claim which host-owned context was loaded.
 
 ## JSON suites and CLI
 

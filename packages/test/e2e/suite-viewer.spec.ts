@@ -57,41 +57,106 @@ test.describe("suite viewer", () => {
 		test("renders host tabs, host defaults, skip, pin, and escaped prompts", async ({ page }) => {
 			viewer = await openViewer(page);
 			await expect(page).toHaveTitle("agent-test viewer");
-			await expect(page.getByRole("heading", { name: "Test viewer" })).toBeVisible();
-			await expect(page.locator("#run-banner")).toHaveText("Choose a test to inspect or run.");
+			await expect(page.locator(".viewer-topbar")).toHaveCount(0);
+			await expect(page.getByText("Repo ·", { exact: false })).toHaveCount(0);
+			await expect(page.locator(".brand")).toHaveCount(0);
+			await expect(page.getByText("Viewing run", { exact: true })).toHaveCount(0);
+			await expect(page.locator("#run-banner")).toBeHidden();
 			await expect(page.locator("#run-selection")).toBeDisabled();
 			await expect(page.getByRole("button", { name: "Start run" })).toBeDisabled();
 			await expect(page.locator(".run-settings")).toHaveCount(0);
 			await expect(page.locator(".viewer-command-row .host-toggles")).toBeVisible();
+			const sidebar = page.getByRole("button", { name: "Sidebar" });
+			await expect(sidebar).toHaveAttribute("aria-controls", "test-catalog");
+			await expect(sidebar).toHaveAttribute("aria-expanded", "true");
+			await expect(sidebar.locator("svg")).toBeVisible();
+			await expect(page.locator("#test-catalog")).toBeVisible();
+			await sidebar.click();
+			await expect(sidebar).toHaveAttribute("aria-expanded", "false");
+			await expect(page.locator("#test-catalog")).toBeHidden();
+			const stage = page.locator(".test-stage");
+			await expect(stage).toBeVisible();
+			const collapsedWidth = await stage.evaluate((element) => {
+				const workspace = element.closest<HTMLElement>(".viewer-workspace");
+				if (!workspace) throw new Error("viewer workspace is missing");
+				return {
+					stage: element.getBoundingClientRect().width,
+					workspace: workspace.getBoundingClientRect().width,
+				};
+			});
+			expect(collapsedWidth.stage / collapsedWidth.workspace).toBeGreaterThan(0.95);
+			await sidebar.click();
+			await expect(sidebar).toHaveAttribute("aria-expanded", "true");
+			await expect(page.locator("#test-catalog")).toBeVisible();
 			await expect(page.locator("#run-progress")).toBeHidden();
 
 			await expect(hostToggle(page, "cursor")).not.toBeChecked();
 			await expect(hostToggle(page, "claude")).not.toBeChecked();
 			await expect(hostToggle(page, "openai")).not.toBeChecked();
-			await expect(page.locator("#parallel-hosts")).toBeChecked();
+			await expect(page.locator("#parallel-hosts")).toHaveCount(0);
+			await expect(page.locator("#viewer-workers")).toHaveValue("4");
+			await expect(page.locator("#viewer-workers")).toHaveAttribute("type", "number");
+			await expect(page.locator("#viewer-workers")).toHaveAttribute("max", "32");
+			const idleTest = page.locator('[data-select-scenario="smoke::hello"]');
+			await expect(idleTest).toHaveAttribute("data-status", "idle");
+			await expect(idleTest.locator(".test-nav-status")).toHaveAttribute(
+				"aria-label",
+				"Test status: Not run",
+			);
 
 			await expect(page.getByRole("heading", { name: "smoke" })).toBeVisible();
-			await expect(
-				page.locator('[data-scenario-card="smoke::hello"] .suite-description'),
-			).toHaveText("Minimal suite for the viewer.");
+			await expect(page.locator('[data-scenario-card="smoke::hello"] .scenario-path')).toHaveText(
+				"smoke",
+			);
 			await expect(page.getByRole("heading", { name: "judge", exact: true })).toBeVisible();
 			await expect(page.locator('[data-scenario-card="smoke::hello"] .scenario-lede')).toHaveText(
 				"Plain reply.",
 			);
-			await expect(page.locator(".criterion-groups").first()).toContainText(
-				"Final reply must include smoke.",
-			);
-			await expect(page.locator(".criterion-groups").first()).toContainText("Judge");
+			const passCriteria = page
+				.locator(".criteria-panel:not(.starting-context) .criterion-groups")
+				.first();
+			await expect(passCriteria).toContainText("Final reply must include smoke.");
+			await expect(passCriteria.getByText("Judge question", { exact: true })).toBeVisible();
+			await expect(passCriteria).toContainText("Was the reply useful?");
 			await focusScenario(page, "smoke", "context brief");
 			const providedContext = page.locator(
 				'[data-scenario-card="smoke::context brief"] .test-intent',
 			);
 			await expect(providedContext).toBeVisible();
-			await expect(providedContext.locator(".task-meta-label")).toHaveText("Provided context");
+			await expect(providedContext.locator(".starting-context summary")).toContainText(
+				"Starting context",
+			);
 			await expect(providedContext.getByText("brief.md", { exact: true })).toBeVisible();
+			await expect(providedContext.locator(".starting-context")).toContainText(
+				"Runs in a sealed temporary copy",
+			);
+			const sourceFolder = providedContext.locator(".source-folder-link");
+			await expect(sourceFolder).toHaveText("fixtures/context-brief");
+			await expect(sourceFolder).toHaveAttribute(
+				"href",
+				`vscode://file${process.cwd()}/fixtures/context-brief`,
+			);
+			await expect(providedContext.getByText("Allowed commands", { exact: true })).toBeVisible();
+			await expect(providedContext.getByText("cat brief.md", { exact: true })).toBeVisible();
+			await expect(providedContext.locator(".criterion-groups")).toHaveCSS("flex-direction", "row");
+			await expect(providedContext.locator(".task-allowed-commands")).toHaveCount(0);
 			await expect(
-				page.locator('[data-scenario-card="smoke::context brief"] .criteria-panel'),
-			).not.toContainText("Provided context");
+				page.locator(
+					'[data-scenario-card="smoke::context brief"] .criteria-panel:not(.starting-context)',
+				),
+			).not.toContainText("Starting context");
+			await expect(
+				page.locator(
+					'[data-scenario-card="smoke::context brief"] .criteria-panel:not(.starting-context) .criterion-groups',
+				),
+			).toHaveCSS("flex-direction", "row");
+			const startingContextGroups = providedContext.locator(".starting-context .criterion-groups");
+			const passCriteriaGroups = page.locator(
+				'[data-scenario-card="smoke::context brief"] .criteria-panel:not(.starting-context) .criterion-groups',
+			);
+			expect(await passCriteriaGroups.evaluate((element) => getComputedStyle(element).gap)).toBe(
+				await startingContextGroups.evaluate((element) => getComputedStyle(element).gap),
+			);
 			await focusScenario(page, "judge", "pair");
 			const pairDefinition = page.locator('[data-scenario-card="judge::pair"] .compare-definition');
 			const pairCriteria = page.locator('[data-scenario-card="judge::pair"] .comparison-criteria');
@@ -106,7 +171,7 @@ test.describe("suite viewer", () => {
 			await expect(pairDefinition.getByText("Alpha workspace.")).toBeVisible();
 			await expect(pairDefinition).not.toContainText("Is this answer safe and current?");
 			await expect(pairDefinition.getByText("Beta workspace.")).toBeHidden();
-			await pairDefinition.locator("label.compare-definition-tab", { hasText: "beta" }).click();
+			await pairDefinition.locator(".compare-definition-tab", { hasText: "beta" }).click();
 			await expect(pairDefinition.getByText("Beta workspace.")).toBeVisible();
 			await expect(pairDefinition.getByText("Alpha workspace.")).toBeHidden();
 			await focusScenario(page, "judge", "four arms");
@@ -153,10 +218,38 @@ test.describe("suite viewer", () => {
 
 			const index = await page.goto(new URL("index.html", viewer.url).href);
 			expect(index?.status()).toBe(200);
-			await expect(page.getByRole("heading", { name: "Test viewer" })).toBeVisible();
+			await expect(page.getByRole("button", { name: "Sidebar" })).toBeVisible();
 
 			const missing = await page.goto(new URL("missing", viewer.url).href);
 			expect(missing?.status()).toBe(404);
+		});
+
+		test("keeps the controls fixed while the selected test scrolls", async ({ page }) => {
+			await page.setViewportSize({ width: 1100, height: 560 });
+			viewer = await openViewer(page);
+			await focusScenario(page, "judge", "four arms");
+
+			const header = page.locator(".viewer-command-row");
+			const stage = page.locator(".test-stage");
+			const headerTop = await header.evaluate((element) => element.getBoundingClientRect().top);
+			const dimensions = await stage.evaluate((element) => ({
+				clientHeight: element.clientHeight,
+				scrollHeight: element.scrollHeight,
+			}));
+			expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+
+			await stage.evaluate((element) => {
+				element.scrollTop = 240;
+			});
+
+			expect(await stage.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+			expect(await page.evaluate(() => window.scrollY)).toBe(0);
+			expect(await header.evaluate((element) => element.getBoundingClientRect().top)).toBe(
+				headerTop,
+			);
+
+			await focusScenario(page, "smoke", "hello");
+			await expect.poll(() => stage.evaluate((element) => element.scrollTop)).toBe(0);
 		});
 	});
 
@@ -204,11 +297,33 @@ test.describe("suite viewer", () => {
 			await page.locator("#run-selection").click();
 			expect((await posted).postDataJSON()).toEqual({
 				hosts: ["claude"],
-				parallelHosts: true,
+				parallelHosts: false,
+				workers: 4,
 			});
 			await expect(cellStatus(page, "smoke", "hello", "claude")).toHaveText("passed");
 			expect(viewer.jobs).toContain("smoke::hello::claude::_");
 			expect(viewer.jobs.every((job) => job.includes("::claude::"))).toBe(true);
+		});
+
+		test("shows the parallel option beside Start run only for multiple hosts and sends the worker limit", async ({
+			page,
+		}) => {
+			viewer = await openViewer(page);
+			await hostToggle(page, "cursor").check();
+			await hostToggle(page, "claude").check();
+			const actions = page.locator(".run-actions");
+			await expect(actions.locator("#run-selection")).toBeVisible();
+			await expect(actions.locator("#parallel-hosts")).toBeChecked();
+			await page.locator("#viewer-workers").fill("7");
+			const posted = page.waitForRequest(
+				(request) => request.url().includes("/api/runs") && request.method() === "POST",
+			);
+			await page.locator("#run-selection").click();
+			expect((await posted).postDataJSON()).toEqual({
+				hosts: ["cursor", "claude"],
+				parallelHosts: true,
+				workers: 7,
+			});
 		});
 
 		test("run suite expands every runnable cell for selected hosts", async ({ page }) => {
@@ -249,12 +364,42 @@ test.describe("suite viewer", () => {
 			await expect(progress.locator(".progress-failed strong")).toHaveText("1");
 			await expect(progress.locator(".progress-skipped strong")).toHaveText("0");
 			await expect(progress.locator(".progress-remaining strong")).toHaveText("1");
+			await expect(progress.locator(".run-progress-passed")).toHaveAttribute("style", "width: 0%;");
+			await expect(progress.locator(".run-progress-failed")).toHaveAttribute(
+				"style",
+				"width: 50%;",
+			);
+			const runningTest = page.locator('[data-select-scenario="smoke::hello"]');
+			const failedTest = page.locator('[data-select-scenario="smoke::context brief"]');
+			await expect(runningTest).toHaveAttribute("data-status", "running");
+			await expect(runningTest.locator(".test-nav-status")).toHaveAttribute(
+				"aria-label",
+				"Test status: running",
+			);
+			await expect(failedTest).toHaveAttribute("data-status", "failed");
+			await expect(failedTest.locator(".test-nav-status")).toHaveAttribute(
+				"aria-label",
+				"Test status: failed",
+			);
 			viewer.gates.release("finish-first");
 			await expect(progress.locator(".run-progress-title")).toHaveText("2 of 2 tests finished");
 			await expect(progress.locator(".progress-passed strong")).toHaveText("1");
 			await expect(progress.locator(".progress-failed strong")).toHaveText("1");
 			await expect(progress.locator(".progress-remaining strong")).toHaveText("0");
 			await expect(progress.locator(".run-progress-track")).toHaveAttribute("aria-valuenow", "2");
+			await expect(progress.locator(".run-progress-passed")).toHaveAttribute(
+				"style",
+				"width: 50%;",
+			);
+			await expect(progress.locator(".run-progress-failed")).toHaveAttribute(
+				"style",
+				"width: 50%;",
+			);
+			await expect(runningTest).toHaveAttribute("data-status", "passed");
+			await expect(runningTest.locator(".test-nav-status")).toHaveAttribute(
+				"aria-label",
+				"Test status: passed",
+			);
 		});
 
 		test("requires an explicit host before running a selection", async ({ page }) => {
@@ -322,6 +467,49 @@ test.describe("suite viewer", () => {
 			await expect(history).toHaveValue(olderRunId);
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("passed");
 		});
+
+		test("switches the selected scenario, host, and result with run history", async ({ page }) => {
+			viewer = await openViewer(page, {
+				scripts: {
+					"smoke::hello::cursor::_": [
+						{ type: "prompt" },
+						{ type: "text", text: "older cursor answer" },
+						{ type: "finish", passed: true, durationMs: 6 },
+					],
+					"smoke::context brief::openai::_": [
+						{ type: "prompt" },
+						{ type: "text", text: "newer openai answer" },
+						{ type: "finish", passed: true, durationMs: 6 },
+					],
+				},
+			});
+			const history = page.locator("#run-history");
+
+			await startCell(page, "smoke", "hello", "cursor");
+			await expect(page.locator("#run-banner")).toContainText("Run finished.");
+			const olderRunId = await history.inputValue();
+
+			await startCell(page, "smoke", "context brief", "openai");
+			await expect(history).not.toHaveValue(olderRunId);
+			const newerRunId = await history.inputValue();
+			await expect(page.locator("#run-banner")).toContainText("Run finished.");
+
+			await history.selectOption(olderRunId);
+			await expect(page.locator("#test-picker")).toHaveValue("smoke::hello");
+			await expect(hostTab(page, "smoke", "hello", "cursor")).toHaveAttribute(
+				"aria-selected",
+				"true",
+			);
+			await expect(liveSlot(page, "smoke", "hello")).toContainText("older cursor answer");
+
+			await history.selectOption(newerRunId);
+			await expect(page.locator("#test-picker")).toHaveValue("smoke::context brief");
+			await expect(hostTab(page, "smoke", "context brief", "openai")).toHaveAttribute(
+				"aria-selected",
+				"true",
+			);
+			await expect(liveSlot(page, "smoke", "context brief")).toContainText("newer openai answer");
+		});
 	});
 
 	test.describe("live chat", () => {
@@ -329,6 +517,7 @@ test.describe("suite viewer", () => {
 			viewer = await openViewer(page, {
 				scripts: {
 					"smoke::hello::cursor::_": [
+						{ type: "status", text: "Starting host agent." },
 						{ type: "status", text: "Creating sealed workspace." },
 						{
 							type: "context",
@@ -369,22 +558,19 @@ test.describe("suite viewer", () => {
 			await expect(liveRow(page, "smoke", "hello")).toBeVisible();
 			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("running");
 			await expect(slot.locator(".live-status li")).toHaveText("Creating sealed workspace.");
-			await expect(slot.locator(".context-panel")).toBeVisible();
-			await expect(slot.locator(".context-panel-title")).toHaveText("Context delivery");
-			await expect(slot.locator(".context-panel-count")).toHaveText("Harness preamble · 1 file");
-			await expect(slot.locator(".context-flow")).toContainText("Scenario");
-			await expect(slot.locator(".context-host-input")).toContainText("Exact submitted user input");
-			await expect(slot.locator(".context-host-input")).toContainText("Reply with smoke.");
-			await expect(slot.locator(".context-path")).toHaveText("brief.md");
-			await expect(slot.locator(".context-why")).toHaveText(
-				"The scenario lists brief.md in contextSources.",
-			);
-			await expect(slot.locator(".context-file .context-body")).toContainText(
-				"agent-test-e2e-context",
-			);
+			await expect(slot).not.toContainText("Starting host agent.");
+			await expect(slot.locator(".context-panel")).toHaveCount(0);
+			await expect(slot).not.toContainText("Context delivery");
+			await expect(slot).not.toContainText("Exact submitted user input");
 			await expect(slot.locator(".bubble.role-user .bubble-text")).toContainText(
 				"Reply with smoke.",
 			);
+			const userBubbleAlignment = await slot.locator(".bubble.role-user").evaluate((bubble) => {
+				const transcript = bubble.closest<HTMLElement>(".chat");
+				if (!transcript) throw new Error("user bubble has no chat container");
+				return getComputedStyle(transcript).maxInlineSize;
+			});
+			expect(userBubbleAlignment).toBe("none");
 			await expect(slot.locator(".chat-running")).toBeVisible();
 
 			viewer.gates.release("after-prompt");
@@ -452,7 +638,13 @@ test.describe("suite viewer", () => {
 							passed: false,
 							durationMs: 9,
 							metrics: { turns: 1, tokens: 12, tools: 0 },
-							failures: [{ matcher: "must", message: 'Reply must contain "smoke".' }],
+							failures: [
+								{
+									matcher: "toHaveAllowedCommands",
+									message: "A forbidden command was not on the allowlist.",
+									evidence: 'command="python3 repair.py"',
+								},
+							],
 						},
 						{
 							type: "judge",
@@ -472,11 +664,28 @@ test.describe("suite viewer", () => {
 			const slot = liveSlot(page, "smoke", "hello");
 			await expect(slot.locator(".badge")).toHaveText("failed");
 			await expect(slot.locator(".tokens")).toHaveText("12 tokens");
-			await expect(slot.locator(".failure-message")).toHaveText('Reply must contain "smoke".');
-			await expect(slot.locator(".verdict-fail .question")).toContainText("Was the reply useful?");
-			await expect(slot.locator(".verdict-fail .rationale")).toHaveText(
+			await expect(slot.locator(".failure-panel h3")).toHaveText("What went wrong");
+			await expect(slot.locator(".failure-section-head p")).toHaveText("1 issue blocked this test");
+			await expect(slot.locator(".failure-label")).toHaveText("Forbidden command");
+			await expect(slot.locator(".failure-message")).toHaveText(
+				"A forbidden command was not on the allowlist.",
+			);
+			const evidence = slot.locator(".failure-evidence-details");
+			await expect(evidence).not.toHaveAttribute("open", "");
+			await evidence.locator("summary").click();
+			await expect(evidence.locator(".failure-evidence")).toHaveText('command="python3 repair.py"');
+			const judgedCriterion = slot.locator(".story-check", { hasText: "Was the reply useful?" });
+			await expect(judgedCriterion).toBeVisible();
+			const judgeResponse = slot.locator(".story-criteria .judge-response");
+			await expect(judgeResponse.getByText("Answer", { exact: true })).toBeVisible();
+			await expect(judgeResponse.locator(".judge-verdict-badge")).toHaveCount(0);
+			await expect(judgeResponse.locator(".judge-rationale")).toHaveText(
 				"The reply ignored the prompt.",
 			);
+			await expect(slot.getByRole("heading", { name: "Judge evaluation" })).toHaveCount(0);
+			await expect(
+				slot.locator(".trace-details:not(.judge-transcript) .trace-summary-title"),
+			).toHaveText("Agent transcript");
 			await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
 				origin: new URL(viewer.url).origin,
 			});
@@ -484,9 +693,93 @@ test.describe("suite viewer", () => {
 			await expect(copy).toBeVisible();
 			await copy.click();
 			await expect(copy).toHaveText("Copied");
-			expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-				'Reply must contain "smoke".',
+			const copied = await page.evaluate(() => navigator.clipboard.readText());
+			expect(copied).toContain("# agent-test viewer failure report");
+			expect(copied).toContain("- Scenario: hello");
+			expect(copied).toContain("[unknown] toHaveAllowedCommands");
+			expect(copied).toContain('evidence: command="python3 repair.py"');
+		});
+
+		test("streams a larger judge response without repeating the judged question", async ({
+			page,
+		}) => {
+			viewer = await openViewer(page, {
+				scripts: {
+					"smoke::hello::cursor::_": [
+						{ type: "prompt" },
+						{ type: "text", text: "A short answer." },
+						{
+							type: "judge_started",
+							id: "useful",
+							question: "Was the reply useful?",
+						},
+						{
+							type: "judge_text",
+							id: "useful",
+							question: "Was the reply useful?",
+							text: '{"verdict":"no","evidence":["missing detail"],"rationale":"Still too brief',
+						},
+						{ type: "wait", gate: "judge-stream" },
+						{
+							type: "judge",
+							verdicts: [
+								{
+									id: "useful",
+									question: "Was the reply useful?",
+									pass: false,
+									rationale: "Still too brief.",
+									evidence: ["missing detail"],
+								},
+							],
+						},
+						{ type: "finish", passed: false, durationMs: 9 },
+					],
+				},
+			});
+			await startCell(page, "smoke", "hello", "cursor");
+			const response = liveSlot(page, "smoke", "hello").locator(".judge-responses");
+			await expect(response).toBeVisible();
+			await expect(response.getByRole("heading", { name: "Judge response" })).toBeVisible();
+			await expect(response.locator(".judge-verdict-badge")).toHaveText("Failed");
+			await expect(response.locator(".judge-rationale")).toHaveText("Still too brief");
+			await expect(response.locator(".judge-evidence")).toContainText("missing detail");
+			await expect(response).not.toContainText("Was the reply useful?");
+			await expect(response).not.toContainText('{"verdict"');
+			viewer.gates.release("judge-stream");
+			const completedSlot = liveSlot(page, "smoke", "hello");
+			await expect(completedSlot.locator(".badge")).toHaveText("failed");
+			const completedResponse = completedSlot.locator(
+				".story-criteria .judge-responses-inline .judge-response-inline",
 			);
+			const completedResponses = completedSlot.locator(".story-criteria .judge-responses-inline");
+			await expect(completedResponse).toBeVisible();
+			await expect(completedResponse.getByText("Answer", { exact: true })).toBeVisible();
+			await expect(completedResponse.locator(".judge-verdict-badge")).toHaveCount(0);
+			expect(
+				await completedResponses.evaluate((element) => getComputedStyle(element).borderTopWidth),
+			).toBe("0px");
+			expect(
+				await completedResponse.evaluate((element) => getComputedStyle(element).borderTopWidth),
+			).toBe("0px");
+			expect(
+				await completedResponses.evaluate(
+					(element) => getComputedStyle(element).paddingInlineStart,
+				),
+			).not.toBe("0px");
+			const transcriptEdges = await completedSlot
+				.locator(".trace-details")
+				.evaluate((transcript) => {
+					const user = transcript.querySelector<HTMLElement>(".bubble.role-user");
+					const agent = transcript.querySelector<HTMLElement>(".bubble.role-assistant");
+					if (!user || !agent) throw new Error("completed transcript bubbles are missing");
+					const outer = transcript.getBoundingClientRect();
+					return {
+						agentLeft: agent.getBoundingClientRect().left - outer.left,
+						userRight: outer.right - user.getBoundingClientRect().right,
+					};
+				});
+			expect(transcriptEdges.agentLeft).toBeLessThanOrEqual(16);
+			expect(transcriptEdges.userRight).toBeLessThanOrEqual(16);
 		});
 
 		test("host tabs switch live panes and keep each result", async ({ page }) => {
@@ -495,6 +788,8 @@ test.describe("suite viewer", () => {
 			await hostToggle(page, "claude").check();
 			await page.locator("#run-selection").click();
 			await expect(page.locator("#run-banner")).toContainText("Run finished.");
+			await expect(page.locator(".run-progress-title")).toHaveText("9 of 9 tests finished");
+			await expect(page.locator(".progress-remaining strong")).toHaveText("0");
 			await focusScenario(page, "smoke", "hello");
 			const card = page.locator('[data-scenario-card="smoke::hello"]');
 			await expect(card.locator('[data-host-panel="cursor"] .badge')).toHaveText("passed");
@@ -580,7 +875,9 @@ test.describe("suite viewer", () => {
 	});
 
 	test.describe("compare", () => {
-		test("uses the completed two-arm report layout and names winners", async ({ page }) => {
+		test("uses the completed two-arm report layout without redundant comparison summaries", async ({
+			page,
+		}) => {
 			viewer = await openViewer(page, {
 				scripts: {
 					"judge::pair::cursor::a": [
@@ -611,16 +908,21 @@ test.describe("suite viewer", () => {
 			await expect(slot.locator(".compare-tablist")).toBeVisible();
 			await expect(slot.locator(".compare-tab")).toHaveCount(2);
 			await expect(slot.locator(".compare-arm")).toHaveCount(2);
+			await expect(slot.locator(".compare-arm-header")).toHaveCount(0);
 			await expect(slot.locator("details.trace-details[open]:visible")).toHaveCount(1);
+			await expect(slot.getByText("Read word.txt. Reply alpha.", { exact: true })).toBeVisible();
 			await expect(slot.getByText("alpha-live", { exact: true })).toBeVisible();
 			await expect(slot.getByText("beta-live", { exact: true })).toBeHidden();
-			await slot.locator("label.compare-tab", { hasText: "beta" }).click();
+			await slot.locator(".compare-tab", { hasText: "beta" }).click();
 			await expect(slot.getByText("beta-live", { exact: true })).toBeVisible();
 			await expect(slot.getByText("alpha-live", { exact: true })).toBeHidden();
+			await expect(slot.getByText("Comparison metrics", { exact: true })).toHaveCount(0);
+			await expect(slot.getByText("Declared outcomes", { exact: true })).toHaveCount(0);
+			await expect(slot.locator(".compare-table")).toBeVisible();
+			await expect(slot.locator(".compare-table tbody tr")).toHaveCount(6);
 			await expect(
-				slot.getByText("Lower is better: green is lowest and red is highest."),
-			).toBeVisible();
-			await expect(slot.locator(".compare-table td.is-better")).toHaveCount(2);
+				slot.locator(".story-criteria").getByRole("heading", { name: "compare" }),
+			).toHaveCount(0);
 		});
 
 		test("uses tabs for four arms and keeps a user-picked tab", async ({ page }) => {
@@ -644,6 +946,8 @@ test.describe("suite viewer", () => {
 			viewer = await openViewer(page, { scripts });
 			await startCell(page, "judge", "four arms", "cursor");
 			const slot = liveSlot(page, "judge", "four arms");
+			const testStatus = page.locator('[data-select-scenario="judge::four arms"]');
+			await expect(testStatus).toHaveAttribute("data-status", "running");
 			await expect(slot.locator(".compare-tablist")).toBeVisible();
 			await expect(slot.locator(".compare-tab")).toHaveCount(4);
 			await slot.getByRole("tab", { name: "skeleton clean" }).click();
@@ -655,18 +959,17 @@ test.describe("suite viewer", () => {
 				viewer.gates.release(`start:${arm}`);
 			}
 			await expect(page.locator("#run-banner")).toContainText("1 passed");
+			await expect(testStatus).toHaveAttribute("data-status", "passed");
 			await expect(slot.locator('[data-arm-id="skel-clean"]')).toBeVisible();
 			await expect(slot.locator('[data-arm-id="none-messy"]')).toBeHidden();
-			await slot.locator("label.compare-tab", { hasText: "no skill messy" }).click();
+			await slot.locator(".compare-tab", { hasText: "no skill messy" }).click();
 			await expect(slot.locator('[data-arm-id="none-messy"]')).toBeVisible();
 			await expect(slot.locator('[data-arm-id="skel-clean"]')).toBeHidden();
 			const criteria = slot.locator(".story-criteria");
-			await expect(
-				slot.getByText("Lower is better: green is lowest and red is highest."),
-			).toBeVisible();
-			await expect(
-				slot.locator(".compare-table tr", { hasText: "Tokens" }).locator("td.is-better"),
-			).toHaveCount(1);
+			await expect(slot.getByText("Comparison metrics", { exact: true })).toHaveCount(0);
+			await expect(slot.getByText("Declared outcomes", { exact: true })).toHaveCount(0);
+			await expect(slot.locator(".compare-table")).toBeVisible();
+			await expect(criteria.getByRole("heading", { name: "compare" })).toHaveCount(0);
 			await expect(
 				criteria.getByText("skeleton clean must use fewer turns than no skill messy"),
 			).toBeVisible();
@@ -697,9 +1000,7 @@ test.describe("suite viewer", () => {
 			const tracks = await arms.evaluate((node) => getComputedStyle(node).gridTemplateColumns);
 			expect(tracks.split(/\s+/).filter(Boolean)).toHaveLength(1);
 			await expect(arms.locator(".compare-arm:visible")).toHaveCount(1);
-			await liveSlot(page, "judge", "pair")
-				.locator("label.compare-tab", { hasText: "beta" })
-				.click();
+			await liveSlot(page, "judge", "pair").locator(".compare-tab", { hasText: "beta" }).click();
 			await expect(arms.locator('[data-arm-id="b"]')).toBeVisible();
 		});
 	});

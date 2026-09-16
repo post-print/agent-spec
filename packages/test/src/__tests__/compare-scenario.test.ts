@@ -124,7 +124,7 @@ describe("comparison gates", () => {
 		expect(applyCompareArm(scenario, "tool").prompt).toBe("Use the tool.");
 	});
 
-	it("keeps context delivery evidence from isolated child sidecars", () => {
+	it("keeps starting-context evidence from isolated child sidecars", () => {
 		const result = buildCompareResult([arm("a", true, 1, 10, 0), arm("b", true, 1, 10, 0)]);
 		const merged = applySidecarCompareDurations(result, {
 			compare: {

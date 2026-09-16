@@ -519,6 +519,7 @@ export async function runOpenaiClassifier(options: {
 	prompt: string;
 	apiKey?: string;
 	bin?: string;
+	onText?: (text: string) => void;
 }): Promise<JudgeClassifierResult> {
 	const result = await runOpenaiAgent({
 		cwd: options.cwd,
@@ -527,6 +528,9 @@ export async function runOpenaiClassifier(options: {
 		bin: options.bin,
 		sandbox: "read-only",
 		failOnUserInput: true,
+		onAgentEvent: (event) => {
+			if (event.type === "text") options.onText?.(event.text);
+		},
 	});
 	return {
 		status: result.status,

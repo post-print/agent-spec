@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
 
-<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/harness/src/openai-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts,packages/test/src/viewer/context-files.ts,packages/test/src/context-panel.ts -->
+<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/harness/src/openai-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts,packages/test/src/viewer/context-files.ts -->
 
 A **sealed workspace** is a temp git repo that the host must not leave. The runner fails the scenario when a tool path leaves that folder. A leftover caller-tree check still restores leaked caller edits.
 
@@ -50,7 +50,7 @@ An OpenAI scenario can set `networkAccess: true`. This changes only the Codex wo
 
 `contextSources` adds files after the profile sources. When `workspace` is a subfolder, a bare name is a file in that workspace root. `host-native` rejects `contextSources` and synthetic skill-catalog injection.
 
-The viewer and HTML report show a delivery-path visual, the exact initial user input submitted through the builtin adapter, and every harness-preamble file. In native mode they separately state that host-owned system instructions and discovery are not exposed as one inspectable payload.
+The viewer and HTML report put a **Starting context** summary beside the task. It names supplied files, servers, tools, and skills without adding a separate delivery diagram. The recorded conversation shows the submitted task prompt. In native mode, the summary states that the host discovers workspace files and instructions; agent-test does not claim which host-owned context was loaded.
 
 The `skeleton` profile loads `skeleton.toml` when present. It falls back to `.skeleton/config.yaml` and legacy `customize.alwaysInclude` only when the TOML file is absent.
 
