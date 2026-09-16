@@ -2146,7 +2146,8 @@ export async function finalizeScheduledCompareScenario(options: {
 		},
 	};
 	const armRuns = compareArms.flatMap((arm) => {
-		const result = options.armResults.get(arm.id);
+		const serializedResult = options.armResults.get(arm.id);
+		const result = serializedResult ? rehydrateJudgeWorkspace(serializedResult) : undefined;
 		return result
 			? [
 					{
@@ -2168,6 +2169,25 @@ export async function finalizeScheduledCompareScenario(options: {
 		judge: options.judge !== false,
 		evaluateGates: true,
 	});
+}
+
+/** Restore the parent-owned cleanup capability omitted from an isolated child sidecar. */
+function rehydrateJudgeWorkspace(result: ScenarioResult): ScenarioResult {
+	const workspace = result.judgeWorkspace;
+	if (!workspace || typeof workspace.cleanup === "function") return result;
+
+	const rehydrated = structuredClone(result);
+	Object.defineProperty(rehydrated, "judgeWorkspace", {
+		value: {
+			name: workspace.name,
+			path: workspace.path,
+			cleanup: async () => {
+				await rm(dirname(workspace.path), { recursive: true, force: true });
+			},
+		},
+		enumerable: false,
+	});
+	return rehydrated;
 }
 
 /** Finalize one viewer-scheduled scenario through the parent-owned judge path. */

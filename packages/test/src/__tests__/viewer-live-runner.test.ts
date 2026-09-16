@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { access, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
 	cleanupStagingSession,
@@ -167,5 +170,51 @@ describe("live viewer runner", () => {
 
 		expect(result?.passed).toBe(true);
 		expect(result?.compare?.gateResults?.[0]).toMatchObject({ passed: true, left: 10, right: 20 });
+	});
+
+	it("rehydrates serialized arm judge workspaces before comparison cleanup", async () => {
+		const runner = createLiveViewerRunner({ cwd: "/tmp", suitesDir: "agent-suites", judge: false });
+		const workspaceA = await mkdtemp(join(tmpdir(), "agent-test-viewer-a-"));
+		const workspaceB = await mkdtemp(join(tmpdir(), "agent-test-viewer-b-"));
+		const makeResult = (tokens: number, workspace?: { name: string; path: string }) => {
+			const result = {
+				suite: "smoke",
+				scenario: "pair",
+				passed: true,
+				failures: [],
+				durationMs: tokens,
+				trace: {
+					messages: [{ role: "assistant" as const, content: "ok" }],
+					toolCalls: [],
+					shellCommands: [],
+					artifacts: {},
+					usage: { totalTokens: tokens },
+				},
+			};
+			if (workspace) Object.defineProperty(result, "judgeWorkspace", { value: workspace });
+			return result;
+		};
+		const result = await runner.finalizeCompare?.({
+			suite: "smoke",
+			host: "cursor",
+			scenario: {
+				name: "pair",
+				prompt: "Compare.",
+				rubric: {},
+				compare: [
+					{ id: "a", label: "control", prompt: "Control.", rubric: {} },
+					{ id: "b", label: "candidate", prompt: "Candidate.", rubric: {} },
+				],
+				gates: [{ metric: "tokens", winner: "b", loser: "a" }],
+			},
+			armResults: new Map([
+				["a", makeResult(20, { name: "a", path: join(workspaceA, "snapshot") })],
+				["b", makeResult(10, { name: "b", path: join(workspaceB, "snapshot") })],
+			]),
+		});
+
+		expect(result?.passed).toBe(true);
+		await expect(access(workspaceA)).rejects.toThrow();
+		await expect(access(workspaceB)).rejects.toThrow();
 	});
 });
