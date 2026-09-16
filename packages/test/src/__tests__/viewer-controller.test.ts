@@ -500,3 +500,60 @@ describe("viewer run controller", () => {
 		expect(controller.run("imported")?.status).toBe("completed");
 	});
 });
+
+it("finalizes ready comparisons before unrelated jobs and suppresses cancelled verdicts", async () => {
+	let releaseOther = () => {};
+	let releaseJudge = () => {};
+	const other = new Promise<void>((resolve) => {
+		releaseOther = resolve;
+	});
+	const judge = new Promise<void>((resolve) => {
+		releaseJudge = resolve;
+	});
+	let judging = 0;
+	const controller = createViewerRunController({
+		catalog,
+		maxParallelAgents: 3,
+		runner: {
+			async runJob(job, emit) {
+				if (!job.arm) await other;
+				emit({
+					type: "scenario_result",
+					...job,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						passed: true,
+						failures: [],
+						durationMs: 1,
+					},
+				});
+			},
+			async finalizeCompare(input) {
+				judging++;
+				await judge;
+				return {
+					suite: input.suite,
+					scenario: input.scenario.name,
+					passed: true,
+					failures: [],
+					durationMs: 1,
+				};
+			},
+		},
+	});
+	const { runId } = controller.start({ suite: "smoke", hosts: ["cursor"] });
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	expect(judging).toBe(1);
+	expect(controller.history(runId)?.some((e) => e.type === "scenario_finalizing")).toBe(true);
+	expect(controller.run(runId)?.reports.flatMap((r) => r.results)).toEqual([]);
+	controller.cancel(runId);
+	expect(controller.run(runId)?.status).toBe("cancelling");
+	releaseJudge();
+	releaseOther();
+	const events = await waitForHistory(controller, runId);
+	expect(
+		events.filter((e) => e.type === "scenario_result" && !e.arm && e.scenario === "pair"),
+	).toHaveLength(0);
+	expect(events.at(-1)).toMatchObject({ type: "run_finished", status: "cancelled" });
+});

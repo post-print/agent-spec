@@ -46,8 +46,8 @@ const fakeRunner: ViewerRunner = {
 	},
 };
 
-async function readSseEvents(url: string): Promise<ViewerEvent[]> {
-	const response = await fetch(url);
+async function readSseEvents(url: string, headers?: HeadersInit): Promise<ViewerEvent[]> {
+	const response = await fetch(url, { headers });
 	expect(response.status).toBe(200);
 	const body = await response.text();
 	return body
@@ -109,6 +109,11 @@ describe("viewer server", () => {
 			).toBe(true);
 			expect(events.some((event) => event.type === "tool" && event.name === "Read")).toBe(true);
 			expect(events.at(-1)).toMatchObject({ type: "run_finished", passed: 1, failed: 0 });
+			const resumed = await readSseEvents(new URL(`/api/runs/${runId}/events`, handle.url).href, {
+				"Last-Event-ID": "0",
+			});
+			expect(resumed).toHaveLength(events.length - 1);
+			expect(resumed[0]).not.toMatchObject({ type: "run_started" });
 			const runs = (await (await fetch(new URL("/api/runs", handle.url))).json()) as Array<{
 				id: string;
 			}>;

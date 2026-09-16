@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: sealed workspace isolation and debug evidence -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 
 <!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/context.ts,packages/harness/src/user-skills.ts,packages/harness/src/cursor-run.ts,packages/harness/src/openai-run.ts,packages/test/src/live-isolation.ts,packages/test/src/debug-bundle.ts,packages/test/src/viewer/events.ts,packages/test/src/viewer/context-files.ts -->
 
@@ -73,6 +73,8 @@ Host SDK INFO lines stay hidden. Set `AGENT_TEST_HOST_LOGS=1` or `--debug` to pr
 A TTY run prints `agent started`, then updates an `agent` clock every 0.1s. Tool names and a short reply preview print as the host streams them. The HTML report line is a localhost link.
 
 `agent-test viewer` can attach a pipe on fd 3. Isolated children write one JSON event per line. The viewer page shows the chat as the host streams it.
+
+Judge evidence snapshots can omit `.git`. The Codex classifier bypasses only its Git repository check, keeps its read-only sandbox, and may inspect the listed evidence files through read-only shell commands.
 
 ## Isolation target
 

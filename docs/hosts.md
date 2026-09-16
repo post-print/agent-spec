@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: host auth and custom adapters -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 
 <!-- review-deps: paths=.env.example,packages/harness/src/types.ts,packages/harness/src/context.ts,packages/harness/src/adapters/index.ts,packages/harness/src/auth-mode.ts,packages/harness/src/cursor-auth.ts,packages/harness/src/claude-run.ts,packages/harness/src/openai-run.ts,packages/test/src/cli.ts,packages/test/src/load-adapters.ts -->
 
@@ -41,6 +41,8 @@ Claude `api-key` mode uses `--bare` for compatibility preamble runs. A `host-nat
 These are host-version contracts and can change. The report records the exact initial user input agent-test submitted. Host-owned system instructions and native discovery are not exposed as one inspectable payload, so it does not infer that a particular workspace file loaded. Package-generated files are ordinary on-disk workspace context only after the package or fixture actually creates them.
 
 OpenAI agent runs use `codex exec --json --sandbox workspace-write --cd <sealed> --ignore-user-config -c approval_policy=never`. Network access stays off unless the scenario sets `networkAccess: true`; that opt-in adds `-c sandbox_workspace_write.network_access=true` only to the workspace-write agent child. It does not apply to the read-only judge. Suite MCP servers pass as `-c mcp_servers.<name>=…`. A user `~/.codex/config.toml` model pin does not apply. When user skills stay out, the child gets a temp home with only the Codex login file. Subscription mode uses that login and strips stale API keys from the child env.
+
+Codex judges use a read-only sandbox and `--skip-git-repo-check` so they can inspect evidence snapshots without `.git`. They may use read-only shell commands to inspect only the explicitly listed evidence paths. This does not grant network access or permission to execute project code.
 
 Optional model pins:
 

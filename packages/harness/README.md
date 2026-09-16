@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent-harness package -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 
 <!-- review-deps: paths=packages/harness/src/*.ts,packages/harness/src/**/*.ts,packages/harness/package.json -->
 
@@ -100,5 +100,7 @@ The sealed workspace is a git repo. Each host discovers its own project skill ro
 `judgeTrace` uses the same host family as the test agent. Default auth is subscription. Cursor judge calls use the SDK login store, or `CURSOR_API_KEY` when `--auth-mode api-key` is set. Claude and OpenAI judges use their own host credentials.
 
 The Cursor app login does not feed the SDK. Run `npx agent-test login`, or pass `--auth-mode api-key` plus `CURSOR_API_KEY`. Subscription mode uses the Codex CLI login and strips stale API keys from the child env.
+
+Judges may inspect explicitly listed evidence snapshots with file tools or read-only shell commands. Codex uses a read-only sandbox with `--skip-git-repo-check` for snapshots without Git metadata. Project execution and network access remain forbidden.
 
 Consumer: `@post-print/agent-test`. Auth and adapters: [docs/hosts.md](../../docs/hosts.md). Sealed workspace: [docs/isolation.md](../../docs/isolation.md).

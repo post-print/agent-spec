@@ -45,6 +45,7 @@ interface ViewerRunSession {
 	listeners: Set<(event: ViewerEvent) => void>;
 	abort?: AbortController;
 	done: Promise<void>;
+	finalizing: Set<string>;
 	armResults: Map<
 		string,
 		{
@@ -102,13 +103,14 @@ export function createViewerRunController(options: {
 			listeners: new Set(),
 			done: Promise.resolve(),
 			armResults: new Map(),
+			finalizing: new Set(),
 		});
 	}
 
 	const emit = (target: ViewerRunSession, event: ViewerEvent): void => {
 		target.events.push(event);
 		if (event.type === "scenario_result") {
-			addScenarioResult(target, event, options.catalog, Boolean(options.runner.finalizeCompare));
+			addScenarioResult(target, event, options.catalog);
 		}
 		for (const listener of target.listeners) listener(event);
 	};
@@ -146,6 +148,7 @@ export function createViewerRunController(options: {
 				abort,
 				done: Promise.resolve(),
 				armResults: new Map(),
+				finalizing: new Set(),
 			};
 			sessions.set(runId, current);
 			activeId = runId;
@@ -159,8 +162,8 @@ export function createViewerRunController(options: {
 				signal: abort.signal,
 				runner: options.runner,
 				forward: (event) => emit(current, event),
+				afterJob: () => finalizeScheduledCompares(current, options.catalog, options.runner, emit),
 			})
-				.then(() => finalizeScheduledCompares(current, options.catalog, options.runner, emit))
 				.catch((error) =>
 					emit(current, {
 						type: "error",
@@ -171,7 +174,7 @@ export function createViewerRunController(options: {
 					const totals = summarizeRun(current.record.reports, current.events);
 					current.record.status = abort.signal.aborted ? "cancelled" : "completed";
 					current.record.finishedAt = new Date().toISOString();
-					emit(current, { type: "run_finished", runId, ...totals });
+					emit(current, { type: "run_finished", runId, status: current.record.status, ...totals });
 					if (activeId === runId) activeId = undefined;
 				});
 			return { runId };
@@ -202,7 +205,6 @@ function addScenarioResult(
 	session: ViewerRunSession,
 	event: Extract<ViewerEvent, { type: "scenario_result" }>,
 	catalog: ViewerCatalog,
-	deferCompare: boolean,
 ): void {
 	const report = ensureReport(session.record, event.suite, event.host as AgentHost);
 	const scenario = catalog.suites
@@ -228,11 +230,6 @@ function addScenarioResult(
 	if (judgeWorkspace) group.judgeWorkspaces.set(event.arm, judgeWorkspace);
 	group.results.set(event.arm, event.result);
 	session.armResults.set(key, group);
-	if (group.results.size < scenario.compare.length || deferCompare) return;
-	upsertReportResult(
-		report,
-		buildViewerCompareResult(event.suite, event.scenario, scenario, group.results),
-	);
 }
 
 function buildViewerCompareResult(
@@ -302,14 +299,22 @@ async function finalizeScheduledCompares(
 	runner: ViewerRunner,
 	emit: (session: ViewerRunSession, event: ViewerEvent) => void,
 ): Promise<void> {
-	if (!runner.finalizeCompare) return;
-	for (const group of session.armResults.values()) {
+	for (const [key, group] of session.armResults) {
+		if (session.abort?.signal.aborted) return;
+		if (session.finalizing.has(key)) continue;
 		const scenario = catalog.suites
 			.find((suite) => suite.name === group.suite)
 			?.scenarios.find((item) => item.name === group.scenario);
 		if (!scenario?.compare?.length || group.results.size < scenario.compare.length) continue;
+		session.finalizing.add(key);
 		emit(session, {
 			type: "cell_started",
+			suite: group.suite,
+			scenario: group.scenario,
+			host: group.host,
+		});
+		emit(session, {
+			type: "scenario_finalizing",
 			suite: group.suite,
 			scenario: group.scenario,
 			host: group.host,
@@ -335,12 +340,14 @@ async function finalizeScheduledCompares(
 				}
 				armResults.set(armId, resultWithWorkspace);
 			}
-			result = await runner.finalizeCompare({
-				suite: group.suite,
-				scenario,
-				host: group.host,
-				armResults,
-			});
+			result = runner.finalizeCompare
+				? await runner.finalizeCompare({
+						suite: group.suite,
+						scenario,
+						host: group.host,
+						armResults,
+					})
+				: buildViewerCompareResult(group.suite, group.scenario, scenario, group.results);
 		} catch (error) {
 			result = buildViewerCompareResult(group.suite, group.scenario, scenario, group.results);
 			result.failures.push({
@@ -350,6 +357,7 @@ async function finalizeScheduledCompares(
 			});
 			result.passed = false;
 		}
+		if (session.abort?.signal.aborted) return;
 		emit(session, {
 			type: "cell_finished",
 			suite: group.suite,
@@ -409,7 +417,7 @@ function summarizeRun(
 	reports: SuiteRunReport[],
 	events: ViewerEvent[],
 ): { passed: number; failed: number; skipped: number } {
-	if (reports.some((report) => report.results.length > 0)) return summarizeReports(reports);
+	if (events.some((event) => event.type === "scenario_result")) return summarizeReports(reports);
 	return events.reduce(
 		(total, event) => {
 			if (event.type !== "cell_finished") return total;
@@ -431,6 +439,7 @@ async function runJobBatches(options: {
 	runner: ViewerRunner;
 	catalog: ViewerCatalog;
 	forward: (event: ViewerEvent) => void;
+	afterJob: () => Promise<void>;
 }): Promise<void> {
 	const batches = options.parallelHosts
 		? [options.jobs]
@@ -462,7 +471,7 @@ async function runJobBatches(options: {
 						!options.runner.finalizeScenario ||
 						options.signal.aborted
 					) {
-						if (completedResult)
+						if (completedResult && !options.signal.aborted)
 							options.forward({ type: "scenario_result", ...job, result: completedResult });
 						return;
 					}
@@ -473,6 +482,7 @@ async function runJobBatches(options: {
 						options.forward({ type: "scenario_result", ...job, result: completedResult });
 						return;
 					}
+					options.forward({ type: "scenario_finalizing", ...job });
 					const finalized = await options.runner.finalizeScenario(
 						{ suite: job.suite, scenario, host: job.host, result: completedResult },
 						options.forward,
@@ -523,6 +533,8 @@ async function runJobBatches(options: {
 							durationMs: 0,
 						},
 					});
+				} finally {
+					await options.afterJob();
 				}
 			},
 			options.signal,

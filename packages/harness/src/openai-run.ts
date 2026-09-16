@@ -308,6 +308,7 @@ export function buildOpenaiExecArgs(options: {
 		"-c",
 		"approval_policy=never",
 	];
+	if (sandbox === "read-only") args.push("--skip-git-repo-check");
 	if (sandbox === "workspace-write" && options.networkAccess === true) {
 		args.push("-c", "sandbox_workspace_write.network_access=true");
 	}

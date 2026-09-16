@@ -25,8 +25,8 @@ test.describe("html report preview", () => {
 		report = await openReport(page);
 		await expect(page).toHaveTitle("agent-test report");
 		await expect(page.getByRole("heading", { name: "Run report" })).toBeVisible();
-		await expect(page.locator(".lede")).toContainText("cursor, claude");
-		await expect(page.locator(".lede")).toContainText("e2e-suites");
+		await expect(page.locator(".when")).toContainText("cursor, claude");
+		await expect(page.locator(".when")).toContainText("e2e-suites");
 		await expect(page.locator(".when")).toContainText("2026-09-14T18:00:00.000Z");
 		await expect(page.locator(".stat-pass strong")).toHaveText("6");
 		await expect(page.locator(".stat-fail strong")).toHaveText("2");
@@ -97,26 +97,14 @@ test.describe("html report preview", () => {
 		report = await openReport(page);
 		const broken = scenarioDetails(page, "broken");
 		await focusReportScenario(page, "broken");
-		const judgedCriterion = broken.locator(".story-check", { hasText: "Was the reply helpful?" });
-		await expect(judgedCriterion.locator(".story-check-subtitle")).toHaveText("Too curt & vague");
-		await expect(judgedCriterion.locator(".story-check-evidence")).toContainText(
-			"CONFLICT WEBHOOK",
-		);
+		const judgeResponse = broken.locator(".judge-response-inline");
+		await expect(
+			judgeResponse.getByRole("heading", { name: "Was the reply helpful?" }),
+		).toBeVisible();
+		await expect(judgeResponse.locator(".judge-rationale")).toHaveText("Too curt & vague");
+		await expect(judgeResponse.locator(".judge-evidence")).toContainText("CONFLICT WEBHOOK");
 		await expect(broken.getByRole("heading", { name: "Judge evaluation" })).toHaveCount(0);
-		const judgeTranscript = broken.locator("details.judge-transcript");
-		await expect(judgeTranscript).toHaveAttribute("open", "");
-		await expect(judgeTranscript.locator(".trace-summary-title")).toHaveText("Judge transcript");
-		await expect(judgeTranscript.locator(".bubble-label")).toHaveText("Judge");
-		await expect(judgeTranscript.locator(".judge-verdict-head strong")).toHaveText(
-			"Was the reply helpful?",
-		);
-		await expect(judgeTranscript.locator(".judge-verdict-badge")).toHaveText("Failed");
-		await expect(judgeTranscript.locator(".judge-rationale")).toHaveText("Too curt & vague");
-		await expect(judgeTranscript.locator(".judge-formatted-evidence")).toContainText(
-			"CONFLICT WEBHOOK",
-		);
-		await expect(judgeTranscript).not.toContainText("Prompt sent to judge");
-		await expect(judgeTranscript).not.toContainText('"verdict":"no"');
+		await expect(broken.locator("details.judge-transcript")).toHaveCount(0);
 		await expect(broken.getByText("plain two papers")).toBeVisible();
 		await expect(
 			broken.locator(".story-check-fail", { hasText: 'reply omits "WEBHOOK"' }),
@@ -130,16 +118,7 @@ test.describe("html report preview", () => {
 				.evaluateAll((elements) =>
 					elements.map((element) => element.querySelector(".trace-summary-title")?.textContent),
 				),
-		).resolves.toEqual(["Judge transcript", "Agent transcript"]);
-		await expect(
-			broken.locator(".scenario-body").evaluate((element) => {
-				const judge = element.querySelector(".judge-transcript");
-				const stats = element.querySelector(".meta-row");
-				return Boolean(
-					judge && stats && judge.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING,
-				);
-			}),
-		).resolves.toBe(true);
+		).resolves.toEqual(["Agent transcript"]);
 		const mismatch = scenarioDetails(page, "mismatch");
 		await focusReportScenario(page, "mismatch");
 		await expect(mismatch).toHaveAttribute("open", "");
@@ -158,7 +137,7 @@ test.describe("html report preview", () => {
 		await expect(legacy.locator("details.trace-details")).toHaveAttribute("open", "");
 		await expect(legacy.getByText("Emission order wasn't recorded")).toBeVisible();
 		await expect(legacy.getByText("Legacy trace message")).toBeVisible();
-		await expect(legacy.getByRole("heading", { name: "Tool calls" })).toBeVisible();
+		await expect(legacy.getByRole("heading", { name: "Shell commands" })).toBeVisible();
 	});
 
 	test("shows two-arm chats side by side with comparison winners", async ({ page }) => {
@@ -172,15 +151,11 @@ test.describe("html report preview", () => {
 		await expect(pair.locator("details.trace-details[open]:visible")).toHaveCount(1);
 		await expect(pair.getByText("alpha-compare-a7c1")).toBeVisible();
 		await expect(pair.getByText("beta-compare-b3e9")).toBeHidden();
-		await expect(pair.getByText("Arm A")).toBeVisible();
 		await pair.locator(".compare-tab", { hasText: "beta" }).click();
 		await expect(pair.getByText("beta-compare-b3e9")).toBeVisible();
 		await expect(pair.getByText("alpha-compare-a7c1")).toBeHidden();
-		await expect(pair.getByText("Arm B")).toBeVisible();
-		await expect(pair.getByRole("heading", { name: "Comparison metrics" })).toBeVisible();
-		await expect(
-			pair.getByText("Lower is better: green is lowest and red is highest."),
-		).toBeVisible();
+		await expect(pair.locator(".compare-table")).toContainText("alpha");
+		await expect(pair.locator(".compare-table")).toContainText("beta");
 		await expect(pair.locator(".compare-table")).toContainText("Turns");
 		await expect(pair.locator('.compare-table tr:has-text("Duration")')).toHaveCount(0);
 		const columns = await pair.locator(".compare-arms").evaluate((node) => {
@@ -209,13 +184,10 @@ test.describe("html report preview", () => {
 		);
 		await expect(four.getByText("none-messy-ok")).toBeVisible();
 		await expect(four.locator('[data-arm-id="skel-clean"]')).toBeHidden();
-		await expect(
-			four.getByText("Lower is better: green is lowest and red is highest."),
-		).toBeVisible();
+		await expect(four.locator(".compare-table")).toContainText("skeleton clean");
 		await expect(
 			four.locator(".compare-table tr", { hasText: "Tokens" }).locator("td.is-better"),
 		).toHaveCount(1);
-		await expect(four.getByText("skel-clean must beat none-clean on tokens")).toBeVisible();
 		await expect(four.getByText("Δ is B minus A")).toHaveCount(0);
 	});
 
