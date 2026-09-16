@@ -60,6 +60,7 @@ for (const cancel of [false, true]) {
 			const header = page.locator('[data-scenario-card="lifecycle::pair"] .focus-verdict');
 			await expect(nav).toHaveAttribute("data-status", "judging");
 			await expect(header).toHaveText("judging");
+			await expect(page.locator("#live-connection")).toHaveText("Live updates connected.");
 			await expect(page.locator(".run-arm-progress")).toHaveText("2 arms finished");
 			await expect(
 				page.getByText("Agent finished. Awaiting comparison verdict.", { exact: false }).first(),
@@ -67,6 +68,7 @@ for (const cancel of [false, true]) {
 			await expect(page.locator(".badge.status-passed")).toHaveCount(0);
 			await page.reload();
 			await expect(header).toHaveText("judging");
+			await expect(page.locator("#live-connection")).toHaveText("Live updates connected.");
 			await expect(page.locator(".run-arm-progress")).toHaveText("2 arms finished");
 			if (cancel) {
 				await page.getByRole("button", { name: "Stop run", exact: true }).click();

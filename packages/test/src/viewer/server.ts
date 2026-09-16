@@ -12,7 +12,6 @@ import { createLiveViewerRunner, type LiveViewerRunnerOptions } from "./live-run
 import { renderViewerPage } from "./page.js";
 import {
 	createViewerRunController,
-	followViewerRun,
 	type ViewerRunController,
 	type ViewerRunner,
 } from "./run-controller.js";
@@ -172,7 +171,7 @@ async function handleViewerRequest(
 	}
 	const runMatch = path.match(/^\/api\/runs\/([^/]+)\/events$/);
 	if (req.method === "GET" && runMatch?.[1]) {
-		streamEvents(res, controller, runMatch[1]);
+		streamEvents(res, controller, runMatch[1], req.headers["last-event-id"]);
 		return;
 	}
 	const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
@@ -185,7 +184,12 @@ async function handleViewerRequest(
 	res.end();
 }
 
-function streamEvents(res: ServerResponse, controller: ViewerRunController, runId: string): void {
+function streamEvents(
+	res: ServerResponse,
+	controller: ViewerRunController,
+	runId: string,
+	lastEventId: string | string[] | undefined,
+): void {
 	if (!controller.history(runId)) {
 		writeJson(res, 404, { error: "Run not found" });
 		return;
@@ -196,8 +200,9 @@ function streamEvents(res: ServerResponse, controller: ViewerRunController, runI
 		connection: "keep-alive",
 		"x-accel-buffering": "no",
 	});
+	let index = nextEventIndex(lastEventId);
 	const writeEvent = (event: ViewerEvent): boolean => {
-		res.write(`data: ${encodeViewerEvent(event)}\n\n`);
+		res.write(`id: ${index++}\ndata: ${encodeViewerEvent(event)}\n\n`);
 		return event.type === "run_finished";
 	};
 	let unsubscribe: (() => void) | undefined;
@@ -210,16 +215,26 @@ function streamEvents(res: ServerResponse, controller: ViewerRunController, runI
 		unsubscribe?.();
 		res.end();
 	};
-	unsubscribe = followViewerRun(controller, runId, (event) => {
-		if (writeEvent(event)) {
-			finish();
+	const flush = (): void => {
+		const history = controller.history(runId);
+		if (!history) return;
+		while (!ended && index < history.length) {
+			if (writeEvent(history[index] as ViewerEvent)) finish();
 		}
-	});
+	};
+	unsubscribe = controller.subscribe(runId, flush);
+	flush();
 	if (ended) {
 		unsubscribe?.();
 		return;
 	}
 	reqOnClose(res, finish);
+}
+
+function nextEventIndex(lastEventId: string | string[] | undefined): number {
+	const raw = Array.isArray(lastEventId) ? lastEventId.at(-1) : lastEventId;
+	const parsed = Number(raw);
+	return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed + 1 : 0;
 }
 
 function reqOnClose(res: ServerResponse, unsubscribe: () => void): void {

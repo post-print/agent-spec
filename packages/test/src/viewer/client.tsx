@@ -1538,7 +1538,11 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 		failed: number;
 		skipped: number;
 	}>();
+	const [liveConnection, setLiveConnection] = useState<
+		Record<string, "connected" | "reconnecting">
+	>({});
 	const sourcesRef = useRef<Record<string, EventSource>>({});
+	const openedSourcesRef = useRef(new Set<string>());
 	const cancelledRunsRef = useRef(new Set<string>());
 	const testStageRef = useRef<HTMLElement>(null);
 	const selectedRun = runs.find((run) => run.id === selectedRunId);
@@ -1671,6 +1675,11 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 					]),
 				),
 			}));
+			setLiveConnection((all) => {
+				const { [runId]: _removed, ...remaining } = all;
+				return remaining;
+			});
+			openedSourcesRef.current.delete(runId);
 			void refreshRun(runId);
 			sourcesRef.current[runId]?.close();
 			delete sourcesRef.current[runId];
@@ -1711,7 +1720,7 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 		if (event.type === "judge_started")
 			updateCell(runId, key, (cell) => ({
 				...cell,
-				status: "running",
+				status: "judging",
 				judge: {
 					status: "running",
 					id: event.id,
@@ -1723,7 +1732,7 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 		if (event.type === "judge_text")
 			updateCell(runId, key, (cell) => ({
 				...cell,
-				status: "running",
+				status: "judging",
 				judge: {
 					status: "running",
 					id: event.id,
@@ -1776,13 +1785,22 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 
 	function connect(runId: string, total: number) {
 		setProgress({ done: 0, total, passed: 0, failed: 0, skipped: 0 });
+		openedSourcesRef.current.delete(runId);
 		const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/events`);
 		sourcesRef.current[runId] = source;
 		const results = new Map<string, ScenarioResult>();
 		source.onopen = () => {
-			results.clear();
-			setLiveByRun((all) => ({ ...all, [runId]: {} }));
-			setProgress({ done: 0, total, passed: 0, failed: 0, skipped: 0 });
+			if (!openedSourcesRef.current.has(runId)) {
+				openedSourcesRef.current.add(runId);
+				results.clear();
+				setLiveByRun((all) => ({ ...all, [runId]: {} }));
+				setProgress({ done: 0, total, passed: 0, failed: 0, skipped: 0 });
+			}
+			setLiveConnection((all) => ({ ...all, [runId]: "connected" }));
+		};
+		source.onerror = () => {
+			if (source.readyState !== EventSource.CLOSED)
+				setLiveConnection((all) => ({ ...all, [runId]: "reconnecting" }));
 		};
 		source.onmessage = (message) => {
 			const event = JSON.parse(message.data) as ViewerEvent;
@@ -1995,6 +2013,13 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 							}{" "}
 							arms finished
 						</p>
+						{liveConnection[selectedRunId] ? (
+							<p id="live-connection" data-state={liveConnection[selectedRunId]} aria-live="polite">
+								{liveConnection[selectedRunId] === "connected"
+									? "Live updates connected."
+									: "Live updates reconnecting; received activity remains current."}
+							</p>
+						) : null}
 					</div>
 					<div
 						className="run-progress-track"

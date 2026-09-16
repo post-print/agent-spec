@@ -674,11 +674,11 @@ test.describe("suite viewer", () => {
 			await expect(evidence).not.toHaveAttribute("open", "");
 			await evidence.locator("summary").click();
 			await expect(evidence.locator(".failure-evidence")).toHaveText('command="python3 repair.py"');
-			const judgedCriterion = slot.locator(".story-check", { hasText: "Was the reply useful?" });
-			await expect(judgedCriterion).toBeVisible();
-			const judgeResponse = slot.locator(".story-criteria .judge-response");
-			await expect(judgeResponse.getByText("Answer", { exact: true })).toBeVisible();
-			await expect(judgeResponse.locator(".judge-verdict-badge")).toHaveCount(0);
+			const judgeResponse = slot.locator(".story-criteria .judge-response-inline");
+			await expect(
+				judgeResponse.getByRole("heading", { name: "Was the reply useful?" }),
+			).toBeVisible();
+			await expect(judgeResponse.locator(".judge-verdict-badge")).toHaveText("Failed");
 			await expect(judgeResponse.locator(".judge-rationale")).toHaveText(
 				"The reply ignored the prompt.",
 			);
@@ -738,6 +738,10 @@ test.describe("suite viewer", () => {
 			});
 			await startCell(page, "smoke", "hello", "cursor");
 			const response = liveSlot(page, "smoke", "hello").locator(".judge-responses");
+			await expect(cellStatus(page, "smoke", "hello", "cursor")).toHaveText("judging");
+			await expect(
+				page.locator('[data-select-scenario="smoke::hello"] .test-nav-status'),
+			).toHaveAttribute("aria-label", "Test status: judging");
 			await expect(response).toBeVisible();
 			await expect(response.getByRole("heading", { name: "Judge response" })).toBeVisible();
 			await expect(response.locator(".judge-verdict-badge")).toHaveText("Failed");
@@ -753,8 +757,10 @@ test.describe("suite viewer", () => {
 			);
 			const completedResponses = completedSlot.locator(".story-criteria .judge-responses-inline");
 			await expect(completedResponse).toBeVisible();
-			await expect(completedResponse.getByText("Answer", { exact: true })).toBeVisible();
-			await expect(completedResponse.locator(".judge-verdict-badge")).toHaveCount(0);
+			await expect(
+				completedResponse.getByRole("heading", { name: "Was the reply useful?" }),
+			).toBeVisible();
+			await expect(completedResponse.locator(".judge-verdict-badge")).toHaveText("Failed");
 			expect(
 				await completedResponses.evaluate((element) => getComputedStyle(element).borderTopWidth),
 			).toBe("0px");
