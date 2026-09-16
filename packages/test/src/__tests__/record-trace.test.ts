@@ -43,6 +43,7 @@ describe("staging result sidecar", () => {
 			contextMode: "host-native" as const,
 			contextFiles: [],
 			hostInput: "Exact prompt",
+			judgeWorkspace: { name: "scenario", path: "/tmp/agent-harness-judge/scenario" },
 			failures: [
 				{
 					matcher: "toHaveInvokedSkill",

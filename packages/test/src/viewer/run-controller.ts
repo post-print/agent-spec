@@ -47,7 +47,13 @@ interface ViewerRunSession {
 	done: Promise<void>;
 	armResults: Map<
 		string,
-		{ suite: string; scenario: string; host: AgentHost; results: Map<string, ScenarioResult> }
+		{
+			suite: string;
+			scenario: string;
+			host: AgentHost;
+			results: Map<string, ScenarioResult>;
+			judgeWorkspaces: Map<string, { name: string; path: string }>;
+		}
 	>;
 }
 
@@ -212,7 +218,14 @@ function addScenarioResult(
 		scenario: event.scenario,
 		host: event.host as AgentHost,
 		results: new Map<string, ScenarioResult>(),
+		judgeWorkspaces: new Map<string, { name: string; path: string }>(),
 	};
+	const judgeWorkspace = (
+		event.result as ScenarioResult & {
+			judgeWorkspace?: { name: string; path: string };
+		}
+	).judgeWorkspace;
+	if (judgeWorkspace) group.judgeWorkspaces.set(event.arm, judgeWorkspace);
 	group.results.set(event.arm, event.result);
 	session.armResults.set(key, group);
 	if (group.results.size < scenario.compare.length || deferCompare) return;
@@ -295,13 +308,38 @@ async function finalizeScheduledCompares(
 			.find((suite) => suite.name === group.suite)
 			?.scenarios.find((item) => item.name === group.scenario);
 		if (!scenario?.compare?.length || group.results.size < scenario.compare.length) continue;
+		emit(session, {
+			type: "cell_started",
+			suite: group.suite,
+			scenario: group.scenario,
+			host: group.host,
+		});
+		emit(session, {
+			type: "status",
+			suite: group.suite,
+			scenario: group.scenario,
+			host: group.host,
+			text: "Finalizing comparison and judge.",
+		});
 		let result: ScenarioResult;
 		try {
+			const armResults = new Map<string, ScenarioResult>();
+			for (const [armId, armResult] of group.results) {
+				const resultWithWorkspace = structuredClone(armResult);
+				const workspace = group.judgeWorkspaces.get(armId);
+				if (workspace) {
+					Object.defineProperty(resultWithWorkspace, "judgeWorkspace", {
+						value: workspace,
+						enumerable: false,
+					});
+				}
+				armResults.set(armId, resultWithWorkspace);
+			}
 			result = await runner.finalizeCompare({
 				suite: group.suite,
 				scenario,
 				host: group.host,
-				armResults: group.results,
+				armResults,
 			});
 		} catch (error) {
 			result = buildViewerCompareResult(group.suite, group.scenario, scenario, group.results);
@@ -312,6 +350,18 @@ async function finalizeScheduledCompares(
 			});
 			result.passed = false;
 		}
+		emit(session, {
+			type: "cell_finished",
+			suite: group.suite,
+			scenario: group.scenario,
+			host: group.host,
+			passed: result.passed,
+			durationMs: result.durationMs,
+			failures: result.failures.map((failure) => ({
+				matcher: failure.matcher,
+				message: failure.message,
+			})),
+		});
 		emit(session, {
 			type: "scenario_result",
 			suite: group.suite,
@@ -427,6 +477,19 @@ async function runJobBatches(options: {
 						{ suite: job.suite, scenario, host: job.host, result: completedResult },
 						options.forward,
 					);
+					// The child emits an agent-only completion before parent-process judging.
+					// Replace that provisional status so the cell cannot remain green when
+					// judging later fails or becomes unavailable.
+					options.forward({
+						type: "cell_finished",
+						...job,
+						passed: finalized.passed,
+						durationMs: finalized.durationMs,
+						failures: finalized.failures.map((failure) => ({
+							matcher: failure.matcher,
+							message: failure.message,
+						})),
+					});
 					options.forward({ type: "scenario_result", ...job, result: finalized });
 				} catch (error) {
 					if (options.signal.aborted) return;

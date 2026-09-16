@@ -8,7 +8,11 @@ import {
 	spawnLiveScenario,
 	subprocessFailureMessage,
 } from "../live-isolation.js";
-import { createLiveStagingSessionId } from "../record-trace.js";
+import {
+	createLiveStagingSessionId,
+	getStagingResultPath,
+	loadStagingResult,
+} from "../record-trace.js";
 import { finalizeScheduledCompareScenario, finalizeScheduledScenario } from "../run-suite.js";
 import type { ViewerJob } from "./catalog.js";
 import type { ViewerEvent, ViewerEventEnvelope } from "./events.js";
@@ -127,6 +131,8 @@ export function createLiveViewerRunner(options: LiveViewerRunnerOptions): Viewer
 			signal.addEventListener("abort", onAbort, { once: true });
 			const spawn = options.spawnLiveScenario ?? spawnLiveScenario;
 			let finished = false;
+			let deferredScenarioResult: Extract<ViewerEvent, { type: "scenario_result" }> | undefined;
+			const stagingSessionId = createLiveStagingSessionId();
 			try {
 				const result = await spawn({
 					cliPath: options.cliPath,
@@ -138,7 +144,7 @@ export function createLiveViewerRunner(options: LiveViewerRunnerOptions): Viewer
 					suiteFilter: job.suite,
 					host: job.host,
 					compareArm: job.arm,
-					stagingSessionId: createLiveStagingSessionId(),
+					stagingSessionId,
 					judge: job.arm ? false : options.judge,
 					timeoutMs: options.timeoutMs,
 					noTimeout: options.timeoutMs === 0,
@@ -154,6 +160,10 @@ export function createLiveViewerRunner(options: LiveViewerRunnerOptions): Viewer
 						if (event.type === "cell_finished") {
 							finished = true;
 						}
+						if (job.arm && event.type === "scenario_result") {
+							deferredScenarioResult = event;
+							return;
+						}
 						if (signal.aborted) {
 							return;
 						}
@@ -162,6 +172,18 @@ export function createLiveViewerRunner(options: LiveViewerRunnerOptions): Viewer
 				});
 				if (signal.aborted) {
 					return;
+				}
+				if (job.arm && deferredScenarioResult) {
+					const sidecar = await loadStagingResult(
+						getStagingResultPath(stagingSessionId, job.suite, job.scenario, job.arm),
+					);
+					if (sidecar?.judgeWorkspace) {
+						Object.defineProperty(deferredScenarioResult.result, "judgeWorkspace", {
+							value: sidecar.judgeWorkspace,
+							enumerable: false,
+						});
+					}
+					emit(deferredScenarioResult);
 				}
 				if (!finished && result.exitCode !== 0) {
 					const message = subprocessFailureMessage(result.exitCode, result.stderr);

@@ -173,25 +173,34 @@ describe("viewer run controller", () => {
 
 	it("waits for the shared compare finalizer before publishing the authoritative result", async () => {
 		let finalized = 0;
+		let receivedWorkspaces: string[] = [];
 		const runner: ViewerRunner = {
 			async runJob(job, emit) {
+				const result = {
+					suite: job.suite,
+					scenario: job.scenario,
+					passed: true,
+					failures: [],
+					durationMs: 2,
+				};
+				Object.defineProperty(result, "judgeWorkspace", {
+					value: { name: job.arm ?? "scenario", path: `/tmp/${job.arm}` },
+					enumerable: false,
+				});
 				emit({
 					type: "scenario_result",
 					suite: job.suite,
 					scenario: job.scenario,
 					host: job.host,
 					arm: job.arm,
-					result: {
-						suite: job.suite,
-						scenario: job.scenario,
-						passed: true,
-						failures: [],
-						durationMs: 2,
-					},
+					result,
 				});
 			},
 			async finalizeCompare(input) {
 				finalized += 1;
+				receivedWorkspaces = [...input.armResults.values()]
+					.map((result) => result.judgeWorkspace?.name)
+					.filter((name): name is string => name !== undefined);
 				return {
 					suite: input.suite,
 					scenario: input.scenario.name,
@@ -214,6 +223,7 @@ describe("viewer run controller", () => {
 		const events = await waitForHistory(controller, runId);
 
 		expect(finalized).toBe(1);
+		expect(receivedWorkspaces).toEqual(["a", "b"]);
 		expect(controller.run(runId)?.reports[0]?.results[0]?.judgeVerdicts?.[0]?.id).toBe("shared");
 		expect(
 			events.some((event) => event.type === "scenario_result" && event.arm === undefined),
@@ -276,6 +286,49 @@ describe("viewer run controller", () => {
 		expect(events.some((event) => event.type === "judge_started")).toBe(true);
 		expect(events.some((event) => event.type === "judge_text")).toBe(true);
 		expect(events.at(-1)).toMatchObject({ type: "run_finished", passed: 1, failed: 0 });
+	});
+
+	it("publishes the post-judge cell status", async () => {
+		const runner: ViewerRunner = {
+			async runJob(job, emit) {
+				emit({
+					type: "cell_finished",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					passed: true,
+					durationMs: 2,
+				});
+				emit({
+					type: "scenario_result",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						passed: true,
+						failures: [],
+						durationMs: 2,
+					},
+				});
+			},
+			async finalizeScenario(input) {
+				return {
+					...input.result,
+					passed: false,
+					failures: [{ matcher: "judge", message: "judge unavailable", category: "judge_infra" }],
+				};
+			},
+		};
+		const controller = createViewerRunController({ catalog, runner });
+		const { runId } = controller.start({ suite: "smoke", scenario: "hello" });
+		const events = await waitForHistory(controller, runId);
+		const completions = events.filter((event) => event.type === "cell_finished");
+
+		expect(completions).toHaveLength(2);
+		expect(completions.at(-1)).toMatchObject({ passed: false, failures: [{ matcher: "judge" }] });
+		expect(controller.run(runId)?.reports[0]?.results[0]?.passed).toBe(false);
 	});
 
 	it("starts a scenario judge before unrelated agent jobs finish", async () => {

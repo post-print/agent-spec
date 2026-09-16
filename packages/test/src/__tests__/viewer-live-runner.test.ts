@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
+import {
+	cleanupStagingSession,
+	getLiveStagingSessionRoot,
+	getStagingResultPath,
+	writeStagingResult,
+} from "../record-trace.js";
 import type { ViewerJob } from "../viewer/catalog.js";
 import type { ViewerEvent } from "../viewer/events.js";
 import { createLiveViewerRunner } from "../viewer/live-runner.js";
@@ -75,6 +81,53 @@ describe("live viewer runner", () => {
 		await runner.runJob(job, (event) => events.push(event), abort.signal);
 		expect(events.some((event) => event.type === "error")).toBe(false);
 		expect(events.some((event) => event.type === "cell_finished")).toBe(false);
+	});
+
+	it("attaches an arm judge snapshot from the child sidecar without exposing its path", async () => {
+		const events: ViewerEvent[] = [];
+		let sessionId = "";
+		const runner = createLiveViewerRunner({
+			cwd: "/tmp",
+			suitesDir: "agent-suites",
+			missingAuth: () => undefined,
+			spawnLiveScenario: async (options) => {
+				sessionId = options.stagingSessionId ?? "";
+				options.onViewerEvent?.({
+					type: "scenario_result",
+					suite: job.suite,
+					scenario: job.scenario,
+					host: job.host,
+					arm: "a",
+					result: {
+						suite: job.suite,
+						scenario: job.scenario,
+						passed: true,
+						failures: [],
+						durationMs: 1,
+					},
+				});
+				await writeStagingResult(getStagingResultPath(sessionId, job.suite, job.scenario, "a"), {
+					passed: true,
+					failures: [],
+					durationMs: 1,
+					judgeWorkspace: { name: "a", path: "/tmp/readonly-a" },
+				});
+				return { exitCode: 0, stderr: "" };
+			},
+		});
+		await runner.runJob(
+			{ ...job, arm: "a" },
+			(event) => events.push(event),
+			new AbortController().signal,
+		);
+
+		const result = events.find((event) => event.type === "scenario_result");
+		expect(result?.type).toBe("scenario_result");
+		if (result?.type === "scenario_result") {
+			expect(result.result.judgeWorkspace).toEqual({ name: "a", path: "/tmp/readonly-a" });
+			expect(JSON.stringify(result)).not.toContain("readonly-a");
+		}
+		await cleanupStagingSession(getLiveStagingSessionRoot(sessionId));
 	});
 
 	it("finalizes scheduled compare arms through the shared runner boundary", async () => {

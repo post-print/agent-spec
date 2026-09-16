@@ -128,6 +128,7 @@ export interface LiveScenarioResultSidecar {
 	contextMode?: ContextMode;
 	contextFiles?: ScenarioContextFile[];
 	hostInput?: string;
+	judgeWorkspace?: { name: string; path: string };
 	compare?: {
 		a?: LiveCompareArmSidecar;
 		b?: LiveCompareArmSidecar;

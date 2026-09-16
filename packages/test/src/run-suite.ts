@@ -918,6 +918,15 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 									scenario.rubric,
 									options.cwd,
 									judgeHost,
+									undefined,
+									childSidecar?.judgeWorkspace
+										? [
+												{
+													name: childSidecar.judgeWorkspace.name,
+													path: childSidecar.judgeWorkspace.path,
+												},
+											]
+										: undefined,
 								);
 								failures.push(...judged.failures);
 								scenarioTrace = judged.trace;
@@ -935,6 +944,10 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 							}
 						}
 					}
+				}
+
+				if (childSidecar?.judgeWorkspace) {
+					await rm(dirname(childSidecar.judgeWorkspace.path), { recursive: true, force: true });
 				}
 
 				const durationMs = Math.round(performance.now() - started);
@@ -1674,6 +1687,9 @@ async function runAgentTestOnce(
 					contextMode,
 					contextFiles,
 					hostInput,
+					judgeWorkspace: judgeWorkspace
+						? { name: runOptions?.compareArm ?? "scenario", path: judgeWorkspace.path }
+						: undefined,
 				},
 			);
 		}
