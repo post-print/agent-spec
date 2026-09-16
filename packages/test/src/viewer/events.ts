@@ -57,7 +57,15 @@ export interface ViewerBootstrap {
 
 export type ViewerEvent =
 	| { type: "run_started"; runId: string }
-	| { type: "run_finished"; runId: string; passed: number; failed: number; skipped: number }
+	| {
+			type: "run_finished";
+			runId: string;
+			status?: "cancelled" | "completed";
+			passed: number;
+			failed: number;
+			skipped: number;
+	  }
+	| ({ type: "scenario_finalizing" } & ViewerEventEnvelope)
 	| ({ type: "cell_started" } & ViewerEventEnvelope)
 	| ({ type: "status"; text: string } & ViewerEventEnvelope)
 	| ({ type: "prompt"; text: string } & ViewerEventEnvelope)
@@ -95,6 +103,7 @@ const EVENT_TYPES = new Set<ViewerEvent["type"]>([
 	"run_started",
 	"run_finished",
 	"cell_started",
+	"scenario_finalizing",
 	"status",
 	"prompt",
 	"context",

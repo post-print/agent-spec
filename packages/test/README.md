@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: the direct-agent test package -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 
 <!-- review-deps: paths=packages/test/src/*.ts,packages/test/src/**/*.ts,packages/test/package.json -->
 
@@ -67,7 +67,7 @@ node packages/test/dist/cli.js --check --suites-dir agent-suites
 
 ## Viewer e2e
 
-Playwright drives the suite viewer and the HTML report preview. The viewer shows run totals at the top. Each compare arm has a tab that swaps the visible chat.
+Playwright drives the suite viewer and the HTML report preview. The viewer shows completed tests and completed arms separately. Completed arms remain provisional until their comparison is finalized; each ready comparison finalizes within the worker limit while unrelated agents continue. Navigator, selected-test header, and host tabs share the same status, and reloading an active run restores its event stream. Cancellation suppresses unfinished verdicts. Each compare arm has a tab that swaps the visible chat.
 
 ```bash
 bunx playwright install chromium

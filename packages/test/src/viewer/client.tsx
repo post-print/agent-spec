@@ -26,7 +26,17 @@ import type {
 } from "./events.js";
 import { TabList } from "./tabs.js";
 
-type Status = "idle" | "running" | "cancelling" | "cancelled" | "passed" | "failed" | "skipped";
+type Status =
+	| "queued"
+	| "judging"
+	| "awaiting comparison"
+	| "idle"
+	| "running"
+	| "cancelling"
+	| "cancelled"
+	| "passed"
+	| "failed"
+	| "skipped";
 
 type LiveItem =
 	| { kind: "message"; role: "user" | "assistant" | "system"; text: string; streaming?: boolean }
@@ -37,6 +47,7 @@ interface LiveCell {
 	statuses: string[];
 	items: LiveItem[];
 	result?: ScenarioResult;
+	provisional?: boolean;
 	durationMs?: number;
 	tokens?: number;
 	judge?: {
@@ -188,31 +199,52 @@ function scenarioStatus(
 	if (scenario.skip) return "skipped";
 	if (!run) return "idle";
 
-	const requestedHosts = run.request.hosts?.length ? run.request.hosts : suite.hosts;
-	const hosts = requestedHosts.filter((host) => !scenario.host || scenario.host === host);
-	const statuses = hosts.flatMap((host): Status[] => {
-		const result = resultFor(run, suite.name, scenario.name, host);
-		if (result) return [statusOfResult(result)];
-
-		const direct = live[resultCellKey(suite.name, scenario.name, host)];
-		if (direct && direct.status !== "idle") return [direct.status];
-
-		const armStatuses =
-			scenario.compare
-				?.map((arm) => live[cellKey(suite.name, scenario.name, host, arm.id)]?.status)
-				.filter((status): status is Status => Boolean(status && status !== "idle")) ?? [];
-		// A comparison is still running until its combined result arrives, even when
-		// every arm has finished and the comparison judge is finalizing the verdict.
-		return armStatuses.length ? ["running"] : [];
-	});
-
-	if (statuses.some((status) => status === "running" || status === "cancelling")) {
-		return "running";
+	const hosts = run.request.hosts?.length ? run.request.hosts : suite.hosts;
+	const statuses = hosts.map((host) => hostScenarioStatus(run, live, suite, scenario, host));
+	for (const status of [
+		"cancelling",
+		"running",
+		"judging",
+		"queued",
+		"cancelled",
+		"failed",
+		"passed",
+		"skipped",
+	] as Status[]) {
+		if (statuses.includes(status)) return status;
 	}
-	if (statuses.includes("failed")) return "failed";
-	if (statuses.includes("passed")) return "passed";
-	if (statuses.length > 0 && statuses.every((status) => status === "skipped")) return "skipped";
 	return "idle";
+}
+
+function hostScenarioStatus(
+	run: ViewerRunRecord | undefined,
+	live: Record<string, LiveCell>,
+	suite: ViewerCatalogSuite,
+	scenario: ViewerCatalogScenario,
+	host: string,
+): Status {
+	if (scenario.skip || (scenario.host && scenario.host !== host)) return "skipped";
+	if (
+		!run ||
+		(run.request.suite && run.request.suite !== suite.name) ||
+		(run.request.scenario && run.request.scenario !== scenario.name) ||
+		(run.request.hosts?.length && !run.request.hosts.some((requested) => requested === host))
+	)
+		return "idle";
+	const result =
+		resultFor(run, suite.name, scenario.name, host) ??
+		live[resultCellKey(suite.name, scenario.name, host)]?.result;
+	if (result) return statusOfResult(result);
+	if (run.status === "cancelled" || run.status === "cancelling") return run.status;
+	if (run.status === "completed") return "failed";
+	const direct = live[resultCellKey(suite.name, scenario.name, host)];
+	if (direct?.status === "judging" || direct?.judge) return "judging";
+	if (direct) return "running";
+	const arms = scenario.compare?.map(
+		(arm) => live[cellKey(suite.name, scenario.name, host, arm.id)],
+	);
+	if (arms?.some(Boolean)) return "running";
+	return "queued";
 }
 
 function StatusDot({ status }: { status: Status }) {
@@ -1305,9 +1337,15 @@ function TraceMeta({ result }: { result: ScenarioResult }) {
 }
 
 function LiveCellView({ cell }: { cell: LiveCell }) {
-	if (cell.result) return <ResultCard result={cell.result} />;
+	if (cell.result && !cell.provisional) return <ResultCard result={cell.result} />;
 	return (
 		<article className="live-cell">
+			{cell.status === "awaiting comparison" ? (
+				<p>
+					Agent finished. Awaiting comparison verdict.{" "}
+					{cell.tokens ?? (cell.result ? totalTokens(cell.result) : undefined) ?? 0} tokens.
+				</p>
+			) : null}
 			<ol className="live-status">
 				{cell.statuses.map((status, index) => (
 					<li key={itemKey("status", status, index)}>{status}</li>
@@ -1511,6 +1549,26 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 		},
 		[],
 	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Restore the immutable bootstrap stream once; new runs connect in start().
+	useEffect(() => {
+		const run = bootstrap.runs.find(
+			(entry) => entry.status === "running" || entry.status === "cancelling",
+		);
+		if (!run || sourcesRef.current[run.id]) return;
+		const suites = bootstrap.catalog.suites
+			.filter((suite) => !run.request.suite || suite.name === run.request.suite)
+			.map((suite) => ({
+				...suite,
+				scenarios: suite.scenarios.filter(
+					(scenario) => !run.request.scenario || scenario.name === run.request.scenario,
+				),
+			}));
+		connect(
+			run.id,
+			runnableCount(suites, run.request.hosts ?? bootstrap.catalog.defaultSelectedHosts),
+		);
+	}, []);
+
 	function selectScenario(key: string) {
 		setSelectedScenario(key);
 		testStageRef.current?.scrollTo({ top: 0 });
@@ -1566,7 +1624,7 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 			return;
 		}
 		if (event.type === "run_finished") {
-			const cancelled = cancelledRunsRef.current.delete(runId);
+			const cancelled = cancelledRunsRef.current.delete(runId) || event.status === "cancelled";
 			setBanner(
 				cancelled
 					? "Run cancelled."
@@ -1577,7 +1635,10 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 			setRuns((current) =>
 				current.map((run) =>
 					run.id === runId
-						? { ...run, status: run.status === "cancelling" ? "cancelled" : "completed" }
+						? {
+								...run,
+								status: event.status ?? (run.status === "cancelling" ? "cancelled" : "completed"),
+							}
 						: run,
 				),
 			);
@@ -1592,6 +1653,24 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 						}
 					: current,
 			);
+			setLiveByRun((all) => ({
+				...all,
+				[runId]: Object.fromEntries(
+					Object.entries(all[runId] ?? {}).map(([key, cell]) => [
+						key,
+						cell.result && !cell.provisional
+							? cell
+							: {
+									...cell,
+									status: cancelled ? "cancelled" : "failed",
+									judge: cell.judge ? { ...cell.judge, status: "completed" } : undefined,
+									items: cell.items.map((item) =>
+										item.kind === "message" ? { ...item, streaming: false } : item,
+									),
+								},
+					]),
+				),
+			}));
 			void refreshRun(runId);
 			sourcesRef.current[runId]?.close();
 			delete sourcesRef.current[runId];
@@ -1599,6 +1678,8 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 		}
 		if (!("suite" in event) || !event.suite || !event.scenario || !event.host) return;
 		const key = cellKey(event.suite, event.scenario, event.host, event.arm);
+		if (event.type === "scenario_finalizing")
+			updateCell(runId, key, (cell) => ({ ...cell, status: "judging" }));
 		if (event.type === "cell_started")
 			updateCell(runId, key, (cell) => ({ ...cell, status: "running", statuses: [], items: [] }));
 		if (event.type === "status" && event.text !== "Starting host agent.")
@@ -1663,11 +1744,22 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 				},
 			}));
 		if (event.type === "scenario_result")
-			updateCell(runId, key, (cell) => ({ ...cell, result: event.result }));
+			updateCell(runId, key, (cell) => ({
+				...cell,
+				result: event.result,
+				provisional: Boolean(event.arm),
+				status: event.arm ? "awaiting comparison" : statusOfResult(event.result),
+			}));
 		if (event.type === "cell_finished")
 			updateCell(runId, key, (cell) => ({
 				...cell,
-				status: event.skipped ? "skipped" : event.passed ? "passed" : "failed",
+				status: event.arm
+					? "awaiting comparison"
+					: event.skipped
+						? "skipped"
+						: event.passed
+							? "passed"
+							: "failed",
 				durationMs: event.durationMs,
 				tokens: event.metrics?.tokens,
 				items: cell.items.map((item) =>
@@ -1686,21 +1778,26 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 		setProgress({ done: 0, total, passed: 0, failed: 0, skipped: 0 });
 		const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/events`);
 		sourcesRef.current[runId] = source;
+		const results = new Map<string, ScenarioResult>();
+		source.onopen = () => {
+			results.clear();
+			setLiveByRun((all) => ({ ...all, [runId]: {} }));
+			setProgress({ done: 0, total, passed: 0, failed: 0, skipped: 0 });
+		};
 		source.onmessage = (message) => {
 			const event = JSON.parse(message.data) as ViewerEvent;
 			handleEvent(runId, event);
-			if (event.type === "scenario_result" && !event.arm)
-				setProgress((current) =>
-					current
-						? {
-								...current,
-								done: current.done + 1,
-								passed: current.passed + (event.result.passed && !event.result.skipped ? 1 : 0),
-								failed: current.failed + (!event.result.passed && !event.result.skipped ? 1 : 0),
-								skipped: current.skipped + (event.result.skipped ? 1 : 0),
-							}
-						: current,
-				);
+			if (event.type === "scenario_result" && !event.arm) {
+				results.set(resultCellKey(event.suite, event.scenario, event.host), event.result);
+				const values = [...results.values()];
+				setProgress({
+					total,
+					done: values.length,
+					passed: values.filter((r) => r.passed && !r.skipped).length,
+					failed: values.filter((r) => !r.passed && !r.skipped).length,
+					skipped: values.filter((r) => r.skipped).length,
+				});
+			}
 		};
 	}
 
@@ -1746,7 +1843,7 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 			[activeRun.id]: Object.fromEntries(
 				Object.entries(all[activeRun.id] ?? {}).map(([key, cell]) => [
 					key,
-					{ ...cell, status: "cancelled" },
+					{ ...cell, status: cell.result ? cell.status : "cancelling" },
 				]),
 			),
 		}));
@@ -1889,6 +1986,14 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 					<div className="run-progress-head">
 						<p className="run-progress-title">
 							{progress.done} of {progress.total} tests finished
+						</p>
+						<p className="run-arm-progress">
+							{
+								Object.entries(liveByRun[selectedRunId] ?? {}).filter(
+									([key, cell]) => !key.endsWith("::_") && cell.result,
+								).length
+							}{" "}
+							arms finished
 						</p>
 					</div>
 					<div
@@ -2095,14 +2200,7 @@ function ScenarioCard({
 		scenario.compare
 			?.map((arm) => live[cellKey(suite.name, scenario.name, selectedHost, arm.id)])
 			.filter(Boolean) ?? [];
-	const status: Status =
-		scenario.skip || (scenario.host && scenario.host !== selectedHost)
-			? "skipped"
-			: result
-				? statusOfResult(result)
-				: (directLive?.status ??
-					armLive.find((cell) => cell?.status === "running")?.status ??
-					"idle");
+	const status = hostScenarioStatus(selectedRun, live, suite, scenario, selectedHost);
 	const ownsActiveRun = Boolean(
 		activeRun?.request.suite === suite.name &&
 			activeRun.request.scenario === scenario.name &&
@@ -2142,16 +2240,7 @@ function ScenarioCard({
 					<div className="host-tablist" role="tablist">
 						{suite.hosts.map((host) => {
 							const skipped = Boolean(scenario.skip || (scenario.host && scenario.host !== host));
-							const hostResult = resultFor(selectedRun, suite.name, scenario.name, host);
-							const hostLive = live[resultCellKey(suite.name, scenario.name, host)];
-							const hostArmLive = scenario.compare
-								?.map((arm) => live[cellKey(suite.name, scenario.name, host, arm.id)])
-								.find((cell) => cell?.status && cell.status !== "idle");
-							const hostStatus: Status = skipped
-								? "skipped"
-								: hostResult
-									? statusOfResult(hostResult)
-									: (hostLive?.status ?? hostArmLive?.status ?? "idle");
+							const hostStatus = hostScenarioStatus(selectedRun, live, suite, scenario, host);
 							const visible = selectedHosts.length === 0 || selectedHosts.includes(host) || !canRun;
 							return (
 								<button
@@ -2212,7 +2301,9 @@ function ScenarioCard({
 			>
 				<div className="host-panels">
 					{suite.hosts.map((host) => {
-						const hostResult = resultFor(selectedRun, suite.name, scenario.name, host);
+						const hostResult =
+							resultFor(selectedRun, suite.name, scenario.name, host) ??
+							live[resultCellKey(suite.name, scenario.name, host)]?.result;
 						const hostLive = live[resultCellKey(suite.name, scenario.name, host)];
 						const hostArms =
 							scenario.compare
@@ -2231,10 +2322,15 @@ function ScenarioCard({
 							>
 								{hostResult ? (
 									<ResultCard result={hostResult} />
+								) : hostArms.length ? (
+									<>
+										<p>
+											{statusLabel(hostScenarioStatus(selectedRun, live, suite, scenario, host))}
+										</p>
+										<LiveCompare arms={hostArms} />
+									</>
 								) : hostLive ? (
 									<LiveCellView cell={hostLive} />
-								) : hostArms.length ? (
-									<LiveCompare arms={hostArms} />
 								) : (
 									<p className="host-empty">No run yet.</p>
 								)}

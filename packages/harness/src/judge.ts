@@ -611,7 +611,7 @@ function buildJudgePrompt(
 	workspaces?: readonly JudgeWorkspaceContext[],
 ): string {
 	return [
-		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools. Do not edit files, install packages, run commands, use network access, or inspect any other path.",
+		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools or read-only shell commands such as cat, sed, rg, ls, and stat. Shell commands may only inspect those evidence paths. Do not execute project code, edit files, install packages, use network access, or inspect any other path.",
 		"Decide whether the transcript and workspace evidence satisfy the criterion.",
 		"The transcript includes assistant text, tool names, tool args, and tool results.",
 		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
@@ -646,7 +646,7 @@ export function buildCompareJudgePrompt(options: {
 	workspaces?: readonly JudgeWorkspaceContext[];
 }): string {
 	return [
-		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools. Do not edit files, install packages, run commands, use network access, or inspect any other path.",
+		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools or read-only shell commands such as cat, sed, rg, ls, and stat. Shell commands may only inspect those evidence paths. Do not execute project code, edit files, install packages, use network access, or inspect any other path.",
 		"Decide whether the transcripts and workspace evidence satisfy the criterion.",
 		"Arm A and arm B are two agent runs of the same test.",
 		"The transcripts include assistant text, tool names, tool args, and tool results.",
@@ -675,7 +675,7 @@ export function buildMultiArmCompareJudgePrompt(options: {
 }): string {
 	const armBlocks = options.arms.flatMap((arm) => [`Arm ${arm.label}:`, arm.transcript, ""]);
 	return [
-		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools. Do not edit files, install packages, run commands, use network access, or inspect any other path.",
+		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools or read-only shell commands such as cat, sed, rg, ls, and stat. Shell commands may only inspect those evidence paths. Do not execute project code, edit files, install packages, use network access, or inspect any other path.",
 		"Decide whether the transcripts and workspace evidence satisfy the criterion.",
 		"Each arm is one agent run of the same test.",
 		"Do not pick a single winner unless the criterion asks for one.",
