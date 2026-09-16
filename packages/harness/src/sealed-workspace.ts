@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -15,6 +15,52 @@ export const SEALED_WORKSPACE_DIR_PREFIX = "agent-harness-seal-";
 export interface SealedWorkspace {
 	path: string;
 	cleanup: () => Promise<void>;
+}
+
+export interface ReadOnlyWorkspaceSnapshot {
+	path: string;
+	cleanup: () => Promise<void>;
+}
+
+async function makeTreeReadOnly(root: string): Promise<void> {
+	for (const entry of await readdir(root, { withFileTypes: true })) {
+		const path = join(root, entry.name);
+		if (entry.isDirectory()) await makeTreeReadOnly(path);
+		await chmod(path, entry.isDirectory() ? 0o555 : 0o444);
+	}
+	await chmod(root, 0o555);
+}
+
+async function makeTreeWritable(root: string): Promise<void> {
+	for (const entry of await readdir(root, { withFileTypes: true })) {
+		const path = join(root, entry.name);
+		if (entry.isDirectory()) await makeTreeWritable(path);
+		await chmod(path, entry.isDirectory() ? 0o755 : 0o644);
+	}
+	await chmod(root, 0o755);
+}
+
+/** Snapshot an arm for judge inspection; the snapshot is immutable at the OS boundary. */
+export async function createReadOnlyWorkspaceSnapshot(
+	source: string,
+	name: string,
+): Promise<ReadOnlyWorkspaceSnapshot> {
+	const root = await mkdtemp(join(tmpdir(), "agent-harness-judge-"));
+	const path = join(root, name);
+	try {
+		await cp(source, path, { recursive: true, filter: skipNestedGit });
+		await makeTreeReadOnly(path);
+	} catch (error) {
+		await rm(root, { recursive: true, force: true });
+		throw error;
+	}
+	return {
+		path,
+		cleanup: async () => {
+			await makeTreeWritable(root).catch(() => undefined);
+			await rm(root, { recursive: true, force: true });
+		},
+	};
 }
 
 export interface CreateSealedWorkspaceOptions {

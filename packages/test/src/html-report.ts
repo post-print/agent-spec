@@ -362,6 +362,9 @@ function renderJudgeVerdicts(result: ScenarioResult): string {
 			const evidence = verdict.evidence?.length
 				? `<ul class="judge-evidence">${verdict.evidence.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
 				: "";
+			const workspaceEvidence = verdict.workspaceEvidence?.length
+				? `<p class="judge-workspaces">Workspace evidence: ${verdict.workspaceEvidence.map(escapeHtml).join(", ")}</p>`
+				: "";
 			const exchange =
 				verdict.prompt || verdict.response
 					? `<details class="judge-exchange"><summary>Judge conversation</summary><div class="judge-chat">
@@ -373,6 +376,7 @@ ${verdict.response ? `<div class="judge-turn judge-response"><span>Response</spa
 <article class="verdict verdict-${badge}">
   <p class="question"><span class="verdict-icon">${icon}</span>${escapeHtml(verdict.question)}</p>
   <p class="rationale">${escapeHtml(verdict.rationale)}</p>
+  ${workspaceEvidence}
 	${evidence}
 	${exchange}
 </article>`;

@@ -205,11 +205,13 @@ export {
 	withRunTimeout,
 } from "./run-guards.js";
 export {
+	createReadOnlyWorkspaceSnapshot,
 	createSealedWorkspace,
 	defaultSealedOverlayPaths,
 	isCallerHeadWorkspace,
 	type ParsedScenarioWorkspace,
 	parseScenarioWorkspace,
+	type ReadOnlyWorkspaceSnapshot,
 	SEALED_WORKSPACE_DIR_PREFIX,
 	type SealedWorkspace,
 	toolPathsOutsideWorkspace,
@@ -241,6 +243,7 @@ export {
 	isAgentHost,
 	isBuiltinAgentHost,
 	isHostSlug,
+	type JudgeWorkspaceContext,
 	type LiveAgentEvent,
 	type LoadedContext,
 	type McpServerConfig,

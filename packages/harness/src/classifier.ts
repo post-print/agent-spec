@@ -8,11 +8,12 @@ import {
 } from "./cursor-run.js";
 import { getRegisteredAdapter } from "./host-registry.js";
 import { OPENAI_AUTH_MODE_ENV, resolveOpenaiAuthMode, runOpenaiClassifier } from "./openai-run.js";
-import { type AgentHost, isBuiltinAgentHost } from "./types.js";
+import { type AgentHost, isBuiltinAgentHost, type JudgeWorkspaceContext } from "./types.js";
 
 export interface ClassifierOptions {
 	host: AgentHost;
 	cwd: string;
+	workspaces?: readonly JudgeWorkspaceContext[];
 	prompt: string;
 	apiKey?: string;
 	onText?: (text: string) => void;
@@ -76,6 +77,7 @@ export async function runClassifier(options: ClassifierOptions): Promise<JudgeCl
 				cwd: options.cwd,
 				prompt: options.prompt,
 				apiKey: options.apiKey,
+				workspaces: options.workspaces,
 			});
 		}
 		if (adapter?.classifierHost) {
@@ -91,6 +93,7 @@ export async function runClassifier(options: ClassifierOptions): Promise<JudgeCl
 				cwd: options.cwd,
 				prompt: options.prompt,
 				apiKey: options.apiKey,
+				workspaces: options.workspaces,
 				onText: options.onText,
 			});
 		case "openai":
@@ -98,6 +101,7 @@ export async function runClassifier(options: ClassifierOptions): Promise<JudgeCl
 				cwd: options.cwd,
 				prompt: options.prompt,
 				apiKey: options.apiKey,
+				workspaces: options.workspaces,
 				onText: options.onText,
 			});
 		default:
@@ -105,6 +109,7 @@ export async function runClassifier(options: ClassifierOptions): Promise<JudgeCl
 				cwd: options.cwd,
 				prompt: options.prompt,
 				apiKey: options.apiKey,
+				workspaces: options.workspaces,
 				onText: options.onText,
 			});
 	}

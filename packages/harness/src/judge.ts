@@ -1,7 +1,7 @@
 import { missingClassifierAuth, runClassifier } from "./classifier.js";
 import type { JudgeClassifierResult } from "./cursor-run.js";
 import { isTransientInfraError, resolveRetryMaxAttempts, withRetry } from "./retry.js";
-import type { AgentHost, AgentTrace, AgentUsage } from "./types.js";
+import type { AgentHost, AgentTrace, AgentUsage, JudgeWorkspaceContext } from "./types.js";
 import { sumUsageParts } from "./usage-breakdown.js";
 
 // Optional info-string (`json`, `js`, `typescript`, …) on the opening fence line.
@@ -38,10 +38,14 @@ export interface JudgeVerdict {
 	usage?: AgentUsage;
 	transcriptChars?: number;
 	promptChars?: number;
+	/** Named workspaces made available as read-only judge evidence. */
+	workspaceEvidence?: string[];
 }
 
 export interface JudgeTraceOptions {
 	cwd: string;
+	/** Named, read-only workspaces available to the classifier. */
+	workspaces?: readonly JudgeWorkspaceContext[];
 	apiKey?: string;
 	/** Host that scores the transcript. Defaults to cursor. */
 	host?: AgentHost;
@@ -51,6 +55,7 @@ export interface JudgeTraceOptions {
 		cwd: string;
 		prompt: string;
 		apiKey?: string;
+		workspaces?: readonly JudgeWorkspaceContext[];
 		onText?: (text: string) => void;
 	}) => Promise<JudgeClassifierResult>;
 	/** Cumulative classifier text for the current criterion. */
@@ -600,10 +605,14 @@ export function parseJudgeResponse(text: string): ParsedJudgeJson {
 	return parseJudgeLegacyResponse(stripMarkdownFencesForLegacy(text));
 }
 
-function buildJudgePrompt(transcript: string, question: string): string {
+function buildJudgePrompt(
+	transcript: string,
+	question: string,
+	workspaces?: readonly JudgeWorkspaceContext[],
+): string {
 	return [
-		"You are a test harness classifier. Do not use tools. Do not edit files.",
-		"Decide whether the transcript satisfies the criterion using only transcript evidence.",
+		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools. Do not edit files, install packages, run commands, use network access, or inspect any other path.",
+		"Decide whether the transcript and workspace evidence satisfy the criterion.",
 		"The transcript includes assistant text, tool names, tool args, and tool results.",
 		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
 		"Reply with one JSON object only — no markdown fences, no text before or after:",
@@ -611,6 +620,7 @@ function buildJudgePrompt(transcript: string, question: string): string {
 		"Evidence must contain one or more exact, contiguous excerpts copied from the transcript in double quotes.",
 		"Do not paraphrase, summarize, infer, or invent evidence. If no exact quote supports the verdict, return an empty evidence array.",
 		'Use verdict "yes" only when evidence clearly supports the criterion.',
+		...formatJudgeWorkspaces(workspaces),
 		"",
 		"Transcript:",
 		transcript,
@@ -619,16 +629,25 @@ function buildJudgePrompt(transcript: string, question: string): string {
 	].join("\n");
 }
 
+function formatJudgeWorkspaces(workspaces?: readonly JudgeWorkspaceContext[]): string[] {
+	if (!workspaces?.length) return ["Workspace evidence: none was provided."];
+	return [
+		"Read-only workspace evidence (use only these paths; each path is immutable):",
+		...workspaces.map((workspace) => `- ${workspace.name}: ${workspace.path}`),
+	];
+}
+
 export function buildCompareJudgePrompt(options: {
 	aLabel: string;
 	aTranscript: string;
 	bLabel: string;
 	bTranscript: string;
 	question: string;
+	workspaces?: readonly JudgeWorkspaceContext[];
 }): string {
 	return [
-		"You are a test harness classifier. Do not use tools. Do not edit files.",
-		"Decide whether the two transcripts satisfy the criterion using only transcript evidence.",
+		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools. Do not edit files, install packages, run commands, use network access, or inspect any other path.",
+		"Decide whether the transcripts and workspace evidence satisfy the criterion.",
 		"Arm A and arm B are two agent runs of the same test.",
 		"The transcripts include assistant text, tool names, tool args, and tool results.",
 		"A tool result is an outcome. Use it as evidence when the criterion asks about one.",
@@ -637,6 +656,7 @@ export function buildCompareJudgePrompt(options: {
 		"Evidence must contain one or more exact, contiguous excerpts copied from a transcript in double quotes.",
 		"Do not paraphrase, summarize, infer, or invent evidence. If no exact quote supports the verdict, return an empty evidence array.",
 		'Use verdict "yes" only when evidence clearly supports the criterion.',
+		...formatJudgeWorkspaces(options.workspaces),
 		"",
 		`Arm A (${options.aLabel}):`,
 		options.aTranscript,
@@ -651,11 +671,12 @@ export function buildCompareJudgePrompt(options: {
 export function buildMultiArmCompareJudgePrompt(options: {
 	arms: Array<{ label: string; transcript: string }>;
 	question: string;
+	workspaces?: readonly JudgeWorkspaceContext[];
 }): string {
 	const armBlocks = options.arms.flatMap((arm) => [`Arm ${arm.label}:`, arm.transcript, ""]);
 	return [
-		"You are a test harness classifier. Do not use tools. Do not edit files.",
-		"Decide whether the transcripts satisfy the criterion using only transcript evidence.",
+		"You are a test harness classifier. You may inspect the explicitly listed read-only workspace evidence with file-read tools. Do not edit files, install packages, run commands, use network access, or inspect any other path.",
+		"Decide whether the transcripts and workspace evidence satisfy the criterion.",
 		"Each arm is one agent run of the same test.",
 		"Do not pick a single winner unless the criterion asks for one.",
 		"The transcripts include assistant text, tool names, tool args, and tool results.",
@@ -665,6 +686,7 @@ export function buildMultiArmCompareJudgePrompt(options: {
 		"Evidence must contain one or more exact, contiguous excerpts copied from a transcript in double quotes.",
 		"Do not paraphrase, summarize, infer, or invent evidence. If no exact quote supports the verdict, return an empty evidence array.",
 		'Use verdict "yes" only when evidence clearly supports the criterion.',
+		...formatJudgeWorkspaces(options.workspaces),
 		"",
 		...armBlocks,
 		`Criterion: ${options.question}`,
@@ -714,9 +736,10 @@ async function runJudgePromptOnce(
 	const classify = options.classify ?? runClassifier;
 	const result = await classify({
 		host,
-		cwd: options.cwd,
+		cwd: options.workspaces?.[0]?.path ?? options.cwd,
 		prompt,
 		apiKey: options.apiKey,
+		workspaces: options.workspaces,
 		onText: options.onText,
 	});
 	const durationMs = Math.round(performance.now() - started);
@@ -853,9 +876,15 @@ export async function judgeTrace(
 	}
 
 	const transcript = formatTraceForJudge(trace);
-	return judgeCriteria(criteria, (question) => buildJudgePrompt(transcript, question), options, {
-		transcriptChars: transcript.length,
-	});
+	return judgeCriteria(
+		criteria,
+		(question) => buildJudgePrompt(transcript, question, options.workspaces),
+		options,
+		{
+			transcriptChars: transcript.length,
+			workspaceEvidence: options.workspaces?.map((workspace) => workspace.name),
+		},
+	);
 }
 
 export interface CompareJudgePair {
@@ -928,9 +957,13 @@ export async function judgeCompareTraces(
 					bLabel: pair.bLabel,
 					bTranscript,
 					question,
+					workspaces: options.workspaces,
 				}),
 			options,
-			{ transcriptChars: aTranscript.length + bTranscript.length },
+			{
+				transcriptChars: aTranscript.length + bTranscript.length,
+				workspaceEvidence: options.workspaces?.map((workspace) => workspace.name),
+			},
 		);
 	}
 
@@ -940,9 +973,13 @@ export async function judgeCompareTraces(
 	}));
 	return judgeCriteria(
 		criteria,
-		(question) => buildMultiArmCompareJudgePrompt({ arms, question }),
+		(question) =>
+			buildMultiArmCompareJudgePrompt({ arms, question, workspaces: options.workspaces }),
 		options,
-		{ transcriptChars: arms.reduce((sum, arm) => sum + arm.transcript.length, 0) },
+		{
+			transcriptChars: arms.reduce((sum, arm) => sum + arm.transcript.length, 0),
+			workspaceEvidence: options.workspaces?.map((workspace) => workspace.name),
+		},
 	);
 }
 
@@ -950,7 +987,7 @@ async function judgeCriteria(
 	criteria: JudgeCriterion[],
 	buildPrompt: (question: string) => string,
 	options: JudgeTraceOptions,
-	meta: { transcriptChars: number },
+	meta: { transcriptChars: number; workspaceEvidence?: string[] },
 ): Promise<JudgeTraceResult> {
 	const verdicts: JudgeVerdict[] = [];
 
@@ -989,6 +1026,7 @@ async function judgeCriteria(
 			usage: parsed.usage,
 			transcriptChars: meta.transcriptChars,
 			promptChars: prompt.length,
+			workspaceEvidence: meta.workspaceEvidence,
 		};
 		verdicts.push(verdict);
 		options.onEvent?.({ type: "criterion_finished", question: criterion.question, verdict });

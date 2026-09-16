@@ -96,6 +96,12 @@ export interface AgentTrace {
 	raw?: unknown;
 }
 
+/** A workspace the judge may inspect, never modify. */
+export interface JudgeWorkspaceContext {
+	name: string;
+	path: string;
+}
+
 export interface LoadedContext {
 	/** Host discovery only, or a runner-built prompt preamble. Absent means preamble compatibility. */
 	mode?: ContextMode;
@@ -168,6 +174,7 @@ export interface HostAdapter {
 		cwd: string;
 		prompt: string;
 		apiKey?: string;
+		workspaces?: readonly JudgeWorkspaceContext[];
 		onText?: (text: string) => void;
 	}): Promise<{
 		status: string;

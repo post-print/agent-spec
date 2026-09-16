@@ -170,6 +170,8 @@ export interface CompareArmResult {
 	contextFiles?: ScenarioContextFile[];
 	/** Exact initial user input submitted through a builtin host adapter. */
 	hostInput?: string;
+	/** Internal parent-owned judge workspace handoff. */
+	judgeWorkspace?: { name: string; path: string; cleanup: () => Promise<void> };
 }
 
 export interface ScenarioCompareResult {
@@ -294,6 +296,7 @@ export interface JudgeVerdictResult {
 	attempt?: number;
 	transcriptChars?: number;
 	promptChars?: number;
+	workspaceEvidence?: string[];
 	usage?: AgentUsage;
 }
 
@@ -359,6 +362,8 @@ export interface ScenarioResult {
 	story?: ScenarioStory;
 	/** Absolute path to the debug bundle directory when --debug wrote one. */
 	debugBundleDir?: string;
+	/** Internal handoff for parent-owned compare judging; omitted from reports. */
+	judgeWorkspace?: { name: string; path: string; cleanup: () => Promise<void> };
 }
 
 /** Aggregate token usage across scenarios that reported it. */

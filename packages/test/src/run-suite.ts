@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -18,6 +19,7 @@ import {
 	cancelActiveCursorRun,
 	cancelActiveOpenaiRun,
 	captureWorkingTreeStatus,
+	createReadOnlyWorkspaceSnapshot,
 	createSealedWorkspace,
 	defaultSealedOverlayPaths,
 	enrichTrace,
@@ -428,6 +430,7 @@ function toJudgeVerdictResults(
 		durationMs?: number;
 		transcriptChars?: number;
 		promptChars?: number;
+		workspaceEvidence?: string[];
 	}>,
 ): JudgeVerdictResult[] {
 	const source = verdictsFromJudge ?? trace.judgeVerdicts ?? [];
@@ -447,6 +450,7 @@ function toJudgeVerdictResults(
 			durationMs?: number;
 			transcriptChars?: number;
 			promptChars?: number;
+			workspaceEvidence?: string[];
 			usage?: { totalTokens?: number; inputTokens?: number; outputTokens?: number };
 		};
 		return {
@@ -465,6 +469,7 @@ function toJudgeVerdictResults(
 			durationMs: extended.durationMs,
 			transcriptChars: extended.transcriptChars,
 			promptChars: extended.promptChars,
+			workspaceEvidence: extended.workspaceEvidence,
 			usage: extended.usage,
 		};
 	});
@@ -803,7 +808,12 @@ async function runSuiteBody(options: RunSuiteOptions): Promise<SuiteRunReport> {
 				const judgeHost = options.host ?? scenario.host ?? suite.defaults?.host ?? "cursor";
 				if (scenario.compare && options.stagingSessionId) {
 					compareResult = applySidecarCompareDurations(
-						await loadCompareResultFromStaging(options.stagingSessionId, suite.name, scenario),
+						await loadCompareResultFromStaging(
+							options.stagingSessionId,
+							suite.name,
+							scenario,
+							childSidecar,
+						),
 						childSidecar,
 					);
 					scenarioTrace = compareResultArms(compareResult)[0]?.trace ?? scenarioTrace;
@@ -1394,6 +1404,7 @@ async function runAgentTestOnce(
 		logPhase(theme.phase("worktree", theme.phaseDim("disabled (AGENT_TEST_ALLOW_IN_PLACE=1)")));
 	}
 	const runCwd = worktreeHandle?.path ?? (workspaceRel ? resolve(cwd, workspaceRel) : cwd);
+	let judgeWorkspace: Awaited<ReturnType<typeof createReadOnlyWorkspaceSnapshot>> | undefined;
 
 	try {
 		const context = await loadContext({
@@ -1630,15 +1641,25 @@ async function runAgentTestOnce(
 
 		const deferJudgeToParent = isChildProcess();
 		let judgeVerdicts: JudgeVerdictResult[] | undefined;
+		const judgeCriteria = collectJudgeCriteria(scenario.rubric);
+		if (judgeCriteria.length > 0) {
+			judgeWorkspace = await createReadOnlyWorkspaceSnapshot(
+				runCwd,
+				runOptions?.compareArm ?? "scenario",
+			);
+		}
 		if (judge && !deferJudgeToParent) {
-			const criteria = collectJudgeCriteria(scenario.rubric);
-			if (criteria.length > 0) {
-				logPhase(theme.judgePhase(criteria.length), { last: true });
+			if (judgeCriteria.length > 0) {
+				logPhase(theme.judgePhase(judgeCriteria.length), { last: true });
 			}
-			const judged = await runJudgeRubric(trace, scenario.rubric, runCwd, host);
+			const snapshot = judgeWorkspace;
+			if (!snapshot) throw new Error("judge workspace snapshot was not created");
+			const judged = await runJudgeRubric(trace, scenario.rubric, runCwd, host, undefined, [
+				{ name: runOptions?.compareArm ?? "scenario", path: snapshot.path },
+			]);
 			failures.push(...judged.failures);
 			trace = judged.trace;
-			judgeVerdicts = toJudgeVerdictResults(judged.trace, criteria, judged.verdicts);
+			judgeVerdicts = toJudgeVerdictResults(judged.trace, judgeCriteria, judged.verdicts);
 		}
 
 		const durationMs = Math.round(performance.now() - started);
@@ -1667,6 +1688,10 @@ async function runAgentTestOnce(
 			}
 			worktreeHandle = undefined;
 		}
+		if (judgeWorkspace && judge && runOptions?.compareArm === undefined) {
+			await judgeWorkspace.cleanup();
+			judgeWorkspace = undefined;
+		}
 
 		const scenarioResult = finalizeScenarioResult({
 			suite: suiteName,
@@ -1680,6 +1705,16 @@ async function runAgentTestOnce(
 			trace,
 			agentUsage: session.usage ?? trace?.usage,
 		});
+		if (judgeWorkspace) {
+			Object.defineProperty(scenarioResult, "judgeWorkspace", {
+				value: {
+					name: runOptions?.compareArm ?? "scenario",
+					path: judgeWorkspace.path,
+					cleanup: judgeWorkspace.cleanup,
+				},
+				enumerable: false,
+			});
+		}
 		const { passed, story } = scenarioResult;
 		const armMetrics = {
 			id: runOptions?.compareArm ?? "cell",
@@ -1761,6 +1796,10 @@ async function runAgentTestOnce(
 
 		return scenarioResult;
 	} finally {
+		if (judgeWorkspace && judge && runOptions?.compareArm === undefined) {
+			await judgeWorkspace.cleanup().catch(() => undefined);
+			judgeWorkspace = undefined;
+		}
 		if (useWorktree && callerTreeBefore !== undefined) {
 			const callerTreeAfter = await captureWorkingTreeStatus(cwd).catch(() => "");
 			const ignoreRoots = resolveHarnessArtifactIgnoreRoots(cwd, getLiveStagingRootOverride());
@@ -1897,6 +1936,9 @@ async function runCompareAgentTestOnce(
 				contextMode: arm.result.contextMode,
 				contextFiles: arm.result.contextFiles,
 				hostInput: arm.result.hostInput,
+				judgeWorkspace: arm.result.judgeWorkspace
+					? { name: arm.result.judgeWorkspace.name, path: arm.result.judgeWorkspace.path }
+					: undefined,
 			};
 		}
 		await writeStagingResult(getStagingResultPath(stagingSessionId, suiteName, scenario.name), {
@@ -1977,6 +2019,7 @@ async function finalizeCompareArmRuns(options: {
 			contextMode: arm.result.contextMode,
 			contextFiles: arm.result.contextFiles,
 			hostInput: arm.result.hostInput,
+			judgeWorkspace: arm.result.judgeWorkspace,
 			durationMs: arm.result.durationMs,
 			passed: !arm.result.failures.some((failure) => failure.category === "rubric_miss"),
 			failures: arm.result.failures,
@@ -1994,6 +2037,10 @@ async function finalizeCompareArmRuns(options: {
 				{ judge: options.scenario.compare.judgeMetrics },
 				options.cwd,
 				options.host,
+				undefined,
+				arm.judgeWorkspace
+					? [{ name: arm.judgeWorkspace.name, path: arm.judgeWorkspace.path }]
+					: undefined,
 			);
 			arm.trace = judged.trace;
 			arm.judgeVerdicts = toJudgeVerdictResults(
@@ -2035,6 +2082,12 @@ async function finalizeCompareArmRuns(options: {
 				criteria,
 				judged.verdicts,
 			);
+		}
+	}
+	for (const arm of compareResult.arms) {
+		if (arm.judgeWorkspace) {
+			await arm.judgeWorkspace.cleanup().catch(() => undefined);
+			delete arm.judgeWorkspace;
 		}
 	}
 	return finalizeScenarioResult({
@@ -2132,6 +2185,9 @@ export async function finalizeScheduledScenario(options: {
 			options.cwd,
 			options.host,
 			options.onJudgeEvent,
+			options.result.judgeWorkspace
+				? [{ name: options.result.judgeWorkspace.name, path: options.result.judgeWorkspace.path }]
+				: undefined,
 		);
 		failures.push(...judged.failures);
 		trace = judged.trace;
@@ -2165,6 +2221,7 @@ async function loadCompareResultFromStaging(
 	stagingSessionId: string,
 	suiteName: string,
 	scenario: AgentScenario,
+	childSidecar?: LiveScenarioResultSidecar,
 ): Promise<ScenarioCompareResult> {
 	const resolved = resolveCompareArms(scenario.compare);
 	const arms = [];
@@ -2178,6 +2235,7 @@ async function loadCompareResultFromStaging(
 		} catch {
 			trace = undefined;
 		}
+		const sidecarWorkspace = childSidecar?.compare?.arms?.[entry.id]?.judgeWorkspace;
 		arms.push({
 			id: entry.id,
 			label: compareArmLabel(entry.arm, entry.id),
@@ -2186,6 +2244,18 @@ async function loadCompareResultFromStaging(
 			trace,
 			passed: trace ? assertRubric(trace, armScenario.rubric).length === 0 : undefined,
 			failures: trace ? assertRubric(trace, armScenario.rubric) : undefined,
+			judgeWorkspace: sidecarWorkspace
+				? {
+						name: sidecarWorkspace.name,
+						path: sidecarWorkspace.path,
+						cleanup: async () => {
+							await rm(dirname(sidecarWorkspace.path), {
+								recursive: true,
+								force: true,
+							});
+						},
+					}
+				: undefined,
 		});
 	}
 	return buildCompareResult(arms, scenario.compare?.gates);
@@ -2216,12 +2286,16 @@ async function runCompareJudgeRubric(
 					b: arms[1].trace,
 				}
 			: undefined;
+	const workspaces = arms
+		.map((arm) => arm.judgeWorkspace)
+		.filter((workspace): workspace is NonNullable<typeof workspace> => workspace !== undefined)
+		.map(({ name, path }) => ({ name, path }));
 	const result = await judgeCompareTraces(
 		pair ?? {
 			arms: arms.map((arm) => ({ label: arm.label, trace: arm.trace })),
 		},
 		criteria,
-		{ cwd: runCwd, host },
+		{ cwd: runCwd, host, workspaces },
 	);
 	if (result.skipped) {
 		return {
@@ -2252,6 +2326,7 @@ async function runJudgeRubric(
 	runCwd: string,
 	host: AgentHost,
 	onJudgeEvent?: (event: JudgeProgressEvent) => void,
+	workspaces?: readonly { name: string; path: string }[],
 ): Promise<{
 	trace: AgentTrace;
 	failures: AssertionFailure[];
@@ -2262,7 +2337,12 @@ async function runJudgeRubric(
 		return { trace, failures: [], verdicts: [] };
 	}
 
-	const result = await judgeTrace(trace, criteria, { cwd: runCwd, host, onEvent: onJudgeEvent });
+	const result = await judgeTrace(trace, criteria, {
+		cwd: runCwd,
+		host,
+		workspaces,
+		onEvent: onJudgeEvent,
+	});
 	if (result.skipped) {
 		return {
 			trace,

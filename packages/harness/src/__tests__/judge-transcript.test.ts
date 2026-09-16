@@ -85,6 +85,33 @@ describe("judgeTrace host auth", () => {
 		expect(result.verdicts[0]?.evidence).toEqual(["mcp echo ok"]);
 	});
 
+	it("passes named read-only workspace evidence to a single-arm classifier", async () => {
+		let received:
+			| { cwd: string; workspaces?: readonly { name: string; path: string }[] }
+			| undefined;
+		const { judgeTrace } = await import("../judge.js");
+		const result = await judgeTrace(
+			{ messages: [], toolCalls: [], shellCommands: [], artifacts: {} },
+			[{ id: "files", question: "Is the initialized file present?" }],
+			{
+				cwd: "/tmp/original",
+				host: "openai",
+				apiKey: "test-key",
+				workspaces: [{ name: "consumer", path: "/tmp/read-only-consumer" }],
+				classify: async (options) => {
+					received = options;
+					return {
+						status: "completed",
+						text: '{"verdict":"yes","evidence":[],"rationale":"file exists"}',
+					};
+				},
+			},
+		);
+		expect(received?.cwd).toBe("/tmp/read-only-consumer");
+		expect(received?.workspaces).toEqual([{ name: "consumer", path: "/tmp/read-only-consumer" }]);
+		expect(result.verdicts[0]?.workspaceEvidence).toEqual(["consumer"]);
+	});
+
 	it("scores with an injected classifier on the OpenAI host", async () => {
 		const prior = process.env.CURSOR_API_KEY;
 		delete process.env.CURSOR_API_KEY;
@@ -183,6 +210,10 @@ describe("judgeCompareTraces", () => {
 				cwd: process.cwd(),
 				host: "openai",
 				apiKey: "openai-test-key",
+				workspaces: [
+					{ name: "skeleton-clean", path: "/tmp/judge/arm-1" },
+					{ name: "no-skill-clean", path: "/tmp/judge/arm-2" },
+				],
 				classify: async (options) => {
 					prompt = options.prompt;
 					return {
@@ -198,6 +229,8 @@ describe("judgeCompareTraces", () => {
 		expect(prompt).toContain("Arm B (beta)");
 		expect(prompt).toContain("alpha-compare-a7c1");
 		expect(prompt).toContain("beta-compare-b3e9");
+		expect(prompt).toContain("skeleton-clean: /tmp/judge/arm-1");
+		expect(prompt).toContain("no-skill-clean: /tmp/judge/arm-2");
 		expect(prompt).toContain("Did the two arms reply with different words?");
 	});
 

@@ -19,7 +19,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, AgentUsage, LiveAgentEvent } from "./types.js";
+import type { AgentTrace, AgentUsage, JudgeWorkspaceContext, LiveAgentEvent } from "./types.js";
 import { cursorSettingSources, withCursorUserHome } from "./user-skills.js";
 
 /** Minimal Cursor SDK run surface for cancel + wait cleanup. */
@@ -136,6 +136,7 @@ export interface CursorRunOptions {
 export interface JudgeClassifierOptions {
 	cwd: string;
 	prompt: string;
+	workspaces?: readonly JudgeWorkspaceContext[];
 	apiKey?: string;
 	authMode?: CursorAuthMode;
 	model?: { id: string; params?: Array<{ id: string; value: string }> };

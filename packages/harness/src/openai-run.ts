@@ -24,7 +24,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, LiveAgentEvent } from "./types.js";
+import type { AgentTrace, JudgeWorkspaceContext, LiveAgentEvent } from "./types.js";
 import { openaiUserConfigArgs } from "./user-skills.js";
 
 export type OpenaiAuthMode = HostAuthMode;
@@ -517,6 +517,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 export async function runOpenaiClassifier(options: {
 	cwd: string;
 	prompt: string;
+	workspaces?: readonly JudgeWorkspaceContext[];
 	apiKey?: string;
 	bin?: string;
 	onText?: (text: string) => void;

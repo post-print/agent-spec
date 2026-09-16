@@ -22,7 +22,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, LiveAgentEvent } from "./types.js";
+import type { AgentTrace, JudgeWorkspaceContext, LiveAgentEvent } from "./types.js";
 import { claudeSessionFlags } from "./user-skills.js";
 
 const DEFAULT_ALLOWED_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,Agent";
@@ -549,6 +549,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 export async function runClaudeClassifier(options: {
 	cwd: string;
 	prompt: string;
+	workspaces?: readonly JudgeWorkspaceContext[];
 	apiKey?: string;
 	bin?: string;
 	onText?: (text: string) => void;

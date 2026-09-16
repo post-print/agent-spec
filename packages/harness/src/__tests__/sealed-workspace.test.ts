@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+	createReadOnlyWorkspaceSnapshot,
 	createSealedWorkspace,
 	defaultSealedOverlayPaths,
 	isCallerHeadWorkspace,
@@ -59,6 +60,19 @@ describe("parseScenarioWorkspace", () => {
 });
 
 describe("createSealedWorkspace", () => {
+	it("creates an immutable snapshot for judge inspection", async () => {
+		const repo = await initRepo();
+		const snapshot = await createReadOnlyWorkspaceSnapshot(repo, "arm-a");
+		try {
+			expect(await readFile(join(snapshot.path, "src/app.ts"), "utf8")).toContain("export const n");
+			await expect(
+				writeFile(join(snapshot.path, "mutation.txt"), "nope", "utf8"),
+			).rejects.toThrow();
+		} finally {
+			await snapshot.cleanup();
+		}
+	});
+
 	it("copies HEAD files and overlays caller context", async () => {
 		const repo = await initRepo();
 		const sealed = await createSealedWorkspace({
