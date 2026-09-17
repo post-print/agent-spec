@@ -98,7 +98,7 @@
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",
 				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:d4f7746c19b234e4cb87b032a064dafe94a30fa3c6ebcdcfb2214d954de38cb2",
 				"agent-suites/tour/agents.ts": "sha256:d06813e2769127e50354ee564aa9920ecae65e5747ee97e5681e78d9c086dabc",
-				"agent-suites/tour/tour.spec.ts": "sha256:0132cc954bbd2eac4b3deb5e42f0537d798e2d3bffd0060ec57fc38ede8bacd4",
+				"agent-suites/tour/tour.spec.ts": "sha256:2b7dda8954d1dc63d58a2aaf4735ea1eb1cad95dde665f4d5b666e7e5cb8f5e2",
 				"package.json": "sha256:af19da3d79dd65a80b301b6e72d7b0fccafda556069579d35deedd3126120145"
 			}
 		},
@@ -110,7 +110,7 @@
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",
 				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:d4f7746c19b234e4cb87b032a064dafe94a30fa3c6ebcdcfb2214d954de38cb2",
 				"agent-suites/tour/agents.ts": "sha256:d06813e2769127e50354ee564aa9920ecae65e5747ee97e5681e78d9c086dabc",
-				"agent-suites/tour/tour.spec.ts": "sha256:0132cc954bbd2eac4b3deb5e42f0537d798e2d3bffd0060ec57fc38ede8bacd4",
+				"agent-suites/tour/tour.spec.ts": "sha256:2b7dda8954d1dc63d58a2aaf4735ea1eb1cad95dde665f4d5b666e7e5cb8f5e2",
 				"agent-test.config.ts": "sha256:0ac97c421ee8e8458946fda57f24f9296e92d68e39bd646df34ad91fc1c1c643",
 				"agent-test.matrix.config.ts": "sha256:82ad8e78b95a1afabfb18850bd71345ee6b9aa65a2d38e0967906d0245300864",
 				"packages/test/src/sdk/cli.ts": "sha256:7661e79aa423799c023f618bedc645ca681a0f34c0b5d9e1c523e5da92c22207",
@@ -136,7 +136,7 @@
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",
 				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:d4f7746c19b234e4cb87b032a064dafe94a30fa3c6ebcdcfb2214d954de38cb2",
 				"agent-suites/tour/agents.ts": "sha256:d06813e2769127e50354ee564aa9920ecae65e5747ee97e5681e78d9c086dabc",
-				"agent-suites/tour/tour.spec.ts": "sha256:0132cc954bbd2eac4b3deb5e42f0537d798e2d3bffd0060ec57fc38ede8bacd4",
+				"agent-suites/tour/tour.spec.ts": "sha256:2b7dda8954d1dc63d58a2aaf4735ea1eb1cad95dde665f4d5b666e7e5cb8f5e2",
 				"agent-test.config.ts": "sha256:0ac97c421ee8e8458946fda57f24f9296e92d68e39bd646df34ad91fc1c1c643",
 				"agent-test.matrix.config.ts": "sha256:82ad8e78b95a1afabfb18850bd71345ee6b9aa65a2d38e0967906d0245300864",
 				"packages/test/src/sdk/cli.ts": "sha256:7661e79aa423799c023f618bedc645ca681a0f34c0b5d9e1c523e5da92c22207",

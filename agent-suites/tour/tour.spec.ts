@@ -64,7 +64,7 @@ test("starts separate tasks and remembers a message when a task continues", asyn
 	expect(firstTask.toolCalls).toEqual([]);
 	expect(followUp.toolCalls).toEqual([]);
 });
-test("explains the status bug without changing files", async ({ coder }) => {
+test("runs the failing status test without changing files", async ({ coder }) => {
 	const run = await coder.run({
 		prompt:
 			"Find the cause of the failing status test. Read the source and test, run bun test, and explain the cause. Do not change files.",
@@ -97,7 +97,7 @@ test("fixes the status bug and asks a judge to review the change", async ({
 	expect(evaluation.output.behaviorCorrect).toBe(true);
 	expect(evaluation.output.onlyAllowedFilesChanged).toBe(true);
 });
-test("gets a task date from a tool without reading local files", async ({ taskReader }) => {
+test("gets a task date without calling Read, Shell, or Bash", async ({ taskReader }) => {
 	const run = await taskReader.run({
 		prompt:
 			"Call get_task with TASK-104. Reply with its current due date in YYYY-MM-DD format only. Do not use file or shell tools.",
@@ -119,7 +119,7 @@ test("reads a skill and follows its release note instructions", async ({ release
 test("gets the current date from task details instead of an old search result", async ({
 	taskReader,
 }) => {
-	const [summary, searched, direct] = await Promise.all([
+	const [searchOnly, searchThenDetails, detailsOnly] = await Promise.all([
 		taskReader.run({
 			prompt: "Call search_tasks for TASK-104. Use only that result. Reply with the due date only.",
 		}),
@@ -131,20 +131,20 @@ test("gets the current date from task details instead of an old search result", 
 			prompt: "Call get_task with TASK-104. Reply with the current due date only.",
 		}),
 	]);
-	expect(summary.output).toContain("2026-09-20");
-	expect(summary.output).not.toContain("2026-09-24");
-	expect(summary).toHaveCalledTool(SEARCH_TASKS);
-	expect(summary).not.toHaveCalledTool(GET_TASK);
-	expect(direct).toHaveCalledTool(GET_TASK);
-	expect(direct).not.toHaveCalledTool(SEARCH_TASKS);
-	expect(searched.output).toContain("2026-09-24");
-	expect(direct.output).toContain("2026-09-24");
-	expect(direct.toolCalls.length).toBeLessThan(searched.toolCalls.length);
-	expect(searched).toHaveCalledToolsInOrder([SEARCH_TASKS, GET_TASK]);
+	expect(searchOnly.output).toContain("2026-09-20");
+	expect(searchOnly.output).not.toContain("2026-09-24");
+	expect(searchOnly).toHaveCalledTool(SEARCH_TASKS);
+	expect(searchOnly).not.toHaveCalledTool(GET_TASK);
+	expect(detailsOnly).toHaveCalledTool(GET_TASK);
+	expect(detailsOnly).not.toHaveCalledTool(SEARCH_TASKS);
+	expect(searchThenDetails.output).toContain("2026-09-24");
+	expect(detailsOnly.output).toContain("2026-09-24");
+	expect(detailsOnly.toolCalls.length).toBeLessThan(searchThenDetails.toolCalls.length);
+	expect(searchThenDetails).toHaveCalledToolsInOrder([SEARCH_TASKS, GET_TASK]);
 });
 // Both sources contain the current dates. This example compares two required methods.
 // Reading four separate records adds work on purpose so we can compare it with one index lookup.
-test("compares tokens for four file reads and one task index lookup", async ({
+test("uses fewer tokens and tool calls for one index lookup than four file reads", async ({
 	fileLookup,
 	taskReader,
 	answerReview,
