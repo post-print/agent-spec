@@ -33,15 +33,15 @@
 			"documentHash": "sha256:7b16315b2dbd60ccc223c662d5fb34284288fc0bf48716ef1d739e7a97424491",
 			"reviewDependencies": {
 				"package.json": "sha256:b215ea0350504509d41d4add7c40266d2e5239dd8cb19c3bc1228565b6ffcbbe",
-				"packages/harness/package.json": "sha256:ae2755002de186f7e8f93be6d51eef208e9e31d697b5d6945a04c28c3b5bebfd",
-				"packages/test/package.json": "sha256:57a72264592e24f841b3fc319f069ac852bc1015d636484dbb4bccaa9c5ff9cc"
+				"packages/harness/package.json": "sha256:c87d9d161392913c1b562b3b960101287c7ad192c40001dbafb9046a697c716d",
+				"packages/test/package.json": "sha256:88b426e0495aee9bff7cd542d46e5f8a630465405b58c148f98cf1cda830ab51"
 			}
 		},
 		"docs/cli.md": {
 			"reviewedAt": "2026-09-16",
 			"documentHash": "sha256:9754461d898944112f468685272b7351495ff56eedb2a59d0072031f8675955d",
 			"reviewDependencies": {
-				"packages/test/package.json": "sha256:57a72264592e24f841b3fc319f069ac852bc1015d636484dbb4bccaa9c5ff9cc",
+				"packages/test/package.json": "sha256:88b426e0495aee9bff7cd542d46e5f8a630465405b58c148f98cf1cda830ab51",
 				"packages/test/src/cli.ts": "sha256:3de5a748fc237fee05c17790fccd71444731a903cf5efc56392245783a77a968",
 				"packages/test/src/sdk/cli.ts": "sha256:7661e79aa423799c023f618bedc645ca681a0f34c0b5d9e1c523e5da92c22207",
 				"packages/test/src/sdk/viewer.ts": "sha256:3db3f5b3488140352c36e1b1977078259152f1e038da68ffe8ce27d1679a7cd5"
@@ -135,7 +135,7 @@
 			"reviewedAt": "2026-09-16",
 			"documentHash": "sha256:5a5424c1e792a29c7b07bc9991270c30589ffb575d0e7fd25d5d86192574be58",
 			"reviewDependencies": {
-				"packages/harness/package.json": "sha256:ae2755002de186f7e8f93be6d51eef208e9e31d697b5d6945a04c28c3b5bebfd",
+				"packages/harness/package.json": "sha256:c87d9d161392913c1b562b3b960101287c7ad192c40001dbafb9046a697c716d",
 				"packages/harness/src/__tests__/auth-mode.test.ts": "sha256:b855b7cb9bc08531aeb5a604bd81def70e6289aa83c92a452d2c0675b95466ba",
 				"packages/harness/src/__tests__/capture-depth.test.ts": "sha256:4d5edf22fa19688f4b89146c43153b6d22c9a5ef2e8ae59cd3099fc807792fb7",
 				"packages/harness/src/__tests__/capture.test.ts": "sha256:478ac91fad04eca6e7c4ffc462380ed581110236e9995d4b6ce128b7b6cea2f8",
@@ -183,7 +183,7 @@
 			"reviewedAt": "2026-09-16",
 			"documentHash": "sha256:e2d4547401f99304ca90dd339df63a1ff7b84369f6b916ce95c5ad14bc9777e1",
 			"reviewDependencies": {
-				"packages/test/package.json": "sha256:57a72264592e24f841b3fc319f069ac852bc1015d636484dbb4bccaa9c5ff9cc",
+				"packages/test/package.json": "sha256:88b426e0495aee9bff7cd542d46e5f8a630465405b58c148f98cf1cda830ab51",
 				"packages/test/src/__tests__/cli-entry.test.ts": "sha256:4df989ea8adf78f3ec17226feb7b75e3dd2fe4ecf9f232dbbdeb83f8ab42a71f",
 				"packages/test/src/__tests__/cli.test.ts": "sha256:5b46484b1511a9279eeb411aa267dc5d13064fd3e8180f8a4f4d54e2c45458de",
 				"packages/test/src/__tests__/compare-scenario.test.ts": "sha256:e04bef82d649b2e35eb800bf4eed903b485c7997bf5036315e9d48802ff0fd41",
