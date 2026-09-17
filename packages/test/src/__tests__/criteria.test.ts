@@ -14,6 +14,31 @@ describe("derived expect criteria", () => {
 		]);
 	});
 
+	it("uses static expect messages as readable criteria", () => {
+		const criteria = derivedExpectCriteria(`() => {
+			expect(output, "The response names Mina.").toContain("Mina");
+			expect(run, 'The agent avoids secret.txt.').not.toHaveReadPath("secret.txt");
+			expect(value, \`The value is valid.\`).toBe(true);
+		}`);
+		expect(criteria).toEqual([
+			"The response names Mina.",
+			"The agent avoids secret.txt.",
+			"The value is valid.",
+		]);
+	});
+
+	it("falls back to the assertion when the expect message is dynamic", () => {
+		const interpolation = ["$", "{name}"].join("");
+		const criteria = derivedExpectCriteria(`() => {
+			expect(output, criterion).toContain("READY");
+			expect(output, \`Contains ${interpolation}\`).toContain(name);
+		}`);
+		expect(criteria).toEqual([
+			'expect(output, criterion).toContain("READY")',
+			`expect(output, \`Contains ${interpolation}\`).toContain(name)`,
+		]);
+	});
+
 	it("normalizes multiline, async, regex, and nested assertions deterministically", () => {
 		const criteria = derivedExpectCriteria(`async () => {
 			await expect(task()).rejects.toThrow(

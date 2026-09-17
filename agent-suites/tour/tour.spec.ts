@@ -49,8 +49,8 @@ test("reads the project owner from a file", {
 	const run = await coder.run({
 		prompt: "Read PROJECT.md. Who owns this project? Reply with one short sentence.",
 	});
-	expect(run.output).toContain("Mina");
-	expect(run).toHaveReadPath("PROJECT.md");
+	expect(run.output, "The response names Mina.").toContain("Mina");
+	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
 });
 test("starts separate tasks and remembers a message when a task continues", {
 	description:
@@ -64,16 +64,20 @@ test("starts separate tasks and remembers a message when a task continues", {
 		}),
 		coder.run({ prompt: "Reply with READY. Do not use tools." }),
 	]);
-	expect(firstTask.workspace.root).not.toBe(separateTask.workspace.root);
-	expect(firstTask.output).toBe(secret);
+	expect(firstTask.workspace.root, "Independent tasks use separate workspaces.").not.toBe(
+		separateTask.workspace.root,
+	);
+	expect(firstTask.output, "The first task repeats the secret code.").toBe(secret);
 	// This code exists only in the first conversation. The follow-up does not repeat it.
 	const followUp = await firstTask.continue({
 		prompt: "What code did I ask you to remember? Reply with the code only. Do not use tools.",
 	});
-	expect(followUp.workspace.root).toBe(firstTask.workspace.root);
-	expect(followUp.output).toBe(secret);
-	expect(firstTask.toolCalls).toEqual([]);
-	expect(followUp.toolCalls).toEqual([]);
+	expect(followUp.workspace.root, "The continuation reuses the first task workspace.").toBe(
+		firstTask.workspace.root,
+	);
+	expect(followUp.output, "The continuation remembers the secret code.").toBe(secret);
+	expect(firstTask.toolCalls, "The first task does not use tools.").toEqual([]);
+	expect(followUp.toolCalls, "The continuation does not use tools.").toEqual([]);
 });
 test("runs the failing status test without changing files", {
 	description:
@@ -86,9 +90,9 @@ test("runs the failing status test without changing files", {
 	});
 	// The sample code reverses the two states: completed tasks become open, and unfinished tasks become done.
 	// This word check only shows that the answer mentions the relevant field. It does not grade the explanation.
-	expect(run.output).toContain("completedAt");
-	expect(run).toHaveExecutedCommand({ command: RUN_TESTS });
-	expect(run.workspace.changedPaths).toEqual([]);
+	expect(run.output, "The explanation mentions completedAt.").toContain("completedAt");
+	expect(run, "The agent runs bun test.").toHaveExecutedCommand({ command: RUN_TESTS });
+	expect(run.workspace.changedPaths, "No files change during the investigation.").toEqual([]);
 });
 test("fixes the status bug and asks a judge to review the change", {
 	description:
@@ -99,9 +103,12 @@ test("fixes the status bug and asks a judge to review the change", {
 		prompt:
 			"Fix the status bug in src/status.ts. Change only that source file. Run bun test. End with TASK_STATUS_FIXED.",
 	});
-	expect(run.output).toContain("TASK_STATUS_FIXED");
-	expect(run).toHaveExecutedCommand({ command: RUN_TESTS, exitCode: 0 });
-	expect(run.workspace.changedPaths).toEqual(["src/status.ts"]);
+	expect(run.output, "The response contains TASK_STATUS_FIXED.").toContain("TASK_STATUS_FIXED");
+	expect(run, "bun test completes successfully.").toHaveExecutedCommand({
+		command: RUN_TESTS,
+		exitCode: 0,
+	});
+	expect(run.workspace.changedPaths, "Only src/status.ts changes.").toEqual(["src/status.ts"]);
 	const evaluation = await repairReview.run({
 		input: {
 			source: await readFile(join(run.workspace.final.path, "src/status.ts"), "utf8"),
@@ -110,8 +117,11 @@ test("fixes the status bug and asks a judge to review the change", {
 			requirements: ["A task with completedAt is done.", "A task without completedAt is open."],
 		},
 	});
-	expect(evaluation.output.behaviorCorrect).toBe(true);
-	expect(evaluation.output.onlyAllowedFilesChanged).toBe(true);
+	expect(evaluation.output.behaviorCorrect, "The judge confirms the repaired behavior.").toBe(true);
+	expect(
+		evaluation.output.onlyAllowedFilesChanged,
+		"The judge confirms that only allowed files changed.",
+	).toBe(true);
 });
 test("gets a task date without calling Read, Shell, or Bash", {
 	description:
@@ -122,9 +132,9 @@ test("gets a task date without calling Read, Shell, or Bash", {
 		prompt:
 			"Call get_task with TASK-104. Reply with its current due date in YYYY-MM-DD format only. Do not use file or shell tools.",
 	});
-	expect(run.output).toContain("2026-09-24");
-	expect(run).toHaveCalledTool(GET_TASK);
-	expect(run).not.toHaveCalledTool(LOCAL_TOOLS);
+	expect(run.output, "The response contains 2026-09-24.").toContain("2026-09-24");
+	expect(run, "get_task is called.").toHaveCalledTool(GET_TASK);
+	expect(run, "Read, Shell, and Bash are not called.").not.toHaveCalledTool(LOCAL_TOOLS);
 });
 // The skill says to read PROJECT.md and return only the release note from that file.
 test("reads a skill and follows its release note instructions", {
@@ -135,9 +145,13 @@ test("reads a skill and follows its release note instructions", {
 	const run = await releaseWriter.run({
 		prompt: "Use the release-note skill. Return only the release note.",
 	});
-	expect(run.output).toBe("RELEASE: TASK-104 is ready.");
-	expect(run).toHaveReadPath(`${run.startingContext.skills[0].destination}/SKILL.md`);
-	expect(run).toHaveReadPath("PROJECT.md");
+	expect(run.output, "The response is exactly the project release note.").toBe(
+		"RELEASE: TASK-104 is ready.",
+	);
+	expect(run, "The release-note SKILL.md is read.").toHaveReadPath(
+		`${run.startingContext.skills[0].destination}/SKILL.md`,
+	);
+	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
 });
 // Search returns an old date, September 20. The task details give the current date, September 24.
 test("gets the current date from task details instead of an old search result", {
@@ -157,16 +171,31 @@ test("gets the current date from task details instead of an old search result", 
 			prompt: "Call get_task with TASK-104. Reply with the current due date only.",
 		}),
 	]);
-	expect(searchOnly.output).toContain("2026-09-20");
-	expect(searchOnly.output).not.toContain("2026-09-24");
-	expect(searchOnly).toHaveCalledTool(SEARCH_TASKS);
-	expect(searchOnly).not.toHaveCalledTool(GET_TASK);
-	expect(detailsOnly).toHaveCalledTool(GET_TASK);
-	expect(detailsOnly).not.toHaveCalledTool(SEARCH_TASKS);
-	expect(searchThenDetails.output).toContain("2026-09-24");
-	expect(detailsOnly.output).toContain("2026-09-24");
-	expect(detailsOnly.toolCalls.length).toBeLessThan(searchThenDetails.toolCalls.length);
-	expect(searchThenDetails).toHaveCalledToolsInOrder([SEARCH_TASKS, GET_TASK]);
+	expect(searchOnly.output, "Search alone returns the stale date 2026-09-20.").toContain(
+		"2026-09-20",
+	);
+	expect(searchOnly.output, "Search alone does not return the current date.").not.toContain(
+		"2026-09-24",
+	);
+	expect(searchOnly, "The search-only task calls search_tasks.").toHaveCalledTool(SEARCH_TASKS);
+	expect(searchOnly, "The search-only task does not call get_task.").not.toHaveCalledTool(GET_TASK);
+	expect(detailsOnly, "The details-only task calls get_task.").toHaveCalledTool(GET_TASK);
+	expect(detailsOnly, "The details-only task does not call search_tasks.").not.toHaveCalledTool(
+		SEARCH_TASKS,
+	);
+	expect(
+		searchThenDetails.output,
+		"Search followed by details returns the current date.",
+	).toContain("2026-09-24");
+	expect(detailsOnly.output, "Task details return the current date.").toContain("2026-09-24");
+	expect(
+		detailsOnly.toolCalls.length,
+		"The details-only task uses fewer tool calls than search followed by details.",
+	).toBeLessThan(searchThenDetails.toolCalls.length);
+	expect(searchThenDetails, "search_tasks runs before get_task.").toHaveCalledToolsInOrder([
+		SEARCH_TASKS,
+		GET_TASK,
+	]);
 });
 // Both sources contain the current dates. This example compares two required methods.
 // Reading four separate records adds work on purpose so we can compare it with one index lookup.
@@ -189,9 +218,9 @@ test("uses fewer tokens and tool calls for one index lookup than four file reads
 			}),
 		]);
 		for (const id of ["TASK-101", "TASK-102", "TASK-103", "TASK-104"])
-			expect(fileRun).toHaveReadPath(`records/${id}.md`);
-		expect(indexRun).toHaveCalledTool(TASK_INDEX);
-		expect(indexRun.toolCalls).toHaveLength(1);
+			expect(fileRun, "Each task record is read.").toHaveReadPath(`records/${id}.md`);
+		expect(indexRun, "The index task calls task_index.").toHaveCalledTool(TASK_INDEX);
+		expect(indexRun.toolCalls, "The index task makes exactly one tool call.").toHaveLength(1);
 		samples.push({ fileRun, indexRun });
 	}
 	const [roundOne, roundTwo] = samples;
@@ -205,14 +234,20 @@ test("uses fewer tokens and tool calls for one index lookup than four file reads
 			referenceDate: "2026-09-24",
 		},
 	});
-	expect(review.output.fileRoundOneCorrect).toBe(true);
-	expect(review.output.indexRoundOneCorrect).toBe(true);
-	expect(review.output.fileRoundTwoCorrect).toBe(true);
-	expect(review.output.indexRoundTwoCorrect).toBe(true);
+	expect(review.output.fileRoundOneCorrect, "The first file-based answer is correct.").toBe(true);
+	expect(review.output.indexRoundOneCorrect, "The first index-based answer is correct.").toBe(true);
+	expect(review.output.fileRoundTwoCorrect, "The second file-based answer is correct.").toBe(true);
+	expect(review.output.indexRoundTwoCorrect, "The second index-based answer is correct.").toBe(
+		true,
+	);
 	const fileTokens = statistics(samples.map(({ fileRun }) => fileRun.usage.tokens.total));
 	const indexTokens = statistics(samples.map(({ indexRun }) => indexRun.usage.tokens.total));
-	expect(indexTokens.mean).toBeLessThan(fileTokens.mean);
+	expect(indexTokens.mean, "The index lookup uses fewer tokens on average.").toBeLessThan(
+		fileTokens.mean,
+	);
 	const fileCalls = statistics(samples.map(({ fileRun }) => fileRun.toolCalls.length));
 	const indexCalls = statistics(samples.map(({ indexRun }) => indexRun.toolCalls.length));
-	expect(indexCalls.mean).toBeLessThan(fileCalls.mean);
+	expect(indexCalls.mean, "The index lookup uses fewer tool calls on average.").toBeLessThan(
+		fileCalls.mean,
+	);
 });

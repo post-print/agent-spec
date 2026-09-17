@@ -13,10 +13,84 @@ export function derivedExpectCriteria(source: string): string[] {
 		}
 		if (!isExpectCall(source, index)) continue;
 		const end = assertionEnd(source, index);
-		criteria.push(normalizeAssertion(source.slice(index, end)));
+		const assertion = source.slice(index, end);
+		criteria.push(expectDescription(assertion) ?? normalizeAssertion(assertion));
 		index = end - 1;
 	}
 	return criteria;
+}
+
+function expectDescription(assertion: string): string | undefined {
+	const open = assertion.indexOf("(", "expect".length);
+	if (open < 0) return undefined;
+	const description = secondExpectArgument(assertion, open + 1);
+	return description === undefined ? undefined : staticString(description);
+}
+
+function secondExpectArgument(source: string, start: number): string | undefined {
+	const depths: Depths = { parentheses: 0, brackets: 0, braces: 0 };
+	let descriptionStart: number | undefined;
+	for (let index = start; index < source.length; index++) {
+		const ignoredEnd = ignoredTokenEnd(source, index);
+		if (ignoredEnd > index) {
+			index = ignoredEnd - 1;
+			continue;
+		}
+		const character = source[index];
+		if (isTopLevelCharacter(character, ",", depths)) descriptionStart = index + 1;
+		if (isTopLevelCharacter(character, ")", depths))
+			return descriptionAtCallEnd(source, descriptionStart, index);
+		updateDepths(depths, character);
+	}
+	return undefined;
+}
+
+function isTopLevelCharacter(character: string | undefined, expected: string, depths: Depths) {
+	return character === expected && isTopLevel(depths);
+}
+
+function descriptionAtCallEnd(
+	source: string,
+	start: number | undefined,
+	end: number,
+): string | undefined {
+	return start === undefined ? undefined : source.slice(start, end).trim();
+}
+
+function staticString(source: string): string | undefined {
+	const quote = source[0];
+	if (!(quote === '"' || quote === "'" || quote === "`")) return undefined;
+	if (source.at(-1) !== quote || (quote === "`" && source.includes("${"))) return undefined;
+	return decodeStringBody(source.slice(1, -1), quote);
+}
+
+function decodeStringBody(body: string, quote: string): string | undefined {
+	let decoded = "";
+	for (let index = 0; index < body.length; index++) {
+		const character = body[index];
+		if (character !== "\\") {
+			decoded += character;
+			continue;
+		}
+		const escapedCharacter = body[++index];
+		if (escapedCharacter === undefined) return undefined;
+		decoded += decodedEscape(escapedCharacter, quote);
+	}
+	return decoded;
+}
+
+function decodedEscape(escapedCharacter: string, quote: string): string {
+	const escapes: Record<string, string> = {
+		b: "\b",
+		f: "\f",
+		n: "\n",
+		r: "\r",
+		t: "\t",
+		v: "\v",
+		"\\": "\\",
+	};
+	if (escapedCharacter === quote) return quote;
+	return escapes[escapedCharacter] ?? escapedCharacter;
 }
 
 function isExpectCall(source: string, index: number): boolean {
