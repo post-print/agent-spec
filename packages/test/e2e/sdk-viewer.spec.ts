@@ -31,7 +31,10 @@ test("TypeScript resources execute parallel runs and retain evaluations after re
 		await expect(page.getByText("accuracy", { exact: true }).first()).toBeVisible();
 		await page.reload();
 		await expect(verdict).toHaveText("passed");
-		await page.screenshot({ path: "/private/tmp/agent-test-v2-viewer.png", fullPage: true });
+		await page.screenshot({
+			path: test.info().outputPath("agent-test-v2-viewer.png"),
+			fullPage: true,
+		});
 	} finally {
 		await viewer.close();
 	}

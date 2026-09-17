@@ -31,7 +31,7 @@ for (const cancel of [false, true]) {
 			await expect(header).toHaveText("passed");
 			await expect(nav).toHaveAttribute("data-status", "passed");
 			await expect(page.locator(".run-progress-title")).toHaveText("1 of 2 tests finished");
-			await page.screenshot({ path: "/private/tmp/agent-viewer-lifecycle.png" });
+			await page.screenshot({ path: test.info().outputPath("agent-viewer-lifecycle.png") });
 			gates.release("other");
 			await expect(page.locator(".run-progress-title")).toHaveText("2 of 2 tests finished");
 		} finally {
