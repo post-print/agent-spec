@@ -3,6 +3,9 @@ import { realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
+const LEADING_NEWLINES = /^\n+/;
+const TRAILING_NEWLINES = /\n+$/;
+
 const execFileAsync = promisify(execFile);
 
 /**
@@ -11,7 +14,7 @@ const execFileAsync = promisify(execFile);
  * the first space corrupts XY status and breaks seed-collateral path matching.
  */
 export function normalizePorcelainStatus(stdout: string): string {
-	return stdout.replace(/^\n+/, "").replace(/\n+$/, "");
+	return stdout.replace(LEADING_NEWLINES, "").replace(TRAILING_NEWLINES, "");
 }
 
 /** Porcelain snapshot of the caller repo root — used to detect live-run leakage. */

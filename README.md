@@ -32,6 +32,6 @@ Use Node 22+ for the published packages; Bun 1.4.0 is the repository toolchain. 
 
 JSON suites, the separate rubric runner, automatic classifier judges, and standalone legacy HTML reports have been removed. Playwright owns scheduling and report generation. The viewer consumes the same TypeScript test execution events.
 
-The stricter Biome policy applies to runtime, tests, scripts, and example suites. Retained native-host and viewer modules still have reported violations; passing unit tests does not imply a clean lint gate.
+The strict Biome policy applies to runtime, tests, scripts, and example suites. The repository lint gate requires zero errors and warnings, including the retained native-host and viewer modules.
 
-Publishing is handled by the repository publish workflow after merging to main. This SDK migration changes public APIs and must receive an appropriate breaking version before release.
+Publishing is handled by the repository publish workflow after merging to main. The v2 SDK changes public APIs; migrate existing suites with the SDK guide before upgrading.

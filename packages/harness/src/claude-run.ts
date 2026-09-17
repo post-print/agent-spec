@@ -184,8 +184,7 @@ export function buildClaudeEnv(authMode: ClaudeAuthMode, apiKey?: string): NodeJ
 	if (authMode === "api-key") {
 		return { ...process.env, ANTHROPIC_API_KEY: apiKey };
 	}
-	const env = { ...process.env };
-	delete env.ANTHROPIC_API_KEY;
+	const { ANTHROPIC_API_KEY: _apiKey, ...env } = process.env;
 	return env;
 }
 
@@ -217,26 +216,35 @@ export function buildClaudeMcpConfigJson(
 ): Record<string, unknown> {
 	const mcpServers: Record<string, unknown> = {};
 	for (const [name, config] of Object.entries(servers)) {
-		if ("command" in config && config.command) {
-			mcpServers[name] = {
-				command: config.command,
-				...(config.args ? { args: config.args } : {}),
-				...(config.env ? { env: config.env } : {}),
-				...(config.cwd ? { cwd: config.cwd } : {}),
-			};
-			continue;
-		}
-		if ("url" in config && config.url) {
-			mcpServers[name] = {
-				type: config.type ?? "http",
-				url: config.url,
-				...(config.headers ? { headers: config.headers } : {}),
-			};
-		}
+		const resolved = claudeMcpServer(config);
+		if (resolved) mcpServers[name] = resolved;
 	}
 	return { mcpServers };
 }
 
+function claudeMcpServer(config: McpServerConfig): Record<string, unknown> | undefined {
+	if ("command" in config && config.command) {
+		return claudeStdioMcp(config);
+	}
+	if ("url" in config && config.url) {
+		return {
+			type: config.type ?? "http",
+			url: config.url,
+			...(config.headers ? { headers: config.headers } : {}),
+		};
+	}
+	return undefined;
+}
+function claudeStdioMcp(
+	config: Extract<McpServerConfig, { command: string }>,
+): Record<string, unknown> {
+	return {
+		command: config.command,
+		...(config.args ? { args: config.args } : {}),
+		...(config.env ? { env: config.env } : {}),
+		...(config.cwd ? { cwd: config.cwd } : {}),
+	};
+}
 async function writeMcpConfigFile(
 	servers: Record<string, McpServerConfig> | undefined,
 	cwd: string,
@@ -337,14 +345,52 @@ function buildClaudeArgs(options: {
 	return args;
 }
 
-async function drainNdjson(
-	child: ClaudeChildProcess,
-	acc: ClaudeTraceAccumulator,
-	failOnUserInput: boolean,
-	signal: AbortSignal,
-	onAgentEvent?: (event: LiveAgentEvent) => void,
-): Promise<{ exitCode: number | null; stderr: string }> {
+interface ClaudeStream {
+	child: ClaudeChildProcess;
+	acc: ClaudeTraceAccumulator;
+	failOnUserInput: boolean;
+	signal: AbortSignal;
+	onAgentEvent?: (event: LiveAgentEvent) => void;
+}
+function stopClaudeForInput(stream: ClaudeStream): boolean {
+	const { child, acc, failOnUserInput } = stream;
+	const lastTool = acc.toolCalls.at(-1);
+	if (!lastTool || !isUserInputTool(lastTool.name)) return false;
+	killClaudeChild(child);
+	if (failOnUserInput) {
+		const error = new UserInputRequiredError(lastTool.name);
+		error.trace = stashTrace(acc);
+		throw error;
+	}
+	return true;
+}
+async function readClaudeOutput(stream: ClaudeStream): Promise<void> {
+	const { child, acc, signal, onAgentEvent } = stream;
 	const liveState = createLiveNotifyState();
+
+	const rl = createInterface({ input: child.stdout, crlfDelay: Number.POSITIVE_INFINITY });
+	try {
+		for await (const line of rl) {
+			if (signal.aborted) {
+				break;
+			}
+			const event = parseClaudeNdjsonLine(line);
+			if (!event) {
+				continue;
+			}
+			accumulateClaudeEvent(acc, event);
+			emitLiveAgentEvents(acc, liveState, onAgentEvent);
+			stashTrace(acc);
+			if (stopClaudeForInput(stream)) break;
+		}
+	} finally {
+		rl.close();
+	}
+}
+async function drainNdjson(
+	stream: ClaudeStream,
+): Promise<{ exitCode: number | null; stderr: string }> {
+	const { child, signal } = stream;
 	const stderrChunks: string[] = [];
 	child.stderr.setEncoding("utf8");
 	child.stderr.on("data", (chunk: string) => {
@@ -367,37 +413,6 @@ async function drainNdjson(
 		signal.addEventListener("abort", fail, { once: true });
 	});
 
-	const readStdout = async (): Promise<void> => {
-		const rl = createInterface({ input: child.stdout, crlfDelay: Number.POSITIVE_INFINITY });
-		try {
-			for await (const line of rl) {
-				if (signal.aborted) {
-					break;
-				}
-				const event = parseClaudeNdjsonLine(line);
-				if (!event) {
-					continue;
-				}
-				accumulateClaudeEvent(acc, event);
-				emitLiveAgentEvents(acc, liveState, onAgentEvent);
-				stashTrace(acc);
-				const lastTool = acc.toolCalls.at(-1);
-				if (lastTool && isUserInputTool(lastTool.name)) {
-					if (failOnUserInput) {
-						const userInputError = new UserInputRequiredError(lastTool.name);
-						userInputError.trace = stashTrace(acc);
-						killClaudeChild(child);
-						throw userInputError;
-					}
-					killClaudeChild(child);
-					break;
-				}
-			}
-		} finally {
-			rl.close();
-		}
-	};
-
 	const waitClose = new Promise<number | null>((resolve) => {
 		child.once("close", (code) => resolve(code));
 	});
@@ -406,7 +421,7 @@ async function drainNdjson(
 		const settled = await Promise.race([
 			spawnError,
 			aborted,
-			Promise.all([readStdout(), waitClose]).then(([, exitCode]) => ({ exitCode })),
+			Promise.all([readClaudeOutput(stream), waitClose]).then(([, exitCode]) => ({ exitCode })),
 		]);
 		return { exitCode: settled.exitCode, stderr: stderrChunks.join("") };
 	} catch (error) {
@@ -415,6 +430,136 @@ async function drainNdjson(
 	}
 }
 
+interface ClaudeExecution {
+	bin: string;
+	args: string[];
+	authMode: ClaudeAuthMode;
+	deadline: { timedOut: boolean };
+	apiKey?: string;
+}
+async function finishClaudeRun(
+	options: ClaudeRunOptions,
+	stream: ClaudeStream,
+): Promise<ClaudeRunResult> {
+	const { child, acc, signal, onAgentEvent } = stream;
+	const { exitCode, stderr } = await drainNdjson({
+		child,
+		acc,
+		failOnUserInput: options.failOnUserInput !== false,
+		signal,
+		onAgentEvent,
+	});
+	const trace = stashTrace(acc);
+	const rawStatus = acc.rawStatus ?? (exitCode === 0 && !acc.resultIsError ? "success" : "error");
+	const failed =
+		acc.resultIsError ||
+		(exitCode !== null && exitCode !== 0) ||
+		rawStatus === "error" ||
+		Boolean(acc.resultError);
+
+	if (!failed) {
+		return {
+			status: "completed",
+			trace,
+			rawStatus,
+			exitCode,
+			stderr: stderr || undefined,
+		};
+	}
+
+	return {
+		status: "failed",
+		trace,
+		rawStatus,
+		exitCode,
+		stderr: stderr || undefined,
+	};
+}
+function throwClaudeRunError(error: unknown, acc: ClaudeTraceAccumulator, bin: string): never {
+	const partial = stashTrace(acc);
+	if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError) {
+		error.trace = error.trace ?? partial;
+		throw error;
+	}
+	if (error && typeof error === "object" && "code" in error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") {
+			throw new Error(
+				`Claude Code binary not found (${bin}). Install Claude Code CLI or set CLAUDE_CODE_BIN.`,
+			);
+		}
+	}
+	throw error;
+}
+async function executeClaudeRun(
+	options: ClaudeRunOptions,
+	execution: ClaudeExecution,
+): Promise<ClaudeRunResult> {
+	const { bin, args, authMode, deadline, apiKey } = execution;
+
+	const acc = createClaudeTraceAccumulator();
+	const abort = new AbortController();
+	const child = spawn(bin, args, {
+		cwd: options.cwd,
+		env: buildClaudeEnv(authMode, apiKey),
+		stdio: ["ignore", "pipe", "pipe"],
+		detached: process.platform !== "win32" && process.env.AGENT_HARNESS_SESSION_WORKER !== "1",
+	}) as ClaudeChildProcess;
+
+	activeClaudeRun = { child, acc, abort };
+	if (deadline.timedOut) {
+		abort.abort();
+		killClaudeChild(child);
+		activeClaudeRun = undefined;
+		const timeoutError = new AgentRunTimeoutError(options.timeoutMs ?? 0);
+		timeoutError.trace = stashTrace(acc);
+		throw timeoutError;
+	}
+
+	try {
+		return await finishClaudeRun(options, {
+			child,
+			acc,
+			failOnUserInput: options.failOnUserInput !== false,
+			signal: abort.signal,
+			onAgentEvent: options.onAgentEvent,
+		});
+	} catch (error) {
+		abort.abort();
+		killClaudeChild(child);
+		return throwClaudeRunError(error, acc, bin);
+	} finally {
+		if (activeClaudeRun?.child === child) {
+			activeClaudeRun = undefined;
+		}
+	}
+}
+
+async function runClaudeWithDeadline(
+	options: ClaudeRunOptions,
+	execution: ClaudeExecution,
+): Promise<ClaudeRunResult> {
+	const execute = () => executeClaudeRun(options, execution);
+
+	if (options.timeoutMs && options.timeoutMs > 0) {
+		await options.onDeadlineStart?.();
+		try {
+			return await withRunTimeout(execute, options.timeoutMs, {
+				onTimeout: () => {
+					execution.deadline.timedOut = true;
+					cancelActiveClaudeRun();
+				},
+			});
+		} catch (error) {
+			if (error instanceof AgentRunTimeoutError) {
+				error.trace = error.trace ?? takeLastClaudeRunTrace() ?? getPartialTrace(error);
+			}
+			throw error;
+		}
+	}
+
+	return execute();
+}
 /** Shared Claude Code CLI path — spawn + stream-json → AgentTrace. */
 export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
 	const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
@@ -429,7 +574,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 		options.mcpServers,
 	);
 	let mcpConfigDir: string | undefined;
-	let timedOut = false;
+	const deadline = { timedOut: false };
 
 	try {
 		const mcpConfig = await writeMcpConfigFile(options.mcpServers, options.cwd);
@@ -445,102 +590,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			loadProjectContext: options.loadProjectContext === true,
 		});
 
-		const execute = async (): Promise<ClaudeRunResult> => {
-			const acc = createClaudeTraceAccumulator();
-			const abort = new AbortController();
-			const child = spawn(bin, args, {
-				cwd: options.cwd,
-				env: buildClaudeEnv(authMode, apiKey),
-				stdio: ["ignore", "pipe", "pipe"],
-				detached: process.platform !== "win32" && process.env.AGENT_HARNESS_SESSION_WORKER !== "1",
-			}) as ClaudeChildProcess;
-
-			activeClaudeRun = { child, acc, abort };
-			if (timedOut) {
-				abort.abort();
-				killClaudeChild(child);
-				activeClaudeRun = undefined;
-				const timeoutError = new AgentRunTimeoutError(options.timeoutMs ?? 0);
-				timeoutError.trace = stashTrace(acc);
-				throw timeoutError;
-			}
-
-			try {
-				const { exitCode, stderr } = await drainNdjson(
-					child,
-					acc,
-					options.failOnUserInput !== false,
-					abort.signal,
-					options.onAgentEvent,
-				);
-				const trace = stashTrace(acc);
-				const rawStatus =
-					acc.rawStatus ?? (exitCode === 0 && !acc.resultIsError ? "success" : "error");
-				const failed =
-					acc.resultIsError ||
-					(exitCode !== null && exitCode !== 0) ||
-					rawStatus === "error" ||
-					Boolean(acc.resultError);
-
-				if (!failed) {
-					return {
-						status: "completed",
-						trace,
-						rawStatus,
-						exitCode,
-						stderr: stderr || undefined,
-					};
-				}
-
-				return {
-					status: "failed",
-					trace,
-					rawStatus,
-					exitCode,
-					stderr: stderr || undefined,
-				};
-			} catch (error) {
-				abort.abort();
-				killClaudeChild(child);
-				const partial = stashTrace(acc);
-				if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError) {
-					error.trace = error.trace ?? partial;
-					throw error;
-				}
-				if (error && typeof error === "object" && "code" in error) {
-					const code = (error as NodeJS.ErrnoException).code;
-					if (code === "ENOENT") {
-						throw new Error(
-							`Claude Code binary not found (${bin}). Install Claude Code CLI or set CLAUDE_CODE_BIN.`,
-						);
-					}
-				}
-				throw error;
-			} finally {
-				if (activeClaudeRun?.child === child) {
-					activeClaudeRun = undefined;
-				}
-			}
-		};
-
-		if (options.timeoutMs && options.timeoutMs > 0) {
-			await options.onDeadlineStart?.();
-			try {
-				return await withRunTimeout(execute, options.timeoutMs, {
-					onTimeout: () => {
-						timedOut = true;
-						cancelActiveClaudeRun();
-					},
-				});
-			} catch (error) {
-				if (error instanceof AgentRunTimeoutError) {
-					error.trace = error.trace ?? takeLastClaudeRunTrace() ?? getPartialTrace(error);
-				}
-				throw error;
-			}
-		}
-
-		return execute();
+		return await runClaudeWithDeadline(options, { bin, args, authMode, deadline, apiKey });
 	} finally {
 		if (mcpConfigDir) {
 			await rm(mcpConfigDir, { recursive: true, force: true }).catch(() => undefined);

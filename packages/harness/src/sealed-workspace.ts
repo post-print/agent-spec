@@ -8,6 +8,11 @@ import { SKILL_ROOTS, skillOverlayRelPath } from "./skills-context.js";
 import type { AgentTrace } from "./types.js";
 import { isPathUnderRoot } from "./working-tree-guard.js";
 
+const BACKSLASH = /\\/g;
+const RELATIVE_PREFIX = /^\.\//;
+const FILE_PROTOCOL = /^file:\/\//;
+const TRAILING_PUNCTUATION = /[,:]+$/;
+
 const execFileAsync = promisify(execFile);
 
 export const SEALED_WORKSPACE_DIR_PREFIX = "agent-harness-seal-";
@@ -43,7 +48,7 @@ export function parseScenarioWorkspace(raw: unknown): ParsedScenarioWorkspace {
 	if (typeof raw !== "string") {
 		return { ok: false, message: `workspace must be a string, got ${JSON.stringify(raw)}` };
 	}
-	const normalized = raw.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+	const normalized = raw.replace(BACKSLASH, "/").replace(RELATIVE_PREFIX, "").trim();
 	if (normalized.length === 0 || normalized === ".") {
 		return { ok: true, rel: undefined };
 	}
@@ -97,7 +102,7 @@ async function materializeWorkspaceFolder(
 }
 
 async function overlayPath(callerCwd: string, dest: string, rel: string): Promise<void> {
-	const normalized = rel.replace(/^\.\//, "").trim();
+	const normalized = rel.replace(RELATIVE_PREFIX, "").trim();
 	if (!normalized || normalized.includes("\0")) {
 		return;
 	}
@@ -180,46 +185,53 @@ function candidatePathsFromArgs(args: Record<string, unknown> | undefined): stri
 	for (const key of ["path", "file_path", "filePath", "target_file", "uri", "cwd"]) {
 		const value = args[key];
 		if (typeof value === "string") {
-			paths.push(value.replace(/^file:\/\//, ""));
+			paths.push(value.replace(FILE_PROTOCOL, ""));
 		}
 	}
-	const command = args.command;
+	paths.push(...contextPathsFromCommand(args.command));
+	return paths;
+}
+
+function contextPathsFromCommand(command: unknown): string[] {
+	const paths: string[] = [];
+
 	if (typeof command === "string") {
 		const ignoredExecutables = new Set(["/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/env"]);
 		for (const match of command.matchAll(/(?:^|[\s"'])((?:\.\.\/|\/)[^\s"';&|)]+)/g)) {
-			const path = match[1]?.replace(/[,:]+$/, "");
+			const path = match[1]?.replace(TRAILING_PUNCTUATION, "");
 			// Shell commands often inspect runner temp folders while running tests.
 			// Only flag external agent configuration paths here; direct tool path
 			// arguments still use the complete escape check below.
-			if (
-				path &&
-				!ignoredExecutables.has(path) &&
-				(path.includes("/.agents/skills/") ||
-					path.endsWith("/AGENTS.md") ||
-					path.endsWith("/CLAUDE.md") ||
-					path.includes("/.cursor/"))
-			) {
+			if (path && !ignoredExecutables.has(path) && isAgentContextPath(path)) {
 				paths.push(path);
 			}
 		}
 	}
 	return paths;
 }
-
+function isAgentContextPath(path: string): boolean {
+	return (
+		path.includes("/.agents/skills/") ||
+		path.endsWith("/AGENTS.md") ||
+		path.endsWith("/CLAUDE.md") ||
+		path.includes("/.cursor/")
+	);
+}
+function isCursorToolOutput(path: string): boolean {
+	return path.includes("/.cursor/projects/") && path.includes("/agent-tools/");
+}
 /** Tool paths that resolve outside the sealed workspace. */
 export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: string): string[] {
 	const root = resolve(workspaceRoot);
 	const escaped: string[] = [];
-	for (const call of trace.toolCalls) {
-		for (const raw of candidatePathsFromArgs(call.args)) {
-			const abs = isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
-			const normalized = abs.replaceAll("\\", "/");
-			if (normalized.includes("/.cursor/projects/") && normalized.includes("/agent-tools/")) {
-				continue;
-			}
-			if (!isPathUnderRoot(abs, root)) {
-				escaped.push(raw);
-			}
+	for (const raw of trace.toolCalls.flatMap((call) => candidatePathsFromArgs(call.args))) {
+		const abs = isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
+		const normalized = abs.replaceAll("\\", "/");
+		if (isCursorToolOutput(normalized)) {
+			continue;
+		}
+		if (!isPathUnderRoot(abs, root)) {
+			escaped.push(raw);
 		}
 	}
 	return [...new Set(escaped)];

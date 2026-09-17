@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, it, jest, mock } from "bun:test";
+import { afterEach, expect, it, jest, mock } from "bun:test";
 import * as childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 import { buildClaudeEnv, CLAUDE_AUTH_MODE_ENV, parseClaudeAuthMode } from "../claude-run.js";
 import { AgentRunTimeoutError, UserInputRequiredError } from "../run-guards.js";
+
+const INVALID_AUTH = /invalid/;
+const CLAUDE_BINARY_MISSING = /Claude Code binary not found/;
+const CLAUDE_PATH_MISSING = /Claude Code binary not found at/;
 
 const spawnMock = jest.fn();
 
@@ -68,234 +72,250 @@ function mockChild(options?: {
 	return child;
 }
 
-describe("runClaudeAgent", () => {
-	afterEach(() => {
-		delete process.env.ANTHROPIC_API_KEY;
-		delete process.env[CLAUDE_AUTH_MODE_ENV];
-		spawnMock.mockReset();
+afterEach(() => {
+	delete process.env.ANTHROPIC_API_KEY;
+	delete process.env[CLAUDE_AUTH_MODE_ENV];
+	spawnMock.mockReset();
+});
+
+it("runClaudeAgent › defaults unset mode to subscription and rejects an unknown value", () => {
+	expect(parseClaudeAuthMode(undefined)).toBe("subscription");
+	expect(parseClaudeAuthMode("   ")).toBe("subscription");
+	expect(() => parseClaudeAuthMode("subscription-ish")).toThrow(INVALID_AUTH);
+	expect(parseClaudeAuthMode("api-key")).toBe("api-key");
+	expect(parseClaudeAuthMode(" subscription ")).toBe("subscription");
+});
+
+it("runClaudeAgent › uses subscription when CLAUDE_AUTH_MODE is unset", async () => {
+	process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+	spawnMock.mockImplementation(() =>
+		mockChild({
+			lines: [
+				JSON.stringify({
+					type: "result",
+					subtype: "success",
+					result: "ok",
+				}),
+			],
+		}),
+	);
+	const { runClaudeAgent } = await import("../claude-run.js");
+	const result = await runClaudeAgent({
+		cwd: process.cwd(),
+		prompt: "hi",
+		bin: "claude",
+	});
+	expect(result.status).toBe("completed");
+	expect(spawnMock).toHaveBeenCalled();
+	const args = spawnMock.mock.calls[0]?.[1] as string[];
+	expect(args).toContain("--strict-mcp-config");
+	expect(args).not.toContain("--bare");
+});
+
+it("runClaudeAgent › passes the key through in api-key mode", () => {
+	const env = buildClaudeEnv("api-key", "sk-ant-test");
+	expect(env.ANTHROPIC_API_KEY).toBe("sk-ant-test");
+});
+
+it("runClaudeAgent › strips a stale key in subscription mode", () => {
+	// --bare never reads OAuth or the keychain, so a stale key left in the
+	// parent shell would silently bill the API instead of the plan.
+	const env = buildClaudeEnv("subscription", "sk-ant-stale");
+	expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+});
+
+it("runClaudeAgent › maps a successful stream-json run", async () => {
+	process.env.ANTHROPIC_API_KEY = "test-key";
+	process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
+	spawnMock.mockImplementation(() =>
+		mockChild({
+			lines: [
+				JSON.stringify({
+					type: "assistant",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "hello from claude" }],
+					},
+				}),
+				JSON.stringify({
+					type: "result",
+					subtype: "success",
+					result: "hello from claude",
+					usage: { input_tokens: 3, output_tokens: 2 },
+				}),
+			],
+		}),
+	);
+
+	const { runClaudeAgent } = await import("../claude-run.js");
+	const result = await runClaudeAgent({
+		cwd: process.cwd(),
+		prompt: "hi",
+		apiKey: "test-key",
+		bin: "claude",
 	});
 
-	it("defaults unset mode to subscription and rejects an unknown value", () => {
-		expect(parseClaudeAuthMode(undefined)).toBe("subscription");
-		expect(parseClaudeAuthMode("   ")).toBe("subscription");
-		expect(() => parseClaudeAuthMode("subscription-ish")).toThrow(/invalid/);
-		expect(parseClaudeAuthMode("api-key")).toBe("api-key");
-		expect(parseClaudeAuthMode(" subscription ")).toBe("subscription");
-	});
+	expect(result.status).toBe("completed");
+	expect(result.trace.messages.some((m) => m.content.includes("hello from claude"))).toBe(true);
+	expect(result.trace.usage).toMatchObject({ inputTokens: 3, outputTokens: 2 });
+	expect(spawnMock).toHaveBeenCalled();
+	const args = spawnMock.mock.calls[0]?.[1] as string[];
+	expect(args).toContain("--bare");
+	expect(args).toContain("stream-json");
+});
 
-	it("uses subscription when CLAUDE_AUTH_MODE is unset", async () => {
-		process.env.ANTHROPIC_API_KEY = "sk-ant-test";
-		spawnMock.mockImplementation(() =>
-			mockChild({
-				lines: [
-					JSON.stringify({
-						type: "result",
-						subtype: "success",
-						result: "ok",
-					}),
-				],
-			}),
-		);
-		const { runClaudeAgent } = await import("../claude-run.js");
-		const result = await runClaudeAgent({
-			cwd: process.cwd(),
-			prompt: "hi",
-			bin: "claude",
-		});
-		expect(result.status).toBe("completed");
-		expect(spawnMock).toHaveBeenCalled();
-		const args = spawnMock.mock.calls[0]?.[1] as string[];
-		expect(args).toContain("--strict-mcp-config");
-		expect(args).not.toContain("--bare");
-	});
+it("runClaudeAgent › fails fast on AskUserQuestion", async () => {
+	process.env.ANTHROPIC_API_KEY = "test-key";
+	process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
+	spawnMock.mockImplementation(() =>
+		mockChild({
+			lines: [
+				JSON.stringify({
+					type: "assistant",
+					message: {
+						role: "assistant",
+						content: [
+							{
+								type: "tool_use",
+								id: "toolu_q",
+								name: "AskUserQuestion",
+								input: { question: "pick one" },
+							},
+						],
+					},
+				}),
+			],
+		}),
+	);
 
-	it("passes the key through in api-key mode", () => {
-		const env = buildClaudeEnv("api-key", "sk-ant-test");
-		expect(env.ANTHROPIC_API_KEY).toBe("sk-ant-test");
-	});
-
-	it("strips a stale key in subscription mode", () => {
-		// --bare never reads OAuth or the keychain, so a stale key left in the
-		// parent shell would silently bill the API instead of the plan.
-		const env = buildClaudeEnv("subscription", "sk-ant-stale");
-		expect(env.ANTHROPIC_API_KEY).toBeUndefined();
-	});
-
-	it("maps a successful stream-json run", async () => {
-		process.env.ANTHROPIC_API_KEY = "test-key";
-		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
-		spawnMock.mockImplementation(() =>
-			mockChild({
-				lines: [
-					JSON.stringify({
-						type: "assistant",
-						message: {
-							role: "assistant",
-							content: [{ type: "text", text: "hello from claude" }],
-						},
-					}),
-					JSON.stringify({
-						type: "result",
-						subtype: "success",
-						result: "hello from claude",
-						usage: { input_tokens: 3, output_tokens: 2 },
-					}),
-				],
-			}),
-		);
-
-		const { runClaudeAgent } = await import("../claude-run.js");
-		const result = await runClaudeAgent({
+	const { runClaudeAgent } = await import("../claude-run.js");
+	await expect(
+		runClaudeAgent({
 			cwd: process.cwd(),
 			prompt: "hi",
 			apiKey: "test-key",
 			bin: "claude",
+		}),
+	).rejects.toBeInstanceOf(UserInputRequiredError);
+});
+
+it("runClaudeAgent › times out and cancels the child via abort", async () => {
+	process.env.ANTHROPIC_API_KEY = "test-key";
+	process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
+	spawnMock.mockImplementation(() => mockChild({ hang: true }));
+
+	const { runClaudeAgent } = await import("../claude-run.js");
+	await expect(
+		runClaudeAgent({
+			cwd: process.cwd(),
+			prompt: "hi",
+			apiKey: "test-key",
+			bin: "claude",
+			timeoutMs: 40,
+		}),
+	).rejects.toBeInstanceOf(AgentRunTimeoutError);
+	const child = spawnMock.mock.results[0]?.value as { kill: ReturnType<typeof jest.fn> };
+	expect(child.kill).toHaveBeenCalled();
+});
+
+it("runClaudeAgent › surfaces missing binary errors from spawn", async () => {
+	process.env.ANTHROPIC_API_KEY = "test-key";
+	process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
+	spawnMock.mockImplementation(() => {
+		const child = mockChild({ hang: true });
+		queueMicrotask(() => {
+			const err = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+			child.emit("error", err);
 		});
-
-		expect(result.status).toBe("completed");
-		expect(result.trace.messages.some((m) => m.content.includes("hello from claude"))).toBe(true);
-		expect(result.trace.usage).toMatchObject({ inputTokens: 3, outputTokens: 2 });
-		expect(spawnMock).toHaveBeenCalled();
-		const args = spawnMock.mock.calls[0]?.[1] as string[];
-		expect(args).toContain("--bare");
-		expect(args).toContain("stream-json");
+		return child;
 	});
 
-	it("fails fast on AskUserQuestion", async () => {
-		process.env.ANTHROPIC_API_KEY = "test-key";
-		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
-		spawnMock.mockImplementation(() =>
-			mockChild({
-				lines: [
-					JSON.stringify({
-						type: "assistant",
-						message: {
-							role: "assistant",
-							content: [
-								{
-									type: "tool_use",
-									id: "toolu_q",
-									name: "AskUserQuestion",
-									input: { question: "pick one" },
-								},
-							],
-						},
-					}),
-				],
-			}),
-		);
+	const { runClaudeAgent } = await import("../claude-run.js");
+	await expect(
+		runClaudeAgent({
+			cwd: process.cwd(),
+			prompt: "hi",
+			apiKey: "test-key",
+			bin: "nonexistent-claude-binary-xyz",
+		}),
+	).rejects.toThrow(CLAUDE_BINARY_MISSING);
+});
 
-		const { runClaudeAgent } = await import("../claude-run.js");
-		await expect(
-			runClaudeAgent({
-				cwd: process.cwd(),
-				prompt: "hi",
-				apiKey: "test-key",
-				bin: "claude",
-			}),
-		).rejects.toBeInstanceOf(UserInputRequiredError);
-	});
+it("runClaudeAgent › rejects an absolute CLAUDE_CODE_BIN that does not exist", async () => {
+	const { resolveClaudeBin } = await import("../claude-run.js");
+	await expect(resolveClaudeBin("/missing/claude-bin")).rejects.toThrow(CLAUDE_PATH_MISSING);
+});
 
-	it("times out and cancels the child via abort", async () => {
-		process.env.ANTHROPIC_API_KEY = "test-key";
-		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
-		spawnMock.mockImplementation(() => mockChild({ hang: true }));
+it("runClaudeAgent › formatClaudeRunFailure › includes cli status and exit code", async () => {
+	const { formatClaudeRunFailure } = await import("../claude-run.js");
+	expect(
+		formatClaudeRunFailure({
+			status: "failed",
+			rawStatus: "error",
+			exitCode: 1,
+			resultError: "boom",
+		}),
+	).toContain("cli: error");
+});
 
-		const { runClaudeAgent } = await import("../claude-run.js");
-		await expect(
-			runClaudeAgent({
-				cwd: process.cwd(),
-				prompt: "hi",
-				apiKey: "test-key",
-				bin: "claude",
-				timeoutMs: 40,
-			}),
-		).rejects.toBeInstanceOf(AgentRunTimeoutError);
-		const child = spawnMock.mock.results[0]?.value as { kill: ReturnType<typeof jest.fn> };
-		expect(child.kill).toHaveBeenCalled();
-	});
+it("runClaudeAgent › withMcpAllowedTools › appends Claude MCP prefixes for each server", async () => {
+	const { withMcpAllowedTools } = await import("../claude-run.js");
+	expect(
+		withMcpAllowedTools("Bash,Read", {
+			echo: { command: "node", args: ["echo.mjs"] },
+		}),
+	).toBe("Bash,Read,mcp__echo,mcp__echo__*");
+});
 
-	it("surfaces missing binary errors from spawn", async () => {
-		process.env.ANTHROPIC_API_KEY = "test-key";
-		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
-		spawnMock.mockImplementation(() => {
-			const child = mockChild({ hang: true });
-			queueMicrotask(() => {
-				const err = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
-				child.emit("error", err);
-			});
-			return child;
-		});
+it("runClaudeAgent › withMcpAllowedTools › leaves the list unchanged when no servers are set", async () => {
+	const { withMcpAllowedTools } = await import("../claude-run.js");
+	expect(withMcpAllowedTools("Bash,Read", undefined)).toBe("Bash,Read");
+});
 
-		const { runClaudeAgent } = await import("../claude-run.js");
-		await expect(
-			runClaudeAgent({
-				cwd: process.cwd(),
-				prompt: "hi",
-				apiKey: "test-key",
-				bin: "nonexistent-claude-binary-xyz",
-			}),
-		).rejects.toThrow(/Claude Code binary not found/);
-	});
-
-	it("rejects an absolute CLAUDE_CODE_BIN that does not exist", async () => {
-		const { resolveClaudeBin } = await import("../claude-run.js");
-		await expect(resolveClaudeBin("/missing/claude-bin")).rejects.toThrow(
-			/Claude Code binary not found at/,
-		);
+it("runClaudeAgent › buildClaudeMcpConfigJson › maps stdio and http servers", async () => {
+	const { buildClaudeMcpConfigJson } = await import("../claude-run.js");
+	expect(
+		buildClaudeMcpConfigJson({
+			echo: { command: "node", args: ["echo.js"], env: { A: "1" } },
+			remote: { type: "http", url: "https://example.com/mcp" },
+		}),
+	).toEqual({
+		mcpServers: {
+			echo: { command: "node", args: ["echo.js"], env: { A: "1" } },
+			remote: { type: "http", url: "https://example.com/mcp" },
+		},
 	});
 });
 
-describe("formatClaudeRunFailure", () => {
-	it("includes cli status and exit code", async () => {
-		const { formatClaudeRunFailure } = await import("../claude-run.js");
-		expect(
-			formatClaudeRunFailure({
-				status: "failed",
-				rawStatus: "error",
-				exitCode: 1,
-				resultError: "boom",
-			}),
-		).toContain("cli: error");
-	});
+it("runClaudeAgent › cancelActiveClaudeRun › is a no-op when no run is active", async () => {
+	const { cancelActiveClaudeRun } = await import("../claude-run.js");
+	expect(() => cancelActiveClaudeRun()).not.toThrow();
 });
 
-describe("withMcpAllowedTools", () => {
-	it("appends Claude MCP prefixes for each server", async () => {
-		const { withMcpAllowedTools } = await import("../claude-run.js");
-		expect(
-			withMcpAllowedTools("Bash,Read", {
-				echo: { command: "node", args: ["echo.mjs"] },
-			}),
-		).toBe("Bash,Read,mcp__echo,mcp__echo__*");
+it("runClaudeAgent keeps MCP configuration until the child settles", async () => {
+	let configPath = "";
+	let configDuringRun = "";
+	spawnMock.mockImplementation((_bin: string, args: string[]) => {
+		configPath = args[args.indexOf("--mcp-config") + 1] ?? "";
+		const child = mockChild({ hang: true });
+		setTimeout(async () => {
+			try {
+				configDuringRun = await Bun.file(configPath).text();
+			} catch {
+				configDuringRun = "missing";
+			}
+			child.stdout.end();
+			child.stderr.end();
+			child.emit("close", 0);
+		}, 10);
+		return child;
 	});
-
-	it("leaves the list unchanged when no servers are set", async () => {
-		const { withMcpAllowedTools } = await import("../claude-run.js");
-		expect(withMcpAllowedTools("Bash,Read", undefined)).toBe("Bash,Read");
+	const { runClaudeAgent } = await import("../claude-run.js");
+	await runClaudeAgent({
+		cwd: process.cwd(),
+		prompt: "Read the record.",
+		mcpServers: { records: { command: "node", args: ["records.mjs"] } },
 	});
-});
-
-describe("buildClaudeMcpConfigJson", () => {
-	it("maps stdio and http servers", async () => {
-		const { buildClaudeMcpConfigJson } = await import("../claude-run.js");
-		expect(
-			buildClaudeMcpConfigJson({
-				echo: { command: "node", args: ["echo.js"], env: { A: "1" } },
-				remote: { type: "http", url: "https://example.com/mcp" },
-			}),
-		).toEqual({
-			mcpServers: {
-				echo: { command: "node", args: ["echo.js"], env: { A: "1" } },
-				remote: { type: "http", url: "https://example.com/mcp" },
-			},
-		});
-	});
-});
-
-describe("cancelActiveClaudeRun", () => {
-	it("is a no-op when no run is active", async () => {
-		const { cancelActiveClaudeRun } = await import("../claude-run.js");
-		expect(() => cancelActiveClaudeRun()).not.toThrow();
-	});
+	expect(configDuringRun).toContain("records.mjs");
+	expect(await Bun.file(configPath).exists()).toBe(false);
 });

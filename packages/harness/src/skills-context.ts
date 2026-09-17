@@ -1,4 +1,10 @@
 /** Project skill trees preserved for host discovery or explicit preamble simulation. */
+const BACKSLASH = /\\/g;
+const RELATIVE_PREFIX = /^\.\//;
+const TRAILING_SLASH = /\/+$/;
+const SKILL_FILE_PATH = /\/skill\.md$/i;
+const SKILL_FILE_NAME = /skill\.md$/i;
+
 export const SKILL_ROOTS = [
 	".agents/skills",
 	".cursor/skills",
@@ -25,14 +31,18 @@ export type SkillContextOptions =
 export type SkillContextSetting = "none" | readonly string[] | SkillContextOptions;
 
 export function normalizeRelSkillPath(raw: string): string {
-	return raw.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "").trim();
+	return raw
+		.replace(BACKSLASH, "/")
+		.replace(RELATIVE_PREFIX, "")
+		.replace(TRAILING_SLASH, "")
+		.trim();
 }
 
 /** SKILL.md path for a listed skill file or folder. */
 export function skillManifestRelPath(raw: string): string {
 	const rel = normalizeRelSkillPath(raw);
-	if (/\/skill\.md$/i.test(rel)) {
-		return rel.replace(/skill\.md$/i, "SKILL.md");
+	if (SKILL_FILE_PATH.test(rel)) {
+		return rel.replace(SKILL_FILE_NAME, "SKILL.md");
 	}
 	return `${rel}/SKILL.md`;
 }

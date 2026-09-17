@@ -84,30 +84,40 @@ export function expandViewerJobs(catalog: ViewerCatalog, request: ViewerRunReque
 			if (scenario.skip) {
 				continue;
 			}
-			for (const host of hosts) {
-				if (scenario.host && scenario.host !== host) {
-					continue;
-				}
-				if (scenario.compare && scenario.compare.length > 0) {
-					for (const arm of scenario.compare) {
-						jobs.push({
-							suite: suite.name,
-							scenario: scenario.name,
-							host,
-							arm: arm.id,
-							prompt: arm.prompt ?? scenario.prompt,
-						});
-					}
-					continue;
-				}
+			jobs.push(...scenarioJobs(suite.name, scenario, hosts));
+		}
+	}
+	return jobs;
+}
+
+function scenarioJobs(
+	suite: string,
+	scenario: ViewerCatalogScenario,
+	hosts: AgentHost[],
+): ViewerJob[] {
+	const jobs: ViewerJob[] = [];
+	for (const host of hosts) {
+		if (scenario.host && scenario.host !== host) {
+			continue;
+		}
+		if (scenario.compare?.length) {
+			for (const arm of scenario.compare) {
 				jobs.push({
-					suite: suite.name,
+					suite: suite,
 					scenario: scenario.name,
 					host,
-					prompt: scenario.prompt,
+					arm: arm.id,
+					prompt: arm.prompt ?? scenario.prompt,
 				});
 			}
+			continue;
 		}
+		jobs.push({
+			suite: suite,
+			scenario: scenario.name,
+			host,
+			prompt: scenario.prompt,
+		});
 	}
 	return jobs;
 }

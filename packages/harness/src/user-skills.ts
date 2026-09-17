@@ -28,22 +28,28 @@ export function cursorUserSkillRoots(homeDir: string): string[] {
 export async function countUserSkillEntries(homeDir: string): Promise<number> {
 	let total = 0;
 	for (const root of cursorUserSkillRoots(homeDir)) {
-		try {
-			const entries = await readdir(root, { withFileTypes: true });
-			for (const entry of entries) {
-				if (!entry.isDirectory()) {
-					continue;
-				}
-				try {
-					await access(join(root, entry.name, "SKILL.md"));
-					total += 1;
-				} catch {
-					// Folder without a skill manifest does not count.
-				}
+		total += await countSkillsInRoot(root);
+	}
+	return total;
+}
+
+async function countSkillsInRoot(root: string): Promise<number> {
+	let total = 0;
+	try {
+		const entries = await readdir(root, { withFileTypes: true });
+		for (const entry of entries) {
+			if (!entry.isDirectory()) {
+				continue;
 			}
-		} catch {
-			// Missing skill root does not count.
+			try {
+				await access(join(root, entry.name, "SKILL.md"));
+				total += 1;
+			} catch {
+				// Folder without a skill manifest does not count.
+			}
 		}
+	} catch {
+		// Missing skill root does not count.
 	}
 	return total;
 }

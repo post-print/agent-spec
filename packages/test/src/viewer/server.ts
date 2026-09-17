@@ -15,6 +15,10 @@ import {
 } from "./run-controller.js";
 import { reportCss } from "./styles.js";
 
+const RUN_ROUTE = /^\/api\/runs\/([^/]+)$/;
+const EVENTS_ROUTE = /^\/api\/runs\/([^/]+)\/events$/;
+const CANCEL_ROUTE = /^\/api\/runs\/([^/]+)\/cancel$/;
+
 const VIEWER_HOST = "127.0.0.1";
 
 export interface ListenViewerOptions {
@@ -36,160 +40,196 @@ export interface ViewerServerHandle {
 	close: () => Promise<void>;
 }
 
-export async function listenViewer(options: ListenViewerOptions): Promise<ViewerServerHandle> {
-	const controller = createViewerRunController({
-		catalog: options.catalog,
-		runner: options.runner,
-		maxParallelAgents: MAX_WORKERS,
-		initialRuns: options.initialRuns,
-	});
-	let idle: ReturnType<typeof setTimeout> | undefined;
-	let closed = false;
-	const bumpIdle = (): void => {
-		if (!options.idleMs) return;
-		if (idle) clearTimeout(idle);
-		idle = setTimeout(() => {
-			void close();
-		}, options.idleMs);
-	};
-	const server = createServer((req, res) => {
-		bumpIdle();
-		void handleViewerRequest(
-			req,
-			res,
-			options.catalog,
-			controller,
-			options.selectedRunId,
-			options.cwd,
-			options.workers ?? DEFAULT_VIEWER_WORKERS,
-		);
-	});
-	const close = (): Promise<void> =>
-		new Promise((resolveClose, rejectClose) => {
-			if (closed) {
-				resolveClose();
-				return;
-			}
-			closed = true;
-			if (idle) {
-				clearTimeout(idle);
-				idle = undefined;
-			}
-			const active = controller.activeRunId();
-			if (active) controller.cancel(active);
-			server.close((error) => {
-				if (error) {
-					rejectClose(error);
-					return;
-				}
-				Promise.resolve(options.onClose?.()).then(() => resolveClose(), rejectClose);
+class ViewerServer {
+	private idle: ReturnType<typeof setTimeout> | undefined;
+	private closed = false;
+	private readonly controller: ViewerRunController;
+	private readonly server: ReturnType<typeof createServer>;
+	constructor(private readonly options: ListenViewerOptions) {
+		this.controller = createViewerRunController({
+			catalog: options.catalog,
+			runner: options.runner,
+			maxParallelAgents: MAX_WORKERS,
+			initialRuns: options.initialRuns,
+		});
+		this.server = createServer((req, res) => {
+			this.bumpIdle();
+			void handleViewerRequest(req, {
+				res,
+				catalog: options.catalog,
+				controller: this.controller,
+				selectedRunId: options.selectedRunId,
+				workspace: options.cwd,
+				defaultWorkers: options.workers ?? DEFAULT_VIEWER_WORKERS,
 			});
 		});
-	await new Promise<void>((resolveListen, reject) => {
-		server.once("error", reject);
-		server.listen(options.port ?? 0, VIEWER_HOST, () => resolveListen());
-	});
-	const addr = server.address();
-	if (!addr || typeof addr === "string") {
-		server.close();
-		throw new Error("viewer has no port");
 	}
-	bumpIdle();
-	return {
-		url: `http://${VIEWER_HOST}:${addr.port}/`,
-		close,
-	};
+	private bumpIdle(): void {
+		if (!this.options.idleMs) return;
+		if (this.idle) clearTimeout(this.idle);
+		this.idle = setTimeout(() => {
+			void this.close();
+		}, this.options.idleMs);
+	}
+	close = (): Promise<void> =>
+		new Promise((resolve, reject) => {
+			if (this.closed) {
+				resolve();
+				return;
+			}
+			this.closed = true;
+			if (this.idle) {
+				clearTimeout(this.idle);
+				this.idle = undefined;
+			}
+			const active = this.controller.activeRunId();
+			if (active) this.controller.cancel(active);
+			this.server.close((error) => {
+				if (error) {
+					reject(error);
+					return;
+				}
+				Promise.resolve(this.options.onClose?.()).then(() => resolve(), reject);
+			});
+		});
+	async listen(): Promise<ViewerServerHandle> {
+		await new Promise<void>((resolve, reject) => {
+			this.server.once("error", reject);
+			this.server.listen(this.options.port ?? 0, VIEWER_HOST, resolve);
+		});
+		const addr = this.server.address();
+		if (!addr || typeof addr === "string") {
+			this.server.close();
+			throw new Error("viewer has no port");
+		}
+		this.bumpIdle();
+		return { url: `http://${VIEWER_HOST}:${addr.port}/`, close: this.close };
+	}
+}
+export async function listenViewer(options: ListenViewerOptions): Promise<ViewerServerHandle> {
+	return new ViewerServer(options).listen();
 }
 
+interface ViewerRequestContext {
+	res: ServerResponse;
+	catalog: ViewerCatalog;
+	controller: ViewerRunController;
+	selectedRunId?: string;
+	workspace?: string;
+	defaultWorkers?: number;
+}
 async function handleViewerRequest(
 	req: IncomingMessage,
-	res: ServerResponse,
-	catalog: ViewerCatalog,
-	controller: ViewerRunController,
-	selectedRunId?: string,
-	workspace?: string,
-	defaultWorkers = DEFAULT_VIEWER_WORKERS,
+	context: ViewerRequestContext,
 ): Promise<void> {
-	const url = new URL(req.url ?? "/", "http://127.0.0.1");
-	const path = url.pathname;
-	if (req.method === "GET" && (path === "/" || path === "/index.html")) {
-		const runs = controller.runs();
-		const activeRun = runs.find((run) => run.status === "running" || run.status === "cancelling");
-		const bootstrap: ViewerBootstrap = {
-			catalog,
-			runs,
-			selectedRunId: selectedRunId ?? activeRun?.id ?? runs.at(-1)?.id,
-			workspace,
-			capabilities: {
-				canRun: true,
-				defaultWorkers,
-				maxWorkers: controller.maxParallelAgents(),
-			},
-		};
-		write(
-			res,
-			200,
-			"text/html; charset=utf-8",
-			renderViewerPage(bootstrap, { baseCss: reportCss() }),
-		);
-		return;
+	const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+	if (req.method === "GET" && handleGetRequest(path, req, context)) return;
+	if (req.method === "POST" && (await handlePostRequest(path, req, context))) return;
+	context.res.writeHead(404);
+	context.res.end();
+}
+function handleGetRequest(
+	path: string,
+	req: IncomingMessage,
+	context: ViewerRequestContext,
+): boolean {
+	const { res, catalog, controller } = context;
+	if (path === "/" || path === "/index.html") {
+		renderIndex(context);
+		return true;
 	}
-	if (req.method === "GET" && path === "/api/catalog") {
+	if (path === "/api/catalog") {
 		writeJson(res, 200, catalog);
-		return;
+		return true;
 	}
-	if (req.method === "GET" && path === "/api/runs") {
+	if (path === "/api/runs") {
 		writeJson(res, 200, controller.runs());
-		return;
+		return true;
 	}
-	const detailMatch = path.match(/^\/api\/runs\/([^/]+)$/);
-	if (req.method === "GET" && detailMatch?.[1]) {
-		const run = controller.run(detailMatch[1]);
-		if (!run) {
-			writeJson(res, 404, { error: "Run not found" });
-			return;
-		}
-		writeJson(res, 200, { run });
-		return;
+	const detail = path.match(RUN_ROUTE)?.[1];
+	if (detail) {
+		const run = controller.run(detail);
+		writeJson(res, run ? 200 : 404, run ? { run } : { error: "Run not found" });
+		return true;
 	}
-	if (req.method === "POST" && path === "/api/runs") {
-		let request: ViewerRunRequest;
-		try {
-			request = (await readJson(req)) as ViewerRunRequest;
-		} catch (error) {
-			writeJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
-			return;
-		}
-		try {
-			const started = controller.start(request);
-			writeJson(res, 202, started);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			const status = message.includes("already in progress") ? 409 : 400;
-			writeJson(res, status, { error: message });
-		}
-		return;
+	const runId = path.match(EVENTS_ROUTE)?.[1];
+	if (!runId) return false;
+	streamEvents(res, { controller, runId, lastEventId: req.headers["last-event-id"] });
+	return true;
+}
+async function handlePostRequest(
+	path: string,
+	req: IncomingMessage,
+	context: ViewerRequestContext,
+): Promise<boolean> {
+	const { res, controller } = context;
+	if (path === "/api/runs") {
+		await startRequestedRun(req, res, controller);
+		return true;
 	}
-	const runMatch = path.match(/^\/api\/runs\/([^/]+)\/events$/);
-	if (req.method === "GET" && runMatch?.[1]) {
-		streamEvents(res, controller, runMatch[1], req.headers["last-event-id"]);
-		return;
-	}
-	const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
-	if (req.method === "POST" && cancelMatch?.[1]) {
-		const cancelled = controller.cancel(cancelMatch[1]);
-		writeJson(res, cancelled ? 200 : 404, { cancelled });
-		return;
-	}
-	res.writeHead(404);
-	res.end();
+	const runId = path.match(CANCEL_ROUTE)?.[1];
+	if (!runId) return false;
+	const cancelled = controller.cancel(runId);
+	writeJson(res, cancelled ? 200 : 404, { cancelled });
+	return true;
 }
 
-function streamEvents(
+async function startRequestedRun(
+	req: IncomingMessage,
 	res: ServerResponse,
 	controller: ViewerRunController,
-	runId: string,
-	lastEventId: string | string[] | undefined,
+): Promise<void> {
+	let request: ViewerRunRequest;
+	try {
+		request = (await readJson(req)) as ViewerRunRequest;
+	} catch (error) {
+		writeJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+		return;
+	}
+	try {
+		const started = controller.start(request);
+		writeJson(res, 202, started);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const status = message.includes("already in progress") ? 409 : 400;
+		writeJson(res, status, { error: message });
+	}
+}
+function renderIndex(context: ViewerRequestContext): void {
+	const {
+		res,
+		catalog,
+		controller,
+		selectedRunId,
+		workspace,
+		defaultWorkers = DEFAULT_VIEWER_WORKERS,
+	} = context;
+	const runs = controller.runs();
+	const activeRun = runs.find((run) => run.status === "running" || run.status === "cancelling");
+	const bootstrap: ViewerBootstrap = {
+		catalog,
+		runs,
+		selectedRunId: selectedRunId ?? activeRun?.id ?? runs.at(-1)?.id,
+		workspace,
+		capabilities: {
+			canRun: true,
+			defaultWorkers,
+			maxWorkers: controller.maxParallelAgents(),
+		},
+	};
+	write(res, {
+		status: 200,
+		contentType: "text/html; charset=utf-8",
+		body: renderViewerPage(bootstrap, { baseCss: reportCss() }),
+	});
+}
+function streamEvents(
+	res: ServerResponse,
+	{
+		controller,
+		runId,
+		lastEventId,
+	}: { controller: ViewerRunController; runId: string; lastEventId: string | string[] | undefined },
 ): void {
 	if (!controller.history(runId)) {
 		writeJson(res, 404, { error: "Run not found" });
@@ -261,10 +301,17 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 }
 
 function writeJson(res: ServerResponse, status: number, body: unknown): void {
-	write(res, status, "application/json; charset=utf-8", `${JSON.stringify(body)}\n`);
+	write(res, {
+		status: status,
+		contentType: "application/json; charset=utf-8",
+		body: `${JSON.stringify(body)}\n`,
+	});
 }
 
-function write(res: ServerResponse, status: number, contentType: string, body: string): void {
+function write(
+	res: ServerResponse,
+	{ status, contentType, body }: { status: number; contentType: string; body: string },
+): void {
 	res.writeHead(status, {
 		"content-type": contentType,
 		"cache-control": "no-store",

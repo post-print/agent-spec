@@ -61,6 +61,7 @@ interface ViewerRunSession {
 export interface ViewerRunController {
 	start(request: ViewerRunRequest): ViewerRunHandle;
 	maxParallelAgents(): number;
+
 	cancel(runId: string): boolean;
 	history(runId: string): ViewerEvent[] | undefined;
 	subscribe(runId: string, listener: (event: ViewerEvent) => void): () => void;
@@ -86,119 +87,139 @@ export function followViewerRun(
 	return unsubscribe;
 }
 
-export function createViewerRunController(options: {
+interface ViewerControllerOptions {
 	catalog: ViewerCatalog;
 	runner: ViewerRunner;
 	maxParallelAgents?: number;
 	initialRuns?: ViewerRunRecord[];
-}): ViewerRunController {
-	const maxParallel = options.maxParallelAgents ?? VIEWER_MAX_PARALLEL_AGENTS;
-	const sessions = new Map<string, ViewerRunSession>();
-	let activeId: string | undefined;
-
-	for (const record of options.initialRuns ?? []) {
-		sessions.set(record.id, {
-			record: structuredClone(record),
-			events: [],
-			listeners: new Set(),
-			done: Promise.resolve(),
-			armResults: new Map(),
-			finalizing: new Set(),
-		});
-	}
-
-	const emit = (target: ViewerRunSession, event: ViewerEvent): void => {
-		target.events.push(event);
-		if (event.type === "scenario_result") {
-			addScenarioResult(target, event, options.catalog);
-		}
-		for (const listener of target.listeners) listener(event);
-	};
-
-	return {
-		activeRunId: () => activeId,
-		maxParallelAgents: () => maxParallel,
-		runs: () => [...sessions.values()].map(({ record }) => structuredClone(record)),
-		run: (runId) => {
-			const record = sessions.get(runId)?.record;
-			return record ? structuredClone(record) : undefined;
-		},
-		start(request) {
-			if (activeId) throw new Error("A viewer run is already in progress");
-			if (
-				request.workers !== undefined &&
-				(!Number.isInteger(request.workers) || request.workers < 1 || request.workers > maxParallel)
-			) {
-				throw new Error(`workers must be an integer 1-${maxParallel}`);
-			}
-			const jobs = expandViewerJobs(options.catalog, request);
-			if (jobs.length === 0) throw new Error("No matching scenarios to run");
-			const runId = `run-${Date.now()}`;
-			const abort = new AbortController();
-			const current: ViewerRunSession = {
-				record: {
-					id: runId,
-					request: structuredClone(request),
-					status: "running",
-					startedAt: new Date().toISOString(),
-					reports: [],
-				},
+}
+class RunController implements ViewerRunController {
+	private readonly sessions = new Map<string, ViewerRunSession>();
+	private activeId: string | undefined;
+	private readonly maxParallel: number;
+	constructor(private readonly options: ViewerControllerOptions) {
+		this.maxParallel = this.options.maxParallelAgents ?? VIEWER_MAX_PARALLEL_AGENTS;
+		for (const record of this.options.initialRuns ?? []) {
+			this.sessions.set(record.id, {
+				record: structuredClone(record),
 				events: [],
 				listeners: new Set(),
-				abort,
 				done: Promise.resolve(),
 				armResults: new Map(),
 				finalizing: new Set(),
-			};
-			sessions.set(runId, current);
-			activeId = runId;
-			emit(current, { type: "run_started", runId });
-			current.done = runJobBatches({
-				jobs,
-				catalog: options.catalog,
-				hosts: request.hosts ?? options.catalog.defaultSelectedHosts,
-				parallelHosts: request.parallelHosts === true,
-				maxParallel: request.workers ?? maxParallel,
-				signal: abort.signal,
-				runner: options.runner,
-				forward: (event) => emit(current, event),
-				afterJob: () => finalizeScheduledCompares(current, options.catalog, options.runner, emit),
-			})
-				.catch((error) =>
-					emit(current, {
-						type: "error",
-						message: error instanceof Error ? error.message : String(error),
-					}),
-				)
-				.finally(() => {
-					const totals = summarizeRun(current.record.reports, current.events);
-					current.record.status = abort.signal.aborted ? "cancelled" : "completed";
-					current.record.finishedAt = new Date().toISOString();
-					emit(current, { type: "run_finished", runId, status: current.record.status, ...totals });
-					if (activeId === runId) activeId = undefined;
-				});
-			return { runId };
-		},
-		cancel(runId) {
-			const target = sessions.get(runId);
-			if (!target?.abort || target.record.status !== "running") return false;
-			target.record.status = "cancelling";
-			target.abort.abort();
-			return true;
-		},
-		history(runId) {
-			const target = sessions.get(runId);
-			return target ? [...target.events] : undefined;
-		},
-		subscribe(runId, listener) {
-			const target = sessions.get(runId);
-			if (!target) return () => undefined;
-			target.listeners.add(listener);
-			return () => {
-				target.listeners.delete(listener);
-			};
-		},
+			});
+		}
+	}
+	private emit = (target: ViewerRunSession, event: ViewerEvent): void => {
+		target.events.push(event);
+		if (event.type === "scenario_result") {
+			addScenarioResult(target, event, this.options.catalog);
+		}
+		for (const listener of target.listeners) listener(event);
 	};
+	activeRunId = () => this.activeId;
+	maxParallelAgents = () => this.maxParallel;
+	runs = () => [...this.sessions.values()].map(({ record }) => structuredClone(record));
+	run = (runId: string) => {
+		const record = this.sessions.get(runId)?.record;
+		return record ? structuredClone(record) : undefined;
+	};
+	start(request: ViewerRunRequest) {
+		if (this.activeId) throw new Error("A viewer run is already in progress");
+		if (
+			request.workers !== undefined &&
+			(!Number.isInteger(request.workers) ||
+				request.workers < 1 ||
+				request.workers > this.maxParallel)
+		) {
+			throw new Error(`workers must be an integer 1-${this.maxParallel}`);
+		}
+		const jobs = expandViewerJobs(this.options.catalog, request);
+		if (jobs.length === 0) throw new Error("No matching scenarios to run");
+		const runId = `run-${Date.now()}`;
+		const abort = new AbortController();
+		const current: ViewerRunSession = {
+			record: {
+				id: runId,
+				request: structuredClone(request),
+				status: "running",
+				startedAt: new Date().toISOString(),
+				reports: [],
+			},
+			events: [],
+			listeners: new Set(),
+			abort,
+			done: Promise.resolve(),
+			armResults: new Map(),
+			finalizing: new Set(),
+		};
+		this.sessions.set(runId, current);
+		this.activeId = runId;
+		this.emit(current, { type: "run_started", runId });
+		this.schedule(current, jobs, abort);
+		return { runId };
+	}
+	private schedule(current: ViewerRunSession, jobs: ViewerJob[], abort: AbortController): void {
+		const runId = current.record.id;
+		const request = current.record.request;
+		current.done = runJobBatches({
+			jobs,
+			catalog: this.options.catalog,
+			hosts: request.hosts ?? this.options.catalog.defaultSelectedHosts,
+			parallelHosts: request.parallelHosts === true,
+			maxParallel: request.workers ?? this.maxParallel,
+			signal: abort.signal,
+			runner: this.options.runner,
+			forward: (event) => this.emit(current, event),
+			afterJob: () =>
+				finalizeScheduledCompares(current, {
+					catalog: this.options.catalog,
+					runner: this.options.runner,
+					emit: this.emit,
+				}),
+		})
+			.catch((error) =>
+				this.emit(current, {
+					type: "error",
+					message: error instanceof Error ? error.message : String(error),
+				}),
+			)
+			.finally(() => {
+				const totals = summarizeRun(current.record.reports, current.events);
+				current.record.status = abort.signal.aborted ? "cancelled" : "completed";
+				current.record.finishedAt = new Date().toISOString();
+				this.emit(current, {
+					type: "run_finished",
+					runId,
+					status: current.record.status,
+					...totals,
+				});
+				if (this.activeId === runId) this.activeId = undefined;
+			});
+	}
+
+	cancel(runId: string) {
+		const target = this.sessions.get(runId);
+		if (!target?.abort || target.record.status !== "running") return false;
+		target.record.status = "cancelling";
+		target.abort.abort();
+		return true;
+	}
+	history(runId: string) {
+		const target = this.sessions.get(runId);
+		return target ? [...target.events] : undefined;
+	}
+	subscribe(runId: string, listener: (event: ViewerEvent) => void) {
+		const target = this.sessions.get(runId);
+		if (!target) return () => undefined;
+		target.listeners.add(listener);
+		return () => {
+			target.listeners.delete(listener);
+		};
+	}
+}
+export function createViewerRunController(options: ViewerControllerOptions): ViewerRunController {
+	return new RunController(options);
 }
 
 function addScenarioResult(
@@ -232,13 +253,8 @@ function addScenarioResult(
 	session.armResults.set(key, group);
 }
 
-function buildViewerCompareResult(
-	suite: string,
-	scenarioName: string,
-	scenario: ViewerCatalogScenario,
-	stored: Map<string, ScenarioResult>,
-): ScenarioResult {
-	const arms = (scenario.compare ?? []).flatMap((arm) => {
+function viewerCompareArms(scenario: ViewerCatalogScenario, stored: Map<string, ScenarioResult>) {
+	return (scenario.compare ?? []).flatMap((arm) => {
 		const result = stored.get(arm.id);
 		return result
 			? [
@@ -256,6 +272,16 @@ function buildViewerCompareResult(
 				]
 			: [];
 	});
+}
+function buildViewerCompareResult(
+	suite: string,
+	{
+		scenarioName,
+		scenario,
+		stored,
+	}: { scenarioName: string; scenario: ViewerCatalogScenario; stored: Map<string, ScenarioResult> },
+): ScenarioResult {
+	const arms = viewerCompareArms(scenario, stored);
 	const { compare, failures } = finalizeCompareOutcome(arms, scenario.gates);
 	const passed = failures.length === 0;
 	const result: ScenarioResult = {
@@ -295,9 +321,15 @@ function buildViewerCompareResult(
 
 async function finalizeScheduledCompares(
 	session: ViewerRunSession,
-	catalog: ViewerCatalog,
-	runner: ViewerRunner,
-	emit: (session: ViewerRunSession, event: ViewerEvent) => void,
+	{
+		catalog,
+		runner,
+		emit,
+	}: {
+		catalog: ViewerCatalog;
+		runner: ViewerRunner;
+		emit: (session: ViewerRunSession, event: ViewerEvent) => void;
+	},
 ): Promise<void> {
 	for (const [key, group] of session.armResults) {
 		if (session.abort?.signal.aborted) return;
@@ -307,79 +339,114 @@ async function finalizeScheduledCompares(
 			?.scenarios.find((item) => item.name === group.scenario);
 		if (!scenario?.compare?.length || group.results.size < scenario.compare.length) continue;
 		session.finalizing.add(key);
-		emit(session, {
-			type: "cell_started",
-			suite: group.suite,
-			scenario: group.scenario,
-			host: group.host,
-		});
-		emit(session, {
-			type: "scenario_finalizing",
-			suite: group.suite,
-			scenario: group.scenario,
-			host: group.host,
-		});
-		emit(session, {
-			type: "status",
-			suite: group.suite,
-			scenario: group.scenario,
-			host: group.host,
-			text: "Finalizing comparison and judge.",
-		});
-		let result: ScenarioResult;
-		try {
-			const armResults = new Map<string, ScenarioResult>();
-			for (const [armId, armResult] of group.results) {
-				const resultWithWorkspace = structuredClone(armResult);
-				const workspace = group.judgeWorkspaces.get(armId);
-				if (workspace) {
-					Object.defineProperty(resultWithWorkspace, "judgeWorkspace", {
-						value: workspace,
-						enumerable: false,
-					});
-				}
-				armResults.set(armId, resultWithWorkspace);
-			}
-			result = runner.finalizeCompare
-				? await runner.finalizeCompare({
-						suite: group.suite,
-						scenario,
-						host: group.host,
-						armResults,
-					})
-				: buildViewerCompareResult(group.suite, group.scenario, scenario, group.results);
-		} catch (error) {
-			result = buildViewerCompareResult(group.suite, group.scenario, scenario, group.results);
-			result.failures.push({
-				matcher: "compareFinalize",
-				message: error instanceof Error ? error.message : String(error),
-				category: "agent_runtime",
-			});
-			result.passed = false;
-		}
-		if (session.abort?.signal.aborted) return;
-		emit(session, {
-			type: "cell_finished",
-			suite: group.suite,
-			scenario: group.scenario,
-			host: group.host,
-			passed: result.passed,
-			durationMs: result.durationMs,
-			failures: result.failures.map((failure) => ({
-				matcher: failure.matcher,
-				message: failure.message,
-			})),
-		});
-		emit(session, {
-			type: "scenario_result",
-			suite: group.suite,
-			scenario: group.scenario,
-			host: group.host,
-			result,
-		});
+		await finalizeGroup(session, { group, scenario, runner, emit });
 	}
 }
 
+type ComparisonGroup = ViewerRunSession["armResults"] extends Map<string, infer G> ? G : never;
+type ComparisonFinalization = {
+	group: ComparisonGroup;
+	scenario: ViewerCatalogScenario;
+	runner: ViewerRunner;
+	emit: (session: ViewerRunSession, event: ViewerEvent) => void;
+};
+function comparisonInputs(group: ComparisonGroup): Map<string, ScenarioResult> {
+	const armResults = new Map<string, ScenarioResult>();
+	for (const [armId, armResult] of group.results) {
+		const resultWithWorkspace = structuredClone(armResult);
+		const workspace = group.judgeWorkspaces.get(armId);
+		if (workspace) {
+			Object.defineProperty(resultWithWorkspace, "judgeWorkspace", {
+				value: workspace,
+				enumerable: false,
+			});
+		}
+		armResults.set(armId, resultWithWorkspace);
+	}
+	return armResults;
+}
+function publishComparison(
+	session: ViewerRunSession,
+	{
+		group,
+		result,
+		emit,
+	}: Pick<ComparisonFinalization, "group" | "emit"> & { result: ScenarioResult },
+): void {
+	emit(session, {
+		type: "cell_finished",
+		suite: group.suite,
+		scenario: group.scenario,
+		host: group.host,
+		passed: result.passed,
+		durationMs: result.durationMs,
+		failures: result.failures.map((failure) => ({
+			matcher: failure.matcher,
+			message: failure.message,
+		})),
+	});
+	emit(session, {
+		type: "scenario_result",
+		suite: group.suite,
+		scenario: group.scenario,
+		host: group.host,
+		result,
+	});
+}
+async function finalizeGroup(
+	session: ViewerRunSession,
+	{ group, scenario, runner, emit }: ComparisonFinalization,
+): Promise<void> {
+	emit(session, {
+		type: "cell_started",
+		suite: group.suite,
+		scenario: group.scenario,
+		host: group.host,
+	});
+	emit(session, {
+		type: "scenario_finalizing",
+		suite: group.suite,
+		scenario: group.scenario,
+		host: group.host,
+	});
+	emit(session, {
+		type: "status",
+		suite: group.suite,
+		scenario: group.scenario,
+		host: group.host,
+		text: "Finalizing comparison and judge.",
+	});
+	let result: ScenarioResult;
+	try {
+		const armResults = comparisonInputs(group);
+		result = runner.finalizeCompare
+			? await runner.finalizeCompare({
+					suite: group.suite,
+					scenario,
+					host: group.host,
+					armResults,
+				})
+			: buildViewerCompareResult(group.suite, {
+					scenarioName: group.scenario,
+					scenario: scenario,
+					stored: group.results,
+				});
+	} catch (error) {
+		result = buildViewerCompareResult(group.suite, {
+			scenarioName: group.scenario,
+			scenario: scenario,
+			stored: group.results,
+		});
+		result.failures.push({
+			matcher: "compareFinalize",
+			message: error instanceof Error ? error.message : String(error),
+			category: "agent_runtime",
+		});
+		result.passed = false;
+	}
+	if (session.abort?.signal.aborted) return;
+	publishComparison(session, { group, result, emit });
+}
 function ensureReport(record: ViewerRunRecord, suite: string, host: AgentHost): SuiteRunReport {
 	let report = record.reports.find((item) => item.suite === suite && item.host === host);
 	if (!report) {
@@ -430,7 +497,7 @@ function summarizeRun(
 	);
 }
 
-async function runJobBatches(options: {
+interface JobBatchOptions {
 	jobs: ViewerJob[];
 	hosts: AgentHost[];
 	parallelHosts: boolean;
@@ -440,7 +507,8 @@ async function runJobBatches(options: {
 	catalog: ViewerCatalog;
 	forward: (event: ViewerEvent) => void;
 	afterJob: () => Promise<void>;
-}): Promise<void> {
+}
+async function runJobBatches(options: JobBatchOptions): Promise<void> {
 	const batches = options.parallelHosts
 		? [options.jobs]
 		: options.hosts
@@ -448,96 +516,102 @@ async function runJobBatches(options: {
 				.filter((batch) => batch.length > 0);
 	for (const batch of batches) {
 		if (options.signal.aborted) return;
-		await runWorkerPool(
-			batch,
-			options.maxParallel,
-			async (job) => {
-				try {
-					let completedResult: ScenarioResult | undefined;
-					await options.runner.runJob(
-						job,
-						(event) => {
-							if (event.type === "scenario_result" && !job.arm) {
-								completedResult = event.result;
-								return;
-							}
-							options.forward(event);
-						},
-						options.signal,
-					);
-					if (
-						!completedResult ||
-						job.arm ||
-						!options.runner.finalizeScenario ||
-						options.signal.aborted
-					) {
-						if (completedResult && !options.signal.aborted)
-							options.forward({ type: "scenario_result", ...job, result: completedResult });
-						return;
-					}
-					const scenario = options.catalog.suites
-						.find((suite) => suite.name === job.suite)
-						?.scenarios.find((item) => item.name === job.scenario);
-					if (!scenario || scenario.compare?.length) {
-						options.forward({ type: "scenario_result", ...job, result: completedResult });
-						return;
-					}
-					options.forward({ type: "scenario_finalizing", ...job });
-					const finalized = await options.runner.finalizeScenario(
-						{ suite: job.suite, scenario, host: job.host, result: completedResult },
-						options.forward,
-					);
-					// The child emits an agent-only completion before parent-process judging.
-					// Replace that provisional status so the cell cannot remain green when
-					// judging later fails or becomes unavailable.
-					options.forward({
-						type: "cell_finished",
-						...job,
-						passed: finalized.passed,
-						durationMs: finalized.durationMs,
-						failures: finalized.failures.map((failure) => ({
-							matcher: failure.matcher,
-							message: failure.message,
-						})),
-					});
-					options.forward({ type: "scenario_result", ...job, result: finalized });
-				} catch (error) {
-					if (options.signal.aborted) return;
-					const message = error instanceof Error ? error.message : String(error);
-					const envelope = {
-						suite: job.suite,
-						scenario: job.scenario,
-						host: job.host,
-						...(job.arm ? { arm: job.arm } : {}),
-					};
-					const failures = [
-						{ matcher: "liveScenario", message, category: "agent_runtime" as const },
-					];
-					options.forward({ type: "error", ...envelope, message });
-					options.forward({
-						type: "cell_finished",
-						...envelope,
-						passed: false,
-						failures,
-						durationMs: 0,
-					});
-					options.forward({
-						type: "scenario_result",
-						...envelope,
-						result: {
-							suite: job.suite,
-							scenario: job.scenario,
-							prompt: job.prompt,
-							passed: false,
-							failures,
-							durationMs: 0,
-						},
-					});
-				} finally {
-					await options.afterJob();
+		await runWorkerPool(batch, {
+			workers: options.maxParallel,
+			worker: (job) => runViewerJob(job, options),
+			signal: options.signal,
+		});
+	}
+}
+
+async function runViewerJob(job: ViewerJob, options: JobBatchOptions): Promise<void> {
+	try {
+		let completedResult: ScenarioResult | undefined;
+		await options.runner.runJob(
+			job,
+			(event) => {
+				if (event.type === "scenario_result" && !job.arm) {
+					completedResult = event.result;
+					return;
 				}
+				options.forward(event);
 			},
 			options.signal,
 		);
+		await finalizeViewerJob(job, options, completedResult);
+	} catch (error) {
+		publishJobFailure(job, options, error);
+	} finally {
+		await options.afterJob();
 	}
+}
+
+async function finalizeViewerJob(
+	job: ViewerJob,
+	options: JobBatchOptions,
+	completedResult: ScenarioResult | undefined,
+): Promise<void> {
+	if (!completedResult || job.arm || !options.runner.finalizeScenario || options.signal.aborted) {
+		if (completedResult && !options.signal.aborted)
+			options.forward({ type: "scenario_result", ...job, result: completedResult });
+		return;
+	}
+	const scenario = options.catalog.suites
+		.find((suite) => suite.name === job.suite)
+		?.scenarios.find((item) => item.name === job.scenario);
+	if (!scenario || scenario.compare?.length) {
+		options.forward({ type: "scenario_result", ...job, result: completedResult });
+		return;
+	}
+	options.forward({ type: "scenario_finalizing", ...job });
+	const finalized = await options.runner.finalizeScenario(
+		{ suite: job.suite, scenario, host: job.host, result: completedResult },
+		options.forward,
+	);
+	// The child emits an agent-only completion before parent-process judging.
+	// Replace that provisional status so the cell cannot remain green when
+	// judging later fails or becomes unavailable.
+	options.forward({
+		type: "cell_finished",
+		...job,
+		passed: finalized.passed,
+		durationMs: finalized.durationMs,
+		failures: finalized.failures.map((failure) => ({
+			matcher: failure.matcher,
+			message: failure.message,
+		})),
+	});
+	options.forward({ type: "scenario_result", ...job, result: finalized });
+}
+
+function publishJobFailure(job: ViewerJob, options: JobBatchOptions, error: unknown): void {
+	if (options.signal.aborted) return;
+	const message = error instanceof Error ? error.message : String(error);
+	const envelope = {
+		suite: job.suite,
+		scenario: job.scenario,
+		host: job.host,
+		...(job.arm ? { arm: job.arm } : {}),
+	};
+	const failures = [{ matcher: "liveScenario", message, category: "agent_runtime" as const }];
+	options.forward({ type: "error", ...envelope, message });
+	options.forward({
+		type: "cell_finished",
+		...envelope,
+		passed: false,
+		failures,
+		durationMs: 0,
+	});
+	options.forward({
+		type: "scenario_result",
+		...envelope,
+		result: {
+			suite: job.suite,
+			scenario: job.scenario,
+			prompt: job.prompt,
+			passed: false,
+			failures,
+			durationMs: 0,
+		},
+	});
 }

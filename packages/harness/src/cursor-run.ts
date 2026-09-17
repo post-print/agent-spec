@@ -199,126 +199,120 @@ export function takeLastCursorRunTrace(): AgentTrace | undefined {
 	return trace;
 }
 
-/** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
+interface CursorAgentHandle {
+	send(prompt: string): Promise<unknown>;
+}
+class CursorExecution {
+	private readonly acc = createTraceAccumulator();
+	private readonly liveState = createLiveNotifyState();
+	private timedOut = false;
+	constructor(
+		private readonly options: CursorRunOptions,
+		private readonly agent: CursorAgentHandle,
+	) {}
+	private stashTrace(usageOverride?: AgentUsage): AgentTrace {
+		const trace = finalizeTraceAccumulator(this.acc);
+		const usage = usageOverride ?? normalizeAgentUsage(this.acc.usage) ?? trace.usage;
+		const withUsage = usage ? { ...trace, usage } : trace;
+		lastCursorRunTrace = withUsage;
+		return withUsage;
+	}
+	private checkDeadline(run: CancellableSdkRun): void {
+		if (!this.timedOut) return;
+		cancelSdkRun(run);
+		activeCursorRun = undefined;
+		const error = new AgentRunTimeoutError(this.options.timeoutMs ?? 0);
+		error.trace = this.stashTrace();
+		throw error;
+	}
+	private async readStream(run: CancellableSdkRun): Promise<CursorRunResult | undefined> {
+		for await (const event of run.stream()) {
+			accumulateSdkEvent(this.acc, event as SdkMessage);
+			emitLiveAgentEvents(this.acc, this.liveState, this.options.onAgentEvent);
+			const lastTool = this.acc.toolCalls.at(-1);
+			if (!lastTool || !isUserInputTool(lastTool.name)) continue;
+			if (this.options.failOnUserInput !== false) {
+				const error = new UserInputRequiredError(lastTool.name);
+				error.trace = this.stashTrace();
+				throw error;
+			}
+			cancelSdkRun(run);
+			return { status: "completed", trace: this.stashTrace(), rawStatus: "user_input" };
+		}
+		return undefined;
+	}
+	private async finish(run: CancellableSdkRun): Promise<CursorRunResult> {
+		const early = await this.readStream(run);
+		if (early) return early;
+		const result = await run.wait();
+		const usage = normalizeAgentUsage(result.usage) ?? normalizeAgentUsage(run.usage);
+		return {
+			status: normalizeSdkRunStatus(result.status),
+			trace: this.stashTrace(usage),
+			rawStatus: result.status,
+			sdkError: extractCursorSdkError(result.error),
+			usage,
+		};
+	}
+	private async execute(): Promise<CursorRunResult> {
+		const run = (await this.agent.send(this.options.prompt)) as CancellableSdkRun;
+		activeCursorRun = run;
+		this.checkDeadline(run);
+		try {
+			return await this.finish(run);
+		} catch (error) {
+			cancelSdkRun(run);
+			const partial = this.stashTrace();
+			if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError) {
+				error.trace = error.trace ?? partial;
+				throw error;
+			}
+			throw wrapCursorSdkAuthError(error);
+		} finally {
+			if (activeCursorRun === run) activeCursorRun = undefined;
+		}
+	}
+	async run(): Promise<CursorRunResult> {
+		if (!this.options.timeoutMs || this.options.timeoutMs <= 0) return this.execute();
+		await this.options.onDeadlineStart?.();
+		try {
+			return await withRunTimeout(() => this.execute(), this.options.timeoutMs, {
+				onTimeout: () => {
+					this.timedOut = true;
+					cancelSdkRun(activeCursorRun);
+				},
+			});
+		} catch (error) {
+			if (error instanceof AgentRunTimeoutError)
+				error.trace = error.trace ?? takeLastCursorRunTrace();
+			throw error;
+		}
+	}
+}
+/** Shared Cursor SDK path with one owner for stream, deadline, and cancellation. */
 export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
 	const authMode = resolveCursorAuthMode(undefined, options.apiKey, options.authMode);
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
-	if (authMode === "api-key" && !apiKey?.trim()) {
-		throw new Error(CURSOR_MISSING_KEY_MESSAGE);
-	}
-
+	if (authMode === "api-key" && !apiKey?.trim()) throw new Error(CURSOR_MISSING_KEY_MESSAGE);
 	const sdkModule = await import("@cursor/sdk");
 	const modelId = options.model?.id ?? process.env.CURSOR_AGENT_MODEL ?? DEFAULT_CURSOR_MODEL;
-	const mcpServers = resolveMcpServers(options.mcpServers, {
-		cwd: options.cwd,
-	});
+	const mcpServers = resolveMcpServers(options.mcpServers, { cwd: options.cwd });
+	const execute = async () => {
+		await using agent = await sdkModule.Agent.create({
+			model: { id: modelId },
+			local: {
+				cwd: options.cwd,
+				settingSources: cursorSettingSources(options.includeGlobalSkills === true),
+			},
+			...(mcpServers ? { mcpServers } : {}),
+			...(authMode === "api-key" && apiKey ? { apiKey } : {}),
+		});
+		return await new CursorExecution(options, agent).run();
+	};
 	try {
 		return await withCursorAuthEnv(authMode, () =>
 			withCursorUserHome(options.includeGlobalSkills === true, () =>
-				withProcessWorkingDirectory(options.cwd, async () => {
-					const createOptions = {
-						model: { id: modelId },
-						local: {
-							cwd: options.cwd,
-							settingSources: cursorSettingSources(options.includeGlobalSkills === true),
-						},
-						...(mcpServers ? { mcpServers } : {}),
-						...(authMode === "api-key" && apiKey ? { apiKey } : {}),
-					};
-					await using agent = await sdkModule.Agent.create(createOptions);
-
-					const failOnUserInput = options.failOnUserInput !== false;
-					const acc = createTraceAccumulator();
-					const liveState = createLiveNotifyState();
-					let timedOut = false;
-
-					const stashTrace = (usageOverride?: AgentUsage): AgentTrace => {
-						const trace = finalizeTraceAccumulator(acc);
-						const usage = usageOverride ?? normalizeAgentUsage(acc.usage) ?? trace.usage;
-						const withUsage = usage ? { ...trace, usage } : trace;
-						lastCursorRunTrace = withUsage;
-						return withUsage;
-					};
-
-					const execute = async (): Promise<CursorRunResult> => {
-						const run = (await agent.send(options.prompt)) as CancellableSdkRun;
-						activeCursorRun = run;
-						if (timedOut) {
-							cancelSdkRun(run);
-							activeCursorRun = undefined;
-							const timeoutError = new AgentRunTimeoutError(options.timeoutMs ?? 0);
-							timeoutError.trace = stashTrace();
-							throw timeoutError;
-						}
-
-						try {
-							for await (const event of run.stream()) {
-								accumulateSdkEvent(acc, event as SdkMessage);
-								emitLiveAgentEvents(acc, liveState, options.onAgentEvent);
-								const lastTool = acc.toolCalls.at(-1);
-								if (lastTool && isUserInputTool(lastTool.name)) {
-									if (failOnUserInput) {
-										const userInputError = new UserInputRequiredError(lastTool.name);
-										userInputError.trace = stashTrace();
-										throw userInputError;
-									}
-									cancelSdkRun(run);
-									return {
-										status: "completed",
-										trace: stashTrace(),
-										rawStatus: "user_input",
-									};
-								}
-							}
-							const result = await run.wait();
-							const rawStatus = result.status;
-							const status = normalizeSdkRunStatus(rawStatus);
-							const sdkError = extractCursorSdkError(result.error);
-							// Prefer wait()/handle cumulative usage over summed stream turns when present.
-							const waitUsage = normalizeAgentUsage(result.usage) ?? normalizeAgentUsage(run.usage);
-							return {
-								status,
-								trace: stashTrace(waitUsage),
-								rawStatus,
-								sdkError,
-								usage: waitUsage,
-							};
-						} catch (error) {
-							cancelSdkRun(run);
-							const partial = stashTrace();
-							if (
-								error instanceof AgentRunTimeoutError ||
-								error instanceof UserInputRequiredError
-							) {
-								error.trace = error.trace ?? partial;
-								throw error;
-							}
-							throw wrapCursorSdkAuthError(error);
-						} finally {
-							if (activeCursorRun === run) {
-								activeCursorRun = undefined;
-							}
-						}
-					};
-
-					if (options.timeoutMs && options.timeoutMs > 0) {
-						await options.onDeadlineStart?.();
-						try {
-							return await withRunTimeout(execute, options.timeoutMs, {
-								onTimeout: () => {
-									timedOut = true;
-									cancelSdkRun(activeCursorRun);
-								},
-							});
-						} catch (error) {
-							if (error instanceof AgentRunTimeoutError) {
-								error.trace = error.trace ?? takeLastCursorRunTrace();
-							}
-							throw error;
-						}
-					}
-					return execute();
-				}),
+				withProcessWorkingDirectory(options.cwd, execute),
 			),
 		);
 	} catch (error) {

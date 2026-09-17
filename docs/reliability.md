@@ -26,4 +26,4 @@ The reliability command repeats the eleven TypeScript capability tests twenty ti
 
 Missing usage never becomes zero or a partial average. Agent and judge usage are reported separately. Token differences across providers do not imply equivalent cost. A few repeated runs are not statistical qualification.
 
-The strict Biome policy remains a separate gate. Existing violations in retained host and viewer code must be resolved before the repository-wide lint gate can pass. Do not weaken the policy or treat passing runtime tests as lint proof.
+The strict Biome policy is a required gate across the repository, including retained host and viewer code. Run `bun run lint` to check for zero errors and warnings. Passing runtime tests does not replace lint validation.

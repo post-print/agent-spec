@@ -174,16 +174,13 @@ export function describeCompareGate(
 	if (gate.metric === "outcome" && gate.operator === "equal") {
 		return `${label(gate.arm)} is expected to ${gate.value}`;
 	}
-	const operator =
-		gate.operator === "equal"
-			? "must equal"
-			: gate.operator === "lessThan"
-				? "must be less than"
-				: gate.operator === "atMost"
-					? "must be at most"
-					: gate.operator === "atLeast"
-						? "must be at least"
-						: "must be greater than";
+	const operator = {
+		equal: "must equal",
+		lessThan: "must be less than",
+		atMost: "must be at most",
+		atLeast: "must be at least",
+		greaterThan: "must be greater than",
+	}[gate.operator];
 	return `${label(gate.arm)} ${gate.metric} ${operator} ${gate.value}`;
 }
 
@@ -200,23 +197,31 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 	if (compare?.judgeMetrics?.length) {
 		rubric.judge = [...(rubric.judge ?? []), ...compare.judgeMetrics];
 	}
-	return {
-		...rest,
-		prompt: arm.prompt ?? rest.prompt,
-		host: arm.host ?? rest.host,
-		contextMode: arm.contextMode ?? rest.contextMode,
-		profile: arm.profile ?? rest.profile,
-		workspace: arm.workspace ?? rest.workspace,
-		skills: arm.skills ?? rest.skills,
-		contextSources: arm.contextSources ?? rest.contextSources,
-		mcpServers: arm.mcpServers ?? rest.mcpServers,
-		includeGlobalSkills: arm.includeGlobalSkills ?? rest.includeGlobalSkills,
-		seedPatch: arm.seedPatch ?? rest.seedPatch,
-		seedStageOnly: arm.seedStageOnly ?? rest.seedStageOnly,
-		rubric,
-	};
+	return { ...rest, ...armScenarioOverrides(rest, arm), rubric };
 }
 
+function armScenarioOverrides(
+	rest: AgentScenario,
+	arm: NonNullable<ReturnType<typeof resolveCompareArms>[number]>["arm"],
+) {
+	const overrides: Partial<AgentScenario> = {};
+	for (const key of [
+		"prompt",
+		"host",
+		"contextMode",
+		"profile",
+		"workspace",
+		"skills",
+		"contextSources",
+		"mcpServers",
+		"includeGlobalSkills",
+		"seedPatch",
+		"seedStageOnly",
+	] as const) {
+		Object.assign(overrides, { [key]: arm[key] ?? rest[key] });
+	}
+	return overrides;
+}
 export function compareStoryFields(scenario: AgentScenario): CompareStoryFields {
 	const arms = resolveCompareArms(scenario.compare).map((entry) => ({
 		id: entry.id,
@@ -268,11 +273,11 @@ function judgeValue(arm: CompareArmResult, id: string): "pass" | "fail" | undefi
 	return verdict ? (verdict.pass ? "pass" : "fail") : undefined;
 }
 export function compareMetricValue(
-	arm: CompareArmResult,
+	arm: CompareArmResult | undefined,
 	metric: CompareMetric,
 ): number | "pass" | "fail" | undefined {
-	if (metric === "outcome")
-		return arm.passed === undefined ? undefined : arm.passed ? "pass" : "fail";
+	if (!arm) return undefined;
+	if (metric === "outcome") return compareOutcome(arm.passed);
 	if (metric === "turns") return compareArmTurns(arm);
 	if (metric === "tokens") return compareArmTokens(arm);
 	if (metric === "tools") return compareArmTools(arm);
@@ -295,6 +300,15 @@ function compareAbsolute(
 	if (operator === "atLeast") return a >= b;
 	return a > b;
 }
+function winsComparison(
+	left: number | "pass" | "fail" | undefined,
+	right: number | "pass" | "fail" | undefined,
+): boolean {
+	if (left === undefined || right === undefined) return false;
+	return typeof left === "number" && typeof right === "number"
+		? left < right
+		: left === "pass" && right === "fail";
+}
 export function evaluateCompareGates(
 	gates: CompareGate[] | undefined,
 	result: ScenarioCompareResult,
@@ -304,14 +318,9 @@ export function evaluateCompareGates(
 		if ("winner" in gate) {
 			const winner = byId.get(gate.winner);
 			const loser = byId.get(gate.loser);
-			const left = winner ? compareMetricValue(winner, gate.metric) : undefined;
-			const right = loser ? compareMetricValue(loser, gate.metric) : undefined;
-			const passed =
-				left !== undefined &&
-				right !== undefined &&
-				(typeof left === "number" && typeof right === "number"
-					? left < right
-					: left === "pass" && right === "fail");
+			const left = compareMetricValue(winner, gate.metric);
+			const right = compareMetricValue(loser, gate.metric);
+			const passed = winsComparison(left, right);
 			return {
 				gate,
 				passed,
@@ -321,7 +330,7 @@ export function evaluateCompareGates(
 			};
 		}
 		const arm = byId.get(gate.arm);
-		const left = arm ? compareMetricValue(arm, gate.metric) : undefined;
+		const left = compareMetricValue(arm, gate.metric);
 		const passed = left !== undefined && compareAbsolute(left, gate.operator, gate.value);
 		return {
 			gate,
@@ -339,24 +348,24 @@ export function assertCompareGates(
 	return evaluateCompareGates(gates, result)
 		.filter((item) => !item.passed)
 		.map((item) =>
-			assertionFailure(
-				`compareGate:${item.gate.metric}`,
-				`${item.message} (actual ${String(item.left)} vs ${String(item.right)})`,
-				"rubric_miss",
-			),
+			assertionFailure(`compareGate:${item.gate.metric}`, {
+				message: `${item.message} (actual ${String(item.left)} vs ${String(item.right)})`,
+				category: "rubric_miss",
+			}),
 		);
 }
+function describeArmMeasurements(arm: CompareArmResult): string {
+	const values = [
+		arm.passed === undefined ? undefined : arm.passed ? "pass" : "fail",
+		compareArmTurns(arm) === undefined ? undefined : `${compareArmTurns(arm)} turns`,
+		compareArmTokens(arm) === undefined ? undefined : `${compareArmTokens(arm)} tokens`,
+		compareArmTools(arm) === undefined ? undefined : `${compareArmTools(arm)} tools`,
+		arm.durationMs === undefined ? undefined : `${arm.durationMs} ms`,
+	].filter(Boolean);
+	return `${arm.label}: ${values.join(", ")}`;
+}
 export function describeCompareOutcome(compare: ScenarioCompareResult): string[] {
-	const lines = compareResultArms(compare).map((arm) => {
-		const values = [
-			arm.passed === undefined ? undefined : arm.passed ? "pass" : "fail",
-			compareArmTurns(arm) === undefined ? undefined : `${compareArmTurns(arm)} turns`,
-			compareArmTokens(arm) === undefined ? undefined : `${compareArmTokens(arm)} tokens`,
-			compareArmTools(arm) === undefined ? undefined : `${compareArmTools(arm)} tools`,
-			arm.durationMs === undefined ? undefined : `${arm.durationMs} ms`,
-		].filter(Boolean);
-		return `${arm.label}: ${values.join(", ")}`;
-	});
+	const lines = compareResultArms(compare).map(describeArmMeasurements);
 	for (const arm of compareResultArms(compare)) {
 		for (const verdict of arm.judgeVerdicts ?? []) {
 			lines.push(
@@ -380,44 +389,26 @@ export function applySidecarCompareDurations(
 	},
 ): ScenarioCompareResult {
 	if (!sidecar?.compare) return compare;
-	const arms = compareResultArms(compare).map((arm) => ({
-		...arm,
-		contextMode:
-			sidecar.compare?.arms?.[arm.id]?.contextMode ??
-			(arm.id === "a"
-				? sidecar.compare?.a?.contextMode
-				: arm.id === "b"
-					? sidecar.compare?.b?.contextMode
-					: undefined) ??
-			arm.contextMode,
-		contextFiles:
-			sidecar.compare?.arms?.[arm.id]?.contextFiles ??
-			(arm.id === "a"
-				? sidecar.compare?.a?.contextFiles
-				: arm.id === "b"
-					? sidecar.compare?.b?.contextFiles
-					: undefined) ??
-			arm.contextFiles,
-		hostInput:
-			sidecar.compare?.arms?.[arm.id]?.hostInput ??
-			(arm.id === "a"
-				? sidecar.compare?.a?.hostInput
-				: arm.id === "b"
-					? sidecar.compare?.b?.hostInput
-					: undefined) ??
-			arm.hostInput,
-		durationMs:
-			sidecar.compare?.arms?.[arm.id]?.durationMs ??
-			(arm.id === "a"
-				? sidecar.compare?.a?.durationMs
-				: arm.id === "b"
-					? sidecar.compare?.b?.durationMs
-					: undefined) ??
-			arm.durationMs,
-	}));
+	const arms = compareResultArms(compare).map((arm) => {
+		const named = sidecar.compare?.arms?.[arm.id];
+		const legacy =
+			arm.id === "a" ? sidecar.compare?.a : arm.id === "b" ? sidecar.compare?.b : undefined;
+		return {
+			...arm,
+			contextMode: named?.contextMode ?? legacy?.contextMode ?? arm.contextMode,
+			contextFiles: named?.contextFiles ?? legacy?.contextFiles ?? arm.contextFiles,
+			hostInput: named?.hostInput ?? legacy?.hostInput ?? arm.hostInput,
+			durationMs: named?.durationMs ?? legacy?.durationMs ?? arm.durationMs,
+		};
+	});
 	return {
 		...compare,
 		...buildCompareResult(arms, compare.gates),
 		gateResults: compare.gateResults,
 	};
+}
+
+function compareOutcome(passed: boolean | undefined): "pass" | "fail" | undefined {
+	if (passed === undefined) return undefined;
+	return passed ? "pass" : "fail";
 }

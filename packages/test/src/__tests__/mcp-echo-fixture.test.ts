@@ -1,7 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { expect, it } from "bun:test";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
+
+const FRAMED_HEADER = /Content-Length:\s*\d+\r\n\r\n/;
+const FRAMED_BODY = /Content-Length:\s*(\d+)\r\n\r\n([\s\S]*)/;
 
 const serverPath = fileURLToPath(new URL("../../fixtures/mcp-echo/server.mjs", import.meta.url));
 
@@ -45,8 +48,8 @@ function startServer(): {
 			return JSON.parse(line) as Record<string, unknown>;
 		},
 		readFramed: async () => {
-			const text = await waitFor((value) => /Content-Length:\s*\d+\r\n\r\n/.test(value));
-			const match = text.match(/Content-Length:\s*(\d+)\r\n\r\n([\s\S]*)/);
+			const text = await waitFor((value) => FRAMED_HEADER.test(value));
+			const match = text.match(FRAMED_BODY);
 			if (!match?.[1] || match[2] === undefined) {
 				throw new Error("missing Content-Length frame");
 			}
@@ -61,48 +64,10 @@ async function stop(child: ChildProcess): Promise<void> {
 	await Promise.race([once(child, "exit"), new Promise((resolve) => setTimeout(resolve, 500))]);
 }
 
-describe("mcp-echo fixture stdio protocol", () => {
-	it("answers initialize over newline-delimited JSON-RPC", async () => {
-		const session = startServer();
-		session.stdin.write(
-			`${JSON.stringify({
-				jsonrpc: "2.0",
-				id: 1,
-				method: "initialize",
-				params: {
-					protocolVersion: "2024-11-05",
-					capabilities: {},
-					clientInfo: { name: "agent-test", version: "0" },
-				},
-			})}\n`,
-		);
-		const message = await session.readNdjson();
-		await stop(session.child);
-		expect(message.id).toBe(1);
-		expect((message.result as { serverInfo?: { name?: string } })?.serverInfo?.name).toBe(
-			"mcp-echo",
-		);
-	});
-
-	it("looks up the canned alpha note", async () => {
-		const session = startServer();
-		session.stdin.write(
-			`${JSON.stringify({
-				jsonrpc: "2.0",
-				id: 2,
-				method: "tools/call",
-				params: { name: "lookup", arguments: { id: "alpha" } },
-			})}\n`,
-		);
-		const message = await session.readNdjson();
-		await stop(session.child);
-		const result = message.result as { content?: Array<{ text?: string }> };
-		expect(result.content?.[0]?.text).toBe("agent-test-mcp-read-ok-4b8d");
-	});
-
-	it("answers a Content-Length initialize frame", async () => {
-		const session = startServer();
-		const body = JSON.stringify({
+it("mcp-echo fixture stdio protocol › answers initialize over newline-delimited JSON-RPC", async () => {
+	const session = startServer();
+	session.stdin.write(
+		`${JSON.stringify({
 			jsonrpc: "2.0",
 			id: 1,
 			method: "initialize",
@@ -111,13 +76,45 @@ describe("mcp-echo fixture stdio protocol", () => {
 				capabilities: {},
 				clientInfo: { name: "agent-test", version: "0" },
 			},
-		});
-		session.stdin.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
-		const message = await session.readFramed();
-		await stop(session.child);
-		expect(message.id).toBe(1);
-		expect((message.result as { serverInfo?: { name?: string } })?.serverInfo?.name).toBe(
-			"mcp-echo",
-		);
+		})}\n`,
+	);
+	const message = await session.readNdjson();
+	await stop(session.child);
+	expect(message.id).toBe(1);
+	expect((message.result as { serverInfo?: { name?: string } })?.serverInfo?.name).toBe("mcp-echo");
+});
+
+it("mcp-echo fixture stdio protocol › looks up the canned alpha note", async () => {
+	const session = startServer();
+	session.stdin.write(
+		`${JSON.stringify({
+			jsonrpc: "2.0",
+			id: 2,
+			method: "tools/call",
+			params: { name: "lookup", arguments: { id: "alpha" } },
+		})}\n`,
+	);
+	const message = await session.readNdjson();
+	await stop(session.child);
+	const result = message.result as { content?: Array<{ text?: string }> };
+	expect(result.content?.[0]?.text).toBe("agent-test-mcp-read-ok-4b8d");
+});
+
+it("mcp-echo fixture stdio protocol › answers a Content-Length initialize frame", async () => {
+	const session = startServer();
+	const body = JSON.stringify({
+		jsonrpc: "2.0",
+		id: 1,
+		method: "initialize",
+		params: {
+			protocolVersion: "2024-11-05",
+			capabilities: {},
+			clientInfo: { name: "agent-test", version: "0" },
+		},
 	});
+	session.stdin.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
+	const message = await session.readFramed();
+	await stop(session.child);
+	expect(message.id).toBe(1);
+	expect((message.result as { serverInfo?: { name?: string } })?.serverInfo?.name).toBe("mcp-echo");
 });

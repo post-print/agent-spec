@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import { listenViewer } from "../src/viewer/server.js";
 import { createGateBox, createScriptedRunner } from "./helpers/scripted-runner.js";
@@ -6,70 +7,13 @@ for (const cancel of [false, true]) {
 	test(`comparison lifecycle with reload and ${cancel ? "cancellation" : "early verdict"}`, async ({
 		page,
 	}) => {
-		const gates = createGateBox();
-		const runner = createScriptedRunner({
-			gates,
-			scripts: {
-				"lifecycle::other::cursor::_": [{ type: "wait", gate: "other" }, { type: "finish" }],
-			},
-		});
-		const viewer = await listenViewer({
-			cwd: process.cwd(),
-			suitesDir: "/tmp/lifecycle",
-			workers: 2,
-			catalog: {
-				suitesDir: "/tmp/lifecycle",
-				defaultSelectedHosts: ["cursor"],
-				suites: [
-					{
-						name: "lifecycle",
-						hosts: ["cursor"],
-						scenarios: [
-							{
-								name: "pair",
-								prompt: "Compare",
-								rubric: {},
-								compare: [
-									{ id: "a", label: "Alpha", rubric: {} },
-									{ id: "b", label: "Beta", rubric: {} },
-								],
-							},
-							{ name: "other", prompt: "Wait", rubric: {} },
-						],
-					},
-				],
-			},
-			runner: {
-				...runner,
-				async finalizeCompare(input) {
-					await gates.wait("judge");
-					return {
-						suite: input.suite,
-						scenario: input.scenario.name,
-						passed: true,
-						failures: [],
-						durationMs: 1,
-					};
-				},
-			},
-		});
+		const { gates, viewer } = await openLifecycleViewer();
 		try {
 			await page.goto(viewer.url);
 			await page.locator("#run-selection").click();
 			const nav = page.locator('[data-select-scenario="lifecycle::pair"]');
 			const header = page.locator('[data-scenario-card="lifecycle::pair"] .focus-verdict');
-			await expect(nav).toHaveAttribute("data-status", "judging");
-			await expect(header).toHaveText("judging");
-			await expect(page.locator("#live-connection")).toHaveText("Live updates connected.");
-			await expect(page.locator(".run-arm-progress")).toHaveText("2 arms finished");
-			await expect(
-				page.getByText("Agent finished. Awaiting comparison verdict.", { exact: false }).first(),
-			).toBeVisible();
-			await expect(page.locator(".badge.status-passed")).toHaveCount(0);
-			await page.reload();
-			await expect(header).toHaveText("judging");
-			await expect(page.locator("#live-connection")).toHaveText("Live updates connected.");
-			await expect(page.locator(".run-arm-progress")).toHaveText("2 arms finished");
+			await expectJudgingAcrossReload(page, nav, header);
 			if (cancel) {
 				await page.getByRole("button", { name: "Stop run", exact: true }).click();
 				await expect(header).toHaveText("cancelling");
@@ -96,4 +40,72 @@ for (const cancel of [false, true]) {
 			await viewer.close();
 		}
 	});
+}
+
+async function openLifecycleViewer() {
+	const gates = createGateBox();
+	const runner = createScriptedRunner({
+		gates,
+		scripts: {
+			"lifecycle::other::cursor::_": [{ type: "wait", gate: "other" }, { type: "finish" }],
+		},
+	});
+	const viewer = await listenViewer({
+		cwd: process.cwd(),
+		suitesDir: "/tmp/lifecycle",
+		workers: 2,
+		catalog: lifecycleCatalog,
+		runner: {
+			...runner,
+			async finalizeCompare(input) {
+				await gates.wait("judge");
+				return {
+					suite: input.suite,
+					scenario: input.scenario.name,
+					passed: true,
+					failures: [],
+					durationMs: 1,
+				};
+			},
+		},
+	});
+	return { gates, viewer };
+}
+
+const lifecycleCatalog: Parameters<typeof listenViewer>[0]["catalog"] = {
+	suitesDir: "/tmp/lifecycle",
+	defaultSelectedHosts: ["cursor"],
+	suites: [
+		{
+			name: "lifecycle",
+			hosts: ["cursor"],
+			scenarios: [
+				{
+					name: "pair",
+					prompt: "Compare",
+					rubric: {},
+					compare: [
+						{ id: "a", label: "Alpha", rubric: {} },
+						{ id: "b", label: "Beta", rubric: {} },
+					],
+				},
+				{ name: "other", prompt: "Wait", rubric: {} },
+			],
+		},
+	],
+};
+
+async function expectJudgingAcrossReload(page: Page, nav: Locator, header: Locator) {
+	await expect(nav).toHaveAttribute("data-status", "judging");
+	await expect(header).toHaveText("judging");
+	await expect(page.locator("#live-connection")).toHaveText("Live updates connected.");
+	await expect(page.locator(".run-arm-progress")).toHaveText("2 arms finished");
+	await expect(
+		page.getByText("Agent finished. Awaiting comparison verdict.", { exact: false }).first(),
+	).toBeVisible();
+	await expect(page.locator(".badge.status-passed")).toHaveCount(0);
+	await page.reload();
+	await expect(header).toHaveText("judging");
+	await expect(page.locator("#live-connection")).toHaveText("Live updates connected.");
+	await expect(page.locator(".run-arm-progress")).toHaveText("2 arms finished");
 }
