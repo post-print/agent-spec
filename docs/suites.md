@@ -8,8 +8,8 @@ A suite calls `describe(name, ({ agent, judge }) => ({ ...namedResources }))` an
 
 | Suite | Coverage |
 | --- | --- |
-| tour | Project facts, diagnosis, repair judging, MCP, attached skills, explicit bad controls, repeated token measurements |
-| test-sdk-capabilities | Reply checks, forbidden tools, path evidence, writes/commands, ordered MCP, explicit context, setup, isolation, skills, qualitative evaluation, controls |
+| tour | Read project files, explain and fix a bug, use task tools, follow a skill, continue a conversation, compare token use |
+| test-sdk-capabilities | Check replies, file access, tool order, successful commands, attached notes, workspace setup, skills, and judge answers |
 
 The root config uses one OpenAI agent and a separate OpenAI reviewer. The matrix config runs the same tests against OpenAI, Claude, and Cursor. A full default discovery lists 19 tests; the matrix lists 57.
 

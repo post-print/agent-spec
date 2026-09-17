@@ -9,7 +9,7 @@ The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`
 | Command | Behavior |
 | --- | --- |
 | `agent-test test --list` | Discover tests without starting agents |
-| `agent-test test tour` | Execute the default-agent tour |
+| `agent-test test tour` | Execute the worked examples with the default agent |
 | `agent-test test --config path/to/config.ts` | Use another configuration |
 | `agent-test test --reporter=html` | Write a Playwright HTML report |
 | `agent-test viewer --config agent-test.config.ts --port 0` | Open the localhost viewer; zero selects a free port |
@@ -22,4 +22,4 @@ The viewer discovers the same TypeScript tests as the CLI, retains run history d
 
 JSON suites, `--suites-dir`, `--check`, `--fail-on`, automatic judges, and the detached HTML report preview have been removed. Unknown commands fail with migration guidance. Configure deadlines, projects, workers, retries, and reporters through Playwright options and `defineConfig`.
 
-See [the SDK guide](sdk-v2.md) for fixtures, expected failed controls, and explicit judging.
+See [the SDK guide](sdk-v2.md) for sample workspaces, answer checks, and judge inputs.

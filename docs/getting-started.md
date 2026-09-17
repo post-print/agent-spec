@@ -32,6 +32,6 @@ test("runs the project tests", async ({ coder }) => {
 
 Run `npx agent-test test --list` to discover tests without starting agents. Run `npx agent-test test` to execute or `npx agent-test viewer` for the viewer. No browser is needed for CLI execution. Global skills default to excluded.
 
-Read [the SDK guide](sdk-v2.md) for named judges, typed results, selected inputs, independent parallel tasks, continuation, and task resources. The [tour](../agent-suites/tour/tour.spec.ts) has eight executable examples; the [capability suite](../agent-suites/test-sdk-capabilities/capabilities.spec.ts) has eleven.
+Read [the SDK guide](sdk-v2.md) for named judges, typed results, selected inputs, independent parallel tasks, continuation, and task resources. Start with the eight [worked examples](../agent-suites/tour/tour.spec.ts). The [SDK checks](../agent-suites/test-sdk-capabilities/capabilities.spec.ts) contain eleven more examples.
 
 The repository's default config selects OpenAI. Run `bun run test:tour` after authentication. The separate `agent-test.matrix.config.ts` selects all three hosts; use `--config agent-test.matrix.config.ts --project=claude` when selecting one matrix host. The configured reviewer remains OpenAI.

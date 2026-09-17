@@ -18,7 +18,7 @@
 		"test:tour": "bun run build && node packages/test/dist/cli.js test tour",
 		"test:matrix": "bun run build && node packages/test/dist/cli.js test test-sdk-capabilities --config agent-test.matrix.config.ts",
 		"test:sdk:consumer": "bun run build && node scripts/test-sdk-consumer.mjs",
-		"test:sdk:hosts": "bun run build && node packages/test/dist/cli.js test tour --config agent-test.matrix.config.ts --grep \"answers from the project guide\"",
+		"test:sdk:hosts": "bun run build && node packages/test/dist/cli.js test tour --config agent-test.matrix.config.ts --grep \"reads the project owner from a file\"",
 		"test:reliability": "bun run build && node packages/test/dist/cli.js test test-sdk-capabilities --repeat-each=20 --retries=0",
 		"test:unit": "bun run --filter '*' test",
 		"test:sandbox-safe": "bun run --filter '*' test:sandbox-safe",

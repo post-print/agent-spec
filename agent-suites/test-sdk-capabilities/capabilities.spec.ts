@@ -3,54 +3,59 @@ import { join } from "node:path";
 import { describe, expect, z } from "@post-print/agent-test";
 import { releaseSkills, taskService } from "../tour/agents.js";
 
-// Defaults come from agent-test.config.ts: OpenAI coder/reviewer and the task-list fixture.
-// Skill, context, and workspace source paths resolve against that config directory.
-const test = describe("SDK capabilities", ({ agent, judge }) => ({
+// The default configuration uses OpenAI and copies the task-list sample project for each run.
+// Skill, context, and workspace paths start from the directory that contains the configuration file.
+const test = describe("Agent test checks", ({ agent, judge }) => ({
 	agent: agent(),
 	seeded: agent().setup(async (workspace) => {
 		await writeFile(join(workspace.path, "seeded.txt"), "SEED-READY", "utf8");
 	}),
 	service: agent({ mcpServers: { tasks: taskService } }),
 	skilled: agent({ skills: releaseSkills, workspace: "agent-suites/fixtures/task-list-skill" }),
-	balance: judge({
+	releaseAdvice: judge({
 		prompt:
-			"Does the recommendation explain the missing rollback risk and offer a proportionate practical next step?",
-		schema: z.object({ balanced: z.boolean(), reason: z.string() }),
+			"Does the answer explain the risk of releasing without a way to undo the change? Does it suggest a practical next step?",
+		schema: z.object({
+			explainsRisk: z.boolean(),
+			suggestsNextStep: z.boolean(),
+			reason: z.string(),
+		}),
 	}),
 }));
-const TOOLS = /Read|Shell|Bash|Write|Edit/;
 const RUN_TESTS = /\bbun test\b/;
 const SEARCH = /search_tasks/;
 const GET = /get_task/;
 
-test("scores required and forbidden reply text", async ({ agent }) => {
-	const run = await agent.run({ prompt: "Reply with exactly: REPLY_SCORING_OK" });
-	expect(run.output).toBe("REPLY_SCORING_OK");
-	expect(run.output).not.toContain("REPLY_SCORING_BAD");
+test("checks that a reply has the required text and leaves out forbidden text", async ({
+	agent,
+}) => {
+	const run = await agent.run({ prompt: "Reply with exactly: READY" });
+	expect(run.output).toBe("READY");
+	expect(run.output).not.toContain("ERROR");
 });
-test("scores forbidden tool calls", async ({ agent }) => {
-	const run = await agent.run({ prompt: "Reply with exactly: NO_TOOLS_OK. Do not use tools." });
-	expect(run.output).toContain("NO_TOOLS_OK");
-	expect(run).not.toHaveCalledTool(TOOLS);
+test("answers without using tools", async ({ agent }) => {
+	const run = await agent.run({ prompt: "Reply with exactly: READY. Do not use tools." });
+	expect(run.output).toContain("READY");
+	expect(run.toolCalls).toEqual([]);
 });
-test("captures required and forbidden file access", async ({ agent }) => {
+test("reads the requested file and leaves the forbidden file alone", async ({ agent }) => {
 	const run = await agent.run({
 		prompt: "Read PROJECT.md. Reply with the next task ID only. Do not read records/TASK-101.md.",
 	});
 	expect(run.output).toContain("TASK-104");
-	expect(run).toHaveAccessedPath("PROJECT.md");
+	expect(run).toHaveReadPath("PROJECT.md");
 	expect(run).not.toHaveAccessedPath("records/TASK-101.md");
 });
-test("captures writes and successful shell commands", async ({ agent }) => {
+test("changes only the requested file and runs the tests successfully", async ({ agent }) => {
 	const run = await agent.run({
 		prompt:
-			"Repair the status bug in src/status.ts. Change only that source file. Run bun test. End with WRITE_COMMAND_OK.",
+			"Fix the status bug in src/status.ts. Change only that source file. Run bun test. End with WRITE_COMMAND_OK.",
 	});
 	expect(run.output).toContain("WRITE_COMMAND_OK");
 	expect(run).toHaveExecutedCommand({ command: RUN_TESTS, exitCode: 0 });
 	expect(run.workspace.changedPaths).toEqual(["src/status.ts"]);
 });
-test("captures ordered MCP tool calls", async ({ service }) => {
+test("searches for a task before reading its details", async ({ service }) => {
 	const run = await service.run({
 		prompt:
 			"Call search_tasks for TASK-104. Then call get_task with TASK-104. Reply with the current due date only.",
@@ -58,47 +63,56 @@ test("captures ordered MCP tool calls", async ({ service }) => {
 	expect(run.output).toContain("2026-09-24");
 	expect(run).toHaveCalledToolsInOrder([SEARCH, GET]);
 });
-test("injects provided context", async ({ agent }) => {
+test("answers from an attached note without using tools", async ({ agent }) => {
 	const run = await agent.run({
-		prompt: "Reply with the support code from the provided context. Do not use tools.",
+		prompt: "Reply with the support code from the attached note. Do not use tools.",
 		context: { files: ["agent-suites/fixtures/task-list/brief.md"] },
 	});
 	expect(run.output).toContain("BLUE-417");
-	expect(run).not.toHaveCalledTool(TOOLS);
+	expect(run.toolCalls).toEqual([]);
 });
 test("prepares the workspace before the agent starts", async ({ seeded }) => {
 	const run = await seeded.run({ prompt: "Read seeded.txt and reply with its exact contents." });
-	// Initial evidence includes setup changes, before any agent activity.
+	// The initial snapshot includes the file that setup wrote, before the agent runs.
 	expect(run.workspace.initial.files["seeded.txt"]).toBeDefined();
 	expect(run.output).toBe("SEED-READY");
 });
-test("isolates a scenario workspace", async ({ agent }) => {
+test("starts with sample project files and leaves out the SDK package file", async ({ agent }) => {
 	const run = await agent.run({
 		prompt: "List the names at the workspace root. Reply with names only.",
 	});
 	expect(run.output).toContain("PROJECT.md");
+	expect(run.workspace.initial.files["PROJECT.md"]).toBeDefined();
 	expect(run.workspace.initial.files["packages/test/package.json"]).toBeUndefined();
 });
-test("loads a supplied skill", async ({ skilled }) => {
+// The skill says to read PROJECT.md and return only the release note from that file.
+test("reads the attached skill and returns its release note", async ({ skilled }) => {
 	const run = await skilled.run({
 		prompt: "Use the release-note skill. Return only the release note.",
 	});
-	expect(run.output).toContain("RELEASE: TASK-104 is ready.");
-	expect(run).toHaveAccessedPath(`${run.startingContext.skills[0].destination}/SKILL.md`);
+	expect(run.output).toBe("RELEASE: TASK-104 is ready.");
+	expect(run).toHaveReadPath("PROJECT.md");
+	expect(run).toHaveReadPath(`${run.startingContext.skills[0].destination}/SKILL.md`);
 });
-test("grades a qualitative recommendation", async ({ agent, balance }) => {
+test("asks a judge whether release advice explains the risk and a next step", async ({
+	agent,
+	releaseAdvice,
+}) => {
 	const run = await agent.run({
 		prompt:
-			"A teammate wants to ship today because tests pass, but there is no rollback plan. Give a concise recommendation balancing urgency and operational risk.",
+			"A teammate wants to release today because tests pass. There is no plan to undo the release if it fails. What do you recommend?",
 	});
-	const evaluation = await balance.run({ input: { task: run.prompt, answer: run.output } });
-	expect(evaluation.output.balanced).toBe(true);
+	const evaluation = await releaseAdvice.run({ input: { task: run.prompt, answer: run.output } });
+	expect(evaluation.output.explainsRisk).toBe(true);
+	expect(evaluation.output.suggestsNextStep).toBe(true);
 });
-test("asserts an intentionally incorrect control", async ({ agent }) => {
-	const [control, candidate] = await Promise.all([
-		agent.run({ prompt: "Reply with exactly: CAPABILITY_CONTROL" }),
-		agent.run({ prompt: "Reply with exactly: CAPABILITY_COMPARE_OK" }),
+test("checks one required answer against two different replies", async ({ agent }) => {
+	const [wrongAnswer, correctAnswer] = await Promise.all([
+		agent.run({ prompt: "Reply with exactly: NO" }),
+		agent.run({ prompt: "Reply with exactly: YES" }),
 	]);
-	expect(control.output).not.toContain("CAPABILITY_COMPARE_OK");
-	expect(candidate.output).toContain("CAPABILITY_COMPARE_OK");
+	// Both agents follow their prompts. Only YES meets this test's answer requirement.
+	expect(wrongAnswer.output).toBe("NO");
+	expect(wrongAnswer.output).not.toBe("YES");
+	expect(correctAnswer.output).toBe("YES");
 });
