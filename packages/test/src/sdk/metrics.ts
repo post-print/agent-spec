@@ -1,4 +1,4 @@
-import type { Run, Statistics, VariantResult } from "./types.js";
+import type { Statistics } from "./types.js";
 export function statistics(values: (number | undefined)[]): Statistics {
 	const available =
 		values.length > 0 &&
@@ -19,22 +19,6 @@ export function statistics(values: (number | undefined)[]): Statistics {
 		},
 		get max() {
 			return Math.max(...requireValues());
-		},
-	};
-}
-export function variantResult(runs: Run[]): VariantResult {
-	return {
-		runs,
-		metrics: {
-			tokens: {
-				input: statistics(runs.map((run) => run.usage.tokens.input)),
-				output: statistics(runs.map((run) => run.usage.tokens.output)),
-				total: statistics(runs.map((run) => run.usage.tokens.total)),
-			},
-			durationMs: statistics(runs.map((run) => run.durationMs)),
-			toolCalls: statistics(
-				runs.map((run) => (run.capabilities.toolCalls ? run.toolCalls.length : undefined)),
-			),
 		},
 	};
 }

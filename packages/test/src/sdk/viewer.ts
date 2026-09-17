@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -102,35 +101,28 @@ export async function loadSdkCatalog(
 			suite.scenarios.push({
 				name: entry.title,
 				authoring: "typescript",
-				prompt: "Prompt and variants are defined when this test executes.",
+				prompt: "Named agents and evaluations run when this test executes.",
 				rubric: {},
 				contextMode: "host-native",
 			});
 	}
 	return { catalog, tests };
 }
+const REGEX_META = /[.*+?^${}()|[\]\\]/g;
 async function executeViewerJob(
 	config: string,
 	entry: TestEntry,
 	job: { result: ViewerTestResult; signal: AbortSignal },
 ) {
-	const selectionDir = await mkdtemp(join(tmpdir(), "agent-test-selection-"));
-	const selectionFile = join(selectionDir, "tests.txt");
 	const outputDir = join(dirname(config), "test-results", "agent-viewer", crypto.randomUUID());
-	try {
-		await writeFile(
-			selectionFile,
-			`${entry.project === "default" ? "" : `[${entry.project}] › `}${entry.listFile} › ${entry.title}\n`,
-		);
-		await mkdir(outputDir, { recursive: true });
-		return await runPlaywright(
-			config,
-			["--test-list", selectionFile, "--workers", "1", "--output", outputDir],
-			{ receive: (wire) => job.result.receive(wire), signal: job.signal },
-		);
-	} finally {
-		await rm(selectionDir, { recursive: true, force: true });
-	}
+	await mkdir(outputDir, { recursive: true });
+	const title = entry.title.split(" › ").join(" ").replace(REGEX_META, "\\$&");
+	const args = [entry.file, "--grep", `${title}$`, "--workers", "1", "--output", outputDir];
+	if (entry.project !== "default") args.push("--project", entry.project);
+	return runPlaywright(config, args, {
+		receive: (wire) => job.result.receive(wire),
+		signal: job.signal,
+	});
 }
 export function sdkViewerRunner(config: string, tests: TestEntry[]): ViewerRunner {
 	return {

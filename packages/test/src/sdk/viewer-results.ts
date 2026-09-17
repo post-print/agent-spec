@@ -1,8 +1,8 @@
 import type { AgentTrace } from "@post-print/agent-harness";
-import type { ScenarioResult, StoryCheck } from "../types.js";
+import type { ScenarioResult } from "../types.js";
 import type { ViewerJob } from "../viewer/catalog.js";
 import type { ViewerEvent } from "../viewer/events.js";
-import type { Criteria, EvidenceReference, Grade, Run } from "./types.js";
+import type { Evaluation, Run } from "./types.js";
 
 export interface TestEntry {
 	id: string;
@@ -26,34 +26,6 @@ export interface WireEvent {
 	errors?: string[];
 	message?: string;
 }
-interface JudgedRun {
-	runId: string;
-	grade: Grade;
-	criteria: Criteria;
-}
-interface CheckOutcome {
-	checks: Record<string, boolean>;
-	expectedFailures: string[];
-}
-function storyChecks(value: CheckOutcome): StoryCheck[] {
-	return Object.entries(value.checks).map(([name, passed]) => {
-		const expected = value.expectedFailures.includes(name);
-		const suffix = expected ? (passed ? " (unexpectedly passed)" : " (failed as expected)") : "";
-		return { text: name + suffix, status: passed !== expected ? "pass" : "fail" };
-	});
-}
-function evidenceLabel(ref: EvidenceReference): string {
-	if (ref.source === "transcript") return `transcript event ${ref.event}`;
-	const snapshot = ref.snapshot ? `${ref.snapshot}/` : "";
-	const line = ref.line ? `:${ref.line}` : "";
-	return `${snapshot}${ref.path}${line}`;
-}
-function gradeNotes({ grade, criteria }: JudgedRun): string[] {
-	return Object.entries(grade.scores).map(([key, score]) => {
-		const evidence = grade.evidence[key].map(evidenceLabel).join(", ");
-		return `${key}: ${score} (${criteria[key].scores[score]}) — ${grade.reasons[key]} Evidence: ${evidence}. Judge tokens: ${grade.usage.tokens.total ?? "unavailable"}`;
-	});
-}
 function combinedTrace(runs: Run[]): AgentTrace {
 	return {
 		messages: runs.flatMap((run) => run.trace.messages),
@@ -65,9 +37,7 @@ function combinedTrace(runs: Run[]): AgentTrace {
 /** One test result owns its captured runs, checks, and independent grades. */
 export class ViewerTestResult {
 	private readonly runs = new Map<string, Run>();
-	private readonly variants = new Map<string, { name: string; repetition: number }>();
-	private readonly checks = new Map<string, StoryCheck[]>();
-	private readonly grades: JudgedRun[] = [];
+	private readonly evaluations: Evaluation[] = [];
 	private result?: ScenarioResult;
 	private readonly envelope;
 	constructor(
@@ -97,20 +67,11 @@ export class ViewerTestResult {
 			case "agent":
 				this.agentEvent(event.value);
 				break;
-			case "checks":
-				this.checks.set(event.runId, storyChecks(event.value as CheckOutcome));
-				break;
 			case "complete":
 				this.runs.set(event.runId, event.value as Run);
 				break;
-			case "variant":
-				this.variants.set(event.runId, event.value as { name: string; repetition: number });
-				break;
-			case "grade":
-				this.grades.push({
-					runId: event.runId,
-					...(event.value as { grade: Grade; criteria: Criteria }),
-				});
+			case "evaluation":
+				this.evaluations.push(event.value as Evaluation);
 				break;
 		}
 	}
@@ -127,15 +88,10 @@ export class ViewerTestResult {
 			this.emit({ ...this.envelope, type: "tool", name: value.name ?? "tool", args: value.args });
 	}
 	private section(run: Run) {
-		const variant = this.variants.get(run.id);
 		return {
-			title: variant ? `${variant.name} · run ${variant.repetition + 1}` : "Agent run",
-			checks: this.checks.get(run.id) ?? [],
-			notes: [
-				run.output,
-				`Agent tokens: ${run.usage.tokens.total ?? "unavailable"}`,
-				...this.grades.filter((grade) => grade.runId === run.id).flatMap(gradeNotes),
-			],
+			title: run.name,
+			checks: [],
+			notes: [run.output, `Agent tokens: ${run.usage.tokens.total ?? "unavailable"}`],
 		};
 	}
 	private completedResult(wire: WireEvent): ScenarioResult {
@@ -156,7 +112,17 @@ export class ViewerTestResult {
 				criteria: [],
 				result: [],
 				verdict: wire.errors ?? [],
-				sections: all.map((run) => this.section(run)),
+				sections: [
+					...all.map((run) => this.section(run)),
+					...this.evaluations.map((value) => ({
+						title: value.name,
+						checks: [],
+						notes: [
+							JSON.stringify(value.output),
+							`Judge tokens: ${value.usage.tokens.total ?? "unavailable"}`,
+						],
+					})),
+				],
 			},
 		};
 	}

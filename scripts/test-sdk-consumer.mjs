@@ -41,6 +41,7 @@ const harnessTarball = await pack(join(stage, "harness"));
 const testTarball = await pack(join(stage, "test"));
 const dependencyTarballs = [];
 for (const name of [
+	"zod",
 	"react",
 	"react-dom",
 	"scheduler",
@@ -84,16 +85,22 @@ await writeFile(join(consumer, "project/PROJECT.md"), "The owner is Mina.");
 await writeFile(
 	join(consumer, "src.ts"),
 	`
-import { test, expect, defineJudge, type Run } from "@post-print/agent-test";
+import { describe, expect, z, type Run } from "@post-print/agent-test";
 import { customAgent } from "@post-print/agent-harness";
-const agent = customAgent({adapter: new URL("../fake-agent.mjs", import.meta.url).href, options: {}});
-test.use({agent, workspace: "./project"});
-const judge = defineJudge({agent, criteria: {correctness: {description: "Correct owner", scores: {0: "Wrong", 1: "Correct"}}}});
-test("installed SDK", async ({agent, compare}) => {
-  const run: Run = await agent.run("Who owns the project?");
-  expect(run.output).toContain("Mina");
-  expect(run).toHaveReadPath("PROJECT.md");
-  expect((await run.judge(judge)).scores.correctness).toBe(1);
+const fake = customAgent({adapter: new URL("../fake-agent.mjs", import.meta.url).href, options: {}});
+const test = describe("installed resources", ({agent, judge}) => ({
+ coder: agent({agent: fake, workspace: "./project"}),
+ accuracy: judge({agent: fake, prompt: "Check", schema: z.object({correct: z.boolean()})}),
+}));
+test("installed SDK", async ({coder, accuracy}) => {
+ const run: Run = await coder.run({prompt: "Who owns the project?"});
+ expect(run.output).toContain("Mina");
+ expect(run).toHaveReadPath("PROJECT.md");
+ const evaluation = await accuracy.run({input: {answer: run.output}});
+ const typed: boolean = evaluation.output.correct;
+ // @ts-expect-error The schema must not collapse to any.
+ const invalid: string = evaluation.output.correct;
+ expect(typed).toBe(true);
 });
 `,
 );

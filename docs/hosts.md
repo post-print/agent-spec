@@ -4,7 +4,7 @@
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 <!-- review-deps: paths=.env.example,packages/harness/src/agent-definition.ts,packages/harness/src/agent-session.ts,packages/harness/src/agent-worker.ts,packages/harness/src/claude-run.ts,packages/harness/src/openai-run.ts,packages/harness/src/cursor-run.ts -->
 
-`openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` runs the Cursor SDK. Factories create immutable definitions; each test creates its own worker and session.
+`openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` runs the Cursor SDK. Factories create immutable definitions; each independent task creates its own worker and session.
 
 ```ts
 const coder = openai({
@@ -26,6 +26,6 @@ Cursor app login does not authenticate the SDK. Global skills default to exclude
 
 Built-in conversation continuation is reconstructed. Native host discovery varies: Codex reads scoped AGENTS.md, Claude uses its project settings and CLAUDE.md, and Cursor discovers supported project rules and skills. Captured evidence does not prove which undisclosed host instructions loaded.
 
-Judges use their own agent definition. OpenAI supports a read-only sandbox; Claude judging restricts tools to Read/Glob/Grep. Cursor judging is rejected until enforced read-only support exists. `networkAccess: true` is supported only for the OpenAI coding agent, not its judge.
+Config selects a default judge agent; named judge resources may override it. OpenAI supports a read-only sandbox; Claude judging restricts tools to Read/Glob/Grep. Cursor judging is rejected until enforced read-only support exists. `networkAccess: true` is supported only for the OpenAI coding agent, not its judge.
 
-Custom integrations use `defineAgent()` and `customAgent()` with explicit capabilities. See [the adapter example](sdk-v2.md#custom-adapters). The old host registry and classifier adapters are removed.
+Custom integrations use `defineAgent()` and `customAgent()` with explicit capabilities. See [the adapter example](sdk-v2.md#custom-agents). The old host registry and classifier adapters are removed.

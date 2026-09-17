@@ -1,166 +1,188 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { customAgent } from "../../../harness/dist/index.js";
-import { defineJudge, expect, test } from "../../dist/index.js";
+import { describe, expect, statistics, z } from "../../dist/index.js";
+import { TestRuntime } from "../../dist/sdk/runtime.js";
 
 const fake = (options = {}) =>
 	customAgent({ adapter: new URL("./fake-agent.mjs", import.meta.url).href, options });
-test.use({ agent: fake() });
-const judge = defineJudge({
-	agent: fake(),
-	criteria: {
-		correctness: {
-			description: "Answers from PROJECT.md",
-			scores: { 0: "Incorrect", 1: "Correct" },
-		},
-	},
-});
-test("configured agent, continuation, evidence and grading", async ({ agent, workspace }) => {
-	const run = await agent.run("edit then answer");
-	expect(run.output).toContain("Mina turn 1");
-	expect(run).toHaveExecutedCommand({ command: "npm test", exitCode: 0 });
-	expect(run).toHaveReadPath("PROJECT.md");
-	expect(run).toHaveModifiedPath("result.txt");
-	expect(await workspace.readFile("result.txt")).toBe("done");
-	const next = await agent.run("answer again");
+const schema = z.object({ correct: z.boolean(), reason: z.string(), input: z.unknown() });
+const test = describe("configured resources", ({ agent, judge }) => ({
+	agent: agent(),
+	candidate: agent({ agent: fake({ tokens: 9 }) }),
+	accuracy: judge({ prompt: "Check selected evidence", schema }),
+	invalid: judge({ agent: fake({ response: { correct: "wrong type" } }), prompt: "Check", schema }),
+	missing: agent({ agent: fake({ omitUsage: true }) }),
+}));
+test("independent runs, continuation, and evidence", async ({ agent }) => {
+	const [first, independent] = await Promise.all([
+		agent.run({ prompt: "edit" }),
+		agent.run({ prompt: "answer" }),
+	]);
+	expect(first.output).toContain("turn 1");
+	expect(independent.output).toContain("turn 1");
+	expect(first.workspace.root).not.toBe(independent.workspace.root);
+	expect(independent.workspace.final.files["result.txt"]).toBeUndefined();
+	const next = await first.continue({ prompt: "answer again" });
 	expect(next.output).toContain("turn 2");
-	const grade = await run.judge(judge);
-	expect(grade.scores.correctness).toBe(1);
+	expect(next.workspace.root).toBe(first.workspace.root);
+	expect(first).toHaveExecutedCommand({ command: "npm test", exitCode: 0 });
+	expect(first).toHaveReadPath("PROJECT.md");
+	expect(first).toHaveModifiedPath("result.txt");
 });
-test("variants, repetitions, tokens, and independently graded runs", async ({ compare }) => {
-	const result = await compare({
-		prompt: "answer",
-		variants: {
-			baseline: { agent: fake({ tokens: 30 }), repeat: 2 },
-			candidate: { agent: fake(), repeat: 2 },
-		},
-	});
-	expect(result.runs).toHaveLength(4);
-	expect(result.variants.candidate.metrics.tokens.total.mean).toBe(15);
-	expect(result.variants.candidate.metrics.tokens.total.mean).toBeLessThan(
-		result.variants.baseline.metrics.tokens.total.mean,
+test("parallel named runs and selected-input judging", async ({ agent, candidate, accuracy }) => {
+	const [baseline, improved] = await Promise.all([
+		agent.run({ prompt: "answer" }),
+		candidate.run({ prompt: "answer" }),
+	]);
+	expect(statistics([improved.usage.tokens.total]).mean).toBeLessThan(
+		statistics([baseline.usage.tokens.total]).mean,
 	);
-	for (const run of result.runs) expect(run.output).toContain("turn 1");
-	const grade = await result.judge(judge);
-	expect(grade.variants.candidate.runs).toHaveLength(2);
-	expect(grade.winner).toBeNull();
+	const grade = await accuracy.run({
+		input: { baseline: baseline.output, candidate: improved.output },
+	});
+	expect(grade.output.correct).toBe(true);
+	const request = JSON.parse(await readFile(join(grade.artifact, "request.json"), "utf8"));
+	expect(request.input).toEqual({ baseline: baseline.output, candidate: improved.output });
+	expect(request.prompt).not.toContain("PROJECT.md");
+	expect(request.prompt).not.toContain(baseline.workspace.root);
+	expect(request.prompt).not.toContain("toolCalls");
 });
-test("expected failed control", async ({ compare }) => {
-	const result = await compare({
+test("schema validation rejects malformed evaluations", async ({ invalid }) => {
+	await expect(invalid.run({ input: "answer" })).rejects.toThrow();
+});
+test("multiple evaluations remain independent", async ({ accuracy }) => {
+	const [one, two] = await Promise.all([
+		accuracy.run({ input: "one" }),
+		accuracy.run({ input: "two" }),
+	]);
+	expect(one.output.input).toBe("one");
+	expect(two.output.input).toBe("two");
+	expect(one.artifact).not.toBe(two.artifact);
+});
+test("missing tokens never become a zero or partial average", async ({ missing }) => {
+	const run = await missing.run({ prompt: "answer" });
+	expect(run.usage.tokens.total).toBeUndefined();
+	expect(() => statistics([10, run.usage.tokens.total]).mean).toThrow("Metric unavailable");
+});
+test("run resources are isolated from subsequent calls", async ({ agent }) => {
+	const selected = await agent.run({
 		prompt: "answer",
-		variants: {
-			control: { agent: fake({ answer: "wrong" }), expectedFailures: ["owner"] },
-			candidate: { agent: fake() },
-		},
-		checks: async (run, check) => {
-			await check("owner", () => expect(run.output).toContain("Mina"));
-		},
+		skills: ["./skills/review"],
+		context: { instructions: ["ONLY_THIS_RUN"], files: ["./context.md"] },
 	});
-	expect(result.runs).toHaveLength(2);
+	const plain = await agent.run({ prompt: "answer" });
+	expect(selected.startingContext.files[0].content).toContain("CONTEXT_SENTINEL");
+	expect(selected.workspace.initial.files[".agents/skills/review/SKILL.md"]).toBeDefined();
+	expect(plain.startingContext.skills).toEqual([]);
+	expect(plain.trace.messages[0].content).not.toContain("ONLY_THIS_RUN");
+	expect(plain.workspace.initial.files[".agents/skills/review/SKILL.md"]).toBeUndefined();
 });
-test("missing token data never becomes zero", async ({ compare }) => {
-	const result = await compare({
+test("setup completes before a task starts", async ({ agent }) => {
+	const run = await agent.run({
 		prompt: "answer",
-		variants: { candidate: { agent: fake({ omitUsage: true }) } },
-	});
-	expect(result.variants.candidate.metrics.tokens.total.available).toBe(false);
-	expect(() => result.variants.candidate.metrics.tokens.total.mean).toThrow("Metric unavailable");
-});
-
-test("attaches context and skills before a test uses the definition", async ({ compare }) => {
-	const configured = customAgent({
-		adapter: new URL("./fake-agent.mjs", import.meta.url).href,
-		options: {
-			skills: ["./skills/review"],
-			context: { instructions: ["Instruction sentinel"], files: ["./context.md"] },
-			includeGlobalSkills: false,
+		setup: async (workspace) => {
+			const { writeFile } = await import("node:fs/promises");
+			await writeFile(join(workspace.path, "setup.txt"), "seeded");
 		},
 	});
-	const result = await compare({
-		prompt: "answer",
-		variants: { configured: { agent: configured } },
-	});
-	const run = result.runs[0];
-	expect(run.startingContext.instructions).toEqual(["Instruction sentinel"]);
-	expect(run.startingContext.files[0].content).toContain("CONTEXT_SENTINEL");
-	expect(run.workspace.initial.files[".agents/skills/review/SKILL.md"]).toBeDefined();
-	expect(run.trace.messages[0].content).toContain("Instruction sentinel");
+	expect(run.workspace.initial.files["setup.txt"]).toBeDefined();
 });
-
-test("cancellation terminates the worker while a run is pending", async ({ workspace }) => {
-	const { createAgentSession } = await import("../../../harness/dist/index.js");
-	const controller = new AbortController();
-	const session = await createAgentSession({
-		agent: fake(),
-		workspace: workspace.path,
-		signal: controller.signal,
-	});
-	const result = session.run("WAIT_FOREVER");
-	setTimeout(() => controller.abort(), 30);
-	await expect(result).rejects.toThrow("cancelled");
-	await session.close();
-});
-
-test("unexpected successful control fails the comparison", async ({ compare }) => {
-	await expect(
-		compare({
-			prompt: "answer",
-			variants: { control: { agent: fake(), expectedFailures: ["owner"] } },
-			checks: async (run, check) => {
-				await check("owner", () => expect(run.output).toContain("Mina"));
-			},
-		}),
-	).rejects.toThrow("unexpectedly passed");
-});
-
-test("arbitrary errors cannot be hidden as expected behavioral failures", async ({ compare }) => {
-	await expect(
-		compare({
-			prompt: "answer",
-			variants: { control: { agent: fake(), expectedFailures: ["owner"] } },
-			checks: async (_run, check) => {
-				await check("owner", () => {
-					throw new Error("infrastructure unavailable");
-				});
-			},
-		}),
-	).rejects.toThrow("infrastructure unavailable");
-});
-
-const extendedTest = test.extend<{ greeting: string }>({ greeting: "Hello" });
-extendedTest.use({ agent: fake() });
-extendedTest("extended fixtures preserve the configured agent API", async ({ agent, greeting }) => {
-	expect(greeting).toBe("Hello");
-	expect((await agent.run("answer")).output).toContain("Mina");
-});
-
-test("matchers require exact paths and retain proven evidence", async ({ agent }) => {
-	const run = await agent.run("answer");
-	expect(run).toHaveReadPath("PROJECT.md");
+test("matchers require exact paths and proven exit codes", async ({ agent }) => {
+	const run = await agent.run({ prompt: "answer" });
 	expect(run).not.toHaveAccessedPath("NOT-PROJECT.md");
-	const command =
-		run.toolCalls.find((call) => call.name === "shell") ??
-		run.toolCalls.find((call) => call.args?.command === "npm test");
-	if (!command) throw new Error("Fake adapter omitted the expected command");
-	const uncertain = { ...run, toolCalls: [...run.toolCalls, { ...command, exitCode: undefined }] };
-	expect(uncertain).toHaveExecutedCommand({ command: "npm test", exitCode: 0 });
+	const command = run.toolCalls.find((call) => call.args?.command === "npm test");
+	if (!command) throw new Error("Missing command");
 	const missing = { ...run, toolCalls: [{ ...command, exitCode: undefined }] };
 	expect(() =>
 		expect(missing).not.toHaveExecutedCommand({ command: "npm test", exitCode: 0 }),
 	).toThrow("unavailable");
 });
-
-test("reference context stays with the judge and invalid citations fail", async ({ agent }) => {
-	const run = await agent.run("answer");
-	const grade = await run.judge({
-		...judge,
-		context: { reference: { text: "JUDGE_ONLY_SENTINEL" } },
+test("test teardown cancels pending siblings and cleans completed workspaces", async ({
+	agent,
+}, info) => {
+	const run = await agent.run({ prompt: "answer" });
+	const runtime = new TestRuntime({
+		baseDir: new URL(".", import.meta.url).pathname,
+		outputDir: info.outputPath("cancel"),
+		agent: fake(),
+		workspace: "./project",
+		signal: new AbortController().signal,
 	});
-	expect(JSON.stringify(run)).not.toContain("JUDGE_ONLY_SENTINEL");
-	const request = JSON.parse(await readFile(join(grade.artifact, "request.json"), "utf8"));
-	expect(request.evidence.reference.text).toBe("JUDGE_ONLY_SENTINEL");
-	expect(request.evidence.metrics).toBeUndefined();
-	await expect(run.judge({ ...judge, agent: fake({ evidenceLine: 99999 }) })).rejects.toThrow(
-		"unknown file line",
-	);
+	const task = runtime.agent("pending", {});
+	const finished = await task.run({ prompt: "answer" });
+	const waiting = task.run({ prompt: "WAIT_FOREVER" });
+	const rejected = expect(waiting).rejects.toThrow();
+	await runtime.close();
+	await rejected;
+	await expect(access(finished.workspace.root)).rejects.toThrow();
+	expect(run.output).toContain("Mina");
+	await expect(task.run({ prompt: "answer" })).rejects.toThrow("closed");
+});
+test("continuation rejects overlapping conversation turns", async ({ agent }) => {
+	const run = await agent.run({ prompt: "answer" });
+	const waiting = run.continue({ prompt: "WAIT_FOREVER" });
+	// The owning test cancels this pending continuation during teardown.
+	void waiting.catch(() => undefined);
+	await expect(run.continue({ prompt: "answer" })).rejects.toThrow("Overlapping");
+});
+let previous: string | undefined;
+test("records the first test workspace", async ({ agent }) => {
+	previous = (await agent.run({ prompt: "answer" })).workspace.root;
+});
+test("test resources have fresh ownership", async ({ agent }) => {
+	const run = await agent.run({ prompt: "answer" });
+	expect(run.output).toContain("turn 1");
+	if (previous) await expect(access(previous)).rejects.toThrow();
+});
+
+const invalidJsonTest = describe("evaluation failures", ({ judge }) => ({
+	malformed: judge({ agent: fake({ invalidJson: true }), prompt: "Check", schema }),
+}));
+invalidJsonTest("invalid JSON is an evaluation error", async ({ malformed }) => {
+	await expect(malformed.run({ input: "answer" })).rejects.toThrow();
+});
+
+test("missing reviewer does not borrow the coding agent", async ({ agent }, info) => {
+	const runtime = new TestRuntime({
+		baseDir: new URL(".", import.meta.url).pathname,
+		outputDir: info.outputPath("no-reviewer"),
+		agent: fake(),
+		workspace: "./project",
+		signal: new AbortController().signal,
+	});
+	try {
+		await expect(
+			runtime.judge("missing", { prompt: "Check", schema }).run({ input: "answer" }),
+		).rejects.toThrow("Configure an agent");
+		expect((await agent.run({ prompt: "answer" })).output).toContain("Mina");
+	} finally {
+		await runtime.close();
+	}
+});
+
+test("failed setup still cleans the task workspace", async (_resources, info) => {
+	const runtime = new TestRuntime({
+		baseDir: new URL(".", import.meta.url).pathname,
+		outputDir: info.outputPath("failed-setup"),
+		agent: fake(),
+		workspace: "./project",
+		signal: new AbortController().signal,
+	});
+	let workspacePath = "";
+	try {
+		await expect(
+			runtime.agent("failing", {}).run({
+				prompt: "answer",
+				setup: async (workspace) => {
+					workspacePath = workspace.path;
+					throw new Error("Setup failure");
+				},
+			}),
+		).rejects.toThrow("Setup failure");
+	} finally {
+		await runtime.close();
+	}
+	expect(workspacePath).not.toBe("");
+	await expect(access(workspacePath)).rejects.toThrow();
 });

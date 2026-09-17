@@ -30,7 +30,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 - Bun `1.4.0` (see `packageManager` in `package.json`)
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
 - Host-agent runs need host auth. Agent definitions default to subscription. Use `agent-test login` for Cursor SDK auth, `codex login` for OpenAI, or Claude Code login. Explicit API-key auth is `{ type: "api-key", env: "OPENAI_API_KEY" }` on the definition. The CLI does not load `.env`.
-- TypeScript tests configure judges explicitly with `defineJudge({ agent, criteria })`; grading does not determine acceptance until an assertion checks it.
+- TypeScript suites return named `agent()` and `judge({ prompt, schema })` resources from `describe`; tests receive executable handles. `judge.run({ input })` sees only selected data and reviewer context. Assertions determine acceptance.
 - `bun run test`, `bun run test:unit`, and `bun run test:sandbox-safe` do not launch a host agent. Provider-backed capability, tour, matrix, and reliability runs are manual.
 
 ## First hour
@@ -78,8 +78,8 @@ skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewe
 ## Layout
 
 - `packages/harness` — host-agnostic agent runtime (Cursor, Claude, OpenAI Codex)
-- `packages/test` — Playwright-backed agent fixtures, comparisons, explicit judges, viewer, and CLI. Public exports are in `src/sdk/`; JSON execution has been removed.
-- `agent-suites/tour/` — TypeScript examples with reusable agent and judge definitions; configured by `agent-test.config.ts`.
+- `packages/test` — Playwright-backed named resources, independent tasks, structured judges, viewer, and CLI. Public exports are in `src/sdk/`; JSON execution has been removed.
+- `agent-suites/tour/` — TypeScript examples with reusable agent and judge definitions; configured by `agent-test.config.ts`; the cross-host matrix uses `agent-test.matrix.config.ts`.
 - `agent-suites/test-sdk-capabilities/` — eleven TypeScript capability tests using the same SDK as the tour.
 - `skeleton.toml` — Skeleton scan perimeter, review proof, and coverage
 - `.agents/skills/` — project skills (Cursor/Codex); `.claude/skills/` mirrors for Claude Code

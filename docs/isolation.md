@@ -4,14 +4,12 @@
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 <!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/user-skills.ts,packages/test/src/sdk/workspace.ts,packages/test/src/sdk/runtime.ts,packages/test/src/sdk/judge.ts -->
 
-Each test fixture owns a sealed temporary Git workspace. Comparison repetitions each get a fresh fixture; successive `agent.run()` calls within one fixture share its workspace and conversation.
+Every `agent.run` owns a sealed temporary Git workspace and host session. Independent runs may execute concurrently. Only `run.continue` shares the original task workspace and history.
 
-`workspace` is a folder relative to the configuration directory. A subfolder copies that fixture. The default `.` copies committed HEAD. The SDK supplies attached skills and explicit context after preparing the workspace. Global skills are excluded unless `includeGlobalSkills: true` is set.
+A test owns all its runs and evaluations. Teardown aborts pending operations, waits for them to settle, and closes sessions and workspaces. POSIX workers terminate their process groups. Setup callbacks run before the host starts and remain test-owned code.
 
-The runner rejects observed tool paths outside the workspace. `workspace.readFile()` checks lexical and real paths. Snapshot copying rejects symbolic links and excludes `.git` and `node_modules`. These checks complement the native host sandbox; they are not a universal sandbox for arbitrary custom adapter code.
+Workspace source paths resolve against the config directory. A fixture folder is copied; the default dot uses committed HEAD. Attached skills and context are supplied afterward. Global skills remain excluded unless explicitly enabled.
 
-Each run preserves initial/final snapshots, changes, observable transcript, tool calls, usage, and supplied starting context in the test output directory. Fixtures are cleaned up on completion or failure; session cancellation terminates the worker process group on POSIX systems.
+Observed tool paths outside the workspace are rejected. Snapshot copying rejects symlinks and excludes .git and node_modules. These checks complement host restrictions; they are not a universal sandbox for arbitrary adapter or setup code.
 
-Each judge receives separate evidence copies. Reference-only material is supplied to the judge, not the tested agent. Requests and responses are saved; evidence references must point into supplied files, transcript events, or references. Judge usage is separate from agent usage. See [the SDK guide](sdk-v2.md#what-judging-means).
-
-Use ordinary fixture setup for seed changes before the first agent run. There is no in-place execution flag or legacy scenario retry loop.
+Judges receive a fresh read-only workspace containing their own explicit resources. No tested-agent workspace or transcript is copied automatically. The caller selects JSON input. Requests, responses, schema validation errors, and separate token usage are recorded as artifacts. See [the SDK guide](sdk-v2.md#explicit-judge-inputs).

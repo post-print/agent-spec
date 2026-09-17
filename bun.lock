@@ -16,7 +16,7 @@
     },
     "packages/harness": {
       "name": "@post-print/agent-harness",
-      "version": "1.1.8",
+      "version": "1.1.9",
       "devDependencies": {
         "@cursor/sdk": "^1.0.27",
         "@types/node": "^26.1.1",
@@ -31,7 +31,7 @@
     },
     "packages/test": {
       "name": "@post-print/agent-test",
-      "version": "1.1.8",
+      "version": "1.1.9",
       "bin": {
         "agent-test": "./dist/cli.js",
       },
@@ -40,6 +40,7 @@
         "@post-print/agent-harness": "workspace:*",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
+        "zod": "^3.25.76",
       },
       "devDependencies": {
         "@types/node": "^26.1.1",

@@ -9,7 +9,7 @@ The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`
 | Command | Behavior |
 | --- | --- |
 | `agent-test test --list` | Discover tests without starting agents |
-| `agent-test test tour --project=openai` | Execute the OpenAI tour |
+| `agent-test test tour` | Execute the default-agent tour |
 | `agent-test test --config path/to/config.ts` | Use another configuration |
 | `agent-test test --reporter=html` | Write a Playwright HTML report |
 | `agent-test viewer --config agent-test.config.ts --port 0` | Open the localhost viewer; zero selects a free port |

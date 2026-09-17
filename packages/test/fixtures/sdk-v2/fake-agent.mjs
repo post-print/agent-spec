@@ -2,23 +2,35 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 function gradeResponse(prompt, options) {
-	const rubric = JSON.parse(prompt.split("Rubric:\n")[1].split("\nEvidence:")[0]);
-	const scores = {},
-		reasons = {},
-		evidence = {};
-	for (const key of Object.keys(rubric)) {
-		scores[key] = Math.max(...Object.keys(rubric[key].scores).map(Number));
-		reasons[key] = "Confirmed against the captured project guide.";
-		evidence[key] = [
-			{
-				source: "workspace",
-				snapshot: "final",
-				path: "PROJECT.md",
-				line: options.evidenceLine ?? 1,
-			},
-		];
-	}
-	return { type: "text", text: JSON.stringify({ scores, reasons, evidence }) };
+	const input = JSON.parse(prompt.split("\nInput:\n")[1]);
+	return {
+		type: "text",
+		text: options.invalidJson
+			? "not json"
+			: JSON.stringify(options.response ?? { correct: true, reason: "Verified", input }),
+	};
+}
+async function* codingEvents({ prompt, workspace, answer, turns }) {
+	if (prompt.includes("WAIT_FOREVER")) await new Promise(() => {});
+	if (prompt.includes("FAIL_NOW")) throw new Error("fake failure");
+	const text = await readFile(join(workspace.path, "PROJECT.md"), "utf8");
+	yield {
+		type: "tool",
+		name: "Read",
+		args: { path: "PROJECT.md" },
+		result: text,
+		succeeded: true,
+	};
+	if (prompt.includes("edit")) await writeFile(join(workspace.path, "result.txt"), "done");
+	yield {
+		type: "tool",
+		name: "Shell",
+		args: { command: "npm test" },
+		result: "passed",
+		exitCode: 0,
+		succeeded: true,
+	};
+	yield { type: "text", text: `${answer} turn ${turns}` };
 }
 export default {
 	name: "fake",
@@ -39,27 +51,10 @@ export default {
 				signal.throwIfAborted();
 				turns++;
 				if (readOnly) {
+					if (prompt.includes("WAIT_FOREVER")) await new Promise(() => {});
 					yield gradeResponse(prompt, options);
 				} else {
-					if (prompt.includes("WAIT_FOREVER")) await new Promise(() => {});
-					const text = await readFile(join(workspace.path, "PROJECT.md"), "utf8");
-					yield {
-						type: "tool",
-						name: "Read",
-						args: { path: "PROJECT.md" },
-						result: text,
-						succeeded: true,
-					};
-					if (prompt.includes("edit")) await writeFile(join(workspace.path, "result.txt"), "done");
-					yield {
-						type: "tool",
-						name: "Shell",
-						args: { command: "npm test" },
-						result: "passed",
-						exitCode: 0,
-						succeeded: true,
-					};
-					yield { type: "text", text: `${answer} turn ${turns}` };
+					yield* codingEvents({ prompt, workspace, answer, turns });
 				}
 				if (!options.omitUsage)
 					yield {

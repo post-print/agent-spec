@@ -1,26 +1,18 @@
 # Suites
 
-<!-- source-of-truth: TypeScript suite authoring and capability coverage -->
+<!-- source-of-truth: executable suite coverage and resource declaration -->
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
-<!-- review-deps: paths=agent-test.config.ts,agent-suites/**/*.ts,packages/test/src/sdk/*.ts -->
+<!-- review-deps: paths=agent-test*.config.ts,agent-suites/**/*.ts,packages/test/src/sdk/*.ts -->
 
-Write TypeScript tests using `test`, `expect`, and reusable agent definitions. [The SDK guide](sdk-v2.md) describes the API; [the tour](../agent-suites/tour/tour.spec.ts) demonstrates it.
+A suite calls `describe(name, ({ agent, judge }) => ({ ...namedResources }))` and uses the returned test function. The callback declares resources during discovery; each test receives fresh handles. See [the SDK guide](sdk-v2.md).
 
 | Suite | Coverage |
 | --- | --- |
-| `tour` | Project facts, diagnosis, repair, MCP, attached skills, expected controls, repeated token comparison and explicit judging |
-| `test-sdk-capabilities` | Eleven manual checks of reply assertions, forbidden tools, path access, edits/commands, ordered MCP, explicit context, fixture setup, isolation, skills, judging, and comparison controls |
+| tour | Project facts, diagnosis, repair judging, MCP, attached skills, explicit bad controls, repeated token measurements |
+| test-sdk-capabilities | Reply checks, forbidden tools, path evidence, writes/commands, ordered MCP, explicit context, setup, isolation, skills, qualitative evaluation, controls |
 
-The root config defines OpenAI, Claude, and Cursor projects. Its default workspace is the task-list fixture. The reviewer is explicitly configured as OpenAI, independently of the tested host.
+The root config uses one OpenAI agent and a separate OpenAI reviewer. The matrix config runs the same tests against OpenAI, Claude, and Cursor. A full default discovery lists 18 tests; the matrix lists 54.
 
-```sh
-agent-test test --list
-agent-test test tour --project=openai
-agent-test test test-sdk-capabilities --project=cursor
-```
+`agent()` resources can attach skills, context, MCP servers, workspace, or setup; individual run objects can add task resources. `judge()` resources declare a prompt and schema. Calls pass only selected JSON input. Multiple resources are ordinary named entries returned by the callback.
 
-Assertions throw and decide pass/fail. Judges return scores and evidence; they do not impose hidden acceptance thresholds. Each comparison variant may override the agent, prompt, workspace, and repetition count. Named expected failures must execute and fail; runtime and judge errors remain failures.
-
-MCP servers are attached to an agent definition. Use absolute script paths for stdio servers that live outside the sealed fixture. Attached skills contain SKILL.md; context files resolve relative to the test config.
-
-Fixture setup can apply a patch with ordinary Node/Git code before the first agent run. Playwright owns hooks, selection, timeouts, retries, and reports. The JSON authoring and rubric runner have been removed.
+Comparisons use ordinary JavaScript and assertions. Repeated independent calls start fresh; `run.continue` shares the original task. Skills and MCP definitions are in [agents.ts](../agent-suites/tour/agents.ts). The repair judge sees explicitly selected source content and changed paths, not an implicit workspace copy.

@@ -1,18 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { claude, cursor, customAgent, openai } from "@post-print/agent-harness";
-import { parseGrade, validateCriteria } from "../sdk/judge.js";
+import { z } from "zod/v4";
+import { parseEvaluation, serializeInput } from "../sdk/judge.js";
 import { statistics } from "../sdk/metrics.js";
 
-const criteria = {
-	correctness: { description: "Correct answer", scores: { 0: "Wrong", 2: "Correct" } },
-};
-const valid = {
-	scores: { correctness: 2 },
-	reasons: { correctness: "Supported by the guide" },
-	evidence: {
-		correctness: [{ source: "workspace", snapshot: "final", path: "PROJECT.md", line: 1 }],
-	},
-};
 describe("v2 evaluation contracts", () => {
 	it("creates immutable definitions without resolving credentials", () => {
 		const agent = openai({
@@ -40,20 +31,15 @@ describe("v2 evaluation contracts", () => {
 			customAgent({ adapter: "fake.mjs", options: { callback: () => undefined } }),
 		).toThrow("serializable");
 	});
-	it("requires two meaningful scores and a description", () => {
-		expect(() => validateCriteria({ bad: { description: "", scores: { 0: "wrong" } } })).toThrow();
+	it("validates structured judge output", () => {
+		const schema = z.object({ correct: z.boolean() });
+		expect(parseEvaluation('{"correct":true}', schema).correct).toBe(true);
+		expect(() => parseEvaluation('{"correct":"yes"}', schema)).toThrow();
+		expect(() => parseEvaluation("invalid JSON", schema)).toThrow();
 	});
-	it("accepts declared scores with evidence", () => {
-		expect(parseGrade(JSON.stringify(valid), criteria).scores.correctness).toBe(2);
-	});
-	it("rejects intermediate scores, missing reasons, evidence, and extra criteria", () => {
-		for (const changed of [
-			{ ...valid, scores: { correctness: 1 } },
-			{ ...valid, reasons: {} },
-			{ ...valid, evidence: { correctness: [] } },
-			{ ...valid, scores: { correctness: 2, extra: 1 } },
-		])
-			expect(() => parseGrade(JSON.stringify(changed), criteria)).toThrow();
+	it("rejects lossy judge input", () => {
+		expect(() => serializeInput({ value: Number.NaN })).toThrow("non-finite");
+		expect(serializeInput({ answer: "selected" })).toBe('{"answer":"selected"}');
 	});
 	it("does not silently drop runs with missing metrics", () => {
 		const metric = statistics([10, undefined, 20]);

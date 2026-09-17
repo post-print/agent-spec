@@ -1,6 +1,11 @@
 import { relative } from "node:path";
 import type { FullConfig, Reporter, Suite, TestCase, TestResult } from "@playwright/test/reporter";
 
+function sourceFile(test: TestCase): string {
+	let suite: Suite | undefined = test.parent;
+	while (suite && suite.type !== "file") suite = suite.parent;
+	return suite?.location?.file ?? test.location.file;
+}
 const emit = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 export default class AgentViewerReporter implements Reporter {
 	private buffers = new Map<string, string>();
@@ -10,8 +15,8 @@ export default class AgentViewerReporter implements Reporter {
 			tests: suite.allTests().map((test) => ({
 				id: test.id,
 				title: test.titlePath().slice(3).join(" › ") || test.title,
-				file: test.location.file,
-				listFile: relative(_config.rootDir, test.location.file).split("\\").join("/"),
+				file: sourceFile(test),
+				listFile: relative(_config.rootDir, sourceFile(test)).split("\\").join("/"),
 				project: test.parent.project()?.name || "default",
 			})),
 		});

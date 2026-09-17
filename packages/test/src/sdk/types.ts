@@ -1,30 +1,31 @@
-import type { AgentCapabilities, AgentDefinition, AgentTrace } from "@post-print/agent-harness";
-import type { StartingContext, WorkspaceSnapshot } from "./workspace.js";
-
-export interface Criterion {
-	description: string;
-	scores: Record<number, string>;
+import type {
+	AgentCapabilities,
+	AgentDefinition,
+	AgentOptions,
+	AgentTrace,
+} from "@post-print/agent-harness";
+import type { z } from "zod/v4";
+import type { StartingContext, Workspace, WorkspaceSnapshot } from "./workspace.js";
+export interface AgentSettings extends AgentOptions {
+	agent?: AgentDefinition;
+	workspace?: string;
+	setup?: (workspace: Workspace) => Promise<void>;
 }
-export type Criteria = Record<string, Criterion>;
-export interface JudgeDefinition<C extends Criteria = Criteria> {
-	agent: AgentDefinition;
-	criteria: C;
-	context?: { reference?: { text?: string; files?: readonly string[] }; includeMetrics?: boolean };
+export interface RunOptions extends Omit<AgentSettings, "agent"> {
+	prompt: string;
 }
-export interface EvidenceReference {
-	source: "transcript" | "workspace" | "reference";
-	path?: string;
-	snapshot?: "initial" | "final";
-	line?: number;
-	event?: number;
+export interface JudgeSettings<S extends z.ZodType = z.ZodType>
+	extends Omit<AgentSettings, "workspace" | "setup"> {
+	prompt: string;
+	schema: S;
 }
-export interface Grade<C extends Criteria = Criteria> {
-	scores: { [K in keyof C]: number };
-	reasons: { [K in keyof C]: string };
-	evidence: { [K in keyof C]: EvidenceReference[] };
-	usage: RunUsage;
-	artifact: string;
-}
+export type JsonValue =
+	| string
+	| number
+	| boolean
+	| null
+	| JsonValue[]
+	| { [key: string]: JsonValue };
 export interface RunUsage {
 	tokens: {
 		input?: number;
@@ -37,6 +38,7 @@ export interface RunUsage {
 }
 export interface Run {
 	id: string;
+	name: string;
 	prompt: string;
 	output: string;
 	trace: AgentTrace;
@@ -46,13 +48,27 @@ export interface Run {
 	usage: RunUsage;
 	capabilities: AgentCapabilities;
 	startingContext: StartingContext;
+	artifact: string;
 	workspace: {
 		root: string;
 		initial: WorkspaceSnapshot;
 		final: WorkspaceSnapshot;
 		changedPaths: string[];
 	};
-	judge<C extends Criteria>(definition: JudgeDefinition<C>): Promise<Grade<C>>;
+	continue(options: { prompt: string }): Promise<Run>;
+}
+export interface Evaluation<T = unknown> {
+	id: string;
+	name: string;
+	output: T;
+	usage: RunUsage;
+	artifact: string;
+}
+export interface AgentFixture {
+	run(options: RunOptions): Promise<Run>;
+}
+export interface JudgeFixture<T> {
+	run(options: { input: JsonValue }): Promise<Evaluation<T>>;
 }
 export interface Statistics {
 	available: boolean;
@@ -60,34 +76,4 @@ export interface Statistics {
 	mean: number;
 	min: number;
 	max: number;
-}
-export interface VariantResult {
-	runs: Run[];
-	metrics: {
-		tokens: { input: Statistics; output: Statistics; total: Statistics };
-		durationMs: Statistics;
-		toolCalls: Statistics;
-	};
-}
-export interface ComparisonGrade<C extends Criteria, V extends string> {
-	variants: Record<V, { runs: Grade<C>[]; scores: { [K in keyof C]: number } }>;
-	winner: V | null;
-}
-export interface Comparison<V extends string = string> {
-	runs: Run[];
-	variants: Record<V, VariantResult>;
-	judge<C extends Criteria>(definition: JudgeDefinition<C>): Promise<ComparisonGrade<C, V>>;
-}
-export interface Variant {
-	agent?: AgentDefinition;
-	prompt?: string;
-	workspace?: string;
-	repeat?: number;
-	expectedFailures?: readonly string[];
-}
-export type Check = (name: string, assertion: () => unknown | Promise<unknown>) => Promise<void>;
-export interface CompareOptions<V extends string> {
-	prompt: string;
-	variants: Record<V, Variant>;
-	checks?: (run: Run, check: Check) => Promise<void>;
 }

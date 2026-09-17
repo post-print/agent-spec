@@ -11,6 +11,9 @@
 	"include": [
 		"agent-test.config.ts",
 		"agent-suites/tour/*.ts",
-		"agent-suites/test-sdk-capabilities/*.ts"
+		"agent-suites/test-sdk-capabilities/*.ts",
+		"agent-test.matrix.config.ts",
+		"packages/test/fixtures/sdk-v2/contract.spec.ts",
+		"packages/test/fixtures/sdk-v2/agent-test.config.ts"
 	]
 }

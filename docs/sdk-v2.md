@@ -1,191 +1,136 @@
 # Agent Test SDK
 
-<!-- source-of-truth: TypeScript agent-test API, configured agents, comparisons, and explicit judging. -->
+<!-- source-of-truth: named agent and judge resources, independent runs, and selected evaluation input -->
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- review-deps: paths=packages/test/src/sdk/*.ts,agent-test*.config.ts,agent-suites/**/*.ts -->
 
-## Configure an agent
-
-```ts
-import { openai, claude, cursor } from "@post-print/agent-harness";
-
-const coder = openai({
-  model: "your-supported-model",
-  auth: { type: "subscription" },
-  skills: ["./skills/typescript"],
-  context: {
-    instructions: ["Follow existing project conventions."],
-    files: ["./context/architecture.md"],
-  },
-  includeGlobalSkills: false,
-});
-
-const other = cursor({
-  auth: { type: "api-key", env: "CURSOR_API_KEY" },
-});
-```
-
-`openai()` runs the Codex coding agent. Factories do not contact providers or read credentials. Omitted authentication means subscription; omitted model uses the underlying host default. API keys are resolved in the session worker, with no fallback to another billing mode.
-
-Skill directories contain `SKILL.md`. They are copied into the isolated host's project skill directory. Availability does not prove use. Context instructions and file contents are explicitly supplied as starting context and recorded in run artifacts. Relative source paths are resolved against the config directory. Project skills remain available; global skills are excluded unless explicitly enabled.
-
-## Configure and execute tests
+## Configure defaults
 
 ```ts
 import { defineConfig } from "@post-print/agent-test";
 import { openai } from "@post-print/agent-harness";
 
 export default defineConfig({
-  testDir: "./agent-tests",
+  agent: openai({ model: "your-coding-model" }),
+  judge: openai({ model: "your-review-model" }),
+  workspace: "./fixtures/project",
   retries: 0,
-  workers: 1,
-  timeout: 180_000,
-  use: { agent: openai(), workspace: "./fixtures/project" },
 });
 ```
 
-```sh
-agent-test test --list
-agent-test test
-agent-test viewer --config agent-test.config.ts --port 0
-```
+Definitions choose model, authentication, and reusable resources. They do not launch sessions. `openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` runs the Cursor SDK. Authentication defaults to subscription; API-key auth names an environment variable with `{ type: "api-key", env: "OPENAI_API_KEY" }`. No billing fallback is performed.
 
-Playwright handles test selection, hooks, projects, timeouts, and reports. The `agent` configuration becomes a fresh fixture; it is not a shared running client. Workspace paths name folders relative to the config directory. The default `.` uses a committed HEAD snapshot. Fixtures stay alive through assertions. SDK snapshots exclude `.git` and `node_modules` and reject symlinks rather than following them outside the workspace.
+The default repository config selects OpenAI once. Cross-host execution is explicit in `agent-test.matrix.config.ts`. A project repeats independent tests; it does not compare their results.
 
-## Assertions and conversations
+## Return named resources from describe
 
 ```ts
-import { test, expect } from "@post-print/agent-test";
+import { describe, expect, z } from "@post-print/agent-test";
 
-test("investigates and fixes", async ({ agent, workspace }) => {
-  const diagnosis = await agent.run("Investigate the bug. Do not edit files.");
-  expect(diagnosis.workspace.changedPaths).toEqual([]);
-  const fix = await agent.run("Apply the fix and run npm test.");
-  expect(fix).toHaveExecutedCommand({ command: "npm test", exitCode: 0 });
-  expect(fix).toHaveModifiedPath("src/example.ts");
-  expect(await workspace.readFile("src/example.ts")).toContain("expected text");
-});
-```
+const test = describe("task answers", ({ agent, judge }) => ({
+  baseline: agent(),
+  researcher: agent({ skills: ["./skills/research"] }),
+  accuracy: judge({
+    prompt: "Compare each answer against the supplied reference.",
+    schema: z.object({
+      baselineCorrect: z.boolean(),
+      candidateCorrect: z.boolean(),
+      reason: z.string(),
+    }),
+  }),
+}));
 
-String command/tool matchers are exact; use a regular expression for partial matching. `toHaveAccessedPath` reports attempted access. `toHaveReadPath` requires structured successful-read evidence; it does not equate a mentioned path with read contents. Tool observations and exit codes require adapter capabilities, including for negative assertions.
-
-Built-ins currently reconstruct conversation history rather than resuming native sessions. Each run records this capability. A single session rejects overlapping runs. Use comparison variants for separate runs.
-
-## What judging means
-
-An agent definition chooses **who evaluates**. Criteria choose **what to evaluate**. Assertions choose **which results pass**.
-
-```ts
-import { defineJudge } from "@post-print/agent-test";
-import { openai } from "@post-print/agent-harness";
-
-const reviewer = openai({
-  skills: ["./skills/code-review"],
-  context: { instructions: ["Ground conclusions in the supplied evidence."] },
-});
-
-const correctness = defineJudge({
-  agent: reviewer,
-  criteria: {
-    correctness: {
-      description: "Does the patch fix the bug without regressions?",
-      scores: {
-        0: "Incorrect or introduces a regression.",
-        1: "Partially correct; important cases still fail.",
-        2: "Correct, including boundary cases.",
-      },
+test("research preserves accuracy", async ({ baseline, researcher, accuracy }) => {
+  const prompt = "Find the current deadline.";
+  const [first, second] = await Promise.all([
+    baseline.run({ prompt }),
+    researcher.run({ prompt }),
+  ]);
+  const evaluation = await accuracy.run({
+    input: {
+      baseline: first.output,
+      candidate: second.output,
+      reference: "2026-09-24",
     },
-  },
-  context: { reference: { files: ["./evaluation/acceptance.md"] } },
+  });
+  expect(evaluation.output.baselineCorrect).toBe(true);
+  expect(evaluation.output.candidateCorrect).toBe(true);
 });
-
-// Inside a test:
-const grade = await run.judge(correctness);
-expect(grade.scores.correctness).toBe(2);
 ```
 
-There is no global numeric `scale`. Each criterion has at least two declared numeric scores, higher meaning better. Only those exact scores are valid. A grade includes criterion-keyed `scores`, `reasons`, and `evidence`, plus separate judge usage and an artifact directory. An invalid response is a judge error, not a low score. A low score fails only when an assertion rejects it.
+`describe` runs its synchronous callback during discovery and returns a scoped test function. The callback returns only named `agent()` and `judge()` resources. Each test receives its own handles under those names. Resource names appear in the viewer. Schema output types are preserved through the returned test function.
 
-The judge receives the original task, observable conversation and tool activity, a changed-file list, initial/final file indexes, and recorded artifacts. Captured workspace files are available on demand under `initial/` and `final/`. Reference material goes only to the judge. Attached reviewer skills/instructions configure the reviewer; they do not alter the coding agent.
+Factories inherit the config's corresponding agent or judge definition. Set `agent: claude(...)` on a factory to override that definition. A judge without a configured or explicit reviewer fails clearly; it never borrows the coding agent implicitly.
 
-Judge requests and responses are saved. Oversized prompt evidence fails explicitly above 200000 bytes; it is not silently truncated. There is no automatic judge retry. Hidden reasoning and unavailable host internals cannot be supplied. Each judge invocation uses a fresh session. The OpenAI adapter uses a read-only sandbox; Claude limits its tool set to Read/Glob/Grep. Cursor currently rejects judging because an enforced read-only capability is not implemented. Custom adapters must declare and honor `readOnly`.
+The scoped test function currently registers a title and async body. It is not the full Playwright `TestType` and does not expose `test.use`, `extend`, or hook methods. Use factory/run setup for workspace preparation. Playwright still owns test selection, projects, retries, timeouts, scheduling, and reports.
 
-Variant names and model identities are not included in evaluation metadata, although transcript content may reveal identity. Metrics are omitted unless `context.includeMetrics` is true. This is best-effort blinding. Judge output evidence references are checked against the supplied file/transcript/reference indexes.
+## Independent tasks and explicit continuation
 
-## Compare variants and tokens
+Every `agent.run({ prompt, ... })` creates an independent workspace and host session. Concurrent calls are supported, including calls on the same named handle. Resources live until the enclosing test ends so task continuation remains available.
 
 ```ts
-const comparison = await compare({
-  prompt: "Fix the bug and run npm test.",
-  variants: {
-    baseline: { agent: openai(), repeat: 3 },
-    candidate: { agent: coder, repeat: 3 },
-  },
-});
-
-const grade = await comparison.judge(correctness);
-for (const run of grade.variants.candidate.runs) {
-  expect(run.scores.correctness).toBe(2);
-}
-expect(comparison.variants.candidate.metrics.tokens.total.mean)
-  .toBeLessThan(comparison.variants.baseline.metrics.tokens.total.mean);
+const diagnosis = await coder.run({ prompt: "Investigate without editing." });
+const repair = await diagnosis.continue({ prompt: "Apply the fix and run the tests." });
 ```
 
-Variants execute sequentially, round-robin across repetitions. Each repetition starts fresh. `comparison.runs` contains every run; `comparison.variants[name].runs` is variant-specific. `variant.metrics` provides count/mean/min/max for tokens, tool calls, and duration. Incomplete metrics expose `available: false`; accessing their numeric aggregates throws. Agent usage excludes judges. Cross-provider tokens are not equivalent cost, and a few repetitions are not statistical qualification.
+Continuation keeps the original resources and workspace. Overlapping continuations of the same conversation are rejected. Built-in hosts reconstruct history rather than resume native sessions; custom adapters may declare native continuation.
 
-Each run is graded independently in a fresh judge session. Variant scores are criterion-wise means. `grade.winner` is calculated from equally weighted normalized criterion scores; ties and single-variant grades return `null`. A winner does not imply acceptable correctness.
+Run results expose `output`, `trace`, `conversation`, `toolCalls`, `usage`, `durationMs`, `startingContext`, workspace snapshots/changed paths, and an artifact directory. `continue` is the only execution method on a run result.
 
-## Expected failed controls
+## Task resources
+
+Factory settings and run options can supply `skills`, `context`, `mcpServers`, `workspace`, and `setup`. Model/authentication can be set on the factory or harness definition. `includeGlobalSkills` defaults to false.
 
 ```ts
-await compare({
-  prompt: "Find the current due date.",
-  variants: {
-    control: { agent: baseline, expectedFailures: ["current-date"] },
-    candidate: { agent: candidate },
-  },
-  checks: async (run, check) => {
-    await check("current-date", () => expect(run.output).toContain("2026-09-24"));
-  },
+const run = await coder.run({
+  prompt: "Find the current task deadline.",
+  skills: ["./skills/task-research"],
+  context: { instructions: ["Cite the authoritative source."], files: ["./context/brief.md"] },
+  mcpServers: { tasks: taskService },
 });
 ```
 
-Only named assertion failures may be expected. Expected checks must execute and fail. Unexpected passes fail the comparison. Runtime, unavailable-evidence, judge, and arbitrary callback errors remain fatal. Use ordinary `expect`, not `expect.soft`, inside collected checks.
+Skill and context-file lists are additive, with duplicate identical paths removed. Instructions append in definition, factory, run order. MCP servers merge by name; later settings replace a server with the same name. Different skill sources targeting the same directory are rejected. Skill paths name directories containing SKILL.md and resolve against the config directory. A skill's availability does not prove its use.
 
-## Custom adapters
+`workspace` chooses the source folder for each task. `setup: async workspace => { ... }` runs after copying it and before starting the host. The last supplied setup callback wins. Run additions do not affect later independent runs or judges.
+
+## Explicit judge inputs
+
+A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ input })` supplies JSON data selected by the test. You may use the SDK's `z` export or import a compatible Zod v4 schema. Schemas must support conversion to JSON Schema; unsupported transforms fail explicitly.
+
+There is no automatic transcript, workspace, tool, or token inclusion. Passing `run.output` supplies only text. To evaluate a patch, read the selected snapshot files yourself and pass their contents. A whole run object is not JSON input because it contains execution methods. Judge definitions may explicitly attach their own context and skills; those are also supplied.
+
+Every evaluation starts a fresh read-only reviewer in a separate workspace containing only its attached resources. The request records the selected input, output schema, and starting context. Response/trace, parsed result, errors, usage, and artifact paths are retained. Inputs above the 200000-byte request limit fail without truncation. Undefined and non-finite input values fail rather than being silently dropped or coerced.
+
+`evaluation.output` is parsed and schema-validated. Invalid JSON or a schema mismatch is an evaluation error, with no automatic retry. There is no built-in score rubric, evidence-citation validator, or winner calculation: request those fields in your schema and assert whatever the test requires. Schema validation proves structure, not factual accuracy.
+
+OpenAI uses a read-only sandbox; Claude restricts judge tools to Read/Glob/Grep. Cursor rejects judge sessions until enforced read-only support exists. Custom adapters must declare and enforce read-only capability.
+
+## Comparisons and metrics
+
+Use `Promise.all` for independent concurrent tasks or ordinary awaits for sequential execution. Each test owns all its pending runs and evaluations. Teardown cancels pending work, waits for it to settle, and closes sessions/workspaces even when one sibling fails. JavaScript `Promise.all` alone does not cancel siblings.
+
+Use normal assertions to compare outputs and to require that an intentionally incorrect control is incorrect. Runtime errors remain errors. There is no `compare`, variants runner, or expected-failure wrapper.
 
 ```ts
-import { defineAgent } from "@post-print/agent-harness";
+import { statistics } from "@post-print/agent-test";
 
-export default defineAgent<{ model: string }>({
-  name: "my-agent",
-  capabilities: {
-    conversation: "native",
-    toolCalls: false,
-    tokenUsage: false,
-    readOnly: false,
-  },
-  async createSession({ options, workspace, signal, readOnly }) {
-    const client = await createMyClient(options, workspace.path, signal);
-    return {
-      async *run(prompt) {
-        yield { type: "text", text: await client.answer(prompt) };
-      },
-      async close() { await client.close(); },
-    };
-  },
-});
+const measurements = await Promise.all([
+  researcher.run({ prompt }),
+  researcher.run({ prompt }),
+]);
+const tokens = statistics(measurements.map(run => run.usage.tokens.total));
+expect(tokens.mean).toBeLessThan(tokenBudget);
 ```
 
-`createMyClient` is consumer code. The adapter's event stream may emit text, structured tools, per-run usage, or a complete normalized trace. Usage events replace the current run's usage, so adapters must normalize incremental provider counters themselves. Implement declared capabilities faithfully. `readOnly` must be enforced, not merely requested in a prompt.
+`statistics` computes count/mean/min/max. Missing measurements expose `available: false` and throw when an aggregate is accessed. Judge usage is separate from task usage. Cross-provider tokens are not equivalent cost; small samples do not establish reliability.
 
-Load this module using `customAgent({ adapter: import.meta.resolve("./my-agent.js"), options: { model: "..." } })`. Use a JavaScript module or compile TypeScript before loading it in the isolated Node worker. Each session owns a worker process; cancellation terminates its process group on POSIX systems.
+## Custom agents
+
+Use `defineAgent` and `customAgent` from agent-harness. The adapter supplies capabilities and creates a session with `run(prompt)` and `close()`. It emits text, tool, usage, or normalized trace events. Adapter code runs in an isolated Node worker. Supply compiled JavaScript modules; configuration sent to workers must be serializable. Test-layer setup callbacks and judge schemas remain in the test process.
 
 ## Migration
 
-TypeScript suites are the only execution path. JSON suites, `runAgentTest`, automatic judges, classifier adapters, and scenario scoring flags have been removed. Use Playwright selection, fixtures, retries, and reporters; use explicit `expect` calls and judge definitions for acceptance.
+Replace `test.use` with direct config defaults and factory resources returned from `describe`. Replace string run arguments with `{ prompt }`. Successive independent runs no longer share a workspace: use `run.continue` explicitly. Replace `compare` with JavaScript and assertions. Replace `defineJudge`/`run.judge` with a named `judge({ prompt, schema })` resource and selected `input`.
 
-The public harness surface is configured agent definitions, sessions, and the trace/workspace utilities used by agent-test. The old adapter registry, `runAgent`, prompt-profile loader, automatic user simulator, and classifier APIs are removed. Built-in host execution and trace capture remain.
-
-`allowUserSkills` has been renamed to `includeGlobalSkills`. It defaults to false for built-in and custom definitions. Opt in explicitly on the agent definition.
-
-The viewer retains its display model and rendering tests for captured result evidence. This does not provide a second suite runner. Use Playwright's HTML reporter for portable reports: `agent-test test --reporter=html`.
+JSON suites and their separate runtime remain removed. Playwright HTML reporting is available through `agent-test test --reporter=html`. No compatibility execution path is retained for the earlier SDK shape.

@@ -15,7 +15,8 @@
 			"!**/coverage",
 			"!**/test-results",
 			"!**/playwright-report",
-			"tsconfig.examples.json"
+			"tsconfig.examples.json",
+			"agent-test.matrix.config.ts"
 		]
 	},
 	"formatter": {
