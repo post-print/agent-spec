@@ -25,7 +25,7 @@ it("public SDK discovery derives expect criteria and preserves explicit criteria
 		.map(parseJson)
 		.find((message) => message?.type === "catalog");
 	expect(catalog?.tests?.map((test) => test.criteria)).toEqual([
-		['expect(run.output).toContain("READY")', 'expect(run).not.toHaveAccessedPath("secret.txt")'],
+		["The response contains READY.", "The agent does not access secret.txt."],
 		["The declared criterion wins."],
 	]);
 });

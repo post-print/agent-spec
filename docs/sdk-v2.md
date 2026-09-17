@@ -152,7 +152,7 @@ JSON suites and their separate runtime remain removed. Playwright HTML reporting
 
 Tests may supply a description, the named resources they use, and explicit pass criteria for discovery and the viewer. Resource names are checked against the surrounding `describe` definition. Omit `resources` to expose every suite resource for compatibility.
 
-When `criteria` is omitted, agent-test derives the viewer's pass criteria from direct `expect(...)` calls in the test callback, in declaration order. The displayed criteria are normalized assertion expressions; execution semantics do not change. Explicit `criteria` remain authoritative. Assertions hidden behind a helper cannot be discovered from the callback, so use explicit criteria when the setup view needs to describe those checks.
+When `criteria` is omitted, agent-test derives the viewer's pass criteria from direct `expect(...)` calls in the test callback, in declaration order. Pass a static message as Playwright's optional second `expect` argument to give the criterion a readable label: `expect(run.output, "The response names Mina.").toContain("Mina")`. Without a static message, the viewer displays the normalized assertion expression. Execution semantics do not change, and explicit `criteria` remain authoritative. Assertions hidden behind a helper cannot be discovered from the callback, so use explicit criteria when the setup view needs to describe those checks.
 
 ```ts
 test("reads the project owner", {

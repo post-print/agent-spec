@@ -42,12 +42,10 @@ const testTarball = await pack(join(stage, "test"));
 const dependencyTarballs = [];
 for (const name of [
 	"zod",
-	"react",
-	"react-dom",
-	"scheduler",
 	"playwright",
 	"playwright-core",
 	"@playwright/test",
+	"ws",
 	"@types/node",
 	"undici-types",
 ]) {

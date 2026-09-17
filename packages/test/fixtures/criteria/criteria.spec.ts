@@ -4,8 +4,8 @@ const test = describe("criteria discovery", ({ agent }) => ({ agent: agent() }))
 
 test("derives direct assertions", async ({ agent }) => {
 	const run = await agent.run({ prompt: "answer" });
-	expect(run.output).toContain("READY");
-	expect(run).not.toHaveAccessedPath("secret.txt");
+	expect(run.output, "The response contains READY.").toContain("READY");
+	expect(run, "The agent does not access secret.txt.").not.toHaveAccessedPath("secret.txt");
 });
 
 test("keeps explicit criteria", {

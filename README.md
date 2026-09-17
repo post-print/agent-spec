@@ -1,7 +1,7 @@
 # agent-spec
 
 <!-- source-of-truth: package overview -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-17 -->
 <!-- review-deps: paths=package.json,packages/*/package.json -->
 
 Executable TypeScript tests for coding agents. `@post-print/agent-test` provides named agent/judge resources, assertions, independent tasks, and typed evaluations. `@post-print/agent-harness` provides configured agents and isolated native host sessions.

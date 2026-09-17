@@ -4,6 +4,10 @@ import { expect } from "../sdk/expect.js";
 import type { Run } from "../sdk/types.js";
 
 describe("agent test matchers", () => {
+	it("preserves Playwright's optional assertion message", () => {
+		expect("READY", "The response contains READY.").toContain("READY");
+	});
+
 	it("accepts a successful shell cat as file-read evidence", () => {
 		const run = recordedRun({
 			name: "Shell",
