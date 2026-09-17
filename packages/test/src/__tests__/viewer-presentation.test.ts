@@ -1,6 +1,10 @@
 import { expect, it } from "bun:test";
 import { storedValue } from "../sdk/execution-reporter.js";
-import { conversationPlaceholder, stripAnsi } from "../viewer/presentation.js";
+import {
+	conversationPlaceholder,
+	preferredExecutionId,
+	stripAnsi,
+} from "../viewer/presentation.js";
 
 it("viewer presentation › strips terminal color codes from assertion errors", () => {
 	const error = "\u001b[31m+ Received\u001b[39m\n\u001b[2m  SEED-READY\u001b[22m";
@@ -10,6 +14,17 @@ it("viewer presentation › strips terminal color codes from assertion errors", 
 it("viewer presentation › distinguishes a pending conversation from a missing transcript", () => {
 	expect(conversationPlaceholder("running")).toBe("Waiting for the first agent event…");
 	expect(conversationPlaceholder("failed")).toBe("No conversation was captured.");
+});
+
+it("viewer presentation › defaults to the active execution when a test has multiple runs", () => {
+	expect(
+		preferredExecutionId([
+			{ id: "newest-finished", status: "passed" },
+			{ id: "active", status: "running" },
+			{ id: "older", status: "failed" },
+		]),
+	).toBe("active");
+	expect(preferredExecutionId([{ id: "newest", status: "passed" }])).toBe("newest");
 });
 
 it("execution reporter › preserves useful command context while redacting private paths", () => {

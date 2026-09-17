@@ -24,6 +24,12 @@ export function conversationPlaceholder(status: string): string {
 		: "No conversation was captured.";
 }
 
+export function preferredExecutionId(
+	executions: Array<{ id: string; status: string }>,
+): string | undefined {
+	return executions.find((execution) => execution.status === "running")?.id ?? executions[0]?.id;
+}
+
 export type AssertionComparison = { expected: string; received: string };
 
 export function assertionComparison(value: string): AssertionComparison | undefined {

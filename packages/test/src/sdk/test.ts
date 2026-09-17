@@ -8,6 +8,7 @@ import {
 } from "@playwright/test";
 import type { AgentDefinition } from "@post-print/agent-harness";
 import type { z } from "zod/v4";
+import { derivedExpectCriteria } from "./criteria.js";
 import { type AgentResource, factories, type JudgeResource, type Resource } from "./definitions.js";
 import { TestRuntime } from "./runtime.js";
 import type { AgentFixture, JudgeFixture } from "./types.js";
@@ -108,7 +109,7 @@ export function describe<R extends Resources>(
 		const callback = typeof detailsOrBody === "function" ? detailsOrBody : body;
 		if (!callback) throw new Error("Test body is required");
 		const details = typeof detailsOrBody === "function" ? undefined : detailsOrBody;
-		const annotation = testAnnotations(resources, details);
+		const annotation = testAnnotations(resources, callback, details);
 		runner.describe(name, () => {
 			runner(title, { annotation }, async ({ runtime }, info) => {
 				await callback(bind(resources, runtime), info);
@@ -117,15 +118,22 @@ export function describe<R extends Resources>(
 	};
 }
 
-function testAnnotations<R extends Resources>(resources: R, details?: TestDetails<R>) {
+function testAnnotations<R extends Resources>(
+	resources: R,
+	body: TestBody<R>,
+	details?: TestDetails<R>,
+) {
+	const criteria = details?.criteria?.length
+		? [...details.criteria]
+		: derivedExpectCriteria(body.toString());
 	return [
 		{
 			type: "agent-test.resources",
 			description: JSON.stringify(resourceMetadata(resources, details?.resources)),
 		},
 		...(details?.description ? [{ type: "description", description: details.description }] : []),
-		...(details?.criteria?.length
-			? [{ type: "agent-test.criteria", description: JSON.stringify(details.criteria) }]
+		...(criteria.length
+			? [{ type: "agent-test.criteria", description: JSON.stringify(criteria) }]
 			: []),
 	];
 }

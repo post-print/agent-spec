@@ -11,7 +11,12 @@ import {
 import { createContext, type KeyboardEvent, useContext, useState } from "react";
 import Markdown from "react-markdown";
 import { viewerApi } from "./generated-api.js";
-import { assertionComparison, conversationPlaceholder, stripAnsi } from "./presentation.js";
+import {
+	assertionComparison,
+	conversationPlaceholder,
+	preferredExecutionId,
+	stripAnsi,
+} from "./presentation.js";
 import type { TestCatalog, DiscoveredTest as TestRecord } from "./test-catalog.js";
 
 type ExecutionSummary = {
@@ -1268,7 +1273,7 @@ function TestDetail({ test }: { test: TestRecord }) {
 	const history = useExecutionHistory();
 	const navigate = useNavigate();
 	const runs = history.data?.filter((item) => item.testIds?.includes(test.id)) ?? [];
-	const selected = execution ?? runs[0]?.id;
+	const selected = execution ?? preferredExecutionId(runs);
 	const activeView = view ?? "current";
 	const chooseExecution = (id: string) =>
 		void navigate({
