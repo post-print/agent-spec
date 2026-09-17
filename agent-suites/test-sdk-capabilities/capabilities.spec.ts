@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, z } from "@post-print/agent-test";
-import { releaseSkills, taskService } from "../tour/agents.js";
+import { releaseSkills, taskRecordsMcp } from "../tour/agents.js";
 
 // The default configuration uses OpenAI and copies the task-list sample project for each run.
 // Skill, context, and workspace paths start from the directory that contains the configuration file.
@@ -10,7 +10,7 @@ const test = describe("Agent test checks", ({ agent, judge }) => ({
 	seeded: agent().setup(async (workspace) => {
 		await writeFile(join(workspace.path, "seeded.txt"), "SEED-READY", "utf8");
 	}),
-	service: agent({ mcpServers: { tasks: taskService } }),
+	taskReader: agent({ mcpServers: { taskRecords: taskRecordsMcp } }),
 	skilled: agent({ skills: releaseSkills, workspace: "agent-suites/fixtures/task-list-skill" }),
 	releaseAdvice: judge({
 		prompt:
@@ -55,8 +55,8 @@ test("changes only the requested file and runs the tests successfully", async ({
 	expect(run).toHaveExecutedCommand({ command: RUN_TESTS, exitCode: 0 });
 	expect(run.workspace.changedPaths).toEqual(["src/status.ts"]);
 });
-test("searches for a task before reading its details", async ({ service }) => {
-	const run = await service.run({
+test("searches for a task before reading its details", async ({ taskReader }) => {
+	const run = await taskReader.run({
 		prompt:
 			"Call search_tasks for TASK-104. Then call get_task with TASK-104. Reply with the current due date only.",
 	});

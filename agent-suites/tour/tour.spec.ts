@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, statistics, z } from "@post-print/agent-test";
-import { releaseSkills, taskService } from "./agents.js";
+import { releaseSkills, taskRecordsMcp } from "./agents.js";
 
 const RUN_TESTS = /\bbun test\b/;
 const GET_TASK = /get_task/;
@@ -15,7 +15,7 @@ const LOCAL_TOOLS = /^(Read|Shell|Bash)$/;
 const test = describe("Agent test examples", ({ agent, judge }) => ({
 	coder: agent(),
 	fileLookup: agent(),
-	taskIndexLookup: agent({ mcpServers: { tasks: taskService } }),
+	taskReader: agent({ mcpServers: { taskRecords: taskRecordsMcp } }),
 	releaseWriter: agent({
 		skills: releaseSkills,
 		workspace: "agent-suites/fixtures/task-list-skill",
@@ -97,8 +97,8 @@ test("fixes the status bug and asks a judge to review the change", async ({
 	expect(evaluation.output.behaviorCorrect).toBe(true);
 	expect(evaluation.output.onlyAllowedFilesChanged).toBe(true);
 });
-test("gets a task date from a tool without reading local files", async ({ taskIndexLookup }) => {
-	const run = await taskIndexLookup.run({
+test("gets a task date from a tool without reading local files", async ({ taskReader }) => {
+	const run = await taskReader.run({
 		prompt:
 			"Call get_task with TASK-104. Reply with its current due date in YYYY-MM-DD format only. Do not use file or shell tools.",
 	});
@@ -117,17 +117,17 @@ test("reads a skill and follows its release note instructions", async ({ release
 });
 // Search returns an old date, September 20. The task details give the current date, September 24.
 test("gets the current date from task details instead of an old search result", async ({
-	taskIndexLookup,
+	taskReader,
 }) => {
 	const [summary, searched, direct] = await Promise.all([
-		taskIndexLookup.run({
+		taskReader.run({
 			prompt: "Call search_tasks for TASK-104. Use only that result. Reply with the due date only.",
 		}),
-		taskIndexLookup.run({
+		taskReader.run({
 			prompt:
 				"Call search_tasks for TASK-104, then get_task with that ID. Reply with the current due date only.",
 		}),
-		taskIndexLookup.run({
+		taskReader.run({
 			prompt: "Call get_task with TASK-104. Reply with the current due date only.",
 		}),
 	]);
@@ -146,7 +146,7 @@ test("gets the current date from task details instead of an old search result", 
 // Reading four separate records adds work on purpose so we can compare it with one index lookup.
 test("compares tokens for four file reads and one task index lookup", async ({
 	fileLookup,
-	taskIndexLookup,
+	taskReader,
 	answerReview,
 }) => {
 	const samples = [];
@@ -157,7 +157,7 @@ test("compares tokens for four file reads and one task index lookup", async ({
 				prompt:
 					"Read records/TASK-101.md through records/TASK-104.md separately. Return the current due date for TASK-104.",
 			}),
-			taskIndexLookup.run({
+			taskReader.run({
 				prompt:
 					"Call task_index once to find TASK-104. Return its current due date. Do not use other tools.",
 			}),

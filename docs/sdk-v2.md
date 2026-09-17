@@ -86,7 +86,7 @@ const run = await coder.run({
   prompt: "Find the current task deadline.",
   skills: ["./skills/task-research"],
   context: { instructions: ["Cite the authoritative source."], files: ["./context/brief.md"] },
-  mcpServers: { tasks: taskService },
+  mcpServers: { taskRecords: taskRecordsMcp },
 });
 ```
 

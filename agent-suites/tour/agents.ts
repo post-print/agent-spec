@@ -7,7 +7,7 @@ export const reviewer = openai({
 	},
 });
 export const releaseSkills = ["agent-suites/fixtures/task-list-skill/.agents/skills/release-note"];
-export const taskService = {
+export const taskRecordsMcp = {
 	type: "stdio" as const,
 	tools: ["echo", "lookup", "search_tasks", "get_task", "task_index"],
 	command: "node",
