@@ -36,47 +36,6 @@ describe("cursor SDK login store", () => {
 			await rm(home, { recursive: true, force: true });
 		}
 	});
-
-	it("accepts the Cursor classifier when the login file is present", async () => {
-		const { missingClassifierAuth } = await import("../classifier.js");
-		const { createCursorUserHome } = await import("../user-skills.js");
-		const prior = process.env.CURSOR_API_KEY;
-		const priorMode = process.env.CURSOR_AUTH_MODE;
-		const priorHome = process.env.HOME;
-		const home = await mkdtemp(join(tmpdir(), "cursor-auth-classifier-"));
-		delete process.env.CURSOR_API_KEY;
-		process.env.CURSOR_AUTH_MODE = "subscription";
-		process.env.HOME = home;
-		try {
-			await mkdir(join(home, ".cursor/sdk"), { recursive: true });
-			await writeFile(cursorSdkAuthFilePath(home), '{"token":true}\n', "utf8");
-			expect(missingClassifierAuth("cursor")).toBeUndefined();
-			const isolated = await createCursorUserHome(false, { realHome: home });
-			try {
-				const { access } = await import("node:fs/promises");
-				await access(join(isolated.home, ".cursor/sdk/auth.json"));
-			} finally {
-				await isolated.cleanup();
-			}
-		} finally {
-			if (prior === undefined) {
-				delete process.env.CURSOR_API_KEY;
-			} else {
-				process.env.CURSOR_API_KEY = prior;
-			}
-			if (priorMode === undefined) {
-				delete process.env.CURSOR_AUTH_MODE;
-			} else {
-				process.env.CURSOR_AUTH_MODE = priorMode;
-			}
-			if (priorHome === undefined) {
-				delete process.env.HOME;
-			} else {
-				process.env.HOME = priorHome;
-			}
-			await rm(home, { recursive: true, force: true });
-		}
-	});
 });
 
 describe("isInvalidCursorUserApiKey", () => {

@@ -3,10 +3,8 @@ import * as childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
-import { ClaudeAdapter } from "../adapters/index.js";
 import { buildClaudeEnv, CLAUDE_AUTH_MODE_ENV, parseClaudeAuthMode } from "../claude-run.js";
 import { AgentRunTimeoutError, UserInputRequiredError } from "../run-guards.js";
-import type { LoadedContext } from "../types.js";
 
 const spawnMock = jest.fn();
 
@@ -14,15 +12,6 @@ mock.module("node:child_process", () => ({
 	...childProcess,
 	spawn: spawnMock,
 }));
-
-function emptyContext(): LoadedContext {
-	return {
-		profile: "claude",
-		cwd: process.cwd(),
-		sources: [],
-		preamble: "preamble",
-	};
-}
 
 function mockChild(options?: {
 	lines?: string[];
@@ -92,21 +81,6 @@ describe("runClaudeAgent", () => {
 		expect(() => parseClaudeAuthMode("subscription-ish")).toThrow(/invalid/);
 		expect(parseClaudeAuthMode("api-key")).toBe("api-key");
 		expect(parseClaudeAuthMode(" subscription ")).toBe("subscription");
-	});
-
-	it("fails an api-key run when ANTHROPIC_API_KEY is unset", async () => {
-		process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
-		delete process.env.ANTHROPIC_API_KEY;
-		const adapter = new ClaudeAdapter();
-		const session = await adapter.run({
-			host: "claude",
-			cwd: process.cwd(),
-			context: emptyContext(),
-			prompt: "hi",
-		});
-		expect(session.status).toBe("failed");
-		expect(session.error).toMatch(/ANTHROPIC_API_KEY/);
-		expect(spawnMock).not.toHaveBeenCalled();
 	});
 
 	it("uses subscription when CLAUDE_AUTH_MODE is unset", async () => {
@@ -269,18 +243,6 @@ describe("runClaudeAgent", () => {
 		await expect(resolveClaudeBin("/missing/claude-bin")).rejects.toThrow(
 			/Claude Code binary not found at/,
 		);
-	});
-
-	it("ClaudeAdapter returns failed session when key missing", async () => {
-		const adapter = new ClaudeAdapter();
-		const session = await adapter.run({
-			host: "claude",
-			cwd: process.cwd(),
-			context: emptyContext(),
-			prompt: "x",
-		});
-		expect(session.host).toBe("claude");
-		expect(session.status).toBe("failed");
 	});
 });
 

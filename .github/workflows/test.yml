@@ -24,6 +24,7 @@ jobs:
       - run: bun run test:unit
       - run: bun run test:sandbox-safe
       - run: bun run build
+      - run: bun run test:sdk:contracts
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:e2e
 
@@ -53,15 +54,15 @@ jobs:
       - name: Node can import published agent-test ESM
         run: node -e "import('@post-print/agent-test').then(() => console.log('agent-test ok'))"
 
-      - name: Node can check suite JSON via package bin symlink
+      - name: Node can discover TypeScript tests via package bin symlink
         run: |
           mkdir -p node_modules/.bin
           chmod +x packages/test/dist/cli.js
           ln -sfn ../@post-print/agent-test/dist/cli.js node_modules/.bin/agent-test
-          node_modules/.bin/agent-test --check --suites-dir packages/test/fixtures --suite smoke
+          node_modules/.bin/agent-test test --list
 
-      - name: Node can check all in-repo suites
-        run: node packages/test/dist/cli.js --check --suites-dir agent-suites
+      - name: Node can discover the capability suite
+        run: node packages/test/dist/cli.js test test-sdk-capabilities --list
 
   security:
     runs-on: ubuntu-latest

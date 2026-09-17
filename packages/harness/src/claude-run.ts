@@ -12,7 +12,6 @@ import {
 	finalizeClaudeTraceAccumulator,
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
-import type { JudgeClassifierResult } from "./cursor-run.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -22,12 +21,13 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, JudgeWorkspaceContext, LiveAgentEvent } from "./types.js";
+import type { AgentTrace, LiveAgentEvent } from "./types.js";
 import { claudeSessionFlags } from "./user-skills.js";
 
 const DEFAULT_ALLOWED_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,Agent";
 
 export interface ClaudeRunOptions {
+	readOnly?: boolean;
 	cwd: string;
 	prompt: string;
 	apiKey?: string;
@@ -48,7 +48,7 @@ export interface ClaudeRunOptions {
 	/** Auth mode; when omitted it is `--auth-mode`, then CLAUDE_AUTH_MODE, then subscription. */
 	authMode?: ClaudeAuthMode;
 	/** Load `~/.claude` user skills and settings. Default false. */
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	/** Let Claude discover project CLAUDE.md, rules, and skills from disk. */
 	loadProjectContext?: boolean;
 }
@@ -304,9 +304,10 @@ function buildClaudeArgs(options: {
 	prompt: string;
 	model?: string;
 	allowedTools: string;
+	readOnly?: boolean;
 	mcpConfigPath?: string;
 	authMode: ClaudeAuthMode;
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	loadProjectContext?: boolean;
 }): string[] {
 	const args = [
@@ -314,17 +315,18 @@ function buildClaudeArgs(options: {
 		options.prompt,
 		...claudeSessionFlags(
 			options.authMode,
-			options.allowUserSkills === true,
+			options.includeGlobalSkills === true,
 			options.loadProjectContext === true,
 		),
 		"--output-format",
 		"stream-json",
 		"--verbose",
 		"--permission-mode",
-		"acceptEdits",
+		options.readOnly ? "plan" : "acceptEdits",
 		"--allowedTools",
 		options.allowedTools,
 	];
+	if (options.readOnly) args.push("--tools", "Read,Glob,Grep");
 	const model = options.model?.trim() || process.env.CLAUDE_AGENT_MODEL?.trim();
 	if (model) {
 		args.push("--model", model);
@@ -435,10 +437,11 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 		const args = buildClaudeArgs({
 			prompt: options.prompt,
 			model: options.model,
+			readOnly: options.readOnly,
 			allowedTools,
 			mcpConfigPath: mcpConfig?.path,
 			authMode,
-			allowUserSkills: options.allowUserSkills === true,
+			includeGlobalSkills: options.includeGlobalSkills === true,
 			loadProjectContext: options.loadProjectContext === true,
 		});
 
@@ -449,7 +452,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 				cwd: options.cwd,
 				env: buildClaudeEnv(authMode, apiKey),
 				stdio: ["ignore", "pipe", "pipe"],
-				detached: process.platform !== "win32",
+				detached: process.platform !== "win32" && process.env.AGENT_HARNESS_SESSION_WORKER !== "1",
 			}) as ClaudeChildProcess;
 
 			activeClaudeRun = { child, acc, abort };
@@ -546,37 +549,3 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 }
 
 /** Classifier-only Claude path — no tools, last assistant or result text. */
-export async function runClaudeClassifier(options: {
-	cwd: string;
-	prompt: string;
-	workspaces?: readonly JudgeWorkspaceContext[];
-	apiKey?: string;
-	bin?: string;
-	onText?: (text: string) => void;
-}): Promise<JudgeClassifierResult> {
-	const result = await runClaudeAgent({
-		cwd: options.cwd,
-		prompt: options.prompt,
-		apiKey: options.apiKey,
-		bin: options.bin,
-		allowedTools: "",
-		failOnUserInput: true,
-		onAgentEvent: (event) => {
-			if (event.type === "text") options.onText?.(event.text);
-		},
-	});
-	const text = result.trace.messages
-		.filter((message) => message.role === "assistant")
-		.map((message) => message.content)
-		.join("\n")
-		.trim();
-	return {
-		status: result.status,
-		text,
-		rawStatus: result.rawStatus,
-		sdkError: result.trace.artifacts.claudeResultError
-			? { message: result.trace.artifacts.claudeResultError }
-			: undefined,
-		usage: result.trace.usage,
-	};
-}

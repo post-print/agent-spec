@@ -6,14 +6,12 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
 import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
-import type { JudgeClassifierResult } from "./cursor-run.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
 	accumulateOpenaiEvent,
 	createOpenaiTraceAccumulator,
 	finalizeOpenaiTraceAccumulator,
-	lastAssistantText,
 	type OpenaiTraceAccumulator,
 	parseOpenaiJsonlLine,
 } from "./openai-capture.js";
@@ -24,7 +22,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, JudgeWorkspaceContext, LiveAgentEvent } from "./types.js";
+import type { AgentTrace, LiveAgentEvent } from "./types.js";
 import { openaiUserConfigArgs } from "./user-skills.js";
 
 export type OpenaiAuthMode = HostAuthMode;
@@ -64,7 +62,7 @@ export interface OpenaiRunOptions {
 	/** Inline MCP servers for this `codex exec` via `-c mcp_servers.<name>=…`. */
 	mcpServers?: Record<string, McpServerConfig>;
 	/** Load `~/.codex` user config and skills. Default false. */
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	/** Allow network access in a workspace-write sandbox. Default false. */
 	networkAccess?: boolean;
 }
@@ -289,7 +287,7 @@ export function buildOpenaiExecArgs(options: {
 	model?: string;
 	sandbox?: "workspace-write" | "read-only";
 	mcpServers?: Record<string, McpServerConfig>;
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	networkAccess?: boolean;
 }): string[] {
 	const sandbox = options.sandbox ?? "workspace-write";
@@ -302,7 +300,7 @@ export function buildOpenaiExecArgs(options: {
 		options.cwd,
 		// Deny keeps ~/.codex/config.toml out. Auth still uses CODEX_HOME.
 		// A user model pin (for example gpt-5.6-luna) can fail older Codex CLIs.
-		...openaiUserConfigArgs(options.allowUserSkills === true),
+		...openaiUserConfigArgs(options.includeGlobalSkills === true),
 		// Headless default is never. Set it explicitly so a leftover config
 		// cannot prompt, and so we do not need --approve-for-me (Codex >= 0.147).
 		"-c",
@@ -417,10 +415,10 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		model: options.model,
 		sandbox: options.sandbox,
 		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
-		allowUserSkills: options.allowUserSkills === true,
+		includeGlobalSkills: options.includeGlobalSkills === true,
 		networkAccess: options.networkAccess === true,
 	});
-	const runHome = options.allowUserSkills === true ? undefined : await createOpenaiRunHome();
+	const runHome = options.includeGlobalSkills === true ? undefined : await createOpenaiRunHome();
 
 	const execute = async (): Promise<OpenaiRunResult> => {
 		const acc = createOpenaiTraceAccumulator();
@@ -435,7 +433,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 			cwd: options.cwd,
 			env,
 			stdio: ["ignore", "pipe", "pipe"],
-			detached: process.platform !== "win32",
+			detached: process.platform !== "win32" && process.env.AGENT_HARNESS_SESSION_WORKER !== "1",
 		}) as OpenaiChildProcess;
 
 		activeOpenaiRun = { child, acc, abort };
@@ -515,32 +513,3 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 }
 
 /** Classifier-only Codex path — read-only sandbox, last assistant text. */
-export async function runOpenaiClassifier(options: {
-	cwd: string;
-	prompt: string;
-	workspaces?: readonly JudgeWorkspaceContext[];
-	apiKey?: string;
-	bin?: string;
-	onText?: (text: string) => void;
-}): Promise<JudgeClassifierResult> {
-	const result = await runOpenaiAgent({
-		cwd: options.cwd,
-		prompt: options.prompt,
-		apiKey: options.apiKey,
-		bin: options.bin,
-		sandbox: "read-only",
-		failOnUserInput: true,
-		onAgentEvent: (event) => {
-			if (event.type === "text") options.onText?.(event.text);
-		},
-	});
-	return {
-		status: result.status,
-		text: lastAssistantText(result.trace),
-		rawStatus: result.rawStatus,
-		sdkError: result.trace.artifacts.openaiResultError
-			? { message: result.trace.artifacts.openaiResultError }
-			: undefined,
-		usage: result.trace.usage,
-	};
-}

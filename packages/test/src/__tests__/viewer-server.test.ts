@@ -1,14 +1,26 @@
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ViewerJob } from "../viewer/catalog.js";
-import { loadViewerCatalog } from "../viewer/catalog.js";
+import type { ViewerCatalog, ViewerJob } from "../viewer/catalog.js";
 import type { ViewerEvent } from "../viewer/events.js";
 import type { ViewerRunner } from "../viewer/run-controller.js";
 import { listenViewer } from "../viewer/server.js";
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
+function fixtureCatalog(): ViewerCatalog {
+	return {
+		suitesDir: "fixtures",
+		defaultSelectedHosts: [],
+		suites: [
+			{
+				name: "smoke",
+				hosts: ["cursor"],
+				scenarios: [{ name: "hello direct", prompt: "Say hello", rubric: {} }],
+			},
+		],
+	};
+}
 function envelope(job: ViewerJob) {
 	return {
 		suite: job.suite,
@@ -58,10 +70,7 @@ async function readSseEvents(url: string, headers?: HeadersInit): Promise<Viewer
 
 describe("viewer server", () => {
 	it("serves the catalog page and streams a fake run", async () => {
-		const catalog = await loadViewerCatalog({
-			cwd: repoRoot,
-			suitesDir: join(repoRoot, "packages/test/fixtures"),
-		});
+		const catalog = fixtureCatalog();
 		const handle = await listenViewer({
 			catalog,
 			cwd: repoRoot,
@@ -127,10 +136,7 @@ describe("viewer server", () => {
 	});
 
 	it("imports a completed run and closes after its idle timeout", async () => {
-		const catalog = await loadViewerCatalog({
-			cwd: repoRoot,
-			suitesDir: join(repoRoot, "packages/test/fixtures"),
-		});
+		const catalog = fixtureCatalog();
 		let markClosed: (() => void) | undefined;
 		const closed = new Promise<void>((resolveClosed) => {
 			markClosed = resolveClosed;

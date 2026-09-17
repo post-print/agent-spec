@@ -60,6 +60,7 @@ interface LiveCell {
 }
 
 interface CriteriaTarget {
+	authoring?: "typescript";
 	rubric: ScenarioRubric;
 	contextMode?: ViewerCatalogScenario["contextMode"];
 	workspace?: string;
@@ -318,6 +319,13 @@ function StartingContext({
 	target: CriteriaTarget;
 	repositoryRoot?: string;
 }) {
+	if (target.authoring === "typescript")
+		return (
+			<div className="muted">
+				Workspace, skills, and context are configured in the test and its agent definition. Each run
+				records the supplied context and preserves workspace snapshots.
+			</div>
+		);
 	const sources = target.contextSources ?? [];
 	const servers = target.suppliedMcp ?? [];
 	const tools = [...new Set(servers.flatMap((server) => server.tools))];
@@ -497,13 +505,23 @@ function Criteria({ target }: { target: CriteriaTarget }) {
 	const count = groups.reduce((sum, group) => sum + Math.max(group.items.length, 1), 0);
 	return (
 		<CriteriaPanel
-			summary={count ? `${count} ${count === 1 ? "check" : "checks"}` : "Completion only"}
+			summary={
+				target.authoring === "typescript"
+					? "Assertions in test code"
+					: count
+						? `${count} ${count === 1 ? "check" : "checks"}`
+						: "Completion only"
+			}
 			title="Pass criteria"
 		>
 			{groups.length ? (
 				<CriterionGroups groups={groups} />
 			) : (
-				<p className="criteria-empty">This test passes when it completes without a runner error.</p>
+				<p className="criteria-empty">
+					{target.authoring === "typescript"
+						? "Assertions and judge thresholds are defined in the test callback and evaluated during execution."
+						: "This test passes when it completes without a runner error."}
+				</p>
 			)}
 		</CriteriaPanel>
 	);
@@ -1192,7 +1210,11 @@ function ResultCard({ result }: { result: ScenarioResult }) {
 	const arms = result.compare ? compareResultArms(result.compare) : [];
 	const selectedArm = arms.find((arm) => arm.id === armId) ?? arms[0];
 	const tokens = totalTokens(result);
-	const storySections = result.story?.sections?.filter((section) => section.checks.length) ?? [];
+	const storySections =
+		result.story?.sections?.filter(
+			(section) =>
+				section.checks.length || (result.authoring === "typescript" && section.notes?.length),
+		) ?? [];
 	const judgeQuestionTexts = new Set(
 		(result.judgeVerdicts ?? []).map((verdict) => verdict.question),
 	);
@@ -1217,7 +1239,9 @@ function ResultCard({ result }: { result: ScenarioResult }) {
 					{result.compare ? <ComparisonTable compare={result.compare} /> : null}
 					<div className="story">
 						<section className="story-criteria">
-							<h3>Pass criteria</h3>
+							<h3>
+								{result.authoring === "typescript" ? "Run evidence and grades" : "Pass criteria"}
+							</h3>
 							{storySections.length ? (
 								storySections.map((section, index) => (
 									<div
@@ -1233,6 +1257,11 @@ function ResultCard({ result }: { result: ScenarioResult }) {
 										<StoryChecks
 											checks={section.checks.filter((check) => !judgeQuestionTexts.has(check.text))}
 										/>
+										{result.authoring === "typescript"
+											? section.notes?.map((note, noteIndex) => (
+													<p key={itemKey("evidence-note", note, noteIndex)}>{note}</p>
+												))
+											: null}
 									</div>
 								))
 							) : result.story?.criteria.length ? (
@@ -2005,7 +2034,12 @@ export default function ViewerApp({ bootstrap }: { bootstrap: ViewerBootstrap })
 						<p className="run-progress-title">
 							{progress.done} of {progress.total} tests finished
 						</p>
-						<p className="run-arm-progress">
+						<p
+							className="run-arm-progress"
+							hidden={bootstrap.catalog.suites.every((suite) =>
+								suite.scenarios.every((scenario) => scenario.authoring === "typescript"),
+							)}
+						>
 							{
 								Object.entries(liveByRun[selectedRunId] ?? {}).filter(
 									([key, cell]) => !key.endsWith("::_") && cell.result,

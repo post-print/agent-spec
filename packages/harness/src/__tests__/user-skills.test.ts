@@ -10,7 +10,7 @@ import {
 	createCursorUserHome,
 	cursorSettingSources,
 	openaiUserConfigArgs,
-	resolveAllowUserSkills,
+	resolveIncludeGlobalSkills,
 	withCursorUserHome,
 } from "../user-skills.js";
 
@@ -24,13 +24,13 @@ async function plantUserSkills(homeDir: string, names: string[]): Promise<void> 
 
 describe("user skills isolation", () => {
 	it("denies host-global user skills when the field is omitted", () => {
-		expect(resolveAllowUserSkills(undefined, undefined)).toBe(false);
-		expect(resolveAllowUserSkills(undefined, false)).toBe(false);
+		expect(resolveIncludeGlobalSkills(undefined, undefined)).toBe(false);
+		expect(resolveIncludeGlobalSkills(undefined, false)).toBe(false);
 	});
 
 	it("lets the scenario value win over suite defaults", () => {
-		expect(resolveAllowUserSkills(true, false)).toBe(true);
-		expect(resolveAllowUserSkills(false, true)).toBe(false);
+		expect(resolveIncludeGlobalSkills(true, false)).toBe(true);
+		expect(resolveIncludeGlobalSkills(false, true)).toBe(false);
 	});
 
 	it("keeps Cursor on project settings unless the run allows user skills", () => {
@@ -73,7 +73,7 @@ describe("user skills isolation", () => {
 		expect(openaiUserConfigArgs(true)).toEqual([]);
 	});
 
-	it("counts zero user-skill injection when allowUserSkills is false", async () => {
+	it("counts zero user-skill injection when includeGlobalSkills is false", async () => {
 		const realHome = await mkdtemp(join(tmpdir(), "user-skills-real-"));
 		try {
 			await plantUserSkills(realHome, ["alpha", "beta", "gamma"]);
@@ -91,7 +91,7 @@ describe("user skills isolation", () => {
 		}
 	});
 
-	it("keeps user-skill injection when allowUserSkills is true", async () => {
+	it("keeps user-skill injection when includeGlobalSkills is true", async () => {
 		const realHome = await mkdtemp(join(tmpdir(), "user-skills-allow-"));
 		try {
 			await plantUserSkills(realHome, ["kept-a", "kept-b"]);

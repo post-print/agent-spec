@@ -1,24 +1,5 @@
-import { resolve } from "node:path";
-
-import {
-	type AgentHost,
-	type ContextMode,
-	type McpServerConfig,
-	mergeMcpServers,
-	skillPathsFromSetting,
-} from "@post-print/agent-harness";
-
-import {
-	applyCompareArm,
-	compareArmDescription,
-	compareArmLabel,
-	resolveCompareArms,
-} from "../compare-scenario.js";
-import { discoverSuites } from "../discover-suites.js";
-import { resolveSuiteHosts } from "../hosts.js";
-import { loadSuiteFile } from "../load-suite.js";
+import type { AgentHost, ContextMode } from "@post-print/agent-harness";
 import type { CompareGate, CompareJudgeMetric, ScenarioRubric } from "../types.js";
-
 export interface ViewerCatalogArm {
 	id: string;
 	label: string;
@@ -39,6 +20,7 @@ export interface ViewerSuppliedMcpServer {
 }
 
 export interface ViewerCatalogScenario {
+	authoring?: "typescript";
 	name: string;
 	description?: string;
 	prompt: string;
@@ -69,12 +51,6 @@ export interface ViewerCatalog {
 	suites: ViewerCatalogSuite[];
 }
 
-export interface LoadViewerCatalogOptions {
-	cwd: string;
-	suitesDir: string;
-	rubricsDir?: string;
-}
-
 export interface ViewerRunRequest {
 	suite?: string;
 	scenario?: string;
@@ -90,117 +66,6 @@ export interface ViewerJob {
 	host: AgentHost;
 	arm?: string;
 	prompt: string;
-}
-
-function suppliedMcp(
-	defaults: Record<string, McpServerConfig> | undefined,
-	overrides: Record<string, McpServerConfig> | undefined,
-): ViewerSuppliedMcpServer[] | undefined {
-	const servers = mergeMcpServers(defaults, overrides);
-	if (!servers) return undefined;
-	return Object.entries(servers).map(([name, config]) => ({
-		name,
-		tools: [...(config.tools ?? [])],
-	}));
-}
-
-function suppliedSkills(
-	setting: Parameters<typeof skillPathsFromSetting>[0],
-): string[] | undefined {
-	const paths = skillPathsFromSetting(setting);
-	return paths.length > 0 ? paths : undefined;
-}
-
-/** Load suite JSON for the viewer. Omit MCP server env and other secrets. */
-export async function loadViewerCatalog(options: LoadViewerCatalogOptions): Promise<ViewerCatalog> {
-	const suitesDir = resolve(options.cwd, options.suitesDir);
-	const suitePaths = await discoverSuites(suitesDir);
-	const suites: ViewerCatalogSuite[] = [];
-	for (const suitePath of suitePaths) {
-		const suite = await loadSuiteFile(suitePath, { rubricsDir: options.rubricsDir });
-		suites.push({
-			name: suite.name,
-			description: suite.description,
-			hosts: resolveSuiteHosts({
-				suiteHosts: suite.hosts,
-				defaultHost: suite.defaults?.host,
-			}),
-			scenarios: suite.scenarios.map((scenario) => {
-				const arms = resolveCompareArms(scenario.compare).map((entry) => {
-					const effective = applyCompareArm(scenario, entry.id);
-					const armRubric = { ...effective.rubric };
-					delete armRubric.judge;
-					const arm: ViewerCatalogArm = {
-						id: entry.id,
-						label: compareArmLabel(entry.arm, entry.id),
-						prompt: effective.prompt,
-						// Compare judge questions are owned by the comparison, even though
-						// isolated arm execution temporarily merges them into this rubric.
-						rubric: armRubric,
-						contextMode:
-							entry.arm.contextMode ??
-							scenario.contextMode ??
-							suite.defaults?.contextMode ??
-							"harness-preamble",
-						workspace: effective.workspace ?? ".",
-					};
-					const description = compareArmDescription(entry.arm);
-					if (description) {
-						arm.description = description;
-					}
-					const contextSources = [
-						...(suite.defaults?.contextSources ?? []),
-						...(effective.contextSources ?? []),
-					].filter((value) => typeof value === "string" && value.trim().length > 0);
-					if (contextSources.length > 0) {
-						arm.contextSources = contextSources;
-					}
-					arm.suppliedMcp = suppliedMcp(suite.defaults?.mcpServers, effective.mcpServers);
-					arm.suppliedSkills = suppliedSkills(effective.skills ?? suite.defaults?.skills);
-					return arm;
-				});
-				const row: ViewerCatalogScenario = {
-					name: scenario.name,
-					prompt: scenario.prompt,
-					rubric: scenario.rubric,
-					contextMode: scenario.contextMode ?? suite.defaults?.contextMode ?? "harness-preamble",
-					workspace: scenario.workspace ?? suite.defaults?.workspace ?? ".",
-				};
-				if (scenario.description) {
-					row.description = scenario.description;
-				}
-				if (scenario.skip) {
-					row.skip = true;
-				}
-				if (scenario.host) {
-					row.host = scenario.host;
-				}
-				const contextSources = [
-					...(suite.defaults?.contextSources ?? []),
-					...(scenario.contextSources ?? []),
-				].filter((value) => typeof value === "string" && value.trim().length > 0);
-				if (contextSources.length > 0) {
-					row.contextSources = contextSources;
-				}
-				row.suppliedMcp = suppliedMcp(suite.defaults?.mcpServers, scenario.mcpServers);
-				row.suppliedSkills = suppliedSkills(scenario.skills ?? suite.defaults?.skills);
-				if (arms.length > 0) {
-					row.compare = arms;
-					if (scenario.compare?.gates?.length) row.gates = scenario.compare.gates;
-					if (scenario.compare?.judgeMetrics?.length) {
-						row.judgeMetrics = scenario.compare.judgeMetrics;
-					}
-				}
-				return row;
-			}),
-		});
-	}
-	suites.sort((left, right) => left.name.localeCompare(right.name));
-	return {
-		suitesDir,
-		defaultSelectedHosts: [],
-		suites,
-	};
 }
 
 /** Expand a viewer run into one job per host cell, or per compare arm. */

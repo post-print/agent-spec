@@ -2,9 +2,9 @@
 
 <!-- source-of-truth: agent cold-start in this repo -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
 
-<!-- review-deps: paths=package.json,skeleton.toml,.github/workflows/test.yml -->
+<!-- review-deps: paths=package.json,biome.json,skeleton.toml,.github/workflows/test.yml -->
 
 Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agent-harness` and `@post-print/agent-test`.
 
@@ -17,19 +17,20 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 
 | Branch | Paper |
 | --- | --- |
+| TypeScript API, configured agents, judges, comparisons | [docs/sdk-v2.md](docs/sdk-v2.md) |
 | Getting started (install, first suite, first live run) | [docs/getting-started.md](docs/getting-started.md) |
-| CLI flags, viewer, check versus live | [docs/cli.md](docs/cli.md) |
-| Suites, rubric, compare, MCP | [docs/suites.md](docs/suites.md) |
+| CLI commands, discovery, viewer | [docs/cli.md](docs/cli.md) |
+| TypeScript suites, comparisons, MCP | [docs/suites.md](docs/suites.md) |
 | Hosts, auth, custom adapters | [docs/hosts.md](docs/hosts.md) |
 | Isolation, sealed workspace, debug | [docs/isolation.md](docs/isolation.md) |
-| Reliability targets and fail-on | [docs/reliability.md](docs/reliability.md) |
+| Offline validation and live reliability | [docs/reliability.md](docs/reliability.md) |
 
 ## Prerequisites
 
 - Bun `1.4.0` (see `packageManager` in `package.json`)
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
-- Host-agent runs need host auth. Default is subscription after CLI login: `npx agent-test login` (Cursor SDK store), Claude Code login, or `codex login`. The Cursor app login does not count. Pass `--auth-mode api-key` (alias `--auth-method`) plus `CURSOR_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` / `CODEX_API_KEY` to bill an API key. Per-host `*_AUTH_MODE` env vars still work when the flag is omitted. Copy `.env.example`. The CLI does not auto-load `.env`.
-- The judge and the default user simulator use the same host family as the test agent. The judge runs when a rubric has judge questions or `mustInvokeSkill`. `--no-judge` turns the judge off.
+- Host-agent runs need host auth. Agent definitions default to subscription. Use `agent-test login` for Cursor SDK auth, `codex login` for OpenAI, or Claude Code login. Explicit API-key auth is `{ type: "api-key", env: "OPENAI_API_KEY" }` on the definition. The CLI does not load `.env`.
+- TypeScript tests configure judges explicitly with `defineJudge({ agent, criteria })`; grading does not determine acceptance until an assertion checks it.
 - `bun run test`, `bun run test:unit`, and `bun run test:sandbox-safe` do not launch a host agent. Provider-backed capability, tour, matrix, and reliability runs are manual.
 
 ## First hour
@@ -39,16 +40,15 @@ bun install
 bun run build
 bun run test:sandbox-safe
 bun run audit:self
-node packages/test/dist/cli.js --check --suites-dir packages/test/fixtures --suite smoke
-node packages/test/dist/cli.js --check --suites-dir agent-suites
-node packages/test/dist/cli.js viewer --suites-dir agent-suites
+node packages/test/dist/cli.js test --list
+node packages/test/dist/cli.js viewer
 ```
 
 The full local check (`bun run check` = lint + typecheck + unit tests + build) needs unrestricted Cursor sandbox permissions (`all`) because some fixtures run `git init` or write `.cursor/` trees under tmp. Prefer `bun run test:sandbox-safe` under the default sandbox (skips those fixtures). Do not treat sandbox `git`/`hooks`/`.cursor` failures as a broken repo.
 
 `bun install` can warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox. That is safe to ignore or re-run with `all` permissions.
 
-Use `bun run lint` / `bunx biome` (pinned 2.5.12). A global `biome` on PATH is often older and will fail this repo's config.
+Use `bun run lint` / `bunx biome` (pinned 2.5.12). The policy matches PostPrint applications: all project/types/react/test domains, 40-line functions, cognitive complexity 10, at most three parameters, and no explicit `any` even in tests. Non-null assertions are also errors; the lint script fails on warnings. Root configuration, scripts, and the TypeScript tour are included. Existing legacy violations are not suppressed. A global `biome` on PATH is often older and will fail this repo's config.
 
 Offline product tests:
 
@@ -67,7 +67,7 @@ Manual host-agent proof after host login uses `bun run test:capabilities` or `bu
 | TypeScript under `packages/` (scoped) | `bun test <file>` and `bunx biome check <path>`; then `bunx tsc --build` if types changed |
 | TypeScript under `packages/` (full) | `bun run test:sandbox-safe` (or `bun run check` with `all` permissions) |
 | Viewer e2e (Playwright) | `bunx playwright install chromium` then `bun run test:e2e` |
-| Host-agent suite | `bun run test:capabilities` for supported `runAgentTest` capabilities. Run `test:matrix` and `test:reliability` manually. |
+| Host-agent suite | `bun run test:capabilities` for configured-agent SDK capabilities. Run `test:matrix` and `test:reliability` manually. |
 
 `validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Hash review proof lives in `.skeleton/review-lock.json`. After a complete re-read, attest explicit paths only:
 
@@ -78,8 +78,9 @@ skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewe
 ## Layout
 
 - `packages/harness` — host-agnostic agent runtime (Cursor, Claude, OpenAI Codex)
-- `packages/test` — direct-agent scenario runner + `agent-test` CLI; JSON suites are an input adapter
-- `agent-suites/` — in-repo host-agent suites. Each scenario uses a dedicated workspace. A `compare` scenario runs two or more arms. Optional metric rules name winner-versus-loser pairs. An arm can add extra rubric checks. A shared judge runs only when `rubric.judge` is set. Host-global user skills stay out unless `allowUserSkills` is true. Default CLI `--suites-dir`
+- `packages/test` — Playwright-backed agent fixtures, comparisons, explicit judges, viewer, and CLI. Public exports are in `src/sdk/`; JSON execution has been removed.
+- `agent-suites/tour/` — TypeScript examples with reusable agent and judge definitions; configured by `agent-test.config.ts`.
+- `agent-suites/test-sdk-capabilities/` — eleven TypeScript capability tests using the same SDK as the tour.
 - `skeleton.toml` — Skeleton scan perimeter, review proof, and coverage
 - `.agents/skills/` — project skills (Cursor/Codex); `.claude/skills/` mirrors for Claude Code
 - Team skills from [csark0812/toolbox](https://github.com/csark0812/toolbox); lockfile: `skills-lock.json`

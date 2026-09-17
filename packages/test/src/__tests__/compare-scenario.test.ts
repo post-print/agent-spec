@@ -12,7 +12,7 @@ import {
 	mergeArmRubric,
 	resolveCompareArms,
 } from "../compare-scenario.js";
-import type { CompareArmResult, CompareGate } from "../index.js";
+import type { CompareArmResult, CompareGate } from "../types.js";
 
 function trace(turns: number, tokens: number, tools: number): AgentTrace {
 	return {

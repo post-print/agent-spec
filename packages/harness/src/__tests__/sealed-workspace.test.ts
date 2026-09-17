@@ -6,14 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
-	createReadOnlyWorkspaceSnapshot,
 	createSealedWorkspace,
 	defaultSealedOverlayPaths,
-	isCallerHeadWorkspace,
 	parseScenarioWorkspace,
 	toolPathsOutsideWorkspace,
 } from "../sealed-workspace.js";
-import { loadSkillContext } from "../skills-context.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -41,8 +38,6 @@ describe("parseScenarioWorkspace", () => {
 		expect(parseScenarioWorkspace("")).toEqual({ ok: true, rel: undefined });
 		expect(parseScenarioWorkspace(".")).toEqual({ ok: true, rel: undefined });
 		expect(parseScenarioWorkspace("./")).toEqual({ ok: true, rel: undefined });
-		expect(isCallerHeadWorkspace(undefined)).toBe(true);
-		expect(isCallerHeadWorkspace("agent-suites/depth/workspaces/seed")).toBe(false);
 	});
 
 	it("accepts a repo-relative folder", () => {
@@ -60,19 +55,6 @@ describe("parseScenarioWorkspace", () => {
 });
 
 describe("createSealedWorkspace", () => {
-	it("creates an immutable snapshot for judge inspection", async () => {
-		const repo = await initRepo();
-		const snapshot = await createReadOnlyWorkspaceSnapshot(repo, "arm-a");
-		try {
-			expect(await readFile(join(snapshot.path, "src/app.ts"), "utf8")).toContain("export const n");
-			await expect(
-				writeFile(join(snapshot.path, "mutation.txt"), "nope", "utf8"),
-			).rejects.toThrow();
-		} finally {
-			await snapshot.cleanup();
-		}
-	});
-
 	it("copies HEAD files and overlays caller context", async () => {
 		const repo = await initRepo();
 		const sealed = await createSealedWorkspace({
@@ -91,8 +73,6 @@ describe("createSealedWorkspace", () => {
 				cwd: sealed.path,
 			});
 			expect(realpathSync(stdout.trim())).toBe(realpathSync(sealed.path));
-			const skills = await loadSkillContext(sealed.path, [".agents/skills/probe/SKILL.md"]);
-			expect(skills.preamble).toContain(".agents/skills/probe/SKILL.md");
 		} finally {
 			await sealed.cleanup();
 		}

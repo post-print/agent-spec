@@ -206,7 +206,7 @@ describe("runCursorAgent usage", () => {
 			cwd: process.cwd(),
 			prompt: "test",
 			apiKey: "test-key",
-			allowUserSkills: true,
+			includeGlobalSkills: true,
 		});
 		expect(agentCreate).toHaveBeenCalledWith(
 			expect.objectContaining({

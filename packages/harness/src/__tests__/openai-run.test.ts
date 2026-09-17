@@ -65,7 +65,7 @@ describe("buildOpenaiExecArgs", () => {
 		const args = buildOpenaiExecArgs({
 			prompt: "Say hello.",
 			cwd: "/tmp/agent-harness-seal-test",
-			allowUserSkills: true,
+			includeGlobalSkills: true,
 		});
 		expect(args).not.toContain("--ignore-user-config");
 	});

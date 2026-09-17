@@ -21,25 +21,24 @@
 		"lint:viewer": "bunx biome check src/viewer --error-on-warnings",
 		"lint:fix": "bunx biome check . --write",
 		"test": "bun test src",
-		"test:sandbox-safe": "bun test src --path-ignore-patterns '**/{scenario-seed,validate-seeds,cursor-login-check}.test.ts'",
+		"test:sandbox-safe": "bun test src",
 		"test:coverage": "bun test src --coverage --coverage-reporter=text --coverage-reporter=lcov",
 		"test:e2e": "playwright test",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
 	"dependencies": {
 		"@post-print/agent-harness": "workspace:*",
-		"chalk": "6",
 		"react": "^19.0.0",
-		"react-dom": "^19.0.0"
+		"react-dom": "^19.0.0",
+		"@playwright/test": "^1.63.0"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.63.0",
 		"@types/node": "^26.1.1",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"typescript": "~7.0.2"
 	},
-	"description": "Direct-agent scenario runner and CLI for agent-spec suites",
+	"description": "Playwright-based coding-agent tests, comparisons, explicit judges, and viewer",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/post-print/agent-spec.git",

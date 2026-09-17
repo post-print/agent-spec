@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 
 import { expandEnvPlaceholders, mergeMcpServers, resolveMcpServers } from "../mcp.js";
 
-const tokenPlaceholder = "${" + "TOKEN}";
-const missingPlaceholder = "${" + "MISSING}";
+const tokenPlaceholder = "${TOKEN}";
+const missingPlaceholder = "${MISSING}";
 
 describe("mcp helpers", () => {
 	it("expands env placeholders", () => {

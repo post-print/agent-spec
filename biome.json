@@ -5,50 +5,183 @@
 			"package.json",
 			"tsconfig.json",
 			"biome.json",
+			"agent-test.config.ts",
+			"scripts/**",
+			"agent-suites/**/*.ts",
 			"packages/**",
 			"!**/dist",
 			"!**/node_modules",
 			"!**/*.tsbuildinfo",
 			"!**/coverage",
 			"!**/test-results",
-			"!**/playwright-report"
+			"!**/playwright-report",
+			"tsconfig.examples.json"
 		]
 	},
 	"formatter": {
 		"enabled": true,
 		"indentStyle": "tab",
-		"lineWidth": 100
+		"indentWidth": 2,
+		"lineWidth": 100,
+		"lineEnding": "lf",
+		"formatWithErrors": false
 	},
 	"linter": {
 		"enabled": true,
+		"domains": {
+			"project": "all",
+			"types": "all",
+			"react": "all",
+			"test": "all"
+		},
 		"rules": {
-			"preset": "recommended"
+			"preset": "all",
+			"style": "off",
+			"performance": "off",
+			"complexity": {
+				"noForEach": "off",
+				"noVoid": "off",
+				"noExcessiveCognitiveComplexity": {
+					"level": "error",
+					"options": {
+						"maxAllowedComplexity": 10
+					}
+				},
+				"noExcessiveLinesPerFunction": {
+					"level": "error",
+					"options": {
+						"maxLines": 40,
+						"skipBlankLines": true
+					}
+				},
+				"useMaxParams": {
+					"level": "error",
+					"options": {
+						"max": 3
+					}
+				},
+				"noExcessiveNestedTestSuites": "error",
+				"noUselessThisAlias": "error",
+				"useSimplifiedLogicExpression": "off",
+				"noUselessUndefined": "off",
+				"noImplicitCoercions": "off",
+				"noRedundantDefaultExport": "off",
+				"useOptionalChain": "off",
+				"noUselessCatchBinding": "off",
+				"noUselessReturn": "off",
+				"noDivRegex": "off",
+				"noImportantStyles": "off",
+				"useArrowFunction": "off",
+				"noCommaOperator": "off",
+				"useLiteralKeys": "off"
+			},
+			"correctness": {
+				"noUnusedVariables": "error",
+				"noUnusedImports": "error",
+				"noUnusedPrivateClassMembers": "error",
+				"noUnusedFunctionParameters": "error",
+				"noConstAssign": "error",
+				"noUndeclaredDependencies": "error",
+				"noNodejsModules": "off",
+				"noUnresolvedImports": "off",
+				"noUndeclaredVariables": "off",
+				"useExhaustiveDependencies": "off",
+				"useImportExtensions": "off",
+				"noGlobalDirnameFilename": "off",
+				"noSolidDestructuredProps": "off",
+				"useQwikValidLexicalScope": "off",
+				"noProcessGlobal": "off",
+				"useUniqueElementIds": "off",
+				"noUnusedInstantiation": "off"
+			},
+			"suspicious": {
+				"noExplicitAny": "error",
+				"noDebugger": "error",
+				"noArrayIndexKey": "off",
+				"noDeprecatedImports": "error",
+				"noConsole": "off",
+				"noShadow": "off",
+				"noEmptyInterface": "error",
+				"noEmptyBlockStatements": "off",
+				"noBitwiseOperators": "off",
+				"noEvolvingTypes": "off",
+				"noImplicitAnyLet": "off",
+				"noLeakedRender": "off",
+				"noForIn": "off",
+				"useAwait": "off",
+				"useIterableCallbackReturn": "off",
+				"noAssignInExpressions": "off",
+				"noUnnecessaryConditions": "off",
+				"noReactSpecificProps": "off",
+				"noEqualsToNull": "off",
+				"noReactForwardRef": "off",
+				"noImportCycles": "off",
+				"noVar": "off",
+				"noEmptySource": "off",
+				"noNestedPromises": "off",
+				"noDuplicateDependencies": "off",
+				"noUnusedExpressions": "off",
+				"noParametersOnlyUsedInRecursion": "off",
+				"useArraySortCompare": "off",
+				"noGlobalIsNan": "off"
+			},
+			"security": {
+				"noSecrets": "off"
+			},
+			"nursery": {
+				"noFloatingPromises": "error",
+				"useExhaustiveSwitchCases": "error",
+				"noExcessiveNestedCallbacks": {
+					"level": "error",
+					"options": {
+						"max": 3
+					}
+				},
+				"noImpliedEval": "error"
+			}
 		}
 	},
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double",
-			"semicolons": "always"
+			"semicolons": "always",
+			"trailingCommas": "all",
+			"arrowParentheses": "always"
 		}
 	},
 	"overrides": [
 		{
-			"includes": ["packages/test/src/viewer/**/*.tsx"],
-			"linter": {
-				"domains": {
-					"react": "recommended"
-				}
-			}
-		},
-		{
-			"includes": ["**/*.test.ts", "**/*.spec.ts", "**/__tests__/**", "**/e2e/**"],
+			"includes": ["**"],
 			"linter": {
 				"rules": {
-					"suspicious": {
-						"noExplicitAny": "off"
+					"style": {
+						"useImportType": "error",
+						"useNodejsImportProtocol": "error",
+						"noParameterAssign": "error",
+						"useConst": "error",
+						"useThrowOnlyError": "error",
+						"noNonNullAssertion": "error"
+					},
+					"performance": {
+						"noDelete": "error",
+						"noAccumulatingSpread": "error",
+						"useTopLevelRegex": "error"
+					},
+					"a11y": {
+						"noAriaHiddenOnFocusable": "error",
+						"useSemanticElements": "off"
 					}
 				}
 			}
 		}
-	]
+	],
+	"root": true,
+	"assist": {
+		"enabled": true
+	},
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	}
 }

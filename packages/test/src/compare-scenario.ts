@@ -210,7 +210,7 @@ export function applyCompareArm(scenario: AgentScenario, side: CompareArmId): Ag
 		skills: arm.skills ?? rest.skills,
 		contextSources: arm.contextSources ?? rest.contextSources,
 		mcpServers: arm.mcpServers ?? rest.mcpServers,
-		allowUserSkills: arm.allowUserSkills ?? rest.allowUserSkills,
+		includeGlobalSkills: arm.includeGlobalSkills ?? rest.includeGlobalSkills,
 		seedPatch: arm.seedPatch ?? rest.seedPatch,
 		seedStageOnly: arm.seedStageOnly ?? rest.seedStageOnly,
 		rubric,

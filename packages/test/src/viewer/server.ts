@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { reportCss } from "../html-report.js";
 import { DEFAULT_VIEWER_WORKERS, MAX_WORKERS } from "../worker-pool.js";
 import type { ViewerCatalog, ViewerRunRequest } from "./catalog.js";
 import {
@@ -8,20 +7,22 @@ import {
 	type ViewerEvent,
 	type ViewerRunRecord,
 } from "./events.js";
-import { createLiveViewerRunner, type LiveViewerRunnerOptions } from "./live-runner.js";
 import { renderViewerPage } from "./page.js";
 import {
 	createViewerRunController,
 	type ViewerRunController,
 	type ViewerRunner,
 } from "./run-controller.js";
+import { reportCss } from "./styles.js";
 
 const VIEWER_HOST = "127.0.0.1";
 
-export interface ListenViewerOptions extends LiveViewerRunnerOptions {
+export interface ListenViewerOptions {
+	cwd: string;
+	suitesDir: string;
 	catalog: ViewerCatalog;
 	port?: number;
-	runner?: ViewerRunner;
+	runner: ViewerRunner;
 	/** Parallel live agents. Default 4. */
 	workers?: number;
 	initialRuns?: ViewerRunRecord[];
@@ -38,7 +39,7 @@ export interface ViewerServerHandle {
 export async function listenViewer(options: ListenViewerOptions): Promise<ViewerServerHandle> {
 	const controller = createViewerRunController({
 		catalog: options.catalog,
-		runner: options.runner ?? createLiveViewerRunner(options),
+		runner: options.runner,
 		maxParallelAgents: MAX_WORKERS,
 		initialRuns: options.initialRuns,
 	});
@@ -117,7 +118,7 @@ async function handleViewerRequest(
 		const bootstrap: ViewerBootstrap = {
 			catalog,
 			runs,
-			selectedRunId: selectedRunId ?? activeRun?.id,
+			selectedRunId: selectedRunId ?? activeRun?.id ?? runs.at(-1)?.id,
 			workspace,
 			capabilities: {
 				canRun: true,
