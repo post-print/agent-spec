@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +8,11 @@ import { SKILL_ROOTS, skillOverlayRelPath } from "./skills-context.js";
 import type { AgentTrace } from "./types.js";
 import { isPathUnderRoot } from "./working-tree-guard.js";
 
+const BACKSLASH = /\\/g;
+const RELATIVE_PREFIX = /^\.\//;
+const FILE_PROTOCOL = /^file:\/\//;
+const TRAILING_PUNCTUATION = /[,:]+$/;
+
 const execFileAsync = promisify(execFile);
 
 export const SEALED_WORKSPACE_DIR_PREFIX = "agent-harness-seal-";
@@ -15,52 +20,6 @@ export const SEALED_WORKSPACE_DIR_PREFIX = "agent-harness-seal-";
 export interface SealedWorkspace {
 	path: string;
 	cleanup: () => Promise<void>;
-}
-
-export interface ReadOnlyWorkspaceSnapshot {
-	path: string;
-	cleanup: () => Promise<void>;
-}
-
-async function makeTreeReadOnly(root: string): Promise<void> {
-	for (const entry of await readdir(root, { withFileTypes: true })) {
-		const path = join(root, entry.name);
-		if (entry.isDirectory()) await makeTreeReadOnly(path);
-		await chmod(path, entry.isDirectory() ? 0o555 : 0o444);
-	}
-	await chmod(root, 0o555);
-}
-
-async function makeTreeWritable(root: string): Promise<void> {
-	for (const entry of await readdir(root, { withFileTypes: true })) {
-		const path = join(root, entry.name);
-		if (entry.isDirectory()) await makeTreeWritable(path);
-		await chmod(path, entry.isDirectory() ? 0o755 : 0o644);
-	}
-	await chmod(root, 0o755);
-}
-
-/** Snapshot an arm for judge inspection; the snapshot is immutable at the OS boundary. */
-export async function createReadOnlyWorkspaceSnapshot(
-	source: string,
-	name: string,
-): Promise<ReadOnlyWorkspaceSnapshot> {
-	const root = await mkdtemp(join(tmpdir(), "agent-harness-judge-"));
-	const path = join(root, name);
-	try {
-		await cp(source, path, { recursive: true, filter: skipNestedGit });
-		await makeTreeReadOnly(path);
-	} catch (error) {
-		await rm(root, { recursive: true, force: true });
-		throw error;
-	}
-	return {
-		path,
-		cleanup: async () => {
-			await makeTreeWritable(root).catch(() => undefined);
-			await rm(root, { recursive: true, force: true });
-		},
-	};
 }
 
 export interface CreateSealedWorkspaceOptions {
@@ -89,7 +48,7 @@ export function parseScenarioWorkspace(raw: unknown): ParsedScenarioWorkspace {
 	if (typeof raw !== "string") {
 		return { ok: false, message: `workspace must be a string, got ${JSON.stringify(raw)}` };
 	}
-	const normalized = raw.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+	const normalized = raw.replace(BACKSLASH, "/").replace(RELATIVE_PREFIX, "").trim();
 	if (normalized.length === 0 || normalized === ".") {
 		return { ok: true, rel: undefined };
 	}
@@ -107,12 +66,6 @@ export function parseScenarioWorkspace(raw: unknown): ParsedScenarioWorkspace {
 		};
 	}
 	return { ok: true, rel: parts.join("/") };
-}
-
-/** True when the run should copy caller HEAD instead of a fixture folder. */
-export function isCallerHeadWorkspace(raw: unknown): boolean {
-	const parsed = parseScenarioWorkspace(raw);
-	return parsed.ok && parsed.rel === undefined;
 }
 
 async function materializeGitHead(callerCwd: string, dest: string): Promise<void> {
@@ -149,7 +102,7 @@ async function materializeWorkspaceFolder(
 }
 
 async function overlayPath(callerCwd: string, dest: string, rel: string): Promise<void> {
-	const normalized = rel.replace(/^\.\//, "").trim();
+	const normalized = rel.replace(RELATIVE_PREFIX, "").trim();
 	if (!normalized || normalized.includes("\0")) {
 		return;
 	}
@@ -232,46 +185,53 @@ function candidatePathsFromArgs(args: Record<string, unknown> | undefined): stri
 	for (const key of ["path", "file_path", "filePath", "target_file", "uri", "cwd"]) {
 		const value = args[key];
 		if (typeof value === "string") {
-			paths.push(value.replace(/^file:\/\//, ""));
+			paths.push(value.replace(FILE_PROTOCOL, ""));
 		}
 	}
-	const command = args.command;
+	paths.push(...contextPathsFromCommand(args.command));
+	return paths;
+}
+
+function contextPathsFromCommand(command: unknown): string[] {
+	const paths: string[] = [];
+
 	if (typeof command === "string") {
 		const ignoredExecutables = new Set(["/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/env"]);
 		for (const match of command.matchAll(/(?:^|[\s"'])((?:\.\.\/|\/)[^\s"';&|)]+)/g)) {
-			const path = match[1]?.replace(/[,:]+$/, "");
+			const path = match[1]?.replace(TRAILING_PUNCTUATION, "");
 			// Shell commands often inspect runner temp folders while running tests.
 			// Only flag external agent configuration paths here; direct tool path
 			// arguments still use the complete escape check below.
-			if (
-				path &&
-				!ignoredExecutables.has(path) &&
-				(path.includes("/.agents/skills/") ||
-					path.endsWith("/AGENTS.md") ||
-					path.endsWith("/CLAUDE.md") ||
-					path.includes("/.cursor/"))
-			) {
+			if (path && !ignoredExecutables.has(path) && isAgentContextPath(path)) {
 				paths.push(path);
 			}
 		}
 	}
 	return paths;
 }
-
+function isAgentContextPath(path: string): boolean {
+	return (
+		path.includes("/.agents/skills/") ||
+		path.endsWith("/AGENTS.md") ||
+		path.endsWith("/CLAUDE.md") ||
+		path.includes("/.cursor/")
+	);
+}
+function isCursorToolOutput(path: string): boolean {
+	return path.includes("/.cursor/projects/") && path.includes("/agent-tools/");
+}
 /** Tool paths that resolve outside the sealed workspace. */
 export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: string): string[] {
 	const root = resolve(workspaceRoot);
 	const escaped: string[] = [];
-	for (const call of trace.toolCalls) {
-		for (const raw of candidatePathsFromArgs(call.args)) {
-			const abs = isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
-			const normalized = abs.replaceAll("\\", "/");
-			if (normalized.includes("/.cursor/projects/") && normalized.includes("/agent-tools/")) {
-				continue;
-			}
-			if (!isPathUnderRoot(abs, root)) {
-				escaped.push(raw);
-			}
+	for (const raw of trace.toolCalls.flatMap((call) => candidatePathsFromArgs(call.args))) {
+		const abs = isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
+		const normalized = abs.replaceAll("\\", "/");
+		if (isCursorToolOutput(normalized)) {
+			continue;
+		}
+		if (!isPathUnderRoot(abs, root)) {
+			escaped.push(raw);
 		}
 	}
 	return [...new Set(escaped)];

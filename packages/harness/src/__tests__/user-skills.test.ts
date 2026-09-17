@@ -10,7 +10,7 @@ import {
 	createCursorUserHome,
 	cursorSettingSources,
 	openaiUserConfigArgs,
-	resolveAllowUserSkills,
+	resolveIncludeGlobalSkills,
 	withCursorUserHome,
 } from "../user-skills.js";
 
@@ -22,86 +22,84 @@ async function plantUserSkills(homeDir: string, names: string[]): Promise<void> 
 	}
 }
 
-describe("user skills isolation", () => {
-	it("denies host-global user skills when the field is omitted", () => {
-		expect(resolveAllowUserSkills(undefined, undefined)).toBe(false);
-		expect(resolveAllowUserSkills(undefined, false)).toBe(false);
-	});
+it("user skills isolation › denies host-global user skills when the field is omitted", () => {
+	expect(resolveIncludeGlobalSkills(undefined, undefined)).toBe(false);
+	expect(resolveIncludeGlobalSkills(undefined, false)).toBe(false);
+});
 
-	it("lets the scenario value win over suite defaults", () => {
-		expect(resolveAllowUserSkills(true, false)).toBe(true);
-		expect(resolveAllowUserSkills(false, true)).toBe(false);
-	});
+it("user skills isolation › lets the scenario value win over suite defaults", () => {
+	expect(resolveIncludeGlobalSkills(true, false)).toBe(true);
+	expect(resolveIncludeGlobalSkills(false, true)).toBe(false);
+});
 
-	it("keeps Cursor on project settings unless the run allows user skills", () => {
-		expect(cursorSettingSources(false)).toEqual(["project"]);
-		expect(cursorSettingSources(true)).toEqual(["project", "user"]);
-	});
+it("user skills isolation › keeps Cursor on project settings unless the run allows user skills", () => {
+	expect(cursorSettingSources(false)).toEqual(["project"]);
+	expect(cursorSettingSources(true)).toEqual(["project", "user"]);
+});
 
-	it("keeps Claude subscription on project settings unless the run allows user skills", () => {
-		expect(claudeSessionFlags("subscription", false)).toEqual([
-			"--strict-mcp-config",
-			"--setting-sources",
-			"project",
-		]);
-		expect(claudeSessionFlags("subscription", true)).toEqual([
-			"--strict-mcp-config",
-			"--setting-sources",
-			"user,project",
-		]);
-	});
+it("user skills isolation › keeps Claude subscription on project settings unless the run allows user skills", () => {
+	expect(claudeSessionFlags("subscription", false)).toEqual([
+		"--strict-mcp-config",
+		"--setting-sources",
+		"project",
+	]);
+	expect(claudeSessionFlags("subscription", true)).toEqual([
+		"--strict-mcp-config",
+		"--setting-sources",
+		"user,project",
+	]);
+});
 
-	it("keeps Claude api-key on --bare when user skills stay out", () => {
-		expect(claudeSessionFlags("api-key", false)).toEqual(["--bare"]);
-		expect(claudeSessionFlags("api-key", true)).toEqual([
-			"--strict-mcp-config",
-			"--setting-sources",
-			"user,project",
-		]);
-	});
+it("user skills isolation › keeps Claude api-key on --bare when user skills stay out", () => {
+	expect(claudeSessionFlags("api-key", false)).toEqual(["--bare"]);
+	expect(claudeSessionFlags("api-key", true)).toEqual([
+		"--strict-mcp-config",
+		"--setting-sources",
+		"user,project",
+	]);
+});
 
-	it("lets Claude api-key discover project context in host-native mode", () => {
-		expect(claudeSessionFlags("api-key", false, true)).toEqual([
-			"--strict-mcp-config",
-			"--setting-sources",
-			"project",
-		]);
-	});
+it("user skills isolation › lets Claude api-key discover project context in host-native mode", () => {
+	expect(claudeSessionFlags("api-key", false, true)).toEqual([
+		"--strict-mcp-config",
+		"--setting-sources",
+		"project",
+	]);
+});
 
-	it("keeps Codex on --ignore-user-config unless the run allows user skills", () => {
-		expect(openaiUserConfigArgs(false)).toEqual(["--ignore-user-config"]);
-		expect(openaiUserConfigArgs(true)).toEqual([]);
-	});
+it("user skills isolation › keeps Codex on --ignore-user-config unless the run allows user skills", () => {
+	expect(openaiUserConfigArgs(false)).toEqual(["--ignore-user-config"]);
+	expect(openaiUserConfigArgs(true)).toEqual([]);
+});
 
-	it("counts zero user-skill injection when allowUserSkills is false", async () => {
-		const realHome = await mkdtemp(join(tmpdir(), "user-skills-real-"));
+it("user skills isolation › counts zero user-skill injection when includeGlobalSkills is false", async () => {
+	const realHome = await mkdtemp(join(tmpdir(), "user-skills-real-"));
+	try {
+		await plantUserSkills(realHome, ["alpha", "beta", "gamma"]);
+		expect(await countUserSkillEntries(realHome)).toBe(3);
+		const isolated = await createCursorUserHome(false, { realHome });
 		try {
-			await plantUserSkills(realHome, ["alpha", "beta", "gamma"]);
-			expect(await countUserSkillEntries(realHome)).toBe(3);
-			const isolated = await createCursorUserHome(false, { realHome });
-			try {
-				expect(isolated.home).not.toBe(realHome);
-				expect(isolated.home).toContain(CURSOR_USER_HOME_DIR_PREFIX);
-				expect(await countUserSkillEntries(isolated.home)).toBe(0);
-			} finally {
-				await isolated.cleanup();
-			}
+			expect(isolated.home).not.toBe(realHome);
+			expect(isolated.home).toContain(CURSOR_USER_HOME_DIR_PREFIX);
+			expect(await countUserSkillEntries(isolated.home)).toBe(0);
 		} finally {
-			await rm(realHome, { recursive: true, force: true });
+			await isolated.cleanup();
 		}
-	});
+	} finally {
+		await rm(realHome, { recursive: true, force: true });
+	}
+});
 
-	it("keeps user-skill injection when allowUserSkills is true", async () => {
-		const realHome = await mkdtemp(join(tmpdir(), "user-skills-allow-"));
-		try {
-			await plantUserSkills(realHome, ["kept-a", "kept-b"]);
-			const allowed = await createCursorUserHome(true, { realHome });
-			expect(allowed.home).toBe(realHome);
-			expect(await countUserSkillEntries(allowed.home)).toBe(2);
-		} finally {
-			await rm(realHome, { recursive: true, force: true });
-		}
-	});
+it("user skills isolation › keeps user-skill injection when includeGlobalSkills is true", async () => {
+	const realHome = await mkdtemp(join(tmpdir(), "user-skills-allow-"));
+	try {
+		await plantUserSkills(realHome, ["kept-a", "kept-b"]);
+		const allowed = await createCursorUserHome(true, { realHome });
+		expect(allowed.home).toBe(realHome);
+		expect(await countUserSkillEntries(allowed.home)).toBe(2);
+	} finally {
+		await rm(realHome, { recursive: true, force: true });
+	}
 });
 
 describe("withCursorUserHome", () => {

@@ -5,6 +5,10 @@
  */
 import { Buffer } from "node:buffer";
 
+const CONTENT_LENGTH = /^Content-Length:\s*(\d+)/im;
+const TRAILING_CR = /\r$/;
+const CONTENT_LENGTH_HEADER = /^content-length:/i;
+
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_INFO = { name: "mcp-echo", version: "0.2.0" };
 const LOOKUP_NOTES = {
@@ -98,162 +102,99 @@ function toolsList() {
 	];
 }
 
+function toolText(name, args) {
+	switch (name) {
+		case "echo":
+			return typeof args.text === "string" ? args.text : "";
+		case "lookup":
+			return LOOKUP_NOTES[typeof args.id === "string" ? args.id : ""] ?? "unknown id";
+		case "search_tasks":
+			return "TASK-104: Ship the task list. Summary due date: 2026-09-20.";
+		case "get_task": {
+			const task = TASKS[typeof args.id === "string" ? args.id : ""];
+			return task ? JSON.stringify(task) : "unknown task";
+		}
+		case "task_index":
+			return JSON.stringify(TASKS["TASK-104"]);
+		default:
+			return undefined;
+	}
+}
+
 function handleToolsCall(id, params) {
-	const name = params?.name;
-	const args = params?.arguments ?? {};
-	if (name === "echo") {
-		const text = typeof args.text === "string" ? args.text : "";
+	const text = toolText(params?.name, params?.arguments ?? {});
+	if (text === undefined) {
 		writeMessage({
 			jsonrpc: "2.0",
 			id,
-			result: {
-				content: [{ type: "text", text }],
-				isError: false,
-			},
-		});
-		return;
-	}
-	if (name === "lookup") {
-		const key = typeof args.id === "string" ? args.id : "";
-		const text = LOOKUP_NOTES[key] ?? "unknown id";
-		writeMessage({
-			jsonrpc: "2.0",
-			id,
-			result: {
-				content: [{ type: "text", text }],
-				isError: false,
-			},
-		});
-		return;
-	}
-	if (name === "search_tasks") {
-		writeMessage({
-			jsonrpc: "2.0",
-			id,
-			result: {
-				content: [
-					{ type: "text", text: "TASK-104: Ship the task list. Summary due date: 2026-09-20." },
-				],
-				isError: false,
-			},
-		});
-		return;
-	}
-	if (name === "get_task") {
-		const taskId = typeof args.id === "string" ? args.id : "";
-		const task = TASKS[taskId];
-		writeMessage({
-			jsonrpc: "2.0",
-			id,
-			result: {
-				content: [{ type: "text", text: task ? JSON.stringify(task) : "unknown task" }],
-				isError: false,
-			},
-		});
-		return;
-	}
-	if (name === "task_index") {
-		writeMessage({
-			jsonrpc: "2.0",
-			id,
-			result: {
-				content: [{ type: "text", text: JSON.stringify(TASKS["TASK-104"]) }],
-				isError: false,
-			},
+			error: { code: -32601, message: `Unknown tool: ${params?.name}` },
 		});
 		return;
 	}
 	writeMessage({
 		jsonrpc: "2.0",
 		id,
-		error: { code: -32601, message: `Unknown tool: ${name}` },
+		result: { content: [{ type: "text", text }], isError: false },
 	});
 }
 
-function handleRequest(message) {
-	const { id, method, params } = message;
-	if (method === "initialize") {
+function handleResourceRead(id, params) {
+	const uri = typeof params?.uri === "string" ? params.uri : "";
+	if (uri !== NOTE_URI) {
 		writeMessage({
 			jsonrpc: "2.0",
 			id,
-			result: {
+			error: { code: -32602, message: `Unknown resource: ${uri}` },
+		});
+		return;
+	}
+	writeMessage({
+		jsonrpc: "2.0",
+		id,
+		result: {
+			contents: [
+				{
+					uri: NOTE_URI,
+					mimeType: "text/plain",
+					text: LOOKUP_NOTES.alpha,
+				},
+			],
+		},
+	});
+}
+
+function requestResult(method) {
+	switch (method) {
+		case "initialize":
+			return {
 				protocolVersion: PROTOCOL_VERSION,
 				capabilities: { tools: {}, resources: {} },
 				serverInfo: SERVER_INFO,
-			},
-		});
-		return;
+			};
+		case "tools/list":
+			return { tools: toolsList() };
+		case "resources/list":
+			return { resources: [{ uri: NOTE_URI, name: "alpha", mimeType: "text/plain" }] };
+		case "ping":
+			return {};
+		default:
+			return undefined;
 	}
-	if (method === "notifications/initialized" || method === "initialized") {
+}
+
+function handleRequest({ id, method, params }) {
+	if (["notifications/initialized", "initialized", "notifications/cancelled"].includes(method))
 		return;
-	}
-	if (method === "notifications/cancelled") {
-		return;
-	}
-	if (method === "tools/list") {
-		writeMessage({
-			jsonrpc: "2.0",
-			id,
-			result: { tools: toolsList() },
-		});
-		return;
-	}
-	if (method === "tools/call") {
-		handleToolsCall(id, params);
-		return;
-	}
-	if (method === "resources/list") {
-		writeMessage({
-			jsonrpc: "2.0",
-			id,
-			result: {
-				resources: [
-					{
-						uri: NOTE_URI,
-						name: "alpha",
-						mimeType: "text/plain",
-					},
-				],
-			},
-		});
-		return;
-	}
-	if (method === "resources/read") {
-		const uri = typeof params?.uri === "string" ? params.uri : "";
-		if (uri !== NOTE_URI) {
-			writeMessage({
-				jsonrpc: "2.0",
-				id,
-				error: { code: -32602, message: `Unknown resource: ${uri}` },
-			});
-			return;
-		}
-		writeMessage({
-			jsonrpc: "2.0",
-			id,
-			result: {
-				contents: [
-					{
-						uri: NOTE_URI,
-						mimeType: "text/plain",
-						text: LOOKUP_NOTES.alpha,
-					},
-				],
-			},
-		});
-		return;
-	}
-	if (method === "ping") {
-		writeMessage({ jsonrpc: "2.0", id, result: {} });
-		return;
-	}
-	if (id !== undefined) {
+	if (method === "tools/call") return handleToolsCall(id, params);
+	if (method === "resources/read") return handleResourceRead(id, params);
+	const result = requestResult(method);
+	if (result !== undefined) return writeMessage({ jsonrpc: "2.0", id, result });
+	if (id !== undefined)
 		writeMessage({
 			jsonrpc: "2.0",
 			id,
 			error: { code: -32601, message: `Method not found: ${method}` },
 		});
-	}
 }
 
 function consumeFramed() {
@@ -262,7 +203,7 @@ function consumeFramed() {
 		return false;
 	}
 	const header = buffer.subarray(0, headerEnd).toString("utf8");
-	const match = header.match(/^Content-Length:\s*(\d+)/im);
+	const match = header.match(CONTENT_LENGTH);
 	if (!match) {
 		return false;
 	}
@@ -283,9 +224,9 @@ function consumeNdjson() {
 	if (newline === -1) {
 		return false;
 	}
-	const line = buffer.subarray(0, newline).toString("utf8").replace(/\r$/, "").trim();
+	const line = buffer.subarray(0, newline).toString("utf8").replace(TRAILING_CR, "").trim();
 	buffer = buffer.subarray(newline + 1);
-	if (!line || /^content-length:/i.test(line)) {
+	if (!line || CONTENT_LENGTH_HEADER.test(line)) {
 		return true;
 	}
 	replyMode = "ndjson";
@@ -296,26 +237,8 @@ function consumeNdjson() {
 function consume() {
 	while (true) {
 		const prefix = buffer.subarray(0, Math.min(buffer.length, 32)).toString("utf8").toLowerCase();
-		if (prefix.startsWith("content-length")) {
-			try {
-				if (!consumeFramed()) {
-					return;
-				}
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				process.stderr.write(`mcp-echo parse error: ${message}\n`);
-				return;
-			}
-			continue;
-		}
-		try {
-			if (!consumeNdjson()) {
-				return;
-			}
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			process.stderr.write(`mcp-echo parse error: ${message}\n`);
-		}
+		const framed = prefix.startsWith("content-length");
+		if (!consumeMessage(framed)) return;
 	}
 }
 
@@ -327,3 +250,13 @@ process.stdin.on("data", (chunk) => {
 process.stdin.on("end", () => {
 	process.exit(0);
 });
+
+function consumeMessage(framed) {
+	try {
+		return framed ? consumeFramed() : consumeNdjson();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		process.stderr.write(`mcp-echo parse error: ${message}\n`);
+		return !framed;
+	}
+}

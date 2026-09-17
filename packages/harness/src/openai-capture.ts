@@ -53,6 +53,21 @@ function normalizeOpenaiUsage(raw: unknown): AgentUsage | undefined {
 		return camel;
 	}
 	const record = raw as Record<string, unknown>;
+	const snake = openaiUsageFields(record);
+	const merged = mergeAgentUsage(camel, Object.keys(snake).length > 0 ? snake : undefined);
+	if (!merged) {
+		return undefined;
+	}
+	if (merged.totalTokens === undefined) {
+		const derived = resolvedTotalTokens(merged);
+		if (derived !== undefined) {
+			merged.totalTokens = derived;
+		}
+	}
+	return merged;
+}
+
+function openaiUsageFields(record: Record<string, unknown>): AgentUsage {
 	const snake: AgentUsage = {};
 	if (typeof record.input_tokens === "number") {
 		snake.inputTokens = record.input_tokens;
@@ -72,17 +87,7 @@ function normalizeOpenaiUsage(raw: unknown): AgentUsage | undefined {
 	if (typeof record.reasoning_output_tokens === "number") {
 		snake.reasoningTokens = record.reasoning_output_tokens;
 	}
-	const merged = mergeAgentUsage(camel, Object.keys(snake).length > 0 ? snake : undefined);
-	if (!merged) {
-		return undefined;
-	}
-	if (merged.totalTokens === undefined) {
-		const derived = resolvedTotalTokens(merged);
-		if (derived !== undefined) {
-			merged.totalTokens = derived;
-		}
-	}
-	return merged;
+	return snake;
 }
 
 export function parseOpenaiJsonlLine(line: string): OpenaiJsonlEvent | undefined {
@@ -124,6 +129,51 @@ function toolNameForFileChange(kind: string | undefined): string {
 	return "Edit";
 }
 
+function applyCommand(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
+	if (!item.command) return;
+
+	const exitCode =
+		typeof item.exit_code === "number" && Number.isFinite(item.exit_code)
+			? item.exit_code
+			: undefined;
+	acc.shellCommands.push(item.command);
+	acc.toolCalls.push({
+		name: "Shell",
+		args: { command: item.command, cwd: item.path },
+		result: item.aggregated_output,
+		...(exitCode !== undefined ? { exitCode, succeeded: exitCode === 0 } : {}),
+		seq: acc.nextSeq++,
+	});
+}
+
+function applyFileChanges(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
+	const changes = item.changes?.length
+		? item.changes
+		: item.path
+			? [{ path: item.path, kind: "update" }]
+			: [];
+	for (const change of changes) {
+		if (!change.path) {
+			continue;
+		}
+		acc.toolCalls.push({
+			name: toolNameForFileChange(change.kind),
+			args: { path: change.path },
+			seq: acc.nextSeq++,
+		});
+	}
+}
+
+function applyMcpTool(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
+	const name =
+		item.server && item.tool ? `${item.server}:${item.tool}` : (item.tool ?? item.server ?? "mcp");
+	acc.toolCalls.push({
+		name,
+		args: (item.arguments as Record<string, unknown> | undefined) ?? {},
+		result: serializeToolResult(item.result),
+		seq: acc.nextSeq++,
+	});
+}
 function applyItem(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 	const type = (item.type ?? "").toLowerCase();
 	if (type === "agent_message" && item.text) {
@@ -135,52 +185,20 @@ function applyItem(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 		return;
 	}
 	if (type === "command_execution" && item.command) {
-		const exitCode =
-			typeof item.exit_code === "number" && Number.isFinite(item.exit_code)
-				? item.exit_code
-				: undefined;
-		acc.shellCommands.push(item.command);
-		acc.toolCalls.push({
-			name: "Shell",
-			args: { command: item.command, cwd: item.path },
-			result: item.aggregated_output,
-			...(exitCode !== undefined ? { exitCode, succeeded: exitCode === 0 } : {}),
-			seq: acc.nextSeq++,
-		});
+		applyCommand(acc, item);
 		return;
 	}
 	if (type === "file_change") {
-		const changes = item.changes?.length
-			? item.changes
-			: item.path
-				? [{ path: item.path, kind: "update" }]
-				: [];
-		for (const change of changes) {
-			if (!change.path) {
-				continue;
-			}
-			acc.toolCalls.push({
-				name: toolNameForFileChange(change.kind),
-				args: { path: change.path },
-				seq: acc.nextSeq++,
-			});
-		}
+		applyFileChanges(acc, item);
 		return;
 	}
-	if (type === "mcp_tool_call" && (item.tool || item.server)) {
-		const name =
-			item.server && item.tool
-				? `${item.server}:${item.tool}`
-				: (item.tool ?? item.server ?? "mcp");
-		acc.toolCalls.push({
-			name,
-			args: (item.arguments as Record<string, unknown> | undefined) ?? {},
-			result: serializeToolResult(item.result),
-			seq: acc.nextSeq++,
-		});
-	}
+	if (type === "mcp_tool_call" && (item.tool || item.server)) applyMcpTool(acc, item);
 }
 
+function openaiEventError(event: OpenaiJsonlEvent): string | undefined {
+	if (typeof event.error === "string") return event.error;
+	return event.error?.message || event.message || undefined;
+}
 /** Fold one Codex JSONL event into the accumulator. */
 export function accumulateOpenaiEvent(acc: OpenaiTraceAccumulator, event: OpenaiJsonlEvent): void {
 	const type = event.type ?? "";
@@ -190,13 +208,7 @@ export function accumulateOpenaiEvent(acc: OpenaiTraceAccumulator, event: Openai
 	}
 	if (type === "turn.failed" || type === "error" || type === "thread.error") {
 		acc.rawStatus = type;
-		if (typeof event.error === "string") {
-			acc.resultError = event.error;
-		} else if (event.error?.message) {
-			acc.resultError = event.error.message;
-		} else if (event.message) {
-			acc.resultError = event.message;
-		}
+		acc.resultError = openaiEventError(event) ?? acc.resultError;
 		return;
 	}
 	if (type !== "item.completed" && type !== "item.started" && !itemFromEvent(event)) {

@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { cp, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
-const trackedManifests = [join(root, "packages/harness/package.json"), join(root, "packages/test/package.json")];
+const trackedManifests = [
+	join(root, "packages/harness/package.json"),
+	join(root, "packages/test/package.json"),
+];
 const before = await Promise.all(trackedManifests.map((path) => readFile(path, "utf8")));
 const temp = await mkdtemp(join(tmpdir(), "agent-test-consumer-"));
 const stage = join(temp, "stage");
@@ -26,93 +29,105 @@ testPackage.dependencies["@post-print/agent-harness"] = testPackage.version;
 await writeFile(testPackagePath, `${JSON.stringify(testPackage, null, 2)}\n`);
 
 async function pack(path) {
-	const { stdout } = await exec("npm", ["pack", path, "--pack-destination", tarballs, "--json"], { cwd: root, env: npmEnv });
+	const { stdout } = await exec("npm", ["pack", path, "--pack-destination", tarballs, "--json"], {
+		cwd: root,
+		env: npmEnv,
+	});
 	const rows = JSON.parse(stdout);
 	return join(tarballs, rows[0].filename);
 }
 
 const harnessTarball = await pack(join(stage, "harness"));
 const testTarball = await pack(join(stage, "test"));
-const chalkTarball = await pack(join(root, "node_modules/chalk"));
-const nodeTypesTarball = await pack(join(root, "node_modules/@types/node"));
-const undiciTypesTarball = await pack(join(root, "node_modules/undici-types"));
+const dependencyTarballs = [];
+for (const name of [
+	"zod",
+	"react",
+	"react-dom",
+	"scheduler",
+	"playwright",
+	"playwright-core",
+	"@playwright/test",
+	"@types/node",
+	"undici-types",
+]) {
+	dependencyTarballs.push(await pack(join(root, "node_modules", name)));
+}
 await writeFile(
 	join(consumer, "package.json"),
-	`${JSON.stringify({ name: "agent-test-consumer", private: true, type: "module" }, null, 2)}\n`,
+	JSON.stringify({ name: "agent-test-consumer", private: true, type: "module" }),
 );
-await exec("npm", ["install", "--offline", "--omit=optional", "--ignore-scripts", "--no-audit", "--no-fund", chalkTarball, nodeTypesTarball, undiciTypesTarball, harnessTarball, testTarball], {
-	cwd: consumer,
-	env: npmEnv,
-});
+await exec(
+	"npm",
+	[
+		"install",
+		"--offline",
+		"--omit=optional",
+		"--ignore-scripts",
+		"--no-audit",
+		"--no-fund",
+		...dependencyTarballs,
+		harnessTarball,
+		testTarball,
+	],
+	{ cwd: consumer, env: npmEnv },
+);
 await writeFile(
 	join(consumer, "tsconfig.json"),
 	`${JSON.stringify({ compilerOptions: { strict: true, target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", outDir: "dist", skipLibCheck: false, types: ["node"] }, include: ["src.ts"] }, null, 2)}\n`,
 );
+await cp(
+	join(root, "packages/test/fixtures/sdk-v2/fake-agent.mjs"),
+	join(consumer, "fake-agent.mjs"),
+);
+await mkdir(join(consumer, "project"));
+await writeFile(join(consumer, "project/PROJECT.md"), "The owner is Mina.");
 await writeFile(
 	join(consumer, "src.ts"),
-	`import { registerHostAdapter, runAgentTest, type CompareArmResult, type HostAdapter, type ScenarioResult } from "@post-print/agent-test";
-
-const adapter: HostAdapter = {
-  host: "fixture",
-  async run(options) {
-    const short = options.prompt.includes("short");
-    return {
-      host: "fixture",
-      status: "completed",
-      durationMs: short ? 1 : 2,
-      trace: {
-        messages: [{ role: "assistant", content: "SDK_OK" }],
-        toolCalls: short ? [] : [{ name: "Read", args: { path: "PROJECT.md" } }],
-        shellCommands: [],
-        artifacts: {},
-        usage: { totalTokens: short ? 10 : 20 }
-      }
-    };
-  }
-};
-
-registerHostAdapter(adapter);
-const result: ScenarioResult = await runAgentTest({
-  cwd: process.cwd(),
-  host: "fixture",
-  judge: false,
-  worktree: false,
-  scenario: {
-    name: "installed package",
-    prompt: "Return SDK_OK.",
-    rubric: { must: ["SDK_OK"] },
-    compare: {
-      a: { description: "Uses one read." },
-      b: { description: "Uses fewer tokens.", prompt: "Return SDK_OK in a short answer." },
-      gates: [
-        { metric: "outcome", arm: "a", operator: "equal", value: "pass" },
-        { metric: "tokens", winner: "b", loser: "a" }
-      ]
-    }
-  }
+	`
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, expect, z, type Run } from "@post-print/agent-test";
+import { customAgent } from "@post-print/agent-harness";
+const fake = customAgent({adapter: new URL("../fake-agent.mjs", import.meta.url).href, options: {}});
+const test = describe("installed resources", ({agent, judge}) => ({
+ coder: agent({agent: fake, workspace: "./project"}).setup(async workspace => {
+   await writeFile(join(workspace.path, "seed.txt"), "ready");
+ }),
+ accuracy: judge({agent: fake, prompt: "Check", schema: z.object({correct: z.boolean()})}),
+}));
+test("installed SDK", async ({coder, accuracy}) => {
+ const run: Run = await coder.run({prompt: "Who owns the project?"});
+ expect(run.output).toContain("Mina");
+ expect(run.workspace.initial.files["seed.txt"]).toBeDefined();
+ expect(run).toHaveReadPath("PROJECT.md");
+ const evaluation = await accuracy.run({input: {answer: run.output}});
+ const typed: boolean = evaluation.output.correct;
+ // @ts-expect-error The schema must not collapse to any.
+ const invalid: string = evaluation.output.correct;
+ expect(typed).toBe(true);
 });
-const arms: CompareArmResult[] = result.compare?.arms ?? [];
-if (!result.passed || arms.length !== 2 || result.compare?.gateResults?.some((gate) => !gate.passed)) {
-  throw new Error("The installed package contract did not pass.");
-}
-console.log("Installed declarations and direct API: OK");
 `,
 );
-await exec(process.execPath, [join(root, "node_modules/typescript/bin/tsc"), "--project", "tsconfig.json"], {
-	cwd: consumer,
-});
-await exec(process.execPath, [join(consumer, "dist/src.js")], { cwd: consumer, env: { ...process.env, AGENT_TEST_ALLOW_IN_PLACE: "1" } });
-
-const suites = join(consumer, "suites/basic");
-await mkdir(suites, { recursive: true });
-await writeFile(
-	join(suites, "scenarios.json"),
-	`${JSON.stringify({ name: "basic", defaults: { host: "cursor", skills: "none" }, scenarios: [{ name: "exact text", prompt: "Reply with OK.", rubric: { must: ["OK"] } }] }, null, 2)}\n`,
+await exec(
+	process.execPath,
+	[join(root, "node_modules/typescript/bin/tsc"), "--project", "tsconfig.json"],
+	{ cwd: consumer },
 );
-await exec(process.execPath, [join(consumer, "node_modules/@post-print/agent-test/dist/cli.js"), "--check", "--suites-dir", "suites"], { cwd: consumer });
-
+await writeFile(
+	join(consumer, "agent-test.config.ts"),
+	`
+import {defineConfig} from "@post-print/agent-test";
+export default defineConfig({testDir: "./dist", testMatch: "src.js"});
+`,
+);
+const { stdout } = await exec(
+	process.execPath,
+	[join(consumer, "node_modules/@post-print/agent-test/dist/cli.js"), "test"],
+	{ cwd: consumer },
+);
+console.log(stdout);
 const after = await Promise.all(trackedManifests.map((path) => readFile(path, "utf8")));
-if (before.some((value, index) => value !== after[index])) {
-	throw new Error("The package test changed a tracked package manifest.");
-}
-console.log(`Installed CLI: OK (${basename(testTarball)})`);
+if (before.some((value, index) => value !== after[index]))
+	throw new Error("Consumer check changed a tracked manifest");
+console.log(`Installed SDK, declarations, judge, and CLI: OK (${basename(testTarball)})`);

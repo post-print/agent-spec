@@ -19,7 +19,7 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, AgentUsage, JudgeWorkspaceContext, LiveAgentEvent } from "./types.js";
+import type { AgentTrace, AgentUsage, LiveAgentEvent } from "./types.js";
 import { cursorSettingSources, withCursorUserHome } from "./user-skills.js";
 
 /** Minimal Cursor SDK run surface for cancel + wait cleanup. */
@@ -37,27 +37,6 @@ interface CancellableSdkRun {
 
 /** Default local agent model; override with CURSOR_AGENT_MODEL or options.model. */
 const DEFAULT_CURSOR_MODEL = "auto";
-
-function judgeModelSelection(override?: JudgeClassifierOptions["model"]): {
-	id: string;
-	params?: Array<{ id: string; value: string }>;
-} {
-	const id =
-		override?.id ??
-		process.env.CURSOR_JUDGE_MODEL ??
-		process.env.CURSOR_AGENT_MODEL ??
-		DEFAULT_CURSOR_MODEL;
-	const params = override?.params ?? judgeModelParamsFromEnv();
-	return params ? { id, params } : { id };
-}
-
-function judgeModelParamsFromEnv(): Array<{ id: string; value: string }> | undefined {
-	const raw = process.env.CURSOR_JUDGE_TEMPERATURE ?? "0";
-	if (!raw.trim()) {
-		return undefined;
-	}
-	return [{ id: "temperature", value: raw.trim() }];
-}
 
 export type CursorAuthMode = HostAuthMode;
 
@@ -130,33 +109,12 @@ export interface CursorRunOptions {
 	/** Fires as the SDK streams assistant text and tool calls. */
 	onAgentEvent?: (event: LiveAgentEvent) => void;
 	/** Load host-global Cursor user skills and settings. Default false. */
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 }
 
-export interface JudgeClassifierOptions {
-	cwd: string;
-	prompt: string;
-	workspaces?: readonly JudgeWorkspaceContext[];
-	apiKey?: string;
-	authMode?: CursorAuthMode;
-	model?: { id: string; params?: Array<{ id: string; value: string }> };
-	onText?: (text: string) => void;
-}
-
-export interface JudgeSdkError {
+export interface CursorSdkError {
 	message?: string;
 	code?: string;
-}
-
-export interface JudgeClassifierResult {
-	status: string;
-	text: string;
-	/** Unnormalized SDK terminal status (e.g. `error`, `cancelled`). */
-	rawStatus?: string;
-	/** SDK error payload when the judge run did not finish cleanly. */
-	sdkError?: JudgeSdkError;
-	/** Token usage when the judge SDK run reported it. */
-	usage?: AgentUsage;
 }
 
 export interface CursorRunResult {
@@ -164,7 +122,7 @@ export interface CursorRunResult {
 	trace: AgentTrace;
 	/** Unnormalized SDK terminal status from wait()/prompt. */
 	rawStatus?: string;
-	sdkError?: JudgeSdkError;
+	sdkError?: CursorSdkError;
 	/** Cumulative agent token usage when the SDK reported it. */
 	usage?: AgentUsage;
 }
@@ -178,7 +136,7 @@ export function normalizeSdkRunStatus(status: string): "completed" | "failed" {
 export function formatCursorRunFailure(options: {
 	status: string;
 	rawStatus?: string;
-	sdkError?: JudgeSdkError;
+	sdkError?: CursorSdkError;
 }): string {
 	const details: string[] = [];
 	if (options.rawStatus && options.rawStatus !== options.status) {
@@ -241,126 +199,120 @@ export function takeLastCursorRunTrace(): AgentTrace | undefined {
 	return trace;
 }
 
-/** Shared Cursor SDK path — Agent.create + send + wait (runs and judge use the same surface). */
+interface CursorAgentHandle {
+	send(prompt: string): Promise<unknown>;
+}
+class CursorExecution {
+	private readonly acc = createTraceAccumulator();
+	private readonly liveState = createLiveNotifyState();
+	private timedOut = false;
+	constructor(
+		private readonly options: CursorRunOptions,
+		private readonly agent: CursorAgentHandle,
+	) {}
+	private stashTrace(usageOverride?: AgentUsage): AgentTrace {
+		const trace = finalizeTraceAccumulator(this.acc);
+		const usage = usageOverride ?? normalizeAgentUsage(this.acc.usage) ?? trace.usage;
+		const withUsage = usage ? { ...trace, usage } : trace;
+		lastCursorRunTrace = withUsage;
+		return withUsage;
+	}
+	private checkDeadline(run: CancellableSdkRun): void {
+		if (!this.timedOut) return;
+		cancelSdkRun(run);
+		activeCursorRun = undefined;
+		const error = new AgentRunTimeoutError(this.options.timeoutMs ?? 0);
+		error.trace = this.stashTrace();
+		throw error;
+	}
+	private async readStream(run: CancellableSdkRun): Promise<CursorRunResult | undefined> {
+		for await (const event of run.stream()) {
+			accumulateSdkEvent(this.acc, event as SdkMessage);
+			emitLiveAgentEvents(this.acc, this.liveState, this.options.onAgentEvent);
+			const lastTool = this.acc.toolCalls.at(-1);
+			if (!lastTool || !isUserInputTool(lastTool.name)) continue;
+			if (this.options.failOnUserInput !== false) {
+				const error = new UserInputRequiredError(lastTool.name);
+				error.trace = this.stashTrace();
+				throw error;
+			}
+			cancelSdkRun(run);
+			return { status: "completed", trace: this.stashTrace(), rawStatus: "user_input" };
+		}
+		return undefined;
+	}
+	private async finish(run: CancellableSdkRun): Promise<CursorRunResult> {
+		const early = await this.readStream(run);
+		if (early) return early;
+		const result = await run.wait();
+		const usage = normalizeAgentUsage(result.usage) ?? normalizeAgentUsage(run.usage);
+		return {
+			status: normalizeSdkRunStatus(result.status),
+			trace: this.stashTrace(usage),
+			rawStatus: result.status,
+			sdkError: extractCursorSdkError(result.error),
+			usage,
+		};
+	}
+	private async execute(): Promise<CursorRunResult> {
+		const run = (await this.agent.send(this.options.prompt)) as CancellableSdkRun;
+		activeCursorRun = run;
+		this.checkDeadline(run);
+		try {
+			return await this.finish(run);
+		} catch (error) {
+			cancelSdkRun(run);
+			const partial = this.stashTrace();
+			if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError) {
+				error.trace = error.trace ?? partial;
+				throw error;
+			}
+			throw wrapCursorSdkAuthError(error);
+		} finally {
+			if (activeCursorRun === run) activeCursorRun = undefined;
+		}
+	}
+	async run(): Promise<CursorRunResult> {
+		if (!this.options.timeoutMs || this.options.timeoutMs <= 0) return this.execute();
+		await this.options.onDeadlineStart?.();
+		try {
+			return await withRunTimeout(() => this.execute(), this.options.timeoutMs, {
+				onTimeout: () => {
+					this.timedOut = true;
+					cancelSdkRun(activeCursorRun);
+				},
+			});
+		} catch (error) {
+			if (error instanceof AgentRunTimeoutError)
+				error.trace = error.trace ?? takeLastCursorRunTrace();
+			throw error;
+		}
+	}
+}
+/** Shared Cursor SDK path with one owner for stream, deadline, and cancellation. */
 export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
 	const authMode = resolveCursorAuthMode(undefined, options.apiKey, options.authMode);
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
-	if (authMode === "api-key" && !apiKey?.trim()) {
-		throw new Error(CURSOR_MISSING_KEY_MESSAGE);
-	}
-
+	if (authMode === "api-key" && !apiKey?.trim()) throw new Error(CURSOR_MISSING_KEY_MESSAGE);
 	const sdkModule = await import("@cursor/sdk");
 	const modelId = options.model?.id ?? process.env.CURSOR_AGENT_MODEL ?? DEFAULT_CURSOR_MODEL;
-	const mcpServers = resolveMcpServers(options.mcpServers, {
-		cwd: options.cwd,
-	});
+	const mcpServers = resolveMcpServers(options.mcpServers, { cwd: options.cwd });
+	const execute = async () => {
+		await using agent = await sdkModule.Agent.create({
+			model: { id: modelId },
+			local: {
+				cwd: options.cwd,
+				settingSources: cursorSettingSources(options.includeGlobalSkills === true),
+			},
+			...(mcpServers ? { mcpServers } : {}),
+			...(authMode === "api-key" && apiKey ? { apiKey } : {}),
+		});
+		return await new CursorExecution(options, agent).run();
+	};
 	try {
 		return await withCursorAuthEnv(authMode, () =>
-			withCursorUserHome(options.allowUserSkills === true, () =>
-				withProcessWorkingDirectory(options.cwd, async () => {
-					const createOptions = {
-						model: { id: modelId },
-						local: {
-							cwd: options.cwd,
-							settingSources: cursorSettingSources(options.allowUserSkills === true),
-						},
-						...(mcpServers ? { mcpServers } : {}),
-						...(authMode === "api-key" && apiKey ? { apiKey } : {}),
-					};
-					await using agent = await sdkModule.Agent.create(createOptions);
-
-					const failOnUserInput = options.failOnUserInput !== false;
-					const acc = createTraceAccumulator();
-					const liveState = createLiveNotifyState();
-					let timedOut = false;
-
-					const stashTrace = (usageOverride?: AgentUsage): AgentTrace => {
-						const trace = finalizeTraceAccumulator(acc);
-						const usage = usageOverride ?? normalizeAgentUsage(acc.usage) ?? trace.usage;
-						const withUsage = usage ? { ...trace, usage } : trace;
-						lastCursorRunTrace = withUsage;
-						return withUsage;
-					};
-
-					const execute = async (): Promise<CursorRunResult> => {
-						const run = (await agent.send(options.prompt)) as CancellableSdkRun;
-						activeCursorRun = run;
-						if (timedOut) {
-							cancelSdkRun(run);
-							activeCursorRun = undefined;
-							const timeoutError = new AgentRunTimeoutError(options.timeoutMs ?? 0);
-							timeoutError.trace = stashTrace();
-							throw timeoutError;
-						}
-
-						try {
-							for await (const event of run.stream()) {
-								accumulateSdkEvent(acc, event as SdkMessage);
-								emitLiveAgentEvents(acc, liveState, options.onAgentEvent);
-								const lastTool = acc.toolCalls.at(-1);
-								if (lastTool && isUserInputTool(lastTool.name)) {
-									if (failOnUserInput) {
-										const userInputError = new UserInputRequiredError(lastTool.name);
-										userInputError.trace = stashTrace();
-										throw userInputError;
-									}
-									cancelSdkRun(run);
-									return {
-										status: "completed",
-										trace: stashTrace(),
-										rawStatus: "user_input",
-									};
-								}
-							}
-							const result = await run.wait();
-							const rawStatus = result.status;
-							const status = normalizeSdkRunStatus(rawStatus);
-							const sdkError = extractJudgeSdkError(result.error);
-							// Prefer wait()/handle cumulative usage over summed stream turns when present.
-							const waitUsage = normalizeAgentUsage(result.usage) ?? normalizeAgentUsage(run.usage);
-							return {
-								status,
-								trace: stashTrace(waitUsage),
-								rawStatus,
-								sdkError,
-								usage: waitUsage,
-							};
-						} catch (error) {
-							cancelSdkRun(run);
-							const partial = stashTrace();
-							if (
-								error instanceof AgentRunTimeoutError ||
-								error instanceof UserInputRequiredError
-							) {
-								error.trace = error.trace ?? partial;
-								throw error;
-							}
-							throw wrapCursorSdkAuthError(error);
-						} finally {
-							if (activeCursorRun === run) {
-								activeCursorRun = undefined;
-							}
-						}
-					};
-
-					if (options.timeoutMs && options.timeoutMs > 0) {
-						await options.onDeadlineStart?.();
-						try {
-							return await withRunTimeout(execute, options.timeoutMs, {
-								onTimeout: () => {
-									timedOut = true;
-									cancelSdkRun(activeCursorRun);
-								},
-							});
-						} catch (error) {
-							if (error instanceof AgentRunTimeoutError) {
-								error.trace = error.trace ?? takeLastCursorRunTrace();
-							}
-							throw error;
-						}
-					}
-					return execute();
-				}),
+			withCursorUserHome(options.includeGlobalSkills === true, () =>
+				withProcessWorkingDirectory(options.cwd, execute),
 			),
 		);
 	} catch (error) {
@@ -369,48 +321,8 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 }
 
 /** Classifier-only judge path — one-shot Agent.prompt, JSON reply, temperature 0 when supported. */
-export async function runJudgeClassifier(
-	options: JudgeClassifierOptions,
-): Promise<JudgeClassifierResult> {
-	const authMode = resolveCursorAuthMode(undefined, options.apiKey, options.authMode);
-	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
-	if (authMode === "api-key" && !apiKey?.trim()) {
-		throw new Error(CURSOR_MISSING_KEY_MESSAGE);
-	}
 
-	const sdkModule = await import("@cursor/sdk");
-	let result: Awaited<ReturnType<typeof sdkModule.Agent.prompt>>;
-	try {
-		result = await withCursorAuthEnv(authMode, () =>
-			withCursorUserHome(false, () =>
-				sdkModule.Agent.prompt(options.prompt, {
-					...(authMode === "api-key" && apiKey ? { apiKey } : {}),
-					model: judgeModelSelection(options.model),
-					name: "agent-spec-judge",
-					local: { cwd: options.cwd, settingSources: ["project"] },
-				}),
-			),
-		);
-	} catch (error) {
-		throw wrapCursorSdkAuthError(error);
-	}
-
-	const text = result.result?.trim() ?? "";
-	if (text) options.onText?.(text);
-	const rawStatus = result.status;
-	const status = rawStatus === "finished" ? "completed" : rawStatus;
-	const sdkError = extractJudgeSdkError(result.error);
-	const usage = normalizeAgentUsage((result as { usage?: unknown }).usage);
-	return {
-		status: normalizeSdkRunStatus(status),
-		text,
-		rawStatus,
-		sdkError,
-		usage,
-	};
-}
-
-function extractJudgeSdkError(error: unknown): JudgeSdkError | undefined {
+function extractCursorSdkError(error: unknown): CursorSdkError | undefined {
 	if (!error || typeof error !== "object") {
 		return undefined;
 	}
@@ -424,16 +336,6 @@ function extractJudgeSdkError(error: unknown): JudgeSdkError | undefined {
 }
 
 /** Assistant prose from a Cursor SDK message stream (last assistant block wins for short replies). */
-export function assistantTextFromSdkMessages(messages: SdkMessage[]): string {
-	const chunks: string[] = [];
-	for (const event of messages) {
-		const text = textBlocksFromSdkMessage(event);
-		if (text.length > 0 && (event.type === "assistant" || event.message?.role === "assistant")) {
-			chunks.push(text);
-		}
-	}
-	return chunks.join("\n").trim();
-}
 
 export function textBlocksFromSdkMessage(event: SdkMessage): string {
 	const parts: string[] = [];

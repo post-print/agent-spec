@@ -3,6 +3,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /** Default SDK login store. The Cursor app login does not write this file. */
+const INVALID_USER_KEY = /invalid user api key/i;
+const INVALID_KEY_CODE = /invalid.?user.?api.?key/i;
+
 export const CURSOR_SDK_AUTH_REL = ".cursor/sdk/auth.json";
 
 export const CURSOR_SDK_LOGIN_HINT =
@@ -51,16 +54,16 @@ export function hasCursorSdkAuthFile(home = process.env.HOME ?? homedir()): bool
 /** True when the error is a rejected or expired Cursor user API key. */
 export function isInvalidCursorUserApiKey(error: unknown): boolean {
 	if (typeof error === "string") {
-		return /invalid user api key/i.test(error);
+		return INVALID_USER_KEY.test(error);
 	}
 	if (!error || typeof error !== "object") {
 		return false;
 	}
 	const record = error as { message?: unknown; code?: unknown };
-	if (typeof record.message === "string" && /invalid user api key/i.test(record.message)) {
+	if (typeof record.message === "string" && INVALID_USER_KEY.test(record.message)) {
 		return true;
 	}
-	return typeof record.code === "string" && /invalid.?user.?api.?key/i.test(record.code);
+	return typeof record.code === "string" && INVALID_KEY_CODE.test(record.code);
 }
 
 /** Add the login hint when the SDK rejects the stored user key. */

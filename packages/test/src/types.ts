@@ -126,7 +126,7 @@ export interface CompareArm {
 	skills?: SkillContextSetting;
 	contextSources?: string[];
 	mcpServers?: Record<string, McpServerConfig>;
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	seedPatch?: string;
 	seedStageOnly?: boolean;
 	/**
@@ -211,55 +211,16 @@ export interface AgentScenario {
 	 * Load host-global user skills from the developer machine.
 	 * Default false. Keep false for a custom `workspace` fixture.
 	 */
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	/** OpenAI only: allow network access in the Codex workspace-write sandbox. Default false. */
 	networkAccess?: boolean;
 	/** Live-only: apply patch + commit in worktree so pr-mode branch diff exists. */
 	seedPatch?: string;
 	/** Live-only: with seedPatch, stage changes without committing (staged review mode). */
 	seedStageOnly?: boolean;
-	/**
-	 * Assertions / judge criteria. May be omitted in scenarios.json when supplied via
-	 * sibling `rubrics.json` / `scenarios.rubric.json` or `--rubrics-dir` (harness-only);
-	 * `loadSuiteFile` always normalizes to an object.
-	 */
+	/** Captured rubric metadata retained for imported viewer results. */
 	rubric: ScenarioRubric;
 	skip?: boolean;
-}
-
-export interface AgentSuiteDefaults {
-	host?: AgentHost;
-	/** Default context delivery for scenarios in this suite. */
-	contextMode?: ContextMode;
-	profile?: ContextProfile;
-	/** Extra skill folders to overlay, or `"none"`. */
-	skills?: SkillContextSetting;
-	/** Additive repo-relative context paths or `.skeleton/customize/` basenames. */
-	contextSources?: string[];
-	/** Inline MCP servers for direct agent runs. */
-	mcpServers?: Record<string, McpServerConfig>;
-	/**
-	 * Caller-relative folder that becomes the sealed repo.
-	 * Scenario `workspace` wins when both are set.
-	 */
-	workspace?: string;
-	/**
-	 * Load host-global user skills from the developer machine.
-	 * Default false. Scenario `allowUserSkills` wins when both are set.
-	 */
-	allowUserSkills?: boolean;
-}
-
-export interface AgentSuiteFile {
-	name: string;
-	description?: string;
-	/**
-	 * Host matrix for this suite (Playwright-style projects).
-	 * When set, a run expands once per host. `--host` then filters the list.
-	 */
-	hosts?: AgentHost[];
-	defaults?: AgentSuiteDefaults;
-	scenarios: AgentScenario[];
 }
 
 export interface AssertionFailure {
@@ -328,6 +289,7 @@ export interface ScenarioStory {
 }
 
 export interface ScenarioResult {
+	authoring?: "typescript";
 	suite: string;
 	scenario: string;
 	passed: boolean;

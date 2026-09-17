@@ -2,6 +2,7 @@ import {
 	createTraceAccumulator,
 	finalizeTraceAccumulator,
 	mergeAgentUsage,
+	mergeToolCall,
 	normalizeAgentUsage,
 	serializeToolResult,
 	type TraceAccumulator,
@@ -9,6 +10,8 @@ import {
 import type { AgentToolCall, AgentTrace, AgentUsage } from "./types.js";
 
 /** One NDJSON line from `claude -p --output-format stream-json`. */
+const SHELL_TOOL = /^(bash|shell)$/i;
+
 export interface ClaudeStreamEvent {
 	type?: string;
 	subtype?: string;
@@ -62,42 +65,31 @@ export function normalizeClaudeUsage(raw: unknown): AgentUsage | undefined {
 	if (!raw || typeof raw !== "object") {
 		return camel;
 	}
-	const record = raw as Record<string, unknown>;
-	const snake: AgentUsage = {};
-	const input = record.input_tokens;
-	const output = record.output_tokens;
-	const cacheRead = record.cache_read_input_tokens;
-	const cacheWrite = record.cache_creation_input_tokens;
-	if (typeof input === "number" && Number.isFinite(input)) {
-		snake.inputTokens = input;
-	}
-	if (typeof output === "number" && Number.isFinite(output)) {
-		snake.outputTokens = output;
-	}
-	if (typeof cacheRead === "number" && Number.isFinite(cacheRead)) {
-		snake.cacheReadTokens = cacheRead;
-	}
-	if (typeof cacheWrite === "number" && Number.isFinite(cacheWrite)) {
-		snake.cacheWriteTokens = cacheWrite;
-	}
-	if (
-		snake.inputTokens !== undefined ||
-		snake.outputTokens !== undefined ||
-		snake.cacheReadTokens !== undefined ||
-		snake.cacheWriteTokens !== undefined
-	) {
-		const total =
-			(snake.inputTokens ?? 0) +
-			(snake.outputTokens ?? 0) +
-			(snake.cacheReadTokens ?? 0) +
-			(snake.cacheWriteTokens ?? 0);
-		if (total > 0 && snake.totalTokens === undefined) {
-			snake.totalTokens = total;
-		}
-	}
+	const snake = claudeUsageFields(raw as Record<string, unknown>);
+	const values = [
+		snake.inputTokens,
+		snake.outputTokens,
+		snake.cacheReadTokens,
+		snake.cacheWriteTokens,
+	];
+	const total = values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+	if (total > 0) snake.totalTokens = total;
 	return mergeAgentUsage(camel, Object.keys(snake).length > 0 ? snake : undefined);
 }
 
+function claudeUsageFields(record: Record<string, unknown>): AgentUsage {
+	const snake: AgentUsage = {};
+	for (const [source, target] of [
+		["input_tokens", "inputTokens"],
+		["output_tokens", "outputTokens"],
+		["cache_read_input_tokens", "cacheReadTokens"],
+		["cache_creation_input_tokens", "cacheWriteTokens"],
+	] as const) {
+		const value = record[source];
+		if (typeof value === "number" && Number.isFinite(value)) snake[target] = value;
+	}
+	return snake;
+}
 function asArgs(input: unknown): Record<string, unknown> | undefined {
 	if (input === undefined) {
 		return undefined;
@@ -127,7 +119,7 @@ export function normalizeClaudeToolArgs(
 	if (!args) {
 		return undefined;
 	}
-	if (/^(bash|shell)$/i.test(name) && typeof args.command !== "string") {
+	if (SHELL_TOOL.test(name) && typeof args.command !== "string") {
 		const cmd = args.cmd ?? args.script ?? args.input;
 		if (typeof cmd === "string") {
 			return { ...args, command: cmd };
@@ -164,18 +156,7 @@ function pushToolCall(
 	if (existingIndex !== undefined) {
 		const previous = acc.toolCalls[existingIndex];
 		if (previous) {
-			acc.toolCalls[existingIndex] = {
-				...previous,
-				name: toolCall.name,
-				args: toolCall.args ?? previous.args,
-				result: toolCall.result ?? previous.result,
-				...((toolCall.succeeded ?? previous.succeeded) !== undefined
-					? { succeeded: toolCall.succeeded ?? previous.succeeded }
-					: {}),
-				...((toolCall.exitCode ?? previous.exitCode) !== undefined
-					? { exitCode: toolCall.exitCode ?? previous.exitCode }
-					: {}),
-			};
+			acc.toolCalls[existingIndex] = mergeToolCall(previous, toolCall);
 		}
 		return;
 	}
@@ -187,48 +168,60 @@ function pushToolCall(
 }
 
 function handleContentBlocks(acc: ClaudeTraceAccumulator, blocks: ClaudeContentBlock[]): void {
-	for (const block of blocks) {
-		const type = block.type ?? "";
-		if (type === "text" && typeof block.text === "string") {
-			pushAssistantText(acc, block.text);
-			continue;
-		}
-		if (type === "tool_use" && typeof block.name === "string") {
-			const args = normalizeClaudeToolArgs(block.name, asArgs(block.input));
-			pushToolCall(
-				acc,
-				{
-					name: block.name,
-					...(args ? { args } : {}),
-				},
-				typeof block.id === "string" ? block.id : undefined,
-			);
-			continue;
-		}
-		if (type === "tool_result") {
-			const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : undefined;
-			const result = serializeToolResult(block.content);
-			if (toolUseId !== undefined) {
-				const existingIndex = acc.toolCallIndexByToolUseId.get(toolUseId);
-				if (existingIndex !== undefined) {
-					const previous = acc.toolCalls[existingIndex];
-					if (previous) {
-						acc.toolCalls[existingIndex] = {
-							...previous,
-							...(result !== undefined ? { result } : {}),
-							...(typeof block.is_error === "boolean" ? { succeeded: !block.is_error } : {}),
-						};
-					}
-					continue;
-				}
-			}
-			if (result !== undefined) {
-				acc.toolOutputChunks.push(result);
-			}
-		}
+	for (const block of blocks) handleContentBlock(acc, block);
+}
+function handleContentBlock(acc: ClaudeTraceAccumulator, block: ClaudeContentBlock): void {
+	const type = block.type ?? "";
+	if (type === "text" && typeof block.text === "string") {
+		pushAssistantText(acc, block.text);
+		return;
+	}
+	if (type === "tool_use" && typeof block.name === "string") {
+		const args = normalizeClaudeToolArgs(block.name, asArgs(block.input));
+		pushToolCall(
+			acc,
+			{
+				name: block.name,
+				...(args ? { args } : {}),
+			},
+			typeof block.id === "string" ? block.id : undefined,
+		);
+		return;
+	}
+	if (type === "tool_result") handleToolResult(acc, block);
+}
+
+function handleToolResult(acc: ClaudeTraceAccumulator, block: ClaudeContentBlock): void {
+	const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : undefined;
+	const result = serializeToolResult(block.content);
+	const index = toolUseId === undefined ? undefined : acc.toolCallIndexByToolUseId.get(toolUseId);
+	if (index !== undefined) {
+		const previous = acc.toolCalls[index];
+		if (previous) acc.toolCalls[index] = attachClaudeResult(previous, block, result);
+		return;
+	}
+	if (result !== undefined) {
+		acc.toolOutputChunks.push(result);
 	}
 }
 
+function attachClaudeResult(
+	previous: AgentToolCall,
+	block: ClaudeContentBlock,
+	result: string | undefined,
+): AgentToolCall {
+	return {
+		...previous,
+		...(result !== undefined ? { result } : {}),
+		...(typeof block.is_error === "boolean" ? { succeeded: !block.is_error } : {}),
+	};
+}
+function isMessageEvent(event: ClaudeStreamEvent): boolean {
+	return (
+		["assistant", "user"].includes(event.type ?? "") ||
+		["assistant", "user"].includes(event.message?.role ?? "")
+	);
+}
 /** Fold one Claude stream-json event into trace fields. */
 export function accumulateClaudeEvent(acc: ClaudeTraceAccumulator, event: ClaudeStreamEvent): void {
 	if (event.type === "stream_event") {
@@ -239,39 +232,32 @@ export function accumulateClaudeEvent(acc: ClaudeTraceAccumulator, event: Claude
 		return;
 	}
 
-	if (event.type === "assistant" || event.message?.role === "assistant") {
-		if (Array.isArray(event.message?.content)) {
-			handleContentBlocks(acc, event.message.content);
-		}
+	if (isMessageEvent(event)) {
+		if (Array.isArray(event.message?.content)) handleContentBlocks(acc, event.message.content);
 		return;
 	}
 
-	if (event.type === "user" || event.message?.role === "user") {
-		if (Array.isArray(event.message?.content)) {
-			handleContentBlocks(acc, event.message.content);
+	if (event.type === "result") accumulateResult(acc, event);
+}
+function resultError(event: ClaudeStreamEvent): string | undefined {
+	if (typeof event.error === "string" && event.error.length > 0) return event.error;
+	if (Array.isArray(event.errors) && event.errors.length > 0) return event.errors.join("; ");
+	return undefined;
+}
+function accumulateResult(acc: ClaudeTraceAccumulator, event: ClaudeStreamEvent): void {
+	acc.rawStatus = event.subtype ?? (event.is_error ? "error" : "success");
+	acc.resultIsError = Boolean(event.is_error) || event.subtype === "error";
+	if (typeof event.result === "string" && event.result.length > 0) {
+		acc.resultText = event.result;
+		// Final assistant prose when stream omitted message events.
+		if (acc.agentMessages.length === 0) {
+			pushAssistantText(acc, event.result);
 		}
-		return;
 	}
-
-	if (event.type === "result") {
-		acc.rawStatus = event.subtype ?? (event.is_error ? "error" : "success");
-		acc.resultIsError = Boolean(event.is_error) || event.subtype === "error";
-		if (typeof event.result === "string" && event.result.length > 0) {
-			acc.resultText = event.result;
-			// Final assistant prose when stream omitted message events.
-			if (acc.agentMessages.length === 0) {
-				pushAssistantText(acc, event.result);
-			}
-		}
-		if (typeof event.error === "string" && event.error.length > 0) {
-			acc.resultError = event.error;
-		} else if (Array.isArray(event.errors) && event.errors.length > 0) {
-			acc.resultError = event.errors.join("; ");
-		}
-		const usage = normalizeClaudeUsage(event.usage);
-		if (usage) {
-			acc.usage = mergeAgentUsage(acc.usage, usage);
-		}
+	acc.resultError = resultError(event) ?? acc.resultError;
+	const usage = normalizeClaudeUsage(event.usage);
+	if (usage) {
+		acc.usage = mergeAgentUsage(acc.usage, usage);
 	}
 }
 

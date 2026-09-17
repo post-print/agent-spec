@@ -52,59 +52,56 @@ function expandRecord(
 	return out;
 }
 
+type HttpMcp = Extract<McpServerConfig, { url: string }>;
+type StdioMcp = Extract<McpServerConfig, { command: string }>;
+function expandAuth(auth: HttpMcp["auth"], env: NodeJS.ProcessEnv): HttpMcp["auth"] {
+	if (!auth) return undefined;
+	return {
+		CLIENT_ID: expandEnvPlaceholders(auth.CLIENT_ID, env),
+		CLIENT_SECRET:
+			auth.CLIENT_SECRET === undefined ? undefined : expandEnvPlaceholders(auth.CLIENT_SECRET, env),
+		scopes: auth.scopes,
+	};
+}
+function resolveStdio(config: StdioMcp, cwd: string, env: NodeJS.ProcessEnv): McpServerConfig {
+	const serverCwd =
+		config.cwd === undefined ? cwd : isAbsolute(config.cwd) ? config.cwd : join(cwd, config.cwd);
+	return {
+		type: config.type ?? "stdio",
+		command: expandEnvPlaceholders(config.command, env),
+		args: config.args?.map((arg) => expandEnvPlaceholders(arg, env)),
+		env: expandRecord(config.env, env),
+		cwd: serverCwd,
+	};
+}
+function resolveServer(
+	config: McpServerConfig,
+	options: { name: string; cwd: string; env: NodeJS.ProcessEnv },
+): McpServerConfig {
+	const { name, cwd, env } = options;
+	if ("command" in config && config.command) return resolveStdio(config, cwd, env);
+	if ("url" in config && config.url)
+		return {
+			type: config.type ?? "http",
+			url: expandEnvPlaceholders(config.url, env),
+			headers: expandRecord(config.headers, env),
+			auth: expandAuth(config.auth, env),
+		};
+	throw new Error(`Invalid MCP server "${name}": expected stdio command or http/sse url`);
+}
 /** Resolve cwd-relative stdio paths and expand env placeholders for Agent.create. */
 export function resolveMcpServers(
 	servers: Record<string, McpServerConfig> | undefined,
 	options: { cwd: string; env?: NodeJS.ProcessEnv } = { cwd: process.cwd() },
 ): Record<string, McpServerConfig> | undefined {
-	if (!servers || Object.keys(servers).length === 0) {
-		return undefined;
-	}
-
+	if (!servers || Object.keys(servers).length === 0) return undefined;
 	const env = options.env ?? process.env;
-	const resolved: Record<string, McpServerConfig> = {};
-
-	for (const [name, config] of Object.entries(servers)) {
-		if ("command" in config && config.command) {
-			const serverCwd =
-				config.cwd === undefined
-					? options.cwd
-					: isAbsolute(config.cwd)
-						? config.cwd
-						: join(options.cwd, config.cwd);
-			resolved[name] = {
-				type: config.type ?? "stdio",
-				command: expandEnvPlaceholders(config.command, env),
-				args: config.args?.map((arg) => expandEnvPlaceholders(arg, env)),
-				env: expandRecord(config.env, env),
-				cwd: serverCwd,
-			};
-			continue;
-		}
-
-		if ("url" in config && config.url) {
-			resolved[name] = {
-				type: config.type ?? "http",
-				url: expandEnvPlaceholders(config.url, env),
-				headers: expandRecord(config.headers, env),
-				auth: config.auth
-					? {
-							CLIENT_ID: expandEnvPlaceholders(config.auth.CLIENT_ID, env),
-							CLIENT_SECRET:
-								config.auth.CLIENT_SECRET === undefined
-									? undefined
-									: expandEnvPlaceholders(config.auth.CLIENT_SECRET, env),
-							scopes: config.auth.scopes,
-						}
-					: undefined,
-			};
-			continue;
-		}
-
-		throw new Error(`Invalid MCP server "${name}": expected stdio command or http/sse url`);
-	}
-
-	return resolved;
+	return Object.fromEntries(
+		Object.entries(servers).map(([name, config]) => [
+			name,
+			resolveServer(config, { name, cwd: options.cwd, env }),
+		]),
+	);
 }
 
 /** Shallow-merge suite defaults with scenario overrides (scenario wins per server name). */

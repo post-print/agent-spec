@@ -1,83 +1,29 @@
 # Reliability
 
-<!-- source-of-truth: agent-spec reliability targets and verification commands -->
+<!-- source-of-truth: offline checks and manual provider proof -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- review-deps: paths=package.json,agent-suites/**/*.ts,.github/workflows/test.yml -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-15 -->
+Offline checks do not establish live provider reliability. Unit tests cover retained host capture/isolation and viewer behavior; SDK contracts use a fake adapter to prove resource ownership, parallel tasks, continuation, selected judge input, and schema validation.
 
-<!-- review-deps: paths=package.json,agent-suites/**/scenarios.json -->
-
-`bun run test` and `bun run test:unit` do not launch a host agent. JSON suites only configure direct runs. Provider-backed capability, tour, matrix, and reliability runs are manual.
-
-How to run: [getting-started.md](getting-started.md). Flags: [cli.md](cli.md).
-
-## Targets
-
-| Surface | Target |
-| --- | --- |
-| Each capability scenario | At least 19 of 20 runs have no behavior failure |
-| Each capability scenario | At least 19 of 20 runs have no infrastructure failure |
-| Judge scenario | At least 19 of 20 judge passes |
-| Qualification run | No worktree leak, recording error, or judge-format error |
-| Deterministic controls | Every known-good and known-bad control returns the expected verdict |
-| Seed patches | 100% apply cleanly through `--check` |
-| Configuration | Zero silent misconfigurations through `--check` |
-| Isolation | Zero tool paths outside the sealed temp workspace. Host-global user skills stay out unless `allowUserSkills` is true |
-
-## Verification commands
-
-```bash
-# Suite, seed, package, and host check. Does not launch an agent.
-# Host not ready does not fail this command.
-node packages/test/dist/cli.js --check --suites-dir agent-suites
-
-# Offline product tests.
-bun run test
-
-# Manual live capability suite and product tour.
-bun run test:capabilities
-bun run test:tour
-
-# Manual host and reliability work.
-bun run test:matrix
-bun run test:sdk:hosts
-bun run test:reliability
-
-# Package contract. This does not use host credentials.
+```sh
+bun run test:unit
+bun run test:sdk:contracts
 bun run test:sdk:consumer
+bun run test:e2e
 ```
 
-The 20-run command runs the deterministic controls first. It then runs the eleven Cursor capability scenarios 20 times. It prints the count for each scenario and fails when any threshold is missed.
+Provider-backed runs are manual and consume the configured host credentials:
 
-For compare scenarios, qualify the experiment result, not the number of arm
-transcripts. A declared failed control is an expected measurement. It is not a
-reliability failure when the outcome gate accepts it. Infrastructure, isolation,
-recording, and judge-format errors always remain failures.
+```sh
+bun run test:tour
+bun run test:capabilities
+bun run test:matrix
+bun run test:reliability
+```
 
-## Signals and failures
+The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries. It now requires every repetition to pass. This replaces the old JSON-specific 19-of-20 classifier/category calculation; there is no second scoring pipeline. The separately configured reviewer also needs authentication.
 
-Provider usage is captured on `AgentTrace` and `ScenarioResult`. Read/tool matchers provide deterministic grounding signals. Fuzzy `judge` criteria run against the full transcript, including tool calls and tool results. The judge uses the same host family as the test agent.
+Missing usage never becomes zero or a partial average. Agent and judge usage are reported separately. Token differences across providers do not imply equivalent cost. A few repeated runs are not statistical qualification.
 
-Provider token usage is useful telemetry, but it is not a deterministic one-run comparison gate: hidden provider context and cache state can outweigh a shorter prompt or tool trace. Use tool-call or outcome gates for a single live comparison; establish token claims through a controlled repeated experiment.
-
-| Category | Meaning | `--fail-on=behavior` |
-| --- | --- | --- |
-| `rubric_miss` | Deterministic or judged behavior failed | Fails |
-| `judge_parse` | Judge returned an unusable contract | Fails |
-| `judge_infra` | Judge SDK, network, or rate-limit failure | Ignored |
-| `agent_runtime` | Agent timeout, OOM, user-input request, or host failure | Ignored |
-| `worktree_leak` | Agent used paths outside the sealed workspace, or mutated the caller checkout | Fails |
-| `recording_error` | Required transient trace or result persistence failed | Fails |
-
-## Environment controls
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `AGENT_TEST_LIVE_RETRIES` | `3` | Judge infrastructure attempts |
-| `AGENT_TEST_SCENARIO_RETRIES` | `1` | Direct announce-stop scenario retries |
-| `AGENT_TEST_SCENARIO_SETTLE_MS` | Adaptive | Delay between isolated direct-run subprocesses |
-| `AGENT_TEST_TIMEOUT_MS` | `600000` | Direct agent deadline |
-| `AGENT_TEST_DEBUG` | Unset | Retain evidence-rich debug bundles |
-| `AGENT_TEST_MAX_TURNS` | `6` | User-agent plus test-agent conversation turns |
-| `CURSOR_AUTH_MODE` | Unset | Fallback when `--auth-mode` is omitted. Default is subscription. |
-| `CLAUDE_AUTH_MODE` | Unset | Fallback when `--auth-mode` is omitted. Default is subscription. |
-| `OPENAI_AUTH_MODE` | Unset | Fallback when `--auth-mode` is omitted. Default is subscription. |
+The strict Biome policy is a required gate across the repository, including retained host and viewer code. Run `bun run lint` to check for zero errors and warnings. Passing runtime tests does not replace lint validation.

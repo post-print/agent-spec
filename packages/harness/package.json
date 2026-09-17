@@ -19,7 +19,7 @@
 		"lint": "bunx biome check .",
 		"lint:fix": "bunx biome check . --write",
 		"test": "bun test",
-		"test:sandbox-safe": "bun test --path-ignore-patterns '**/{worktree-judge,harness,sealed-workspace,cursor-auth}.test.ts'",
+		"test:sandbox-safe": "bun test --path-ignore-patterns '**/{sealed-workspace,cursor-auth}.test.ts'",
 		"test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov",
 		"clean": "rm -rf dist tsconfig.tsbuildinfo"
 	},
@@ -37,7 +37,7 @@
 		"@types/node": "^26.1.1",
 		"typescript": "~7.0.2"
 	},
-	"description": "Host-agnostic agent runtime for direct execution, capture, and judging",
+	"description": "Configured coding agents and isolated Cursor, Claude Code, and OpenAI Codex sessions",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/post-print/agent-spec.git",

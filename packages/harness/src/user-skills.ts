@@ -28,22 +28,28 @@ export function cursorUserSkillRoots(homeDir: string): string[] {
 export async function countUserSkillEntries(homeDir: string): Promise<number> {
 	let total = 0;
 	for (const root of cursorUserSkillRoots(homeDir)) {
-		try {
-			const entries = await readdir(root, { withFileTypes: true });
-			for (const entry of entries) {
-				if (!entry.isDirectory()) {
-					continue;
-				}
-				try {
-					await access(join(root, entry.name, "SKILL.md"));
-					total += 1;
-				} catch {
-					// Folder without a skill manifest does not count.
-				}
+		total += await countSkillsInRoot(root);
+	}
+	return total;
+}
+
+async function countSkillsInRoot(root: string): Promise<number> {
+	let total = 0;
+	try {
+		const entries = await readdir(root, { withFileTypes: true });
+		for (const entry of entries) {
+			if (!entry.isDirectory()) {
+				continue;
 			}
-		} catch {
-			// Missing skill root does not count.
+			try {
+				await access(join(root, entry.name, "SKILL.md"));
+				total += 1;
+			} catch {
+				// Folder without a skill manifest does not count.
+			}
 		}
+	} catch {
+		// Missing skill root does not count.
 	}
 	return total;
 }
@@ -58,11 +64,11 @@ export interface CursorUserHome {
  * Deny uses a temp tree with no user-skill roots.
  */
 export async function createCursorUserHome(
-	allowUserSkills: boolean,
+	includeGlobalSkills: boolean,
 	options?: { realHome?: string },
 ): Promise<CursorUserHome> {
 	const realHome = options?.realHome ?? homedir();
-	if (allowUserSkills) {
+	if (includeGlobalSkills) {
 		return { home: realHome, cleanup: async () => {} };
 	}
 	const home = await mkdtemp(join(tmpdir(), CURSOR_USER_HOME_DIR_PREFIX));
@@ -91,10 +97,10 @@ async function copyCursorSdkAuth(realHome: string, isolatedHome: string): Promis
  * Bun `os.homedir()` ignores `HOME`. Live `agent-test` runs under Node.
  */
 export async function withCursorUserHome<T>(
-	allowUserSkills: boolean,
+	includeGlobalSkills: boolean,
 	run: () => Promise<T>,
 ): Promise<T> {
-	if (allowUserSkills) {
+	if (includeGlobalSkills) {
 		return await run();
 	}
 	const isolated = await createCursorUserHome(false);
@@ -123,7 +129,10 @@ export async function withCursorUserHome<T>(
  * Host-global user skills stay out unless the caller sets true.
  * Scenario value wins over suite defaults. Omitted values are false.
  */
-export function resolveAllowUserSkills(scenarioValue?: boolean, defaultValue?: boolean): boolean {
+export function resolveIncludeGlobalSkills(
+	scenarioValue?: boolean,
+	defaultValue?: boolean,
+): boolean {
 	if (scenarioValue !== undefined) {
 		return scenarioValue === true;
 	}
@@ -134,8 +143,8 @@ export function resolveAllowUserSkills(scenarioValue?: boolean, defaultValue?: b
  * Cursor SDK `local.settingSources`. Deny keeps project files only.
  * The skill service still scans `os.homedir()`, so deny also uses a temp HOME.
  */
-export function cursorSettingSources(allowUserSkills: boolean): CursorSettingSource[] {
-	return allowUserSkills ? ["project", "user"] : ["project"];
+export function cursorSettingSources(includeGlobalSkills: boolean): CursorSettingSource[] {
+	return includeGlobalSkills ? ["project", "user"] : ["project"];
 }
 
 /**
@@ -144,10 +153,10 @@ export function cursorSettingSources(allowUserSkills: boolean): CursorSettingSou
  */
 export function claudeSessionFlags(
 	authMode: "api-key" | "subscription",
-	allowUserSkills: boolean,
+	includeGlobalSkills: boolean,
 	loadProjectContext = false,
 ): string[] {
-	if (allowUserSkills) {
+	if (includeGlobalSkills) {
 		return ["--strict-mcp-config", "--setting-sources", "user,project"];
 	}
 	if (authMode === "api-key" && !loadProjectContext) {
@@ -157,6 +166,6 @@ export function claudeSessionFlags(
 }
 
 /** Codex `--ignore-user-config` when user skills stay out. */
-export function openaiUserConfigArgs(allowUserSkills: boolean): string[] {
-	return allowUserSkills ? [] : ["--ignore-user-config"];
+export function openaiUserConfigArgs(includeGlobalSkills: boolean): string[] {
+	return includeGlobalSkills ? [] : ["--ignore-user-config"];
 }

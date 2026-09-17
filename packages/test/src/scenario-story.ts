@@ -17,6 +17,11 @@ import type {
 	StorySection,
 } from "./types.js";
 
+const FILE_PROTOCOL = /^file:\/\//;
+const TRAILING_SLASH = /\/+$/;
+const SEALED_WORKSPACE = /\/agent-harness-seal-[^/]+(?:\/(.*))?$/;
+const AGENT_CONTEXT_PATH = /\/(?:\.agents|\.claude|\.codex|AGENTS\.md|CLAUDE\.md)(?:\/|$)/;
+
 interface RubricCheckSpec {
 	text: string;
 	matcher: string;
@@ -39,12 +44,12 @@ export function quoteExcerpt(text: string): string {
 
 /** Short workspace path for chat cards and story lines. */
 export function displayToolPath(path: string): string {
-	const stripped = path.replace(/^file:\/\//, "").replace(/\/+$/, "");
-	const workspace = stripped.match(/\/agent-harness-seal-[^/]+(?:\/(.*))?$/);
+	const stripped = path.replace(FILE_PROTOCOL, "").replace(TRAILING_SLASH, "");
+	const workspace = stripped.match(SEALED_WORKSPACE);
 	if (workspace) {
 		return workspace[1] ? workspace[1] : ".";
 	}
-	const sealed = stripped.match(/\/(?:\.agents|\.claude|\.codex|AGENTS\.md|CLAUDE\.md)(?:\/|$)/);
+	const sealed = stripped.match(AGENT_CONTEXT_PATH);
 	if (sealed?.index !== undefined) {
 		return stripped.slice(sealed.index + 1);
 	}
@@ -146,6 +151,14 @@ function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
 	if (!rubric) {
 		return [];
 	}
+	return [
+		...replyAndCommandSpecs(rubric),
+		...toolAndFileSpecs(rubric),
+		...skillAndRoutingSpecs(rubric),
+	];
+}
+
+function replyAndCommandSpecs(rubric: ScenarioRubric): RubricCheckSpec[] {
 	const specs: RubricCheckSpec[] = [];
 	for (const text of rubric.must ?? []) {
 		specs.push({
@@ -182,6 +195,11 @@ function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
 			needle: "allowlist",
 		});
 	}
+
+	return specs;
+}
+function toolAndFileSpecs(rubric: ScenarioRubric): RubricCheckSpec[] {
+	const specs: RubricCheckSpec[] = [];
 	for (const tool of rubric.mustCallTool ?? []) {
 		specs.push({ text: `call ${tool}`, matcher: "toHaveCalledTool", needle: tool });
 	}
@@ -201,6 +219,11 @@ function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
 	for (const path of rubric.mustNotReadPath ?? []) {
 		specs.push({ text: `no read of ${path}`, matcher: "toHaveNotReadPath", needle: path });
 	}
+
+	return specs;
+}
+function skillAndRoutingSpecs(rubric: ScenarioRubric): RubricCheckSpec[] {
+	const specs: RubricCheckSpec[] = [];
 	for (const skill of rubric.mustInvokeSkill ?? []) {
 		specs.push({
 			text: `invoke skill ${skill}`,
@@ -238,7 +261,6 @@ function rubricCheckSpecs(rubric?: ScenarioRubric): RubricCheckSpec[] {
 	}
 	return specs;
 }
-
 function matcherMatches(actual: string, expected: string): boolean {
 	if (actual === expected) {
 		return true;
@@ -282,9 +304,15 @@ function scoreSpecs(
 
 function judgeChecks(
 	rubric: ScenarioRubric | undefined,
-	failures: AssertionFailure[],
-	judgeVerdicts: JudgeVerdictResult[] | undefined,
-	armCount?: number,
+	{
+		failures,
+		judgeVerdicts,
+		armCount,
+	}: {
+		failures: AssertionFailure[];
+		judgeVerdicts: JudgeVerdictResult[] | undefined;
+		armCount?: number;
+	},
 ): StoryCheck[] {
 	if (!rubric?.judge || rubric.judge.length === 0) {
 		return [];
@@ -351,7 +379,10 @@ function buildStorySections(options: {
 	if (!compare) {
 		const checks = [
 			...scoreSpecs(rubricCheckSpecs(options.rubric), options.failures),
-			...judgeChecks(options.rubric, options.failures, options.judgeVerdicts),
+			...judgeChecks(options.rubric, {
+				failures: options.failures,
+				judgeVerdicts: options.judgeVerdicts,
+			}),
 		];
 		return [
 			{
@@ -377,7 +408,11 @@ function buildStorySections(options: {
 	const compareSection = buildCompareMetricSection(
 		compare,
 		options.failures,
-		judgeChecks(options.rubric, options.failures, options.judgeVerdicts, compare.arms.length),
+		judgeChecks(options.rubric, {
+			failures: options.failures,
+			judgeVerdicts: options.judgeVerdicts,
+			armCount: compare.arms.length,
+		}),
 	);
 	if (compareSection) {
 		sections.push(compareSection);
@@ -394,24 +429,7 @@ export function describeRubricChecks(
 		return ["no rubric recorded"];
 	}
 	const lines = rubricCheckSpecs(rubric).map((spec) => spec.text);
-	if (compare) {
-		const normalized = normalizeStoryCompare(compare);
-		lines.push(compareHeading(normalized.arms.map((arm) => arm.label)));
-		for (const arm of normalized.arms) {
-			if (arm.description) {
-				lines.push(`${arm.label}: ${arm.description}`);
-			}
-		}
-		const labels = new Map(normalized.arms.map((arm) => [arm.id, arm.label]));
-		for (const gate of normalized.gates ?? []) {
-			lines.push(describeCompareGate(gate, (id) => labels.get(id) ?? id));
-		}
-		for (const arm of normalized.arms) {
-			for (const spec of rubricCheckSpecs(arm.rubric)) {
-				lines.push(`${arm.label}: ${spec.text}`);
-			}
-		}
-	}
+	if (compare) lines.push(...describeComparisonChecks(compare));
 	if (rubric.judge && rubric.judge.length > 0) {
 		lines.push(
 			compare
@@ -422,6 +440,28 @@ export function describeRubricChecks(
 	return lines.length > 0 ? lines : ["no rubric checks"];
 }
 
+function describeComparisonChecks(compare: StoryCompareInput): string[] {
+	const lines: string[] = [];
+
+	const normalized = normalizeStoryCompare(compare);
+	lines.push(compareHeading(normalized.arms.map((arm) => arm.label)));
+	for (const arm of normalized.arms) {
+		if (arm.description) {
+			lines.push(`${arm.label}: ${arm.description}`);
+		}
+	}
+	const labels = new Map(normalized.arms.map((arm) => [arm.id, arm.label]));
+	for (const gate of normalized.gates ?? []) {
+		lines.push(describeCompareGate(gate, (id) => labels.get(id) ?? id));
+	}
+	for (const arm of normalized.arms) {
+		for (const spec of rubricCheckSpecs(arm.rubric)) {
+			lines.push(`${arm.label}: ${spec.text}`);
+		}
+	}
+
+	return lines;
+}
 /** What the agent said and which tools it used. */
 export function describeTraceHappened(trace?: AgentTrace): string[] {
 	if (!trace) {
@@ -504,26 +544,23 @@ function failureIsScored(
 	compare: CompareStoryFields | undefined,
 ): boolean {
 	if (
-		failure.category === "worktree_leak" ||
-		failure.category === "agent_runtime" ||
-		failure.category === "judge_infra" ||
-		failure.category === "judge_parse" ||
-		failure.category === "recording_error"
-	) {
+		["worktree_leak", "agent_runtime", "judge_infra", "judge_parse", "recording_error"].includes(
+			failure.category,
+		)
+	)
 		return false;
-	}
 	if (failure.matcher === "judge" || failure.matcher.startsWith("judge:")) {
 		return true;
 	}
 	if (compare) {
-		for (const arm of compare.arms) {
-			const specs = [...rubricCheckSpecs(rubric), ...rubricCheckSpecs(arm.rubric)];
-			if (specs.some((spec) => specFailed([failure], spec, arm.label))) {
-				return true;
-			}
-		}
-		if (failure.matcher.startsWith("compareGate:")) return true;
-		return false;
+		return (
+			failure.matcher.startsWith("compareGate:") ||
+			compare.arms.some((arm) =>
+				[...rubricCheckSpecs(rubric), ...rubricCheckSpecs(arm.rubric)].some((spec) =>
+					specFailed([failure], spec, arm.label),
+				),
+			)
+		);
 	}
 	return rubricCheckSpecs(rubric).some((spec) => specFailed([failure], spec));
 }

@@ -59,7 +59,10 @@ export async function openViewer(
 	return viewer;
 }
 
-export function cell(page: Page, suite: string, scenario: string, host: string) {
+export function cell(
+	page: Page,
+	{ suite, scenario, host }: { suite: string; scenario: string; host: string },
+) {
 	return page.locator(`[data-cell="${suite}::${scenario}::${host}"]`);
 }
 
@@ -71,22 +74,31 @@ export function liveRow(page: Page, suite: string, scenario: string) {
 	return page.locator(`[data-live-row="${suite}::${scenario}"]`);
 }
 
-export function hostTab(page: Page, suite: string, scenario: string, host: string) {
-	return cell(page, suite, scenario, host);
+export function hostTab(
+	page: Page,
+	{ suite, scenario, host }: { suite: string; scenario: string; host: string },
+) {
+	return cell(page, { suite: suite, scenario: scenario, host: host });
 }
 
 export function runScenario(page: Page, suite: string, scenario: string) {
 	return page.locator(`[data-scenario-card="${suite}::${scenario}"] button.run-cell`);
 }
 
-export function runCell(page: Page, suite: string, scenario: string, host: string) {
+export function runCell(
+	page: Page,
+	{ suite, scenario, host }: { suite: string; scenario: string; host: string },
+) {
 	return page.locator(
 		`[data-scenario-card="${suite}::${scenario}"] button.run-cell[data-host="${host}"]`,
 	);
 }
 
-export function cellStatus(page: Page, suite: string, scenario: string, host: string) {
-	return cell(page, suite, scenario, host).locator(".cell-status");
+export function cellStatus(
+	page: Page,
+	{ suite, scenario, host }: { suite: string; scenario: string; host: string },
+) {
+	return cell(page, { suite: suite, scenario: scenario, host: host }).locator(".cell-status");
 }
 
 export function hostToggle(page: Page, host: string) {

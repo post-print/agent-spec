@@ -71,157 +71,212 @@ export function defaultPassSteps(): ScriptedStep[] {
 	];
 }
 
-export function createScriptedRunner(options: {
+interface ScriptedRunnerOptions {
 	scripts?: Record<string, ScriptedStep[]>;
 	defaultSteps?: ScriptedStep[];
 	gates?: GateBox;
 	onJob?: (job: ViewerJob) => void;
-}): ViewerRunner {
-	const scripts = options.scripts ?? {};
-	const fallback = options.defaultSteps ?? defaultPassSteps();
+}
+export function createScriptedRunner(options: ScriptedRunnerOptions): ViewerRunner {
 	const gates = options.gates ?? createGateBox();
+	const fallback = options.defaultSteps ?? defaultPassSteps();
 	return {
 		async runJob(job, emit, signal) {
 			options.onJob?.(job);
-			const cell = {
-				suite: job.suite,
-				scenario: job.scenario,
-				host: job.host,
-				...(job.arm ? { arm: job.arm } : {}),
-			};
-			emit({ type: "cell_started", ...cell });
-			const steps = scripts[jobKey(job)] ?? fallback;
-			const judgeVerdicts: ViewerJudgeVerdictEvent[] = [];
-			const messages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
-			const toolCalls: Array<{ name: string; args?: Record<string, unknown> }> = [];
-			let finished: Extract<ViewerEvent, { type: "cell_finished" }> | undefined;
-			let continuingAssistant = false;
-			for (const step of steps) {
-				if (signal.aborted) {
-					return;
-				}
-				if (step.type === "wait") {
-					await abortable(gates.wait(step.gate), signal);
-					continue;
-				}
-				if (step.type === "sleep") {
-					await abortable(sleep(step.ms), signal);
-					continue;
-				}
-				if (step.type === "status") {
-					emit({ type: "status", text: step.text, ...cell });
-					continue;
-				}
-				if (step.type === "context") {
-					emit({
-						type: "context",
-						mode: step.mode ?? "harness-preamble",
-						files: step.files,
-						hostInput: step.hostInput,
-						...cell,
-					});
-					continue;
-				}
-				if (step.type === "prompt") {
-					const text = step.text ?? job.prompt;
-					messages.push({ role: "user", content: text });
-					continuingAssistant = false;
-					emit({ type: "prompt", text, ...cell });
-					continue;
-				}
-				if (step.type === "text") {
-					if (continuingAssistant && messages.at(-1)?.role === "assistant") {
-						(messages.at(-1) as { role: "assistant"; content: string }).content = step.text;
-					} else {
-						messages.push({ role: "assistant", content: step.text });
-					}
-					continuingAssistant = true;
-					emit({ type: "text", text: step.text, ...cell });
-					continue;
-				}
-				if (step.type === "tool") {
-					toolCalls.push({ name: step.name, ...(step.args ? { args: step.args } : {}) });
-					continuingAssistant = false;
-					emit({ type: "tool", name: step.name, args: step.args, ...cell });
-					continue;
-				}
-				if (step.type === "error") {
-					messages.push({ role: "system", content: step.message });
-					continuingAssistant = false;
-					emit({ type: "error", message: step.message, ...cell });
-					continue;
-				}
-				if (step.type === "judge") {
-					judgeVerdicts.push(...step.verdicts);
-					emit({ type: "judge", verdicts: step.verdicts, ...cell });
-					continue;
-				}
-				if (step.type === "judge_started") {
-					emit({ type: "judge_started", id: step.id, question: step.question, ...cell });
-					continue;
-				}
-				if (step.type === "judge_text") {
-					emit({
-						type: "judge_text",
-						id: step.id,
-						question: step.question,
-						text: step.text,
-						...cell,
-					});
-					continue;
-				}
-				if (step.type === "throw") {
-					throw new Error(step.message);
-				}
-				finished = {
-					type: "cell_finished",
-					...cell,
-					passed: step.passed ?? !step.skipped,
-					durationMs: step.durationMs ?? 4,
-				};
-				if (step.skipped) {
-					finished.skipped = true;
-				}
-				if (step.metrics) {
-					finished.metrics = step.metrics;
-				}
-				if (step.failures) {
-					finished.failures = step.failures;
-				}
-				emit(finished);
-			}
-			if (finished) {
-				const metrics = finished.metrics;
-				while (
-					messages.filter((message) => message.role === "assistant").length < (metrics?.turns ?? 0)
-				) {
-					messages.push({ role: "assistant", content: "" });
-				}
-				while (toolCalls.length < (metrics?.tools ?? 0)) toolCalls.push({ name: "ScriptedTool" });
-				emit({
-					type: "scenario_result",
-					...cell,
-					result: {
-						suite: job.suite,
-						scenario: job.scenario,
-						prompt: job.prompt,
-						passed: finished.passed,
-						skipped: finished.skipped,
-						failures: finished.failures ?? [],
-						durationMs: finished.durationMs,
-						judgeVerdicts,
-						trace: {
-							messages,
-							toolCalls,
-							shellCommands: [],
-							artifacts: {},
-							...(metrics?.tokens === undefined ? {} : { usage: { totalTokens: metrics.tokens } }),
-						},
-					},
-				});
-			}
+			await new ScriptedJob(job, emit).run(options.scripts?.[jobKey(job)] ?? fallback, {
+				gates,
+				signal,
+			});
 		},
 	};
+}
+
+class ScriptedJob {
+	private readonly judgeVerdicts: ViewerJudgeVerdictEvent[] = [];
+	private readonly messages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
+	private readonly toolCalls: Array<{ name: string; args?: Record<string, unknown> }> = [];
+	private finished: Extract<ViewerEvent, { type: "cell_finished" }> | undefined;
+	private continuingAssistant = false;
+	private readonly cell;
+	constructor(
+		private readonly job: ViewerJob,
+		private readonly emit: (event: ViewerEvent) => void,
+	) {
+		this.cell = {
+			suite: job.suite,
+			scenario: job.scenario,
+			host: job.host,
+			...(job.arm ? { arm: job.arm } : {}),
+		};
+	}
+	async run(steps: ScriptedStep[], { gates, signal }: { gates: GateBox; signal: AbortSignal }) {
+		this.emit({ type: "cell_started", ...this.cell });
+		for (const step of steps) {
+			if (signal.aborted) return;
+			if (step.type === "wait") await abortable(gates.wait(step.gate), signal);
+			else if (step.type === "sleep") await abortable(sleep(step.ms), signal);
+			else this.apply(step);
+		}
+		this.publishResult();
+	}
+
+	status(step: Extract<ScriptedStep, { type: "status" }>) {
+		this.emit({ type: "status", text: step.text, ...this.cell });
+	}
+
+	context(step: Extract<ScriptedStep, { type: "context" }>) {
+		this.emit({
+			type: "context",
+			mode: step.mode ?? "harness-preamble",
+			files: step.files,
+			hostInput: step.hostInput,
+			...this.cell,
+		});
+	}
+
+	prompt(step: Extract<ScriptedStep, { type: "prompt" }>) {
+		const text = step.text ?? this.job.prompt;
+		this.messages.push({ role: "user", content: text });
+		this.continuingAssistant = false;
+		this.emit({ type: "prompt", text, ...this.cell });
+	}
+
+	text(step: Extract<ScriptedStep, { type: "text" }>) {
+		if (this.continuingAssistant && this.messages.at(-1)?.role === "assistant") {
+			(this.messages.at(-1) as { role: "assistant"; content: string }).content = step.text;
+		} else {
+			this.messages.push({ role: "assistant", content: step.text });
+		}
+		this.continuingAssistant = true;
+		this.emit({ type: "text", text: step.text, ...this.cell });
+	}
+
+	tool(step: Extract<ScriptedStep, { type: "tool" }>) {
+		this.toolCalls.push({ name: step.name, ...(step.args ? { args: step.args } : {}) });
+		this.continuingAssistant = false;
+		this.emit({ type: "tool", name: step.name, args: step.args, ...this.cell });
+	}
+
+	error(step: Extract<ScriptedStep, { type: "error" }>) {
+		this.messages.push({ role: "system", content: step.message });
+		this.continuingAssistant = false;
+		this.emit({ type: "error", message: step.message, ...this.cell });
+	}
+
+	judge(step: Extract<ScriptedStep, { type: "judge" }>) {
+		this.judgeVerdicts.push(...step.verdicts);
+		this.emit({ type: "judge", verdicts: step.verdicts, ...this.cell });
+	}
+
+	judge_started(step: Extract<ScriptedStep, { type: "judge_started" }>) {
+		this.emit({ type: "judge_started", id: step.id, question: step.question, ...this.cell });
+	}
+
+	judge_text(step: Extract<ScriptedStep, { type: "judge_text" }>) {
+		this.emit({
+			type: "judge_text",
+			id: step.id,
+			question: step.question,
+			text: step.text,
+			...this.cell,
+		});
+	}
+
+	throw(step: Extract<ScriptedStep, { type: "throw" }>) {
+		throw new Error(step.message);
+	}
+
+	finish(step: Extract<ScriptedStep, { type: "finish" }>) {
+		this.finished = {
+			type: "cell_finished",
+			...this.cell,
+			passed: step.passed ?? !step.skipped,
+			durationMs: step.durationMs ?? 4,
+		};
+		if (step.skipped) {
+			this.finished.skipped = true;
+		}
+		if (step.metrics) {
+			this.finished.metrics = step.metrics;
+		}
+		if (step.failures) {
+			this.finished.failures = step.failures;
+		}
+		this.emit(this.finished);
+	}
+
+	apply(step: Exclude<ScriptedStep, { type: "wait" | "sleep" }>) {
+		switch (step.type) {
+			case "status":
+				this.status(step);
+				return;
+			case "context":
+				this.context(step);
+				return;
+			case "prompt":
+				this.prompt(step);
+				return;
+			case "text":
+				this.text(step);
+				return;
+			case "tool":
+				this.tool(step);
+				return;
+			case "error":
+				this.error(step);
+				return;
+			case "judge":
+				this.judge(step);
+				return;
+			case "judge_started":
+				this.judge_started(step);
+				return;
+			case "judge_text":
+				this.judge_text(step);
+				return;
+			case "throw":
+				this.throw(step);
+				return;
+			case "finish":
+				this.finish(step);
+				return;
+		}
+	}
+
+	publishResult() {
+		if (this.finished) {
+			const metrics = this.finished.metrics;
+			while (
+				this.messages.filter((message) => message.role === "assistant").length <
+				(metrics?.turns ?? 0)
+			) {
+				this.messages.push({ role: "assistant", content: "" });
+			}
+			while (this.toolCalls.length < (metrics?.tools ?? 0))
+				this.toolCalls.push({ name: "ScriptedTool" });
+			this.emit({
+				type: "scenario_result",
+				...this.cell,
+				result: {
+					suite: this.job.suite,
+					scenario: this.job.scenario,
+					prompt: this.job.prompt,
+					passed: this.finished.passed,
+					skipped: this.finished.skipped,
+					failures: this.finished.failures ?? [],
+					durationMs: this.finished.durationMs,
+					judgeVerdicts: this.judgeVerdicts,
+					trace: {
+						messages: this.messages,
+						toolCalls: this.toolCalls,
+						shellCommands: [],
+						artifacts: {},
+						...(metrics?.tokens === undefined ? {} : { usage: { totalTokens: metrics.tokens } }),
+					},
+				},
+			});
+		}
+	}
 }
 
 function sleep(ms: number): Promise<void> {

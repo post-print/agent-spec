@@ -5,6 +5,8 @@ import { textBlocksFromSdkMessage } from "./cursor-run.js";
 import { skillNameFromWorkflowPath } from "./skills-context.js";
 import type { AgentMessage, AgentToolCall, AgentTrace, AgentUsage } from "./types.js";
 
+const SHELL_TOOL = /^(shell|bash)$/i;
+
 const execFileAsync = promisify(execFile);
 
 const SHELL_COMMAND_PATTERN = /\b(bun run [\w:./-]+|validate:changed[\w ./:-]*|bunx [\w ./:-]+)/gi;
@@ -55,24 +57,20 @@ export async function captureGitDiff(cwd: string): Promise<{ diff?: string; trun
 export function extractShellCommandsFromToolCalls(toolCalls: AgentToolCall[]): string[] {
 	const commands = new Set<string>();
 	for (const call of toolCalls) {
-		if (!call.args) {
-			continue;
-		}
-		const candidates = [call.args.command, call.args.cmd, call.args.script, call.args.input];
-		for (const raw of candidates) {
-			if (typeof raw !== "string") {
-				continue;
-			}
+		for (const raw of commandArguments(call)) {
 			const trimmed = raw.trim();
-			if (trimmed.length > 0) {
-				commands.add(trimmed);
-			}
-			for (const cmd of extractShellCommands(raw)) {
-				commands.add(cmd);
-			}
+			if (trimmed) commands.add(trimmed);
+			for (const command of extractShellCommands(raw)) commands.add(command);
 		}
 	}
 	return [...commands];
+}
+
+function commandArguments(call: AgentToolCall): string[] {
+	if (!call.args) return [];
+	return [call.args.command, call.args.cmd, call.args.script, call.args.input].filter(
+		(value): value is string => typeof value === "string",
+	);
 }
 
 const REVIEW_HEADER_DEPTH_PATTERN = /\bReview\s·\s*[^·]+\s·\s*(Quick|Standard|Thorough|Full)\b/i;
@@ -111,20 +109,14 @@ export function extractSkillsInvokedFromToolCalls(toolCalls: AgentToolCall[]): s
 		if (!call.args) {
 			continue;
 		}
-		for (const path of pathsFromToolArgs(call.args)) {
+		const embeddedPaths = [
+			...JSON.stringify(call.args).matchAll(
+				/(?:\.agents|\.cursor|\.codex|\.claude)[/\\]skills[/\\][^"\\]+/gi,
+			),
+		].map((match) => match[0]);
+		for (const path of [...pathsFromToolArgs(call.args), ...embeddedPaths]) {
 			const name = skillNameFromWorkflowPath(path);
-			if (name) {
-				skills.add(name);
-			}
-		}
-		const serialized = JSON.stringify(call.args);
-		for (const path of serialized.matchAll(
-			/(?:\.agents|\.cursor|\.codex|\.claude)[/\\]skills[/\\][^"\\]+/gi,
-		)) {
-			const name = skillNameFromWorkflowPath(path[0] ?? "");
-			if (name) {
-				skills.add(name);
-			}
+			if (name) skills.add(name);
 		}
 	}
 	return [...skills];
@@ -336,21 +328,25 @@ export function mergeAgentUsage(...parts: Array<AgentUsage | undefined>): AgentU
 			continue;
 		}
 		sawAny = true;
-		for (const key of [
-			"inputTokens",
-			"outputTokens",
-			"totalTokens",
-			"cacheReadTokens",
-			"cacheWriteTokens",
-			"reasoningTokens",
-		] as const) {
-			const value = part[key];
-			if (typeof value === "number" && Number.isFinite(value)) {
-				merged[key] = (merged[key] ?? 0) + value;
-			}
-		}
+		addUsageFields(merged, part);
 	}
 	return sawAny ? merged : undefined;
+}
+
+function addUsageFields(merged: AgentUsage, part: AgentUsage): void {
+	for (const key of [
+		"inputTokens",
+		"outputTokens",
+		"totalTokens",
+		"cacheReadTokens",
+		"cacheWriteTokens",
+		"reasoningTokens",
+	] as const) {
+		const value = part[key];
+		if (typeof value === "number" && Number.isFinite(value)) {
+			merged[key] = (merged[key] ?? 0) + value;
+		}
+	}
 }
 
 function isToolRelatedEvent(event: SdkMessage): boolean {
@@ -395,6 +391,12 @@ export function normalizeToolExecutionStatus(result: unknown): {
 	if (typeof record.succeeded === "boolean") return { succeeded: record.succeeded };
 	if (typeof record.isError === "boolean") return { succeeded: !record.isError };
 	if (record.status === "error") return { succeeded: false };
+	return nestedExecutionStatus(record);
+}
+function nestedExecutionStatus(record: Record<string, unknown>): {
+	succeeded?: boolean;
+	exitCode?: number;
+} {
 	for (const nested of [record.value, record.result]) {
 		const status = normalizeToolExecutionStatus(nested);
 		if (status.succeeded !== undefined || status.exitCode !== undefined) return status;
@@ -403,19 +405,14 @@ export function normalizeToolExecutionStatus(result: unknown): {
 }
 
 function isShellToolName(name: string): boolean {
-	return /^(shell|bash)$/i.test(name);
+	return SHELL_TOOL.test(name);
 }
 
 function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 	if (event.type === "tool_call" && event.name) {
 		const result = toolResultFromEvent(event);
 		const execution = isShellToolName(event.name) ? normalizeToolExecutionStatus(event.result) : {};
-		const args =
-			event.args !== undefined && typeof event.args === "object" && !Array.isArray(event.args)
-				? (event.args as Record<string, unknown>)
-				: event.args !== undefined
-					? { value: event.args }
-					: undefined;
+		const args = rootToolArguments(event.args);
 		return {
 			name: event.name,
 			args,
@@ -424,10 +421,31 @@ function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 		};
 	}
 
+	return legacyToolCall(event);
+}
+function legacyToolCall(event: SdkMessage): AgentToolCall | undefined {
 	const name = event.tool?.name ?? (event.type?.includes("tool") ? event.type : undefined);
 	if (!name) {
 		return undefined;
 	}
+	const args = legacyToolArguments(event);
+	const result = toolResultFromEvent(event);
+	const execution = isShellToolName(name) ? normalizeToolExecutionStatus(event.result) : {};
+	return {
+		name,
+		args,
+		...(result !== undefined ? { result } : {}),
+		...execution,
+	};
+}
+
+function rootToolArguments(value: unknown): Record<string, unknown> | undefined {
+	if (value === undefined) return undefined;
+	return typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: { value };
+}
+function legacyToolArguments(event: SdkMessage): Record<string, unknown> | undefined {
 	let args: Record<string, unknown> | undefined;
 	if (event.tool?.input !== undefined && typeof event.tool.input === "object") {
 		args = event.tool.input as Record<string, unknown>;
@@ -441,14 +459,7 @@ function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 			args = { command: event.tool.input };
 		}
 	}
-	const result = toolResultFromEvent(event);
-	const execution = isShellToolName(name) ? normalizeToolExecutionStatus(event.result) : {};
-	return {
-		name,
-		args,
-		...(result !== undefined ? { result } : {}),
-		...execution,
-	};
+	return args;
 }
 
 export interface TraceAccumulator {
@@ -481,6 +492,63 @@ export function createTraceAccumulator(): TraceAccumulator {
 	};
 }
 
+export function mergeToolCall(previous: AgentToolCall, toolCall: AgentToolCall): AgentToolCall {
+	return {
+		...previous,
+		name: toolCall.name,
+		args: toolCall.args ?? previous.args,
+		result: toolCall.result ?? previous.result,
+		...((toolCall.succeeded ?? previous.succeeded) !== undefined
+			? { succeeded: toolCall.succeeded ?? previous.succeeded }
+			: {}),
+		...((toolCall.exitCode ?? previous.exitCode) !== undefined
+			? { exitCode: toolCall.exitCode ?? previous.exitCode }
+			: {}),
+	};
+}
+
+function accumulateAssistantText(acc: TraceAccumulator, text: string): void {
+	if (text) {
+		// Cursor SDK streams assistant prose as many tiny token events. Coalesce
+		// consecutive deltas into one AgentMessage; flush when a tool call (or
+		// any other seq-consuming event) lands between assistant chunks.
+		const last = acc.agentMessages.at(-1);
+		if (last?.role === "assistant" && last.seq === acc.nextSeq - 1) {
+			last.content += text;
+		} else {
+			acc.agentMessages.push({ role: "assistant", content: text, seq: acc.nextSeq++ });
+		}
+		acc.textChunks.push(text);
+		if (!acc.hasSeenTool) {
+			acc.preToolAssistantChunks.push(text);
+		}
+	}
+}
+function accumulateToolEvent(acc: TraceAccumulator, event: SdkMessage, text: string): void {
+	if (text) {
+		acc.toolOutputChunks.push(text);
+	}
+	const toolCall = toolCallFromEvent(event);
+	if (!toolCall) return;
+	{
+		acc.hasSeenTool = true;
+		const callId = typeof event.call_id === "string" ? event.call_id : undefined;
+		const existingIndex = callId !== undefined ? acc.toolCallIndexByCallId.get(callId) : undefined;
+		if (existingIndex !== undefined) {
+			const previous = acc.toolCalls[existingIndex];
+			if (previous) acc.toolCalls[existingIndex] = mergeToolCall(previous, toolCall);
+			return;
+		}
+		{
+			const index = acc.toolCalls.length;
+			acc.toolCalls.push({ ...toolCall, seq: acc.nextSeq++ });
+			if (callId !== undefined) {
+				acc.toolCallIndexByCallId.set(callId, index);
+			}
+		}
+	}
+}
+
 /** Fold one SDK stream event into trace fields without retaining the raw event. */
 export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): void {
 	if (event.type === "usage") {
@@ -496,59 +564,11 @@ export function accumulateSdkEvent(acc: TraceAccumulator, event: SdkMessage): vo
 		acc.inferenceChunks.push(text);
 	}
 	if (event.type === "assistant" || event.message?.role === "assistant") {
-		if (text) {
-			// Cursor SDK streams assistant prose as many tiny token events. Coalesce
-			// consecutive deltas into one AgentMessage; flush when a tool call (or
-			// any other seq-consuming event) lands between assistant chunks.
-			const last = acc.agentMessages.at(-1);
-			if (last?.role === "assistant" && last.seq === acc.nextSeq - 1) {
-				last.content += text;
-			} else {
-				acc.agentMessages.push({ role: "assistant", content: text, seq: acc.nextSeq++ });
-			}
-			acc.textChunks.push(text);
-			if (!acc.hasSeenTool) {
-				acc.preToolAssistantChunks.push(text);
-			}
-		}
+		accumulateAssistantText(acc, text);
 		return;
 	}
 
-	if (isToolRelatedEvent(event)) {
-		if (text) {
-			acc.toolOutputChunks.push(text);
-		}
-		const toolCall = toolCallFromEvent(event);
-		if (toolCall) {
-			acc.hasSeenTool = true;
-			const callId = typeof event.call_id === "string" ? event.call_id : undefined;
-			const existingIndex =
-				callId !== undefined ? acc.toolCallIndexByCallId.get(callId) : undefined;
-			if (existingIndex !== undefined) {
-				const previous = acc.toolCalls[existingIndex];
-				if (previous) {
-					acc.toolCalls[existingIndex] = {
-						...previous,
-						name: toolCall.name,
-						args: toolCall.args ?? previous.args,
-						result: toolCall.result ?? previous.result,
-						...((toolCall.succeeded ?? previous.succeeded) !== undefined
-							? { succeeded: toolCall.succeeded ?? previous.succeeded }
-							: {}),
-						...((toolCall.exitCode ?? previous.exitCode) !== undefined
-							? { exitCode: toolCall.exitCode ?? previous.exitCode }
-							: {}),
-					};
-				}
-			} else {
-				const index = acc.toolCalls.length;
-				acc.toolCalls.push({ ...toolCall, seq: acc.nextSeq++ });
-				if (callId !== undefined) {
-					acc.toolCallIndexByCallId.set(callId, index);
-				}
-			}
-		}
-	}
+	if (isToolRelatedEvent(event)) accumulateToolEvent(acc, event, text);
 }
 
 export function finalizeTraceAccumulator(

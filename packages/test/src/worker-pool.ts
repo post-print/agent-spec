@@ -14,9 +14,11 @@ export function parseWorkerCount(value: string, label = "--workers"): number {
 /** Run items with a fixed number of workers. Extra items wait in the queue. */
 export async function runWorkerPool<T>(
 	items: readonly T[],
-	workers: number,
-	worker: (item: T) => Promise<void>,
-	signal?: AbortSignal,
+	{
+		workers,
+		worker,
+		signal,
+	}: { workers: number; worker: (item: T) => Promise<void>; signal?: AbortSignal },
 ): Promise<void> {
 	const queue = [...items];
 	const workerCount = Math.max(1, Math.min(workers, Math.max(items.length, 1)));

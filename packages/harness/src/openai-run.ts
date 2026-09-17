@@ -6,14 +6,12 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
 import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
-import type { JudgeClassifierResult } from "./cursor-run.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
 	accumulateOpenaiEvent,
 	createOpenaiTraceAccumulator,
 	finalizeOpenaiTraceAccumulator,
-	lastAssistantText,
 	type OpenaiTraceAccumulator,
 	parseOpenaiJsonlLine,
 } from "./openai-capture.js";
@@ -24,8 +22,10 @@ import {
 	UserInputRequiredError,
 	withRunTimeout,
 } from "./run-guards.js";
-import type { AgentTrace, JudgeWorkspaceContext, LiveAgentEvent } from "./types.js";
+import type { AgentTrace, LiveAgentEvent } from "./types.js";
 import { openaiUserConfigArgs } from "./user-skills.js";
+
+const ENV_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 export type OpenaiAuthMode = HostAuthMode;
 
@@ -64,7 +64,7 @@ export interface OpenaiRunOptions {
 	/** Inline MCP servers for this `codex exec` via `-c mcp_servers.<name>=…`. */
 	mcpServers?: Record<string, McpServerConfig>;
 	/** Load `~/.codex` user config and skills. Default false. */
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	/** Allow network access in a workspace-write sandbox. Default false. */
 	networkAccess?: boolean;
 }
@@ -230,9 +230,7 @@ export function buildOpenaiEnv(authMode: OpenaiAuthMode, apiKey?: string): NodeJ
 		}
 		return { ...process.env, OPENAI_API_KEY: key, CODEX_API_KEY: key };
 	}
-	const env = { ...process.env };
-	delete env.OPENAI_API_KEY;
-	delete env.CODEX_API_KEY;
+	const { OPENAI_API_KEY: _openaiKey, CODEX_API_KEY: _codexKey, ...env } = process.env;
 	return env;
 }
 
@@ -242,27 +240,11 @@ export function tomlString(value: string): string {
 
 /** One `-c mcp_servers.name={…}` override for `codex exec`. */
 export function buildOpenaiMcpOverride(name: string, config: McpServerConfig): string {
-	if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+	if (!ENV_NAME.test(name)) {
 		throw new Error(`OpenAI MCP server name must be a TOML key: ${name}`);
 	}
 	if ("command" in config && config.command) {
-		const parts = [`command=${tomlString(config.command)}`];
-		if (config.args && config.args.length > 0) {
-			parts.push(`args=[${config.args.map((arg) => tomlString(arg)).join(",")}]`);
-		}
-		if (config.cwd) {
-			parts.push(`cwd=${tomlString(config.cwd)}`);
-		}
-		if (config.env && Object.keys(config.env).length > 0) {
-			const env = Object.entries(config.env)
-				.map(([key, value]) => `${key}=${tomlString(value)}`)
-				.join(",");
-			parts.push(`env={${env}}`);
-		}
-		// Codex 0.154+ rejects MCP calls when approval_policy=never unless
-		// the server auto-approves tools.
-		parts.push('default_tools_approval_mode="approve"');
-		return `mcp_servers.${name}={${parts.join(",")}}`;
+		return openaiStdioMcp(name, config);
 	}
 	if ("url" in config && config.url) {
 		return `mcp_servers.${name}={url=${tomlString(config.url)},default_tools_approval_mode="approve"}`;
@@ -270,6 +252,28 @@ export function buildOpenaiMcpOverride(name: string, config: McpServerConfig): s
 	throw new Error(`OpenAI MCP server "${name}" needs a command or url`);
 }
 
+function openaiStdioMcp(
+	name: string,
+	config: Extract<McpServerConfig, { command: string }>,
+): string {
+	const parts = [`command=${tomlString(config.command)}`];
+	if (config.args && config.args.length > 0) {
+		parts.push(`args=[${config.args.map((arg) => tomlString(arg)).join(",")}]`);
+	}
+	if (config.cwd) {
+		parts.push(`cwd=${tomlString(config.cwd)}`);
+	}
+	if (config.env && Object.keys(config.env).length > 0) {
+		const env = Object.entries(config.env)
+			.map(([key, value]) => `${key}=${tomlString(value)}`)
+			.join(",");
+		parts.push(`env={${env}}`);
+	}
+	// Codex 0.154+ rejects MCP calls when approval_policy=never unless
+	// the server auto-approves tools.
+	parts.push('default_tools_approval_mode="approve"');
+	return `mcp_servers.${name}={${parts.join(",")}}`;
+}
 export function buildOpenaiMcpConfigArgs(
 	servers: Record<string, McpServerConfig> | undefined,
 ): string[] {
@@ -289,7 +293,7 @@ export function buildOpenaiExecArgs(options: {
 	model?: string;
 	sandbox?: "workspace-write" | "read-only";
 	mcpServers?: Record<string, McpServerConfig>;
-	allowUserSkills?: boolean;
+	includeGlobalSkills?: boolean;
 	networkAccess?: boolean;
 }): string[] {
 	const sandbox = options.sandbox ?? "workspace-write";
@@ -302,7 +306,7 @@ export function buildOpenaiExecArgs(options: {
 		options.cwd,
 		// Deny keeps ~/.codex/config.toml out. Auth still uses CODEX_HOME.
 		// A user model pin (for example gpt-5.6-luna) can fail older Codex CLIs.
-		...openaiUserConfigArgs(options.allowUserSkills === true),
+		...openaiUserConfigArgs(options.includeGlobalSkills === true),
 		// Headless default is never. Set it explicitly so a leftover config
 		// cannot prompt, and so we do not need --approve-for-me (Codex >= 0.147).
 		"-c",
@@ -324,14 +328,52 @@ export function buildOpenaiExecArgs(options: {
 	return args;
 }
 
-async function drainJsonl(
-	child: OpenaiChildProcess,
-	acc: OpenaiTraceAccumulator,
-	failOnUserInput: boolean,
-	signal: AbortSignal,
-	onAgentEvent?: (event: LiveAgentEvent) => void,
-): Promise<{ exitCode: number | null; stderr: string }> {
+interface OpenaiStream {
+	child: OpenaiChildProcess;
+	acc: OpenaiTraceAccumulator;
+	failOnUserInput: boolean;
+	signal: AbortSignal;
+	onAgentEvent?: (event: LiveAgentEvent) => void;
+}
+function stopOpenaiForInput(stream: OpenaiStream): boolean {
+	const { child, acc, failOnUserInput } = stream;
+	const lastTool = acc.toolCalls.at(-1);
+	if (!lastTool || !isUserInputTool(lastTool.name)) return false;
+	killOpenaiChild(child);
+	if (failOnUserInput) {
+		const error = new UserInputRequiredError(lastTool.name);
+		error.trace = stashTrace(acc);
+		throw error;
+	}
+	return true;
+}
+async function readOpenaiOutput(stream: OpenaiStream): Promise<void> {
+	const { child, acc, signal, onAgentEvent } = stream;
 	const liveState = createLiveNotifyState();
+
+	const rl = createInterface({ input: child.stdout, crlfDelay: Number.POSITIVE_INFINITY });
+	try {
+		for await (const line of rl) {
+			if (signal.aborted) {
+				break;
+			}
+			const event = parseOpenaiJsonlLine(line);
+			if (!event) {
+				continue;
+			}
+			accumulateOpenaiEvent(acc, event);
+			emitLiveAgentEvents(acc, liveState, onAgentEvent);
+			stashTrace(acc);
+			if (stopOpenaiForInput(stream)) break;
+		}
+	} finally {
+		rl.close();
+	}
+}
+async function drainJsonl(
+	stream: OpenaiStream,
+): Promise<{ exitCode: number | null; stderr: string }> {
+	const { child, signal } = stream;
 	const stderrChunks: string[] = [];
 	child.stderr.setEncoding("utf8");
 	child.stderr.on("data", (chunk: string) => {
@@ -354,37 +396,6 @@ async function drainJsonl(
 		signal.addEventListener("abort", fail, { once: true });
 	});
 
-	const readStdout = async (): Promise<void> => {
-		const rl = createInterface({ input: child.stdout, crlfDelay: Number.POSITIVE_INFINITY });
-		try {
-			for await (const line of rl) {
-				if (signal.aborted) {
-					break;
-				}
-				const event = parseOpenaiJsonlLine(line);
-				if (!event) {
-					continue;
-				}
-				accumulateOpenaiEvent(acc, event);
-				emitLiveAgentEvents(acc, liveState, onAgentEvent);
-				stashTrace(acc);
-				const lastTool = acc.toolCalls.at(-1);
-				if (lastTool && isUserInputTool(lastTool.name)) {
-					if (failOnUserInput) {
-						const userInputError = new UserInputRequiredError(lastTool.name);
-						userInputError.trace = stashTrace(acc);
-						killOpenaiChild(child);
-						throw userInputError;
-					}
-					killOpenaiChild(child);
-					break;
-				}
-			}
-		} finally {
-			rl.close();
-		}
-	};
-
 	const waitClose = new Promise<number | null>((resolve) => {
 		child.once("close", (code) => resolve(code));
 	});
@@ -393,7 +404,7 @@ async function drainJsonl(
 		const settled = await Promise.race([
 			spawnError,
 			aborted,
-			Promise.all([readStdout(), waitClose]).then(([, exitCode]) => ({ exitCode })),
+			Promise.all([readOpenaiOutput(stream), waitClose]).then(([, exitCode]) => ({ exitCode })),
 		]);
 		return { exitCode: settled.exitCode, stderr: stderrChunks.join("") };
 	} catch (error) {
@@ -402,6 +413,127 @@ async function drainJsonl(
 	}
 }
 
+interface OpenaiExecution {
+	bin: string;
+	args: string[];
+	authMode: OpenaiAuthMode;
+	deadline: { timedOut: boolean };
+	runHome: Awaited<ReturnType<typeof createOpenaiRunHome>> | undefined;
+}
+async function finishOpenaiRun(
+	options: OpenaiRunOptions,
+	stream: OpenaiStream,
+): Promise<OpenaiRunResult> {
+	const { child, acc, signal, onAgentEvent } = stream;
+	const { exitCode, stderr } = await drainJsonl({
+		child,
+		acc,
+		failOnUserInput: options.failOnUserInput !== false,
+		signal,
+		onAgentEvent,
+	});
+	const trace = stashTrace(acc);
+	const rawStatus = acc.rawStatus ?? (exitCode === 0 ? "success" : "error");
+	const failed =
+		(exitCode !== null && exitCode !== 0) || rawStatus === "error" || Boolean(acc.resultError);
+	return {
+		status: failed ? "failed" : "completed",
+		trace,
+		rawStatus,
+		exitCode,
+		stderr: stderr || undefined,
+	};
+}
+function throwOpenaiRunError(error: unknown, acc: OpenaiTraceAccumulator, bin: string): never {
+	const partial = stashTrace(acc);
+	if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError) {
+		error.trace = error.trace ?? partial;
+		throw error;
+	}
+	if (error && typeof error === "object" && "code" in error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") {
+			throw new Error(
+				`OpenAI Codex binary not found (${bin}). Install the Codex CLI or set CODEX_BIN.`,
+			);
+		}
+	}
+	throw error;
+}
+async function executeOpenaiRun(
+	options: OpenaiRunOptions,
+	execution: OpenaiExecution,
+): Promise<OpenaiRunResult> {
+	const { bin, args, authMode, deadline, runHome } = execution;
+
+	const acc = createOpenaiTraceAccumulator();
+	const abort = new AbortController();
+	const env = buildOpenaiEnv(authMode, options.apiKey);
+	if (runHome) {
+		env.HOME = runHome.home;
+		env.USERPROFILE = runHome.home;
+		env.CODEX_HOME = runHome.codexHome;
+	}
+	const child = spawn(bin, args, {
+		cwd: options.cwd,
+		env,
+		stdio: ["ignore", "pipe", "pipe"],
+		detached: process.platform !== "win32" && process.env.AGENT_HARNESS_SESSION_WORKER !== "1",
+	}) as OpenaiChildProcess;
+
+	activeOpenaiRun = { child, acc, abort };
+	if (deadline.timedOut) {
+		abort.abort();
+		killOpenaiChild(child);
+		activeOpenaiRun = undefined;
+		const timeoutError = new AgentRunTimeoutError(options.timeoutMs ?? 0);
+		timeoutError.trace = stashTrace(acc);
+		throw timeoutError;
+	}
+
+	try {
+		return await finishOpenaiRun(options, {
+			child,
+			acc,
+			failOnUserInput: options.failOnUserInput !== false,
+			signal: abort.signal,
+			onAgentEvent: options.onAgentEvent,
+		});
+	} catch (error) {
+		abort.abort();
+		killOpenaiChild(child);
+		return throwOpenaiRunError(error, acc, bin);
+	} finally {
+		if (activeOpenaiRun?.child === child) {
+			activeOpenaiRun = undefined;
+		}
+	}
+}
+
+async function runOpenaiWithDeadline(
+	options: OpenaiRunOptions,
+	execution: OpenaiExecution,
+): Promise<OpenaiRunResult> {
+	const execute = () => executeOpenaiRun(options, execution);
+
+	if (options.timeoutMs && options.timeoutMs > 0) {
+		await options.onDeadlineStart?.();
+		try {
+			return await withRunTimeout(execute, options.timeoutMs, {
+				onTimeout: () => {
+					execution.deadline.timedOut = true;
+					cancelActiveOpenaiRun();
+				},
+			});
+		} catch (error) {
+			if (error instanceof AgentRunTimeoutError) {
+				error.trace = error.trace ?? takeLastOpenaiRunTrace() ?? getPartialTrace(error);
+			}
+			throw error;
+		}
+	}
+	return await execute();
+}
 /** Shared Codex CLI path — `codex exec --json` → AgentTrace. */
 export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiRunResult> {
 	const authMode = resolveOpenaiAuthMode(undefined, options.apiKey, options.authMode);
@@ -410,137 +542,23 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		throw new Error(OPENAI_MISSING_KEY_MESSAGE);
 	}
 	const bin = await resolveOpenaiBin(options.bin);
-	let timedOut = false;
+	const deadline = { timedOut: false };
 	const args = buildOpenaiExecArgs({
 		prompt: options.prompt,
 		cwd: options.cwd,
 		model: options.model,
 		sandbox: options.sandbox,
 		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
-		allowUserSkills: options.allowUserSkills === true,
+		includeGlobalSkills: options.includeGlobalSkills === true,
 		networkAccess: options.networkAccess === true,
 	});
-	const runHome = options.allowUserSkills === true ? undefined : await createOpenaiRunHome();
-
-	const execute = async (): Promise<OpenaiRunResult> => {
-		const acc = createOpenaiTraceAccumulator();
-		const abort = new AbortController();
-		const env = buildOpenaiEnv(authMode, options.apiKey);
-		if (runHome) {
-			env.HOME = runHome.home;
-			env.USERPROFILE = runHome.home;
-			env.CODEX_HOME = runHome.codexHome;
-		}
-		const child = spawn(bin, args, {
-			cwd: options.cwd,
-			env,
-			stdio: ["ignore", "pipe", "pipe"],
-			detached: process.platform !== "win32",
-		}) as OpenaiChildProcess;
-
-		activeOpenaiRun = { child, acc, abort };
-		if (timedOut) {
-			abort.abort();
-			killOpenaiChild(child);
-			activeOpenaiRun = undefined;
-			const timeoutError = new AgentRunTimeoutError(options.timeoutMs ?? 0);
-			timeoutError.trace = stashTrace(acc);
-			throw timeoutError;
-		}
-
-		try {
-			const { exitCode, stderr } = await drainJsonl(
-				child,
-				acc,
-				options.failOnUserInput !== false,
-				abort.signal,
-				options.onAgentEvent,
-			);
-			const trace = stashTrace(acc);
-			const rawStatus = acc.rawStatus ?? (exitCode === 0 ? "success" : "error");
-			const failed =
-				(exitCode !== null && exitCode !== 0) || rawStatus === "error" || Boolean(acc.resultError);
-			return {
-				status: failed ? "failed" : "completed",
-				trace,
-				rawStatus,
-				exitCode,
-				stderr: stderr || undefined,
-			};
-		} catch (error) {
-			abort.abort();
-			killOpenaiChild(child);
-			const partial = stashTrace(acc);
-			if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError) {
-				error.trace = error.trace ?? partial;
-				throw error;
-			}
-			if (error && typeof error === "object" && "code" in error) {
-				const code = (error as NodeJS.ErrnoException).code;
-				if (code === "ENOENT") {
-					throw new Error(
-						`OpenAI Codex binary not found (${bin}). Install the Codex CLI or set CODEX_BIN.`,
-					);
-				}
-			}
-			throw error;
-		} finally {
-			if (activeOpenaiRun?.child === child) {
-				activeOpenaiRun = undefined;
-			}
-		}
-	};
+	const runHome = options.includeGlobalSkills === true ? undefined : await createOpenaiRunHome();
 
 	try {
-		if (options.timeoutMs && options.timeoutMs > 0) {
-			await options.onDeadlineStart?.();
-			try {
-				return await withRunTimeout(execute, options.timeoutMs, {
-					onTimeout: () => {
-						timedOut = true;
-						cancelActiveOpenaiRun();
-					},
-				});
-			} catch (error) {
-				if (error instanceof AgentRunTimeoutError) {
-					error.trace = error.trace ?? takeLastOpenaiRunTrace() ?? getPartialTrace(error);
-				}
-				throw error;
-			}
-		}
-		return await execute();
+		return await runOpenaiWithDeadline(options, { bin, args, authMode, deadline, runHome });
 	} finally {
 		await runHome?.cleanup();
 	}
 }
 
 /** Classifier-only Codex path — read-only sandbox, last assistant text. */
-export async function runOpenaiClassifier(options: {
-	cwd: string;
-	prompt: string;
-	workspaces?: readonly JudgeWorkspaceContext[];
-	apiKey?: string;
-	bin?: string;
-	onText?: (text: string) => void;
-}): Promise<JudgeClassifierResult> {
-	const result = await runOpenaiAgent({
-		cwd: options.cwd,
-		prompt: options.prompt,
-		apiKey: options.apiKey,
-		bin: options.bin,
-		sandbox: "read-only",
-		failOnUserInput: true,
-		onAgentEvent: (event) => {
-			if (event.type === "text") options.onText?.(event.text);
-		},
-	});
-	return {
-		status: result.status,
-		text: lastAssistantText(result.trace),
-		rawStatus: result.rawStatus,
-		sdkError: result.trace.artifacts.openaiResultError
-			? { message: result.trace.artifacts.openaiResultError }
-			: undefined,
-		usage: result.trace.usage,
-	};
-}
