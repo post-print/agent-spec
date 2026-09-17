@@ -78,7 +78,7 @@ function bind<R extends Resources>(resources: R, runtime: TestRuntime): Fixtures
 		Object.entries(resources).map(([name, resource]) => [
 			name,
 			resource.kind === "agent"
-				? runtime.agent(name, resource.settings)
+				? runtime.agent(name, resource.settings, resource.preparation)
 				: runtime.judge(name, resource.settings),
 		]),
 	) as Fixtures<R>;

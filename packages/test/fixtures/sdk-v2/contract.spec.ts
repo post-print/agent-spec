@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { customAgent } from "../../../harness/dist/index.js";
 import { describe, expect, statistics, z } from "../../dist/index.js";
@@ -9,6 +9,9 @@ const fake = (options = {}) =>
 const schema = z.object({ correct: z.boolean(), reason: z.string(), input: z.unknown() });
 const test = describe("configured resources", ({ agent, judge }) => ({
 	agent: agent(),
+	seeded: agent().setup(async (workspace) => {
+		await writeFile(join(workspace.path, "seed.txt"), "first");
+	}),
 	candidate: agent({ agent: fake({ tokens: 9 }) }),
 	accuracy: judge({ prompt: "Check selected evidence", schema }),
 	invalid: judge({ agent: fake({ response: { correct: "wrong type" } }), prompt: "Check", schema }),
@@ -78,15 +81,28 @@ test("run resources are isolated from subsequent calls", async ({ agent }) => {
 	expect(plain.trace.messages[0].content).not.toContain("ONLY_THIS_RUN");
 	expect(plain.workspace.initial.files[".agents/skills/review/SKILL.md"]).toBeUndefined();
 });
-test("setup completes before a task starts", async ({ agent }) => {
-	const run = await agent.run({
-		prompt: "answer",
-		setup: async (workspace) => {
-			const { writeFile } = await import("node:fs/promises");
-			await writeFile(join(workspace.path, "setup.txt"), "seeded");
-		},
+test("setup chains are immutable and run once per independent workspace", async ({
+	agent,
+	seeded,
+}) => {
+	let preparations = 0;
+	const prepared = seeded.setup(async (workspace) => {
+		preparations++;
+		expect(await readFile(join(workspace.path, "seed.txt"), "utf8")).toBe("first");
+		await writeFile(join(workspace.path, "second.txt"), "second");
 	});
-	expect(run.workspace.initial.files["setup.txt"]).toBeDefined();
+	const first = await prepared.run({ prompt: "answer" });
+	const second = await prepared.run({ prompt: "answer" });
+	expect(preparations).toBe(2);
+	expect(first.workspace.initial.files["second.txt"]).toBeDefined();
+	expect(second.workspace.root).not.toBe(first.workspace.root);
+	await first.continue({ prompt: "continue" });
+	expect(preparations).toBe(2);
+	const base = await seeded.run({ prompt: "answer" });
+	expect(base.workspace.initial.files["seed.txt"]).toBeDefined();
+	expect(base.workspace.initial.files["second.txt"]).toBeUndefined();
+	const plain = await agent.run({ prompt: "answer" });
+	expect(plain.workspace.initial.files["seed.txt"]).toBeUndefined();
 });
 test("matchers require exact paths and proven exit codes", async ({ agent }) => {
 	const run = await agent.run({ prompt: "answer" });
@@ -172,13 +188,13 @@ test("failed setup still cleans the task workspace", async (_resources, info) =>
 	let workspacePath = "";
 	try {
 		await expect(
-			runtime.agent("failing", {}).run({
-				prompt: "answer",
-				setup: async (workspace) => {
+			runtime
+				.agent("failing", {})
+				.setup(async (workspace) => {
 					workspacePath = workspace.path;
 					throw new Error("Setup failure");
-				},
-			}),
+				})
+				.run({ prompt: "answer" }),
 		).rejects.toThrow("Setup failure");
 	} finally {
 		await runtime.close();

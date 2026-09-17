@@ -10,7 +10,14 @@ import {
 import type { z } from "zod/v4";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import { evaluate } from "./judge.js";
-import type { AgentFixture, AgentSettings, JudgeFixture, JudgeSettings, Run } from "./types.js";
+import type {
+	AgentFixture,
+	AgentSettings,
+	JudgeFixture,
+	JudgeSettings,
+	Run,
+	WorkspaceSetup,
+} from "./types.js";
 import { runUsage } from "./usage.js";
 import {
 	changedPaths,
@@ -107,10 +114,17 @@ export class TestRuntime {
 		);
 		return promise;
 	}
-	agent(name: string, settings: AgentSettings): AgentFixture {
+	agent(
+		name: string,
+		settings: AgentSettings,
+		preparation: readonly WorkspaceSetup[] = [],
+	): AgentFixture {
 		return {
+			setup: (prepare) => this.agent(name, settings, [...preparation, prepare]),
 			run: ({ prompt, ...options }) =>
-				this.track(() => this.start(name, mergeSettings(settings, options), prompt)),
+				this.track(() =>
+					this.start({ name, preparation, prompt }, mergeSettings(settings, options)),
+				),
 		};
 	}
 	judge<S extends z.ZodType>(name: string, settings: JudgeSettings<S>): JudgeFixture<z.output<S>> {
@@ -132,7 +146,11 @@ export class TestRuntime {
 				}),
 		};
 	}
-	private async start(name: string, settings: AgentSettings, prompt: string): Promise<Run> {
+	private async start(
+		task: { name: string; prompt: string; preparation: readonly WorkspaceSetup[] },
+		settings: AgentSettings,
+	): Promise<Run> {
+		const { name, prompt, preparation } = task;
 		this.signal.throwIfAborted();
 		if (typeof prompt !== "string" || !prompt.trim())
 			throw new Error("agent.run requires a nonempty prompt");
@@ -147,7 +165,7 @@ export class TestRuntime {
 			cleanup: workspace.cleanup,
 		};
 		this.resources.push(resource);
-		await settings.setup?.(workspace);
+		for (const prepare of preparation) await prepare(workspace);
 		const context = await prepareAgent(definition, this.options.baseDir, workspace.path);
 		this.signal.throwIfAborted();
 		resource.session = await createAgentSession({

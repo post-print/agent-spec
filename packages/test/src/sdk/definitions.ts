@@ -1,10 +1,12 @@
 import { basename, resolve } from "node:path";
 import type { AgentDefinition, AgentOptions } from "@post-print/agent-harness";
 import type { z } from "zod/v4";
-import type { AgentSettings, JudgeSettings } from "./types.js";
+import type { AgentSettings, JudgeSettings, WorkspaceSetup } from "./types.js";
 export interface AgentResource {
 	readonly kind: "agent";
 	readonly settings: AgentSettings;
+	readonly preparation: readonly WorkspaceSetup[];
+	setup(prepare: WorkspaceSetup): AgentResource;
 }
 export interface JudgeResource<S extends z.ZodType = z.ZodType> {
 	readonly kind: "judge";
@@ -12,10 +14,7 @@ export interface JudgeResource<S extends z.ZodType = z.ZodType> {
 }
 export type Resource = AgentResource | JudgeResource;
 export const factories = {
-	agent: (settings: AgentSettings = {}): AgentResource => ({
-		kind: "agent",
-		settings: cloneSettings(settings),
-	}),
+	agent: (settings: AgentSettings = {}): AgentResource => agentResource(cloneSettings(settings)),
 	judge: <S extends z.ZodType>(settings: JudgeSettings<S>): JudgeResource<S> => {
 		if (!settings.prompt.trim()) throw new Error("Judge prompt is required");
 		return {
@@ -24,11 +23,22 @@ export const factories = {
 		};
 	},
 };
+function agentResource(
+	settings: AgentSettings,
+	preparation: readonly WorkspaceSetup[] = [],
+): AgentResource {
+	return {
+		kind: "agent",
+		settings,
+		preparation,
+		setup: (prepare) => agentResource(settings, [...preparation, prepare]),
+	};
+}
 function cloneSettings<T extends AgentSettings>(settings: T): T {
-	const { agent, setup, ...options } = settings;
+	const { agent, ...options } = settings;
 	// Schemas and setup functions stay in the test process; host options are copied separately.
 	const { schema: _schema, ...plain } = options as typeof options & { schema?: unknown };
-	return { ...structuredClone(plain), agent, setup } as T;
+	return { ...structuredClone(plain), agent } as T;
 }
 export function mergeSettings(base: AgentSettings, extra: AgentSettings): AgentSettings {
 	return {
@@ -48,7 +58,7 @@ export function configuredAgent(
 ): AgentDefinition {
 	const selected = settings.agent ?? defaultAgent;
 	if (!selected) throw new Error("Configure an agent definition for this resource");
-	const { agent: _agent, workspace: _workspace, setup: _setup, ...options } = settings;
+	const { agent: _agent, workspace: _workspace, ...options } = settings;
 	return {
 		...selected,
 		options: mergeSettings(selected.options, options) as AgentOptions & Record<string, unknown>,

@@ -13,5 +13,6 @@ export type {
 	RunOptions,
 	RunUsage,
 	Statistics,
+	WorkspaceSetup,
 } from "./sdk/types.js";
 export type { Workspace } from "./sdk/workspace.js";

@@ -62,7 +62,7 @@ test("research preserves accuracy", async ({ baseline, researcher, accuracy }) =
 
 Factories inherit the config's corresponding agent or judge definition. Set `agent: claude(...)` on a factory to override that definition. A judge without a configured or explicit reviewer fails clearly; it never borrows the coding agent implicitly.
 
-The scoped test function currently registers a title and async body. It is not the full Playwright `TestType` and does not expose `test.use`, `extend`, or hook methods. Use factory/run setup for workspace preparation. Playwright still owns test selection, projects, retries, timeouts, scheduling, and reports.
+The scoped test function currently registers a title and async body. It is not the full Playwright `TestType` and does not expose `test.use`, `extend`, or hook methods. Use `agent().setup(fn)` for workspace preparation. Playwright still owns test selection, projects, retries, timeouts, scheduling, and reports.
 
 ## Independent tasks and explicit continuation
 
@@ -79,7 +79,7 @@ Run results expose `output`, `trace`, `conversation`, `toolCalls`, `usage`, `dur
 
 ## Task resources
 
-Factory settings and run options can supply `skills`, `context`, `mcpServers`, `workspace`, and `setup`. Model/authentication can be set on the factory or harness definition. `includeGlobalSkills` defaults to false.
+Factory settings and run options can supply `skills`, `context`, `mcpServers`, `workspace`. Model/authentication can be set on the factory or harness definition. `includeGlobalSkills` defaults to false.
 
 ```ts
 const run = await coder.run({
@@ -92,7 +92,17 @@ const run = await coder.run({
 
 Skill and context-file lists are additive, with duplicate identical paths removed. Instructions append in definition, factory, run order. MCP servers merge by name; later settings replace a server with the same name. Different skill sources targeting the same directory are rejected. Skill paths name directories containing SKILL.md and resolve against the config directory. A skill's availability does not prove its use.
 
-`workspace` chooses the source folder for each task. `setup: async workspace => { ... }` runs after copying it and before starting the host. The last supplied setup callback wins. Run additions do not affect later independent runs or judges.
+`workspace` chooses the source folder for each task. `.setup(fn)` returns a new agent resource or test handle. Chained callbacks run in declaration order after copying the workspace and before recording its initial snapshot or starting the host. They run for every independent `.run()`; `.continue()` reuses the prepared workspace. The original agent is unchanged. Run additions do not affect later independent runs or judges.
+
+```ts
+const test = describe("seeded tasks", ({ agent }) => ({
+  coder: agent().setup(async (workspace) => {
+    await writeFile(join(workspace.path, "seed.txt"), "ready", "utf8");
+  }),
+}));
+```
+
+Here, `writeFile` comes from `node:fs/promises` and `join` from `node:path`. Inside a test, `coder.setup(fn).run({ prompt })` adds preparation for that derived handle. Setup callbacks receive the task workspace, not the source directory; failed preparation fails the run and test teardown removes its workspace.
 
 ## Explicit judge inputs
 

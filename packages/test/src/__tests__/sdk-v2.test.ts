@@ -1,9 +1,22 @@
 import { describe, expect, it } from "bun:test";
 import { claude, cursor, customAgent, openai } from "@post-print/agent-harness";
 import { z } from "zod/v4";
+import { factories } from "../sdk/definitions.js";
 import { parseEvaluation, serializeInput } from "../sdk/judge.js";
 import { statistics } from "../sdk/metrics.js";
 
+describe("resource preparation", () => {
+	it("derives setup resources without mutating their base", () => {
+		const base = factories.agent();
+		const first = () => undefined;
+		const second = () => undefined;
+		const seeded = base.setup(first);
+		const chained = seeded.setup(second);
+		expect(base.preparation).toEqual([]);
+		expect(seeded.preparation).toEqual([first]);
+		expect(chained.preparation).toEqual([first, second]);
+	});
+});
 describe("v2 evaluation contracts", () => {
 	it("creates immutable definitions without resolving credentials", () => {
 		const agent = openai({

@@ -1,11 +1,15 @@
-import { execFile } from "node:child_process";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import { promisify } from "node:util";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, z } from "@post-print/agent-test";
 import { releaseSkills, taskService } from "../tour/agents.js";
 
+// Defaults come from agent-test.config.ts: OpenAI coder/reviewer and the task-list fixture.
+// Skill, context, and workspace source paths resolve against that config directory.
 const test = describe("SDK capabilities", ({ agent, judge }) => ({
 	agent: agent(),
+	seeded: agent().setup(async (workspace) => {
+		await writeFile(join(workspace.path, "seeded.txt"), "SEED-READY", "utf8");
+	}),
 	service: agent({ mcpServers: { tasks: taskService } }),
 	skilled: agent({ skills: releaseSkills, workspace: "agent-suites/fixtures/task-list-skill" }),
 	balance: judge({
@@ -14,7 +18,6 @@ const test = describe("SDK capabilities", ({ agent, judge }) => ({
 		schema: z.object({ balanced: z.boolean(), reason: z.string() }),
 	}),
 }));
-const exec = promisify(execFile);
 const TOOLS = /Read|Shell|Bash|Write|Edit/;
 const RUN_TESTS = /\bbun test\b/;
 const SEARCH = /search_tasks/;
@@ -63,18 +66,11 @@ test("injects provided context", async ({ agent }) => {
 	expect(run.output).toContain("BLUE-417");
 	expect(run).not.toHaveCalledTool(TOOLS);
 });
-test("applies setup changes before the agent starts", async ({ agent }) => {
-	const run = await agent.run({
-		prompt: "Read seeded.txt. Reply with its exact value.",
-		setup: async (workspace) => {
-			const patch = new URL("../fixtures/task-list/seed.patch", import.meta.url);
-			const patchFile = `${workspace.path}/setup.patch`;
-			await writeFile(patchFile, await readFile(patch, "utf8"));
-			await exec("git", ["apply", patchFile], { cwd: workspace.path });
-			await rm(patchFile);
-		},
-	});
-	expect(run.output).toContain("SEED-READY");
+test("prepares the workspace before the agent starts", async ({ seeded }) => {
+	const run = await seeded.run({ prompt: "Read seeded.txt and reply with its exact contents." });
+	// Initial evidence includes setup changes, before any agent activity.
+	expect(run.workspace.initial.files["seeded.txt"]).toBeDefined();
+	expect(run.output).toBe("SEED-READY");
 });
 test("isolates a scenario workspace", async ({ agent }) => {
 	const run = await agent.run({

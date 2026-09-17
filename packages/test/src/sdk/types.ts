@@ -9,13 +9,12 @@ import type { StartingContext, Workspace, WorkspaceSnapshot } from "./workspace.
 export interface AgentSettings extends AgentOptions {
 	agent?: AgentDefinition;
 	workspace?: string;
-	setup?: (workspace: Workspace) => Promise<void>;
 }
 export interface RunOptions extends Omit<AgentSettings, "agent"> {
 	prompt: string;
 }
 export interface JudgeSettings<S extends z.ZodType = z.ZodType>
-	extends Omit<AgentSettings, "workspace" | "setup"> {
+	extends Omit<AgentSettings, "workspace"> {
 	prompt: string;
 	schema: S;
 }
@@ -64,7 +63,9 @@ export interface Evaluation<T = unknown> {
 	usage: RunUsage;
 	artifact: string;
 }
+export type WorkspaceSetup = (workspace: Workspace) => void | Promise<void>;
 export interface AgentFixture {
+	setup(prepare: WorkspaceSetup): AgentFixture;
 	run(options: RunOptions): Promise<Run>;
 }
 export interface JudgeFixture<T> {

@@ -85,16 +85,21 @@ await writeFile(join(consumer, "project/PROJECT.md"), "The owner is Mina.");
 await writeFile(
 	join(consumer, "src.ts"),
 	`
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, z, type Run } from "@post-print/agent-test";
 import { customAgent } from "@post-print/agent-harness";
 const fake = customAgent({adapter: new URL("../fake-agent.mjs", import.meta.url).href, options: {}});
 const test = describe("installed resources", ({agent, judge}) => ({
- coder: agent({agent: fake, workspace: "./project"}),
+ coder: agent({agent: fake, workspace: "./project"}).setup(async workspace => {
+   await writeFile(join(workspace.path, "seed.txt"), "ready");
+ }),
  accuracy: judge({agent: fake, prompt: "Check", schema: z.object({correct: z.boolean()})}),
 }));
 test("installed SDK", async ({coder, accuracy}) => {
  const run: Run = await coder.run({prompt: "Who owns the project?"});
  expect(run.output).toContain("Mina");
+ expect(run.workspace.initial.files["seed.txt"]).toBeDefined();
  expect(run).toHaveReadPath("PROJECT.md");
  const evaluation = await accuracy.run({input: {answer: run.output}});
  const typed: boolean = evaluation.output.correct;
