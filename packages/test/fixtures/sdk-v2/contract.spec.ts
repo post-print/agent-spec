@@ -8,15 +8,29 @@ const fake = (options = {}) =>
 	customAgent({ adapter: new URL("./fake-agent.mjs", import.meta.url).href, options });
 const schema = z.object({ correct: z.boolean(), reason: z.string(), input: z.unknown() });
 const test = describe("configured resources", ({ agent, judge }) => ({
-	agent: agent(),
+	agent: agent({ description: "Uses the suite's default agent configuration." }),
 	seeded: agent().setup(async (workspace) => {
 		await writeFile(join(workspace.path, "seed.txt"), "first");
 	}),
-	candidate: agent({ agent: fake({ tokens: 9 }) }),
+	candidate: agent({
+		description: "A lower-token candidate used for the comparison.",
+		agent: fake({ tokens: 9 }),
+	}),
 	accuracy: judge({ prompt: "Check selected evidence", schema }),
 	invalid: judge({ agent: fake({ response: { correct: "wrong type" } }), prompt: "Check", schema }),
 	missing: agent({ agent: fake({ omitUsage: true }) }),
+	narrating: agent({ agent: fake({ progress: "I am checking the project." }) }),
 }));
+
+test("run output is the final assistant response while the transcript keeps progress", async ({
+	narrating,
+}) => {
+	const run = await narrating.run({ prompt: "answer" });
+	expect(run.output).toBe("Mina turn 1");
+	const transcript = run.trace.messages.map((message) => message.content);
+	expect(transcript).toContain("I am checking the project.");
+	expect(transcript).toContain("Mina turn 1");
+});
 test("independent runs, continuation, and evidence", async ({ agent }) => {
 	const [first, independent] = await Promise.all([
 		agent.run({ prompt: "edit" }),
@@ -33,7 +47,16 @@ test("independent runs, continuation, and evidence", async ({ agent }) => {
 	expect(first).toHaveReadPath("PROJECT.md");
 	expect(first).toHaveModifiedPath("result.txt");
 });
-test("parallel named runs and selected-input judging", async ({ agent, candidate, accuracy }) => {
+test("parallel named runs and selected-input judging", {
+	description:
+		"Run two agents in parallel, compare their token usage, and ask the accuracy judge to evaluate only the two selected answers.",
+	resources: ["agent", "candidate", "accuracy"],
+	criteria: [
+		"Both named agents complete independently.",
+		"The candidate uses fewer tokens than the baseline.",
+		"The accuracy judge accepts both selected answers.",
+	],
+}, async ({ agent, candidate, accuracy }) => {
 	const [baseline, improved] = await Promise.all([
 		agent.run({ prompt: "answer" }),
 		candidate.run({ prompt: "answer" }),

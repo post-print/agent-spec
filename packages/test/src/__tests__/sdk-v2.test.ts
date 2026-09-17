@@ -1,9 +1,19 @@
 import { describe, expect, it } from "bun:test";
 import { claude, cursor, customAgent, openai } from "@post-print/agent-harness";
 import { z } from "zod/v4";
-import { factories } from "../sdk/definitions.js";
+import { configuredAgent, factories } from "../sdk/definitions.js";
 import { parseEvaluation, serializeInput } from "../sdk/judge.js";
 import { statistics } from "../sdk/metrics.js";
+import { defineConfig } from "../sdk/test.js";
+
+describe("test scheduling", () => {
+	it("runs tests within a spec file across configured workers by default", () => {
+		expect(defineConfig({}).fullyParallel).toBe(true);
+	});
+	it("allows suites to opt back into serial file scheduling", () => {
+		expect(defineConfig({ fullyParallel: false }).fullyParallel).toBe(false);
+	});
+});
 
 describe("resource preparation", () => {
 	it("derives setup resources without mutating their base", () => {
@@ -15,6 +25,12 @@ describe("resource preparation", () => {
 		expect(base.preparation).toEqual([]);
 		expect(seeded.preparation).toEqual([first]);
 		expect(chained.preparation).toEqual([first, second]);
+	});
+	it("keeps descriptions as resource metadata instead of host options", () => {
+		const resource = factories.agent({ description: "Reads task details." });
+		const definition = configuredAgent(openai(), resource.settings);
+		expect(resource.settings.description).toBe("Reads task details.");
+		expect(definition.options).not.toHaveProperty("description");
 	});
 });
 describe("v2 evaluation contracts", () => {

@@ -2,16 +2,16 @@
 	"version": 2,
 	"documents": {
 		".skeleton/registry.md": {
-			"reviewedAt": "2026-09-16",
-			"documentHash": "sha256:1ef9da904d0be2d37daef9f20915540197d0f5c270036b070ebf6076355a0b4b",
+			"reviewedAt": "2026-09-17",
+			"documentHash": "sha256:12d339933fb7c362975e0efe34de1d34d3e961f38e38c2c13f6216ac7c40fc33",
 			"reviewDependencies": {
 				"AGENTS.md": "sha256:efcc1f288f2f48b894f0cad6ecb78881cc016a7f146b76d8a2cdad78addebe1f",
-				"docs/cli.md": "sha256:94d007a52da9df19e9670daf4ad5da76f04fcea03463b976546cd6e17b04b793",
+				"docs/cli.md": "sha256:10ea23d065131561acc889db8114bc39bac596b8fcd0491445afc637c29f98ef",
 				"docs/getting-started.md": "sha256:b6c792b22c47275849d7fddee4df773957737d3932319f40e1d15c7867934b7b",
 				"docs/hosts.md": "sha256:089402a149d9610c150c3f2d43d722e26ae47d78f410f4ff08e8110879217c77",
 				"docs/isolation.md": "sha256:543dfa869c863261978d6d35dc46e771a6b22b320edef9a6cd6e10cbe18d8996",
 				"docs/reliability.md": "sha256:5f306f3ee1f31aafdb61fa9fac5164c07367c5126ab1543868604a41eb7a4593",
-				"docs/sdk-v2.md": "sha256:660fe969e4a00c06a9a486714c504c9f2b3e41e7516c4e373cf5b8ad77e88f77",
+				"docs/sdk-v2.md": "sha256:5a5a19c998bfc5bc96b8c2407eff56653eb20b024a4f1775a857907e39f05e36",
 				"docs/suites.md": "sha256:c54cf093ff8e9ae5d4194f96c37e7c19b12bcf21508d4b07c42d6452a5fc88d2",
 				"packages/harness/README.md": "sha256:082d03e7b55549558ae82cbf1dcbb9dd8753ca4a4d156a898aa7767722e5a50a",
 				"packages/test/README.md": "sha256:f03fe482ea3c515833d29e0147fe3a69ddfda8036ce297a73429a532ba3dcb92",
@@ -38,13 +38,13 @@
 			}
 		},
 		"docs/cli.md": {
-			"reviewedAt": "2026-09-16",
-			"documentHash": "sha256:94d007a52da9df19e9670daf4ad5da76f04fcea03463b976546cd6e17b04b793",
+			"reviewedAt": "2026-09-17",
+			"documentHash": "sha256:10ea23d065131561acc889db8114bc39bac596b8fcd0491445afc637c29f98ef",
 			"reviewDependencies": {
-				"packages/test/package.json": "sha256:13f706ce9e0f346cd2c5fa6bad5fd6641914bdb2ea362dad05a3e551a182425a",
+				"packages/test/package.json": "sha256:881ac0906be26f0ef9d53439ea376f665e49588fdcf4b95877c7c410ccc43bd3",
 				"packages/test/src/cli.ts": "sha256:3de5a748fc237fee05c17790fccd71444731a903cf5efc56392245783a77a968",
-				"packages/test/src/sdk/cli.ts": "sha256:7661e79aa423799c023f618bedc645ca681a0f34c0b5d9e1c523e5da92c22207",
-				"packages/test/src/sdk/viewer.ts": "sha256:daf150c6fc91b741f2e52510608f9408630f6684639a9fdfc534b9c53aab34ec"
+				"packages/test/src/sdk/cli.ts": "sha256:dd9f171e5b27560c617717831bccd5a197f40ea10bcf39f6ecec81f74980ebab",
+				"packages/test/src/sdk/viewer.ts": "sha256:c35cf71c0c252cfed5d33dbbbb158a2a28f02fa800fcf9cf9a11ba340ee0661f"
 			}
 		},
 		"docs/getting-started.md": {
@@ -103,28 +103,31 @@
 			}
 		},
 		"docs/sdk-v2.md": {
-			"reviewedAt": "2026-09-16",
-			"documentHash": "sha256:660fe969e4a00c06a9a486714c504c9f2b3e41e7516c4e373cf5b8ad77e88f77",
+			"reviewedAt": "2026-09-17",
+			"documentHash": "sha256:5a5a19c998bfc5bc96b8c2407eff56653eb20b024a4f1775a857907e39f05e36",
 			"reviewDependencies": {
 				"agent-suites/fixtures/task-list/src/status.ts": "sha256:34ece1eace5f952edbd61290b1278a99402e84149bb3b43b602d01dda76715b9",
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",
-				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:d4f7746c19b234e4cb87b032a064dafe94a30fa3c6ebcdcfb2214d954de38cb2",
+				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:b242b05b60d398466f76732b15e5a832289e00623fd1e4eed13c3bbd7eb8e60f",
 				"agent-suites/tour/agents.ts": "sha256:d06813e2769127e50354ee564aa9920ecae65e5747ee97e5681e78d9c086dabc",
-				"agent-suites/tour/tour.spec.ts": "sha256:2b7dda8954d1dc63d58a2aaf4735ea1eb1cad95dde665f4d5b666e7e5cb8f5e2",
+				"agent-suites/tour/tour.spec.ts": "sha256:3e0c9bc93822e3abef94eebac8099596b8279f38533ef67da5720726310291e1",
 				"agent-test.config.ts": "sha256:0ac97c421ee8e8458946fda57f24f9296e92d68e39bd646df34ad91fc1c1c643",
 				"agent-test.matrix.config.ts": "sha256:82ad8e78b95a1afabfb18850bd71345ee6b9aa65a2d38e0967906d0245300864",
-				"packages/test/src/sdk/cli.ts": "sha256:7661e79aa423799c023f618bedc645ca681a0f34c0b5d9e1c523e5da92c22207",
+				"packages/test/src/sdk/cli.ts": "sha256:dd9f171e5b27560c617717831bccd5a197f40ea10bcf39f6ecec81f74980ebab",
 				"packages/test/src/sdk/definitions.ts": "sha256:8e531979e39fd12b89c8397574b6bea4580965b7b8bbe70a22012472abc73fa0",
+				"packages/test/src/sdk/execution-reporter.ts": "sha256:ecdba6e61d3f22c0dc368d42fafdb844f201cf1bad45ecc68667fc031cd7e145",
+				"packages/test/src/sdk/execution-runner.ts": "sha256:47ea70e4e540458518a5d48a78626fbb605296973fe032909802e831dd4018ac",
+				"packages/test/src/sdk/execution-store.ts": "sha256:dbcff2bdfdadf7999d79e1fbfade7a32f270df347569c1cb08af8e79ddd3468c",
 				"packages/test/src/sdk/expect.ts": "sha256:fb4840d1c680f7181972abdc6d775dbf4a9d4e4127fa2765f5a160808da6124b",
 				"packages/test/src/sdk/judge.ts": "sha256:08859a335e4c03aeb71f00db5fb74c88ca7b6023ec466ffc3b39d1188b8dabdd",
 				"packages/test/src/sdk/metrics.ts": "sha256:f6d37398767bd831e7a638c34b8860f521bf02bde89f2837ec5a2f706bca815c",
-				"packages/test/src/sdk/reporter.ts": "sha256:9862ad9890dd7113cd7d137127632eeb7576230ad23cab406ae9bced88a48c41",
+				"packages/test/src/sdk/playwright-cli.ts": "sha256:e4b347d3fab3478ba8b122111fbc339b97bc77f855f15c7a2358a613f0a6bdb6",
+				"packages/test/src/sdk/reporter.ts": "sha256:ccff54d549f458ad0d8266ea21154e7afebb69e69c371070defad3913f13c458",
 				"packages/test/src/sdk/runtime.ts": "sha256:886eaa67cd2df2be21c7f430e00fbf97517931e2ac9e391ea824145a4dc9cf49",
-				"packages/test/src/sdk/test.ts": "sha256:68b871346455e73aa98e0a9cc073cb90fb848eb7f91ed22fcf620b559f22aa13",
+				"packages/test/src/sdk/test.ts": "sha256:9c7d0889ef164ec9a5118e97aae8606052088f89279f6e0f73ebe951ba475c05",
 				"packages/test/src/sdk/types.ts": "sha256:798918415ec075a0023c5b3164ce52271fa81839b7bdebdbf598d29c9df7c79a",
 				"packages/test/src/sdk/usage.ts": "sha256:7d492768b9cca4e61ed22a48d2e55ddd6bb304bceba1e6ce34abac48f62884e7",
-				"packages/test/src/sdk/viewer-results.ts": "sha256:a95c11e9491b27b8c595b2c552be3e273d8893f7c649e78aa999af354f61146b",
-				"packages/test/src/sdk/viewer.ts": "sha256:daf150c6fc91b741f2e52510608f9408630f6684639a9fdfc534b9c53aab34ec",
+				"packages/test/src/sdk/viewer.ts": "sha256:c35cf71c0c252cfed5d33dbbbb158a2a28f02fa800fcf9cf9a11ba340ee0661f",
 				"packages/test/src/sdk/workspace.ts": "sha256:76c72bcf637266f20edbe5cf3aa5f8cf0330862ef5335d50da5752f0f1b4360e"
 			}
 		},

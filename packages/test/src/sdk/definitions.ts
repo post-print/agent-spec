@@ -58,7 +58,7 @@ export function configuredAgent(
 ): AgentDefinition {
 	const selected = settings.agent ?? defaultAgent;
 	if (!selected) throw new Error("Configure an agent definition for this resource");
-	const { agent: _agent, workspace: _workspace, ...options } = settings;
+	const { agent: _agent, description: _description, workspace: _workspace, ...options } = settings;
 	return {
 		...selected,
 		options: mergeSettings(selected.options, options) as AgentOptions & Record<string, unknown>,

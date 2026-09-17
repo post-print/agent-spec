@@ -8,9 +8,10 @@ import type { z } from "zod/v4";
 import type { StartingContext, Workspace, WorkspaceSnapshot } from "./workspace.js";
 export interface AgentSettings extends AgentOptions {
 	agent?: AgentDefinition;
+	description?: string;
 	workspace?: string;
 }
-export interface RunOptions extends Omit<AgentSettings, "agent"> {
+export interface RunOptions extends Omit<AgentSettings, "agent" | "description"> {
 	prompt: string;
 }
 export interface JudgeSettings<S extends z.ZodType = z.ZodType>

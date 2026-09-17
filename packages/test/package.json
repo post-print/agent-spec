@@ -15,7 +15,8 @@
 		}
 	},
 	"scripts": {
-		"build": "bunx tsc --build && bun build ./src/viewer/main.tsx --outfile ./dist/viewer/client.js --target browser --minify --define 'process.env.NODE_ENV=\"production\"'",
+		"build": "bunx tsc --build && bun ./scripts/build-viewer.ts",
+		"generate:viewer-contracts": "bun ./scripts/generate-viewer-contracts.ts",
 		"typecheck": "bunx tsc --build",
 		"lint": "bunx biome check .",
 		"lint:viewer": "bunx biome check src/viewer --error-on-warnings",
@@ -28,16 +29,25 @@
 	},
 	"dependencies": {
 		"@post-print/agent-harness": "workspace:*",
+		"@stylexjs/stylex": "0.19.0",
+		"@tanstack/react-query": "5.102.8",
+		"@tanstack/react-router": "1.170.32",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
+		"react-markdown": "10.1.0",
 		"@playwright/test": "^1.63.0",
+		"ws": "8.18.3",
 		"zod": "^3.25.76"
 	},
 	"devDependencies": {
 		"@types/node": "^26.1.1",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
-		"typescript": "~7.0.2"
+		"@types/ws": "8.5.14",
+		"@stylexjs/unplugin": "0.19.0",
+		"@vitejs/plugin-react": "6.1.1",
+		"typescript": "~7.0.2",
+		"vite": "8.2.2"
 	},
 	"description": "Playwright-based coding-agent tests, comparisons, explicit judges, and viewer",
 	"repository": {

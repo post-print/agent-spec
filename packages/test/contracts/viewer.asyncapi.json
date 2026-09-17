@@ -1,0 +1,21 @@
+{
+	"asyncapi": "3.0.0",
+	"info": { "title": "agent-test viewer live protocol", "version": "1" },
+	"channels": {
+		"/api/live": {
+			"messages": {
+				"hello": {
+					"payload": {
+						"type": "object",
+						"required": ["type", "protocol", "subscriptions"],
+						"properties": {
+							"type": { "const": "hello" },
+							"protocol": { "const": 1 },
+							"subscriptions": { "type": "array", "items": { "enum": ["catalog", "executions"] } }
+						}
+					}
+				}
+			}
+		}
+	}
+}

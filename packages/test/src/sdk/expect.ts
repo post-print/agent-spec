@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { expect as base } from "@playwright/test";
 import type { Run } from "./types.js";
 
@@ -6,6 +6,19 @@ const FILE_PROTOCOL = /^file:\/\//;
 const COMMAND_TOOL = /shell|bash|terminal|exec|command/i;
 const READ_TOOL = /read/i;
 const SHELL_SEPARATORS = /[\s;|&"']+/;
+const SHELL_SEGMENTS = /\s*(?:&&|\|\||[;|])\s*/;
+const SHELL_WRAPPER = /\s-(?:lc|c)\s+(["'])([\s\S]*)\1\s*$/;
+const FILE_READING_COMMANDS = new Set([
+	"awk",
+	"cat",
+	"grep",
+	"head",
+	"less",
+	"more",
+	"rg",
+	"sed",
+	"tail",
+]);
 
 const matches = (actual: string, expected: string | RegExp) =>
 	typeof expected === "string"
@@ -20,6 +33,18 @@ function samePath(run: Run, actual: string, expected: string) {
 function requireTools(run: Run) {
 	if (!run.capabilities.toolCalls)
 		throw new Error("Tool-call observation unavailable for this adapter");
+}
+function shellReadsPath(run: Run, command: string, path: string): boolean {
+	const payload = command.match(SHELL_WRAPPER)?.[2] ?? command;
+	return payload.split(SHELL_SEGMENTS).some((segment) => {
+		const tokens = segment.trim().split(SHELL_SEPARATORS).filter(Boolean);
+		const executable = tokens[0];
+		return Boolean(
+			executable &&
+				FILE_READING_COMMANDS.has(basename(executable)) &&
+				tokens.slice(1).some((token) => samePath(run, token, path)),
+		);
+	});
 }
 const outcome = (pass: boolean, description: string) => ({ pass, message: () => description });
 export const expect = base.extend({
@@ -65,19 +90,21 @@ export const expect = base.extend({
 	toHaveReadPath(run: Run, path: string) {
 		if (!run.capabilities.fileReads)
 			throw new Error("Successful file-read evidence unavailable for this adapter");
-		const calls = run.toolCalls.filter(
+		const readCalls = run.toolCalls.filter(
 			(call) =>
 				READ_TOOL.test(call.name) &&
 				Object.values(call.args ?? {}).some(
 					(value) => typeof value === "string" && samePath(run, value, path),
 				),
 		);
+		const shellCalls = run.toolCalls.filter((call) => {
+			if (!COMMAND_TOOL.test(call.name)) return false;
+			const command = String(call.args?.command ?? call.args?.cmd ?? "");
+			return shellReadsPath(run, command, path);
+		});
+		const calls = [...readCalls, ...shellCalls];
 		const found = calls.some((call) => call.succeeded === true && call.result !== undefined);
-		if (
-			!found &&
-			(calls.some((call) => call.result === undefined || call.succeeded === undefined) ||
-				run.toolCalls.some((call) => COMMAND_TOOL.test(call.name)))
-		)
+		if (!found && calls.some((call) => call.result === undefined || call.succeeded === undefined))
 			throw new Error(`Successful file-read evidence unavailable: ${path}`);
 		return outcome(found, `Expected successful read of ${path}`);
 	},

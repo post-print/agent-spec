@@ -30,22 +30,33 @@ const test = describe("Agent test examples", ({ agent, judge }) => ({
 		}),
 	}),
 	answerReview: judge({
-		prompt: "Check whether each answer gives the reference date.",
+		prompt:
+			"Check whether all four labeled answers give the reference date. Return one correctness result for each label.",
 		schema: z.object({
-			fileAnswerCorrect: z.boolean(),
-			indexAnswerCorrect: z.boolean(),
+			fileRoundOneCorrect: z.boolean(),
+			indexRoundOneCorrect: z.boolean(),
+			fileRoundTwoCorrect: z.boolean(),
+			indexRoundTwoCorrect: z.boolean(),
 			reason: z.string(),
 		}),
 	}),
 }));
-test("reads the project owner from a file", async ({ coder }) => {
+test("reads the project owner from a file", {
+	description:
+		"The agent reads PROJECT.md and identifies Mina as the project owner. The test checks both the answer and the file read.",
+	resources: ["coder"],
+}, async ({ coder }) => {
 	const run = await coder.run({
 		prompt: "Read PROJECT.md. Who owns this project? Reply with one short sentence.",
 	});
 	expect(run.output).toContain("Mina");
 	expect(run).toHaveReadPath("PROJECT.md");
 });
-test("starts separate tasks and remembers a message when a task continues", async ({ coder }) => {
+test("starts separate tasks and remembers a message when a task continues", {
+	description:
+		"Two independent tasks must use separate workspaces. Continuing the first task must preserve its workspace and remember a code that the other task never received.",
+	resources: ["coder"],
+}, async ({ coder }) => {
 	const secret = randomUUID();
 	const [firstTask, separateTask] = await Promise.all([
 		coder.run({
@@ -64,7 +75,11 @@ test("starts separate tasks and remembers a message when a task continues", asyn
 	expect(firstTask.toolCalls).toEqual([]);
 	expect(followUp.toolCalls).toEqual([]);
 });
-test("runs the failing status test without changing files", async ({ coder }) => {
+test("runs the failing status test without changing files", {
+	description:
+		"The agent investigates the sample status bug, runs bun test, and mentions completedAt. The test requires the workspace to remain unchanged.",
+	resources: ["coder"],
+}, async ({ coder }) => {
 	const run = await coder.run({
 		prompt:
 			"Find the cause of the failing status test. Read the source and test, run bun test, and explain the cause. Do not change files.",
@@ -75,10 +90,11 @@ test("runs the failing status test without changing files", async ({ coder }) =>
 	expect(run).toHaveExecutedCommand({ command: RUN_TESTS });
 	expect(run.workspace.changedPaths).toEqual([]);
 });
-test("fixes the status bug and asks a judge to review the change", async ({
-	coder,
-	repairReview,
-}) => {
+test("fixes the status bug and asks a judge to review the change", {
+	description:
+		"The agent fixes src/status.ts and runs the tests. A separate judge reviews the supplied source and changed paths against the two task-status requirements.",
+	resources: ["coder", "repairReview"],
+}, async ({ coder, repairReview }) => {
 	const run = await coder.run({
 		prompt:
 			"Fix the status bug in src/status.ts. Change only that source file. Run bun test. End with TASK_STATUS_FIXED.",
@@ -97,7 +113,11 @@ test("fixes the status bug and asks a judge to review the change", async ({
 	expect(evaluation.output.behaviorCorrect).toBe(true);
 	expect(evaluation.output.onlyAllowedFilesChanged).toBe(true);
 });
-test("gets a task date without calling Read, Shell, or Bash", async ({ taskReader }) => {
+test("gets a task date without calling Read, Shell, or Bash", {
+	description:
+		"The agent retrieves TASK-104 through the task service. The answer must contain September 24, 2026, without using file or shell tools.",
+	resources: ["taskReader"],
+}, async ({ taskReader }) => {
 	const run = await taskReader.run({
 		prompt:
 			"Call get_task with TASK-104. Reply with its current due date in YYYY-MM-DD format only. Do not use file or shell tools.",
@@ -107,7 +127,11 @@ test("gets a task date without calling Read, Shell, or Bash", async ({ taskReade
 	expect(run).not.toHaveCalledTool(LOCAL_TOOLS);
 });
 // The skill says to read PROJECT.md and return only the release note from that file.
-test("reads a skill and follows its release note instructions", async ({ releaseWriter }) => {
+test("reads a skill and follows its release note instructions", {
+	description:
+		"The agent reads the attached release-note skill and PROJECT.md, then returns exactly the release note stored in the project.",
+	resources: ["releaseWriter"],
+}, async ({ releaseWriter }) => {
 	const run = await releaseWriter.run({
 		prompt: "Use the release-note skill. Return only the release note.",
 	});
@@ -116,9 +140,11 @@ test("reads a skill and follows its release note instructions", async ({ release
 	expect(run).toHaveReadPath("PROJECT.md");
 });
 // Search returns an old date, September 20. The task details give the current date, September 24.
-test("gets the current date from task details instead of an old search result", async ({
-	taskReader,
-}) => {
+test("gets the current date from task details instead of an old search result", {
+	description:
+		"Three independent tasks use search only, search plus details, or details only. The test distinguishes the stale search date from the current task date and compares the tool calls.",
+	resources: ["taskReader"],
+}, async ({ taskReader }) => {
 	const [searchOnly, searchThenDetails, detailsOnly] = await Promise.all([
 		taskReader.run({
 			prompt: "Call search_tasks for TASK-104. Use only that result. Reply with the due date only.",
@@ -144,11 +170,11 @@ test("gets the current date from task details instead of an old search result", 
 });
 // Both sources contain the current dates. This example compares two required methods.
 // Reading four separate records adds work on purpose so we can compare it with one index lookup.
-test("uses fewer tokens and tool calls for one index lookup than four file reads", async ({
-	fileLookup,
-	taskReader,
-	answerReview,
-}) => {
+test("uses fewer tokens and tool calls for one index lookup than four file reads", {
+	description:
+		"Across two rounds, compare four separate file reads with one task-index lookup. One judge checks all four answers; assertions compare average token use and tool calls. Two rounds are illustrative, not statistical proof.",
+	resources: ["fileLookup", "taskReader", "answerReview"],
+}, async ({ fileLookup, taskReader, answerReview }) => {
 	const samples = [];
 	// Two rounds show how to calculate an average. They do not prove that the index always uses fewer tokens.
 	for (let repetition = 0; repetition < 2; repetition++) {
@@ -166,17 +192,23 @@ test("uses fewer tokens and tool calls for one index lookup than four file reads
 			expect(fileRun).toHaveReadPath(`records/${id}.md`);
 		expect(indexRun).toHaveCalledTool(TASK_INDEX);
 		expect(indexRun.toolCalls).toHaveLength(1);
-		const review = await answerReview.run({
-			input: {
-				fileAnswer: fileRun.output,
-				indexAnswer: indexRun.output,
-				referenceDate: "2026-09-24",
-			},
-		});
-		expect(review.output.fileAnswerCorrect).toBe(true);
-		expect(review.output.indexAnswerCorrect).toBe(true);
 		samples.push({ fileRun, indexRun });
 	}
+	const [roundOne, roundTwo] = samples;
+	if (!roundOne || !roundTwo) throw new Error("Expected two comparison rounds");
+	const review = await answerReview.run({
+		input: {
+			fileRoundOne: roundOne.fileRun.output,
+			indexRoundOne: roundOne.indexRun.output,
+			fileRoundTwo: roundTwo.fileRun.output,
+			indexRoundTwo: roundTwo.indexRun.output,
+			referenceDate: "2026-09-24",
+		},
+	});
+	expect(review.output.fileRoundOneCorrect).toBe(true);
+	expect(review.output.indexRoundOneCorrect).toBe(true);
+	expect(review.output.fileRoundTwoCorrect).toBe(true);
+	expect(review.output.indexRoundTwoCorrect).toBe(true);
 	const fileTokens = statistics(samples.map(({ fileRun }) => fileRun.usage.tokens.total));
 	const indexTokens = statistics(samples.map(({ indexRun }) => indexRun.usage.tokens.total));
 	expect(indexTokens.mean).toBeLessThan(fileTokens.mean);

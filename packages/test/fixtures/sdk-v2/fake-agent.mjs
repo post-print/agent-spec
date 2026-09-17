@@ -10,7 +10,7 @@ function gradeResponse(prompt, options) {
 			: JSON.stringify(options.response ?? { correct: true, reason: "Verified", input }),
 	};
 }
-async function* codingEvents({ prompt, workspace, answer, turns }) {
+async function* codingEvents({ prompt, workspace, answer, turns, progress }) {
 	if (prompt.includes("WAIT_FOREVER")) await new Promise(() => {});
 	if (prompt.includes("FAIL_NOW")) throw new Error("fake failure");
 	const text = await readFile(join(workspace.path, "PROJECT.md"), "utf8");
@@ -30,6 +30,7 @@ async function* codingEvents({ prompt, workspace, answer, turns }) {
 		exitCode: 0,
 		succeeded: true,
 	};
+	if (progress) yield { type: "text", text: progress };
 	yield { type: "text", text: `${answer} turn ${turns}` };
 }
 export default {
@@ -54,7 +55,7 @@ export default {
 					if (prompt.includes("WAIT_FOREVER")) await new Promise(() => {});
 					yield gradeResponse(prompt, options);
 				} else {
-					yield* codingEvents({ prompt, workspace, answer, turns });
+					yield* codingEvents({ prompt, workspace, answer, turns, progress: options.progress });
 				}
 				if (!options.omitUsage)
 					yield {

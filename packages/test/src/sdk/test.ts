@@ -45,7 +45,7 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		signal: new AbortController().signal,
 		onEvent: (event) => {
 			writes = writes.then(() => appendFile(path, `${JSON.stringify(event)}\n`));
-			if (process.env.AGENT_TEST_VIEWER_EVENTS === "1")
+			if (process.env.AGENT_TEST_VIEWER_EVENTS === "1" || process.env.AGENT_TEST_RECORDER === "1")
 				process.stdout.write(`@@agent-test:${JSON.stringify(event)}\n`);
 		},
 	});
@@ -69,10 +69,19 @@ export type Fixtures<R extends Resources> = {
 			? AgentFixture
 			: never;
 };
-export type SuiteTest<R extends Resources> = (
-	title: string,
-	body: (fixtures: Fixtures<R>, info: TestInfo) => Promise<void> | void,
-) => void;
+type TestBody<R extends Resources> = (
+	fixtures: Fixtures<R>,
+	info: TestInfo,
+) => Promise<void> | void;
+export type TestDetails<R extends Resources = Resources> = {
+	description: string;
+	criteria?: readonly string[];
+	resources?: readonly Extract<keyof R, string>[];
+};
+export interface SuiteTest<R extends Resources> {
+	(title: string, body: TestBody<R>): void;
+	(title: string, details: TestDetails<R>, body: TestBody<R>): void;
+}
 function bind<R extends Resources>(resources: R, runtime: TestRuntime): Fixtures<R> {
 	return Object.fromEntries(
 		Object.entries(resources).map(([name, resource]) => [
@@ -95,13 +104,30 @@ export function describe<R extends Resources>(
 		)
 	)
 		throw new Error("describe must return named agent() and judge() resources");
-	return (title, body) => {
+	return (title, detailsOrBody: TestBody<R> | TestDetails<R>, body?: TestBody<R>) => {
+		const callback = typeof detailsOrBody === "function" ? detailsOrBody : body;
+		if (!callback) throw new Error("Test body is required");
+		const details = typeof detailsOrBody === "function" ? undefined : detailsOrBody;
+		const annotation = testAnnotations(resources, details);
 		runner.describe(name, () => {
-			runner(title, async ({ runtime }, info) => {
-				await body(bind(resources, runtime), info);
+			runner(title, { annotation }, async ({ runtime }, info) => {
+				await callback(bind(resources, runtime), info);
 			});
 		});
 	};
+}
+
+function testAnnotations<R extends Resources>(resources: R, details?: TestDetails<R>) {
+	return [
+		{
+			type: "agent-test.resources",
+			description: JSON.stringify(resourceMetadata(resources, details?.resources)),
+		},
+		...(details?.description ? [{ type: "description", description: details.description }] : []),
+		...(details?.criteria?.length
+			? [{ type: "agent-test.criteria", description: JSON.stringify(details.criteria) }]
+			: []),
+	];
 }
 interface Configuration {
 	agent?: AgentDefinition;
@@ -129,7 +155,34 @@ export function defineConfig(config: AgentTestConfig): PlaywrightTestConfig<Defa
 		timeout: 180_000,
 		retries: 0,
 		workers: 1,
+		fullyParallel: true,
 		...translate(root),
 		projects: projects?.map(translate),
 	});
+}
+
+function resourceMetadata<R extends Resources>(
+	resources: R,
+	selected?: readonly Extract<keyof R, string>[],
+) {
+	const names = selected ?? (Object.keys(resources) as Extract<keyof R, string>[]);
+	return names.map((name) => {
+		const resource = resources[name];
+		if (!resource) throw new Error(`Unknown test resource: ${name}`);
+		return resourceMetadataEntry(name, resource);
+	});
+}
+function resourceMetadataEntry(name: string, resource: Resource) {
+	const { settings } = resource;
+	return {
+		name,
+		kind: resource.kind,
+		description: settings.description,
+		host: settings.agent?.host ?? (settings.agent?.adapter ? "custom" : undefined),
+		model: settings.model ?? settings.agent?.options.model,
+		skills: [...(settings.agent?.options.skills ?? []), ...(settings.skills ?? [])],
+		mcpServers: Object.keys({ ...settings.agent?.options.mcpServers, ...settings.mcpServers }),
+		workspace: resource.kind === "agent" ? resource.settings.workspace : undefined,
+		prompt: resource.kind === "judge" ? resource.settings.prompt : undefined,
+	};
 }

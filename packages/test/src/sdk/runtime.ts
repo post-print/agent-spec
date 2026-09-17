@@ -7,7 +7,7 @@ import {
 	type HarnessSession,
 	toolPathsOutsideWorkspace,
 } from "@post-print/agent-harness";
-import type { z } from "zod/v4";
+import { z } from "zod/v4";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import { evaluate } from "./judge.js";
 import type {
@@ -72,10 +72,7 @@ function captureRun(input: CaptureInput): Omit<Run, "continue"> {
 		prompt,
 		trace,
 		conversation: structuredClone(history),
-		output: trace.messages
-			.filter((message) => message.role === "assistant")
-			.map((message) => message.content)
-			.join("\n"),
+		output: finalAssistantMessage(trace),
 		toolCalls: trace.toolCalls,
 		durationMs,
 		usage: runUsage(trace.usage),
@@ -88,6 +85,10 @@ function captureRun(input: CaptureInput): Omit<Run, "continue"> {
 			changedPaths: changedPaths(initial, final),
 		},
 	};
+}
+
+function finalAssistantMessage(trace: AgentTrace): string {
+	return trace.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? "";
 }
 function assertWorkspacePaths(trace: AgentTrace, workspace: string) {
 	const escaped = toolPathsOutsideWorkspace(trace, workspace);
@@ -141,7 +142,15 @@ export class TestRuntime {
 						...this.options,
 						signal: this.signal,
 					});
-					this.options.onEvent?.({ runId: result.id, type: "evaluation", value: result });
+					this.options.onEvent?.({
+						runId: result.id,
+						type: "evaluation",
+						value: {
+							...result,
+							input,
+							evaluation: { prompt, schema: z.toJSONSchema(schema) },
+						},
+					});
 					return result;
 				}),
 		};

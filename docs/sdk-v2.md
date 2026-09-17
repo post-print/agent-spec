@@ -1,7 +1,7 @@
 # Agent Test SDK
 
 <!-- source-of-truth: named agent and judge resources, independent runs, and selected evaluation input -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-17 -->
 <!-- review-deps: paths=packages/test/src/sdk/*.ts,agent-test*.config.ts,agent-suites/**/*.ts -->
 
 ## Configure defaults
@@ -28,8 +28,11 @@ The default repository config selects OpenAI once. Cross-host execution is expli
 import { describe, expect, z } from "@post-print/agent-test";
 
 const test = describe("task answers", ({ agent, judge }) => ({
-  baseline: agent(),
-  researcher: agent({ skills: ["./skills/research"] }),
+  baseline: agent({ description: "Uses the suite's default agent configuration." }),
+  researcher: agent({
+    description: "Adds the research skill for current-information tasks.",
+    skills: ["./skills/research"],
+  }),
   accuracy: judge({
     prompt: "Compare each answer against the supplied reference.",
     schema: z.object({
@@ -58,11 +61,11 @@ test("research preserves accuracy", async ({ baseline, researcher, accuracy }) =
 });
 ```
 
-`describe` runs its synchronous callback during discovery and returns a scoped test function. The callback returns only named `agent()` and `judge()` resources. Each test receives its own handles under those names. Resource names appear in the viewer. Schema output types are preserved through the returned test function.
+`describe` runs its synchronous callback during discovery and returns a scoped test function. The callback returns only named `agent()` and `judge()` resources. Each test receives its own handles under those names. Resource names and optional descriptions appear in the viewer. Descriptions are discovery metadata and are not sent to the host agent. Schema output types are preserved through the returned test function.
 
 Factories inherit the config's corresponding agent or judge definition. Set `agent: claude(...)` on a factory to override that definition. A judge without a configured or explicit reviewer fails clearly; it never borrows the coding agent implicitly.
 
-The scoped test function currently registers a title and async body. It is not the full Playwright `TestType` and does not expose `test.use`, `extend`, or hook methods. Use `agent().setup(fn)` for workspace preparation. Playwright still owns test selection, projects, retries, timeouts, scheduling, and reports.
+The scoped test function currently registers a title, an optional description, and an async body. It is not the full Playwright `TestType` and does not expose `test.use`, `extend`, or hook methods. Use `agent().setup(fn)` for workspace preparation. Playwright still owns test selection, projects, retries, timeouts, scheduling, and reports.
 
 ## Independent tasks and explicit continuation
 
@@ -144,3 +147,22 @@ Use `defineAgent` and `customAgent` from agent-harness. The adapter supplies cap
 Replace `test.use` with direct config defaults and factory resources returned from `describe`. Replace string run arguments with `{ prompt }`. Successive independent runs no longer share a workspace: use `run.continue` explicitly. Replace `compare` with JavaScript and assertions. Replace `defineJudge`/`run.judge` with a named `judge({ prompt, schema })` resource and selected `input`.
 
 JSON suites and their separate runtime remain removed. Playwright HTML reporting is available through `agent-test test --reporter=html`. No compatibility execution path is retained for the earlier SDK shape.
+
+## Test pages in the viewer
+
+Tests may supply a description, the named resources they use, and explicit pass criteria for discovery and the viewer. Resource names are checked against the surrounding `describe` definition. Omit `resources` to expose every suite resource for compatibility.
+
+```ts
+test("reads the project owner", {
+  description: "Read PROJECT.md and name its owner. Check that the agent actually read the file.",
+  resources: ["coder"],
+  criteria: ["The response names the owner.", "PROJECT.md is read."],
+}, async ({ coder }) => {
+  const run = await coder.run({ prompt: "Who owns the project? Read PROJECT.md." });
+  expect(run).toHaveReadPath("PROJECT.md");
+});
+```
+
+The viewer lists all discovered tests in its persistent sidebar. Each test has a separate route with its description, pass criteria, project, source file, and declared resources. Resource metadata shows configured hosts, models, skills, MCP server names, and judge instructions; it excludes authentication and MCP credentials. Recorded operations show which declared resources actually ran.
+
+The Current run, Test setup, and Run history tabs keep the selected view and execution in the URL, so reload and browser navigation preserve them. Selecting a run that contains multiple tests shows only the selected test's attempts.
