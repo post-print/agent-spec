@@ -1,5 +1,6 @@
 import { basename, resolve } from "node:path";
 import { expect as base } from "@playwright/test";
+import { consumeCriterionOperations } from "./criterion-provenance.js";
 import type { Run } from "./types.js";
 
 const FILE_PROTOCOL = /^file:\/\//;
@@ -47,7 +48,7 @@ function shellReadsPath(run: Run, command: string, path: string): boolean {
 	});
 }
 const outcome = (pass: boolean, description: string) => ({ pass, message: () => description });
-export const expect = base.extend({
+const extendedExpect = base.extend({
 	toHaveExecutedCommand(run: Run, expected: { command: string | RegExp; exitCode?: number }) {
 		requireTools(run);
 		if (expected.exitCode !== undefined && !run.capabilities.commandExitCodes)
@@ -128,5 +129,40 @@ export const expect = base.extend({
 			run.workspace.changedPaths.includes(path),
 			`Expected resulting modification to ${path}; changed: ${run.workspace.changedPaths.join(", ")}`,
 		);
+	},
+});
+
+function recordCriterionOwners(actual: unknown, criterion: unknown): void {
+	const owners = new Set(consumeCriterionOperations());
+	if (isOperationResult(actual)) owners.add(actual.id);
+	if (
+		typeof criterion !== "string" ||
+		(!process.env.AGENT_TEST_VIEWER_EVENTS && !process.env.AGENT_TEST_RECORDER)
+	)
+		return;
+	for (const runId of owners)
+		process.stdout.write(
+			`@@agent-test:${JSON.stringify({
+				runId,
+				type: "criterion",
+				value: { criterion },
+			})}\n`,
+		);
+}
+
+function isOperationResult(value: unknown): value is { id: string } {
+	return Boolean(
+		value &&
+			typeof value === "object" &&
+			"id" in value &&
+			typeof value.id === "string" &&
+			"usage" in value,
+	);
+}
+
+export const expect = new Proxy(extendedExpect, {
+	apply(target, thisArg, argumentsList) {
+		recordCriterionOwners(argumentsList[0], argumentsList[1]);
+		return Reflect.apply(target, thisArg, argumentsList);
 	},
 });

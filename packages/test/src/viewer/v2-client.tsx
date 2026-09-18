@@ -8,7 +8,14 @@ import {
 	Outlet,
 	useNavigate,
 } from "@tanstack/react-router";
-import { createContext, type KeyboardEvent, useContext, useState } from "react";
+import {
+	createContext,
+	type KeyboardEvent,
+	type ReactNode,
+	useContext,
+	useId,
+	useState,
+} from "react";
 import Markdown from "react-markdown";
 import { viewerApi } from "./generated-api.js";
 import {
@@ -41,7 +48,14 @@ type Attempt = {
 		assertion?: string;
 	}>;
 	output: { stdout: string[]; stderr: string[] };
-	operations: Array<{ id: string; kind: string; name?: string; status: string; data: unknown[] }>;
+	operations: Array<{
+		id: string;
+		kind: string;
+		name?: string;
+		status: string;
+		invocationIndex?: number;
+		data: unknown[];
+	}>;
 };
 type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
 type TestView = "current" | "setup" | "history";
@@ -694,6 +708,11 @@ const styles = stylex.create({
 	conversation: {
 		display: "grid",
 		gap: "0.55rem",
+		padding: "0.2rem 0",
+	},
+	conversationSurface: {
+		display: "grid",
+		gap: "0.55rem",
 		padding: "0.75rem",
 		border: "1px solid var(--border)",
 		borderRadius: 10,
@@ -708,7 +727,7 @@ const styles = stylex.create({
 	conversationHeader: {
 		display: "flex",
 		alignItems: "center",
-		justifyContent: "space-between",
+		justifyContent: "flex-start",
 		gap: "0.75rem",
 	},
 	runTabs: { display: "inline-flex", alignItems: "center", gap: "0.12rem" },
@@ -724,34 +743,49 @@ const styles = stylex.create({
 		cursor: "pointer",
 	},
 	runTabActive: { backgroundColor: "var(--accent-soft)", color: "var(--accent)" },
-	conversationTabs: { display: "flex", flexWrap: "wrap", gap: "0.25rem" },
+	conversationTabs: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: "0.9rem",
+		padding: "0 0.15rem",
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: "var(--border)",
+	},
 	conversationTab: {
 		display: "inline-flex",
 		alignItems: "center",
-		gap: "0.2rem",
+		gap: "0.3rem",
 		boxSizing: "border-box",
-		height: "1.1rem",
-		minHeight: 0,
+		height: "1.85rem",
+		minHeight: "1.85rem",
 		lineHeight: 1,
-		padding: "0.08rem 0.32rem",
-		fontSize: "0.5rem",
+		padding: "0.2rem 0.1rem",
+		marginBottom: -1,
+		fontSize: "0.58rem",
 		fontWeight: 750,
 		letterSpacing: "0.04em",
 		textTransform: "uppercase",
-		borderColor: "var(--border)",
-		backgroundColor: { default: "transparent", ":hover": "var(--panel-3)" },
+		borderBottomWidth: 2,
+		borderBottomStyle: "solid",
+		borderBottomColor: "transparent",
+		borderRadius: 0,
+		backgroundColor: "transparent",
 		color: "var(--muted)",
 		cursor: "pointer",
 	},
 	conversationTabActive: {
-		borderColor: "var(--pass)",
-		backgroundColor: "var(--pass-soft)",
-		color: "var(--pass)",
+		borderBottomColor: "var(--accent)",
+		color: "var(--text)",
 	},
 	conversationTabDot: {
 		width: "0.28rem",
 		height: "0.28rem",
 		borderRadius: 999,
+		flex: "none",
+	},
+	conversationTabDotDone: { backgroundColor: "var(--pass)" },
+	conversationTabDotRunning: {
 		backgroundColor: "var(--skip)",
 		animationName: runningPulse,
 		animationDuration: {
@@ -764,6 +798,7 @@ const styles = stylex.create({
 		},
 		animationTimingFunction: "ease-in-out",
 	},
+	conversationTabDotStopped: { backgroundColor: "var(--fail)" },
 	conversationThread: { display: "grid", gap: "0.55rem" },
 	runningIndicator: {
 		display: "inline-flex",
@@ -821,6 +856,106 @@ const styles = stylex.create({
 		textTransform: "uppercase",
 	},
 	messageContent: { margin: 0, color: "var(--text)", fontSize: "0.79rem", lineHeight: 1.5 },
+	judgeQuestion: {
+		display: "grid",
+		justifySelf: "stretch",
+		gap: "0.45rem",
+		padding: "0.7rem",
+		border: "1px solid oklch(0.75 0.12 175 / 0.3)",
+		borderRadius: 10,
+		backgroundColor: "var(--accent-soft)",
+	},
+	judgeQuestionText: {
+		margin: 0,
+		color: "var(--text)",
+		fontSize: "0.79rem",
+		lineHeight: 1.5,
+	},
+	judgeContext: {
+		display: "grid",
+		gap: "0.4rem",
+		paddingTop: "0.55rem",
+		borderTop: "1px solid oklch(0.75 0.12 175 / 0.22)",
+	},
+	judgeContextHeader: {
+		display: "flex",
+		alignItems: "baseline",
+		justifyContent: "space-between",
+		gap: "0.75rem",
+		color: "var(--text)",
+		fontSize: "0.7rem",
+	},
+	judgeContextNote: { margin: 0, color: "var(--muted)", fontSize: "0.68rem", lineHeight: 1.4 },
+	judgeContextGroup: { display: "grid", gap: "0.35rem" },
+	judgeContextGroupHeading: {
+		margin: 0,
+		color: "var(--subtle)",
+		fontSize: "0.64rem",
+		fontWeight: 750,
+		letterSpacing: "0.04em",
+		textTransform: "uppercase",
+	},
+	judgeContextTabs: {
+		display: "flex",
+		flexWrap: "nowrap",
+		gap: "0.55rem",
+		overflowX: "auto",
+		scrollbarWidth: "none",
+		"::-webkit-scrollbar": { display: "none" },
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: "oklch(0.75 0.12 175 / 0.22)",
+	},
+	judgeContextTab: {
+		flex: "0 0 auto",
+		minHeight: "1.75rem",
+		padding: "0.25rem 0.05rem",
+		marginBottom: -1,
+		borderBottomWidth: 2,
+		borderBottomStyle: "solid",
+		borderBottomColor: "transparent",
+		backgroundColor: { default: "transparent", ":hover": "var(--panel-3)" },
+		color: "var(--muted)",
+		fontSize: "0.58rem",
+		fontWeight: 750,
+		whiteSpace: "nowrap",
+		cursor: "pointer",
+	},
+	judgeContextTabActive: { borderBottomColor: "var(--accent)", color: "var(--text)" },
+	judgeContextAnswer: {
+		display: "grid",
+		gap: "0.3rem",
+		padding: "0.5rem",
+		borderRadius: 6,
+		backgroundColor: "var(--bg)",
+	},
+	judgeContextList: { display: "grid", gap: "0.3rem", margin: 0 },
+	judgeContextItem: {
+		display: "grid",
+		gridTemplateColumns: {
+			default: "minmax(7.5rem, 0.3fr) minmax(0, 1fr)",
+			"@media (max-width: 620px)": "1fr",
+		},
+		gap: "0.65rem",
+		padding: "0.4rem 0.5rem",
+		borderRadius: 6,
+		backgroundColor: "var(--bg)",
+	},
+	judgeContextLabel: {
+		color: "var(--subtle)",
+		fontSize: "0.64rem",
+		fontWeight: 750,
+		letterSpacing: "0.03em",
+		textTransform: "uppercase",
+	},
+	judgeContextValue: {
+		margin: 0,
+		color: "var(--text)",
+		fontSize: "0.72rem",
+		lineHeight: 1.45,
+		whiteSpace: "pre-wrap",
+		wordBreak: "break-word",
+	},
 	judgeResponse: {
 		display: "grid",
 		justifySelf: "start",
@@ -1761,13 +1896,9 @@ function ComparisonColumn({ execution, label }: { execution: ExecutionDetail; la
 }
 
 function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: string[] }) {
-	const output = [...attempt.output.stdout, ...attempt.output.stderr].join("\n");
-	const result = operationResult(attempt.operations);
-	const title = attempt.title.filter(Boolean).at(-1) ?? "Unnamed test";
-	const [selectedConversationId, setSelectedConversationId] = useState(attempt.operations[0]?.id);
-	const selectedConversation =
-		attempt.operations.find((operation) => operation.id === selectedConversationId) ??
-		attempt.operations[0];
+	const { operations, output, title } = attemptPresentation(attempt, criteria);
+	const agents = operations.filter((operation) => operation.kind !== "evaluation");
+	const judges = operations.filter((operation) => operation.kind === "evaluation");
 	return (
 		<article {...stylex.props(styles.attemptCard)}>
 			<div {...stylex.props(styles.row)}>
@@ -1794,36 +1925,248 @@ function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: 
 					</span>
 				</div>
 			</div>
-			<OperationList operations={attempt.operations} />
-			<RunResult
-				result={result}
-				status={attempt.status}
+			<OperationList operations={operations} />
+			<ConversationSection
+				label="Agents"
+				sectionOperations={agents}
+				allOperations={operations}
+				attempt={attempt}
 				criteria={criteria}
-				explanations={judgeCriterionExplanations(attempt.operations)}
-				errors={attempt.errors}
-				criterionResults={attempt.criterionResults}
 			/>
-			{attempt.operations.length > 0 ? (
-				<ConversationTabs
-					operations={attempt.operations}
-					selected={selectedConversation}
-					select={setSelectedConversationId}
-					attemptStatus={attempt.status}
-				/>
-			) : null}
-			<Conversation
-				operation={selectedConversation}
-				operations={attempt.operations}
-				select={setSelectedConversationId}
-				status={
-					attempt.status === "running"
-						? (selectedConversation?.status ?? attempt.status)
-						: attempt.status
-				}
+			<ConversationSection
+				label="Judges"
+				sectionOperations={judges}
+				allOperations={operations}
+				attempt={attempt}
+				criteria={criteria}
 			/>
-			<TechnicalDetails operations={attempt.operations} output={output} />
+			<TechnicalDetails operations={operations} output={output} />
 		</article>
 	);
+}
+
+function ConversationSection({
+	label,
+	sectionOperations,
+	allOperations,
+	attempt,
+	criteria,
+}: {
+	label: "Agents" | "Judges";
+	sectionOperations: Attempt["operations"];
+	allOperations: Attempt["operations"];
+	attempt: Attempt;
+	criteria: string[];
+}) {
+	const [selectedId, setSelectedId] = useState(sectionOperations[0]?.id);
+	if (!sectionOperations.length && (allOperations.length > 0 || label === "Judges")) return null;
+	const selected =
+		sectionOperations.find((operation) => operation.id === selectedId) ?? sectionOperations[0];
+	const status =
+		attempt.status === "running" ? (selected?.status ?? attempt.status) : attempt.status;
+	return (
+		<Conversation
+			label={label}
+			operation={selected}
+			operations={sectionOperations}
+			allOperations={allOperations}
+			select={setSelectedId}
+			status={status}
+			attemptStatus={attempt.status}
+			result={
+				<AttemptResult
+					attempt={attempt}
+					criteria={criteria}
+					operation={selected}
+					operations={allOperations}
+					result={selectedOperationResult(selected)}
+				/>
+			}
+		/>
+	);
+}
+
+function attemptPresentation(attempt: Attempt, criteria: string[]) {
+	return {
+		operations: orderedAttemptOperations(attempt.operations, criteria),
+		output: [...attempt.output.stdout, ...attempt.output.stderr].join("\n"),
+		title: attempt.title.filter(Boolean).at(-1) ?? "Unnamed test",
+	};
+}
+
+function selectedOperationResult(operation?: Attempt["operations"][number]) {
+	return operationResult(operation ? [operation] : []);
+}
+
+function orderedAttemptOperations(
+	operations: Attempt["operations"],
+	criteria: string[],
+): Attempt["operations"] {
+	const entries = operations.map((operation, index) => ({
+		operation,
+		index,
+		invocationIndex: operationInvocationIndex(operation),
+	}));
+	if (entries.some((entry) => entry.invocationIndex !== undefined))
+		return entries
+			.sort(
+				(left, right) =>
+					(left.invocationIndex ?? Number.POSITIVE_INFINITY) -
+						(right.invocationIndex ?? Number.POSITIVE_INFINITY) || left.index - right.index,
+			)
+			.map((entry) => entry.operation);
+	return entries
+		.sort((left, right) => {
+			if (operationIdentity(left.operation) !== operationIdentity(right.operation))
+				return left.index - right.index;
+			const leftOrdinal = inferredOperationOrdinal(criteria, left.operation);
+			const rightOrdinal = inferredOperationOrdinal(criteria, right.operation);
+			if (leftOrdinal === undefined || rightOrdinal === undefined) return left.index - right.index;
+			return leftOrdinal - rightOrdinal || left.index - right.index;
+		})
+		.map((entry) => entry.operation);
+}
+
+function operationInvocationIndex(operation: Attempt["operations"][number]): number | undefined {
+	if (typeof operation.invocationIndex === "number") return operation.invocationIndex;
+	return operation.data.flatMap((value) => {
+		if (!isRecord(value) || typeof value.invocationIndex !== "number") return [];
+		return [value.invocationIndex];
+	})[0];
+}
+
+function AttemptResult({
+	attempt,
+	criteria,
+	operation,
+	operations,
+	result,
+}: {
+	attempt: Attempt;
+	criteria: string[];
+	operation?: Attempt["operations"][number];
+	operations: Attempt["operations"];
+	result: RunResultData;
+}) {
+	const hasJudge = operations.some((item) => item.kind === "evaluation");
+	const includeShared =
+		attempt.status !== "running" && (operation?.kind === "evaluation" || !hasJudge);
+	const indexes = selectedCriterionIndexes({ criteria, operation, operations, includeShared });
+	return (
+		<RunResult
+			result={result}
+			status={attempt.status}
+			criteria={selectIndexes(criteria, indexes)}
+			explanations={selectOptionalIndexes(
+				operationCriterionExplanations(criteria, operation),
+				indexes,
+			)}
+			errors={attempt.errors}
+			criterionResults={selectIndexes(attempt.criterionResults, indexes)}
+		/>
+	);
+}
+
+function selectedCriterionIndexes(input: {
+	criteria: string[];
+	operation: Attempt["operations"][number] | undefined;
+	operations: Attempt["operations"];
+	includeShared: boolean;
+}): number[] | undefined {
+	const { criteria, operation, operations, includeShared } = input;
+	const recorded = operationCriterionIndexes(criteria, operation);
+	const allRecorded = new Set(
+		operations.flatMap((item) => operationCriterionIndexes(criteria, item)),
+	);
+	if (allRecorded.size)
+		return criteria.flatMap((_, index) =>
+			recorded.includes(index) || (includeShared && !allRecorded.has(index)) ? [index] : [],
+		);
+	if (!includeShared) return [];
+	return inferredRepeatedRunCriterionIndexes(criteria, operation, operations);
+}
+
+function operationCriterionIndexes(
+	criteria: string[],
+	operation: Attempt["operations"][number] | undefined,
+): number[] {
+	return [
+		...new Set(operation?.data.flatMap((item) => criterionRecordIndexes(criteria, item)) ?? []),
+	];
+}
+
+function criterionRecordIndexes(criteria: string[], value: unknown): number[] {
+	if (!isRecord(value)) return [];
+	if (typeof value.criterion === "string") {
+		const index = criteria.indexOf(value.criterion);
+		return index < 0 ? [] : [index];
+	}
+	if (Array.isArray(value.criterionIndexes))
+		return value.criterionIndexes.filter((index): index is number => Number.isInteger(index));
+	return Number.isInteger(value.criterionIndex) ? [Number(value.criterionIndex)] : [];
+}
+
+const RUN_ORDINALS = ["first", "second", "third", "fourth", "fifth"];
+const CRITERION_WORD_SEPARATOR = /[^a-z0-9]+/;
+
+function inferredRepeatedRunCriterionIndexes(
+	criteria: string[],
+	operation: Attempt["operations"][number] | undefined,
+	operations: Attempt["operations"],
+): number[] | undefined {
+	if (!operation) return undefined;
+	const runs = operations.filter(
+		(item) => operationIdentity(item) === operationIdentity(operation),
+	);
+	if (runs.length < 2) return undefined;
+	const selected =
+		inferredOperationOrdinal(criteria, operation) ??
+		runs.findIndex((run) => run.id === operation.id);
+	const scopes = criteria.map(criterionRunOrdinal);
+	if (selected < 0 || !scopes.some((scope) => scope !== undefined)) return undefined;
+	return scopes.flatMap((scope, index) =>
+		scope === undefined || scope === selected ? [index] : [],
+	);
+}
+
+function inferredOperationOrdinal(
+	criteria: string[],
+	operation: Attempt["operations"][number],
+): number | undefined {
+	const output = operationResult([operation]).output?.trim().toLowerCase();
+	if (!output) return undefined;
+	const matches = criteria.flatMap((criterion) => {
+		const ordinal = criterionRunOrdinal(criterion);
+		const score = criterionOutputScore(criterion, output);
+		return ordinal === undefined || score === 0 ? [] : [{ ordinal, score }];
+	});
+	const bestScore = Math.max(0, ...matches.map((match) => match.score));
+	const ordinals = new Set(
+		matches.filter((match) => match.score === bestScore).map((match) => match.ordinal),
+	);
+	return ordinals.size === 1 ? [...ordinals][0] : undefined;
+}
+
+function criterionOutputScore(criterion: string, output: string): number {
+	const normalized = criterion.toLowerCase();
+	if (normalized.includes(`exactly ${output}`)) return 2;
+	return normalized.split(CRITERION_WORD_SEPARATOR).includes(output) ? 1 : 0;
+}
+
+function criterionRunOrdinal(criterion: string): number | undefined {
+	const normalized = criterion.toLowerCase();
+	const index = RUN_ORDINALS.findIndex((ordinal) => normalized.includes(`${ordinal} `));
+	return index < 0 ? undefined : index;
+}
+
+function selectIndexes<T>(values: T[], indexes: number[] | undefined): T[] {
+	return indexes
+		? indexes.flatMap((index) => (values[index] === undefined ? [] : [values[index]]))
+		: values;
+}
+
+function selectOptionalIndexes<T>(values: Array<T | undefined>, indexes: number[] | undefined) {
+	return indexes ? indexes.map((index) => values[index]) : values;
 }
 
 function CopyFailureButton({ attempt, criteria }: { attempt: Attempt; criteria: string[] }) {
@@ -2392,31 +2735,53 @@ function ResultMetrics({ result }: { result: RunResultData }) {
 }
 
 function Conversation({
+	label,
 	operation,
 	operations,
+	allOperations,
 	select,
 	status,
+	attemptStatus,
+	result,
 }: {
+	label: "Agents" | "Judges";
 	operation?: Attempt["operations"][number];
 	operations: Attempt["operations"];
+	allOperations: Attempt["operations"];
 	select: (id: string) => void;
 	status: string;
+	attemptStatus: string;
+	result: ReactNode;
 }) {
 	const { timeline, judge } = conversationContent(operation, operations);
 	return (
-		<section aria-label="Conversation" {...stylex.props(styles.conversation)}>
-			<header {...stylex.props(styles.conversationHeader)}>
-				<h3 {...stylex.props(styles.contentHeading)}>Conversation</h3>
+		<section aria-label={label} {...stylex.props(styles.conversation)}>
+			<div {...stylex.props(styles.conversationSurface)}>
+				<header {...stylex.props(styles.conversationHeader)}>
+					<h3 {...stylex.props(styles.contentHeading)}>{label}</h3>
+				</header>
+				<ConversationTabs
+					label={label}
+					operations={operations}
+					selected={operation}
+					select={select}
+					attemptStatus={attemptStatus}
+				/>
 				<ConversationRunTabs operation={operation} operations={operations} select={select} />
-			</header>
-			<div {...stylex.props(styles.conversationThread)}>
-				<ConversationEvents timeline={timeline} />
-				<JudgeResponse review={judge} />
+				{operation?.kind === "evaluation" ? null : result}
+				<section aria-label={`${label} messages`} {...stylex.props(styles.conversationThread)}>
+					{judge ? (
+						<JudgeQuestion review={judge} operations={allOperations} />
+					) : (
+						<ConversationEvents timeline={timeline} />
+					)}
+					<JudgeResponse review={judge} operations={allOperations} />
+				</section>
+				{timeline.length === 0 && status !== "running" ? (
+					<p {...stylex.props(styles.meta)}>{conversationPlaceholder(status)}</p>
+				) : null}
+				{status === "running" ? <RunningIndicator kind={operation?.kind} /> : null}
 			</div>
-			{timeline.length === 0 && status !== "running" ? (
-				<p {...stylex.props(styles.meta)}>{conversationPlaceholder(status)}</p>
-			) : null}
-			{status === "running" ? <RunningIndicator kind={operation?.kind} /> : null}
 		</section>
 	);
 }
@@ -2466,21 +2831,215 @@ function ConversationEvents({ timeline }: { timeline: ConversationEvent[] }) {
 
 type JudgeReviewData = {
 	question?: string;
+	context: Array<{ label: string; value: string; rawValue: unknown }>;
 	outcomes: Array<{ label: string; passed: boolean; explanation?: string }>;
 	reason?: string;
 };
 
-function JudgeResponse({ review }: { review?: JudgeReviewData }) {
+function JudgeQuestion({
+	review,
+	operations,
+}: {
+	review: JudgeReviewData;
+	operations: Attempt["operations"];
+}) {
+	if (!review.question && !review.context.length) return null;
+	return (
+		<section aria-label="Judge question" {...stylex.props(styles.judgeQuestion)}>
+			<h4 {...stylex.props(styles.judgeResponseHeading)}>Judge question</h4>
+			{review.question ? (
+				<p {...stylex.props(styles.judgeQuestionText)}>{review.question}</p>
+			) : null}
+			{review.context.length ? (
+				<JudgeContext context={review.context} operations={operations} />
+			) : null}
+		</section>
+	);
+}
+
+type JudgeAnswerContext = JudgeReviewData["context"][number] & {
+	id: string;
+	tabLabel: string;
+};
+
+function JudgeContext({
+	context,
+	operations,
+}: {
+	context: JudgeReviewData["context"];
+	operations: Attempt["operations"];
+}) {
+	const { answers, supplied } = judgeContextGroups(context, operations);
+	const [selectedId, setSelectedId] = useState(answers[0]?.id);
+	const selected = answers.find((item) => item.id === selectedId) ?? answers[0];
+	const panelId = useId();
+	return (
+		<section aria-label="Context included" {...stylex.props(styles.judgeContext)}>
+			<div {...stylex.props(styles.judgeContextHeader)}>
+				<strong>Context included</strong>
+				<span>{context.length} selected fields</span>
+			</div>
+			<p {...stylex.props(styles.judgeContextNote)}>
+				Only these explicitly selected fields were sent to this judge.
+			</p>
+			{answers.length ? (
+				<section aria-label="Agent answers" {...stylex.props(styles.judgeContextGroup)}>
+					<h5 {...stylex.props(styles.judgeContextGroupHeading)}>Agent answers</h5>
+					<div
+						role="tablist"
+						aria-label="Agent answers included"
+						{...stylex.props(styles.judgeContextTabs)}
+					>
+						{answers.map((answer, index) => (
+							<button
+								key={answer.id}
+								type="button"
+								role="tab"
+								aria-selected={answer.id === selected?.id}
+								aria-controls={panelId}
+								{...stylex.props(
+									styles.buttonReset,
+									styles.judgeContextTab,
+									answer.id === selected?.id && styles.judgeContextTabActive,
+								)}
+								onClick={() => setSelectedId(answer.id)}
+								onKeyDown={(event) =>
+									selectContextWithKeyboard({ event, answers, index, select: setSelectedId })
+								}
+							>
+								{answer.tabLabel}
+							</button>
+						))}
+					</div>
+					{selected ? (
+						<div
+							id={panelId}
+							role="tabpanel"
+							aria-label={`Agent response from ${selected.tabLabel}`}
+							{...stylex.props(styles.judgeContextAnswer)}
+						>
+							<div {...stylex.props(styles.judgeContextValue)}>
+								<div className="message-markdown">
+									<Markdown>{normalizeTranscriptMarkdown(selected.value)}</Markdown>
+								</div>
+							</div>
+						</div>
+					) : null}
+				</section>
+			) : null}
+			{supplied.length ? (
+				<section aria-label="Additional context" {...stylex.props(styles.judgeContextGroup)}>
+					<h5 {...stylex.props(styles.judgeContextGroupHeading)}>Additional context</h5>
+					<dl {...stylex.props(styles.judgeContextList)}>
+						{supplied.map((item) => (
+							<div key={item.label} {...stylex.props(styles.judgeContextItem)}>
+								<dt {...stylex.props(styles.judgeContextLabel)}>{item.label}</dt>
+								<dd {...stylex.props(styles.judgeContextValue)}>{item.value}</dd>
+							</div>
+						))}
+					</dl>
+				</section>
+			) : null}
+		</section>
+	);
+}
+
+function judgeContextGroups(
+	context: JudgeReviewData["context"],
+	operations: Attempt["operations"],
+): { answers: JudgeAnswerContext[]; supplied: JudgeReviewData["context"] } {
+	const candidates = operations
+		.filter((operation) => operation.kind !== "evaluation")
+		.map((operation) => ({ operation, output: operationOutput(operation) }));
+	const claimed = new Set<string>();
+	const answers: JudgeAnswerContext[] = [];
+	const supplied: JudgeReviewData["context"] = [];
+	for (const [index, item] of context.entries()) {
+		const match = candidates.find(
+			(candidate) =>
+				!claimed.has(candidate.operation.id) && sameContextValue(item.rawValue, candidate.output),
+		);
+		if (!match) {
+			supplied.push(item);
+			continue;
+		}
+		claimed.add(match.operation.id);
+		answers.push({
+			...item,
+			id: `${match.operation.id}:${index}`,
+			tabLabel: agentRunLabel(match.operation, operations),
+		});
+	}
+	return { answers, supplied };
+}
+
+function operationOutput(operation: Attempt["operations"][number]): unknown {
+	const records = operation.data.filter(isRecord);
+	return [...records].reverse().find((record) => record.output !== undefined)?.output;
+}
+
+function sameContextValue(left: unknown, right: unknown): boolean {
+	if (right === undefined) return false;
+	if (left === right) return true;
+	try {
+		return JSON.stringify(left) === JSON.stringify(right);
+	} catch {
+		return false;
+	}
+}
+
+function agentRunLabel(
+	operation: Attempt["operations"][number],
+	operations: Attempt["operations"],
+): string {
+	const peers = operations.filter(
+		(item) =>
+			item.kind !== "evaluation" && operationIdentity(item) === operationIdentity(operation),
+	);
+	const name = conversationLabel(operation);
+	if (peers.length < 2) return name;
+	return `${name} · Run ${peers.findIndex((item) => item.id === operation.id) + 1}`;
+}
+
+function selectContextWithKeyboard(input: {
+	event: KeyboardEvent<HTMLButtonElement>;
+	answers: JudgeAnswerContext[];
+	index: number;
+	select: (id: string) => void;
+}): void {
+	const { event, answers, index, select } = input;
+	if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+	event.preventDefault();
+	const direction = event.key === "ArrowRight" ? 1 : -1;
+	const nextIndex = (index + direction + answers.length) % answers.length;
+	const next = answers[nextIndex];
+	if (!next) return;
+	select(next.id);
+	event.currentTarget.parentElement
+		?.querySelectorAll<HTMLButtonElement>("[role=tab]")
+		[nextIndex]?.focus();
+}
+
+function JudgeResponse({
+	review,
+	operations,
+}: {
+	review?: JudgeReviewData;
+	operations: Attempt["operations"];
+}) {
 	if (!review || (!review.outcomes.length && !review.reason)) return null;
-	return <JudgeFindings outcomes={review.outcomes} reason={review.reason} />;
+	const { answers } = judgeContextGroups(review.context, operations);
+	return <JudgeFindings outcomes={review.outcomes} reason={review.reason} answers={answers} />;
 }
 
 function JudgeFindings({
 	outcomes,
 	reason,
+	answers = [],
 }: {
 	outcomes: JudgeReviewData["outcomes"];
 	reason?: string;
+	answers?: JudgeAnswerContext[];
 }) {
 	return (
 		<section aria-label="Judge response" {...stylex.props(styles.judgeResponse)}>
@@ -2492,7 +3051,9 @@ function JudgeFindings({
 							outcome={outcome.passed ? "passed" : "failed"}
 							label={outcome.passed ? "Passed" : "Failed"}
 						/>
-						<span {...stylex.props(styles.judgeOutcomeLabel)}>{outcome.label}</span>
+						<span {...stylex.props(styles.judgeOutcomeLabel)}>
+							{judgeOutcomeLabel(outcome.label, answers)}
+						</span>
 						{outcome.explanation ? (
 							<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
 						) : null}
@@ -2506,6 +3067,11 @@ function JudgeFindings({
 	);
 }
 
+function judgeOutcomeLabel(label: string, answers: JudgeAnswerContext[]): string {
+	const answer = answers.find((item) => label === `${item.label} Correct` || label === item.label);
+	return answer?.tabLabel ?? label;
+}
+
 function judgeReviewData(operation: Attempt["operations"][number]): JudgeReviewData {
 	const records = operation.data.filter(isRecord);
 	const record = [...records].reverse().find((item) => item.output !== undefined) ?? records.at(-1);
@@ -2513,9 +3079,28 @@ function judgeReviewData(operation: Attempt["operations"][number]): JudgeReviewD
 	const reason = optionalString(output.reason) ?? conversationOutput(record?.output);
 	return {
 		question: judgeQuestion(record),
+		context: judgeContext(record?.input),
 		outcomes: judgeOutcomes(output, reason),
 		reason,
 	};
+}
+
+function judgeContext(value: unknown): JudgeReviewData["context"] {
+	if (value === undefined) return [];
+	if (!isRecord(value))
+		return [{ label: "Selected input", value: judgeContextValue(value), rawValue: value }];
+	return Object.entries(value).map(([key, item]) => ({
+		label: humanizeKey(key),
+		value: judgeContextValue(item),
+		rawValue: item,
+	}));
+}
+
+function judgeContextValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (value === null || value === undefined) return String(value);
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return JSON.stringify(value, null, 2);
 }
 
 function judgeQuestion(record: Record<string, unknown> | undefined): string | undefined {
@@ -2556,12 +3141,18 @@ function judgeOutcomeExplanation(output: Record<string, unknown>, key: string): 
 	);
 }
 
-function judgeCriterionExplanations(operations: Attempt["operations"]): Array<string | undefined> {
-	return operations
-		.flatMap((operation) =>
-			operation.kind === "evaluation" ? judgeReviewData(operation).outcomes : [],
-		)
-		.map((outcome) => outcome.explanation);
+function operationCriterionExplanations(
+	criteria: string[],
+	operation: Attempt["operations"][number] | undefined,
+): Array<string | undefined> {
+	const explanations = Array<string | undefined>(criteria.length);
+	if (operation?.kind !== "evaluation") return explanations;
+	const indexes = operationCriterionIndexes(criteria, operation);
+	const outcomes = judgeReviewData(operation).outcomes;
+	indexes.forEach((criterionIndex, outcomeIndex) => {
+		explanations[criterionIndex] = outcomes[outcomeIndex]?.explanation;
+	});
+	return explanations;
 }
 
 function legacyJudgeInput(
@@ -2592,11 +3183,13 @@ function legacyJudgeInput(
 }
 
 function ConversationTabs({
+	label,
 	operations,
 	selected,
 	select,
 	attemptStatus,
 }: {
+	label: "Agents" | "Judges";
 	operations: Attempt["operations"];
 	selected?: Attempt["operations"][number];
 	select: (id: string) => void;
@@ -2609,7 +3202,7 @@ function ConversationTabs({
 	return (
 		<div
 			role="tablist"
-			aria-label="Conversation participants"
+			aria-label={`${label} participants`}
 			{...stylex.props(styles.conversationSwitcher, styles.conversationTabs)}
 		>
 			{groups.map((group, index) => (
@@ -2617,10 +3210,7 @@ function ConversationTabs({
 					key={group.key}
 					operation={group.operations[0]}
 					active={group.key === selectedGroup}
-					running={
-						attemptStatus === "running" &&
-						group.operations.some((operation) => operation.status === "running")
-					}
+					status={conversationGroupStatus(group.operations, attemptStatus)}
 					onSelect={() => select(group.operations[0].id)}
 					onKeyDown={(event) =>
 						selectConversationWithKeyboard({
@@ -2639,13 +3229,13 @@ function ConversationTabs({
 function ConversationTab({
 	operation,
 	active,
-	running,
+	status,
 	onSelect,
 	onKeyDown,
 }: {
 	operation?: Attempt["operations"][number];
 	active: boolean;
-	running: boolean;
+	status: "done" | "running" | "stopped";
 	onSelect: () => void;
 	onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
 }) {
@@ -2657,27 +3247,29 @@ function ConversationTab({
 			aria-selected={active}
 			{...stylex.props(
 				styles.buttonReset,
-				styles.status,
 				styles.conversationTab,
 				active && styles.conversationTabActive,
 			)}
 			onClick={onSelect}
 			onKeyDown={onKeyDown}
 		>
-			{running ? (
-				<span
-					role="status"
-					aria-label={`${operation?.name ?? "Agent"} is running`}
-					{...stylex.props(styles.conversationTabDot)}
-				/>
-			) : null}
+			<span
+				role="status"
+				aria-label={`${operation?.name ?? "Operation"} is ${status}`}
+				{...stylex.props(
+					styles.conversationTabDot,
+					status === "done" && styles.conversationTabDotDone,
+					status === "running" && styles.conversationTabDotRunning,
+					status === "stopped" && styles.conversationTabDotStopped,
+				)}
+			/>
 			{conversationLabel(operation)}
 		</button>
 	);
 }
 
 function conversationLabel(operation?: Attempt["operations"][number]): string {
-	return `${operation?.name ?? "Unnamed"} · ${operation?.kind === "evaluation" ? "Judge" : "Agent"}`;
+	return operation?.name ?? "Unnamed";
 }
 
 type Operation = Attempt["operations"][number];
@@ -2692,6 +3284,23 @@ function conversationGroups(operations: Attempt["operations"]): ConversationGrou
 		else groups.set(key, { key, operations: [operation] });
 	}
 	return [...groups.values()];
+}
+
+function conversationGroupStatus(
+	operations: Attempt["operations"],
+	attemptStatus: string,
+): "done" | "running" | "stopped" {
+	if (
+		operations.some(
+			(operation) => operation.status === "failed" || operation.status === "interrupted",
+		)
+	)
+		return "stopped";
+	if (operations.some((operation) => operation.status === "running")) {
+		if (attemptStatus === "running") return "running";
+		if (attemptStatus === "interrupted" || attemptStatus === "failed") return "stopped";
+	}
+	return "done";
 }
 
 function operationIdentity(operation: Attempt["operations"][number]): string {
@@ -2891,7 +3500,7 @@ function OperationList({ operations }: { operations: Attempt["operations"] }) {
 		<div {...stylex.props(styles.list)}>
 			{summaries.map((summary) => (
 				<div key={summary.key} {...stylex.props(styles.meta)}>
-					{summary.name} · {summary.status}
+					{summary.name}
 					{summary.count > 1 ? ` ×${summary.count}` : ""}
 				</div>
 			))}
@@ -2902,16 +3511,15 @@ function OperationList({ operations }: { operations: Attempt["operations"] }) {
 function summarizeOperations(operations: Attempt["operations"]): Array<{
 	key: string;
 	name: string;
-	status: string;
 	count: number;
 }> {
-	const summaries = new Map<string, { key: string; name: string; status: string; count: number }>();
+	const summaries = new Map<string, { key: string; name: string; count: number }>();
 	for (const operation of operations) {
 		const name = operation.name ?? operation.kind;
-		const key = `${operationIdentity(operation)}\u0000${operation.status}`;
+		const key = operationIdentity(operation);
 		const existing = summaries.get(key);
 		if (existing) existing.count++;
-		else summaries.set(key, { key, name, status: operation.status, count: 1 });
+		else summaries.set(key, { key, name, count: 1 });
 	}
 	return [...summaries.values()];
 }

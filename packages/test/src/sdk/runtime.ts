@@ -8,6 +8,7 @@ import {
 	toolPathsOutsideWorkspace,
 } from "@post-print/agent-harness";
 import { z } from "zod/v4";
+import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import { evaluate } from "./judge.js";
 import type {
@@ -42,6 +43,7 @@ interface RunInput {
 	session: HarnessSession;
 	workspace: Workspace;
 	prompt: string;
+	invocationIndex: number;
 	context: StartingContext;
 	history: AgentTrace;
 }
@@ -100,6 +102,7 @@ export class TestRuntime {
 	private readonly resources: { session?: HarnessSession; cleanup(): Promise<void> }[] = [];
 	private readonly pending = new Set<Promise<unknown>>();
 	private readonly controller = new AbortController();
+	private nextInvocationIndex = 0;
 	private closed = false;
 	constructor(readonly options: RuntimeOptions) {}
 	private get signal() {
@@ -122,17 +125,23 @@ export class TestRuntime {
 	): AgentFixture {
 		return {
 			setup: (prepare) => this.agent(name, settings, [...preparation, prepare]),
-			run: ({ prompt, ...options }) =>
-				this.track(() =>
-					this.start({ name, preparation, prompt }, mergeSettings(settings, options)),
-				),
+			run: ({ prompt, ...options }) => {
+				const invocationIndex = this.nextInvocationIndex++;
+				return this.track(() =>
+					this.start(
+						{ name, preparation, prompt, invocationIndex },
+						mergeSettings(settings, options),
+					),
+				);
+			},
 		};
 	}
 	judge<S extends z.ZodType>(name: string, settings: JudgeSettings<S>): JudgeFixture<z.output<S>> {
 		const { prompt, schema, ...agentSettings } = settings;
 		return {
-			run: ({ input }) =>
-				this.track(async () => {
+			run: ({ input }) => {
+				const invocationIndex = this.nextInvocationIndex++;
+				return this.track(async () => {
 					const definition = configuredAgent(this.options.judge, agentSettings);
 					const id = crypto.randomUUID();
 					let startedEvaluation: { prompt: string; schema: unknown } | undefined;
@@ -149,7 +158,7 @@ export class TestRuntime {
 							this.options.onEvent?.({
 								runId: id,
 								type: "evaluation-start",
-								value: { name, input: selectedInput, evaluation },
+								value: { name, input: selectedInput, evaluation, invocationIndex },
 							});
 						},
 					});
@@ -158,6 +167,7 @@ export class TestRuntime {
 						type: "evaluation",
 						value: {
 							...result,
+							invocationIndex,
 							input,
 							evaluation: startedEvaluation ?? {
 								prompt,
@@ -165,15 +175,21 @@ export class TestRuntime {
 							},
 						},
 					});
-					return result;
-				}),
+					return trackOperationOutput(result);
+				});
+			},
 		};
 	}
 	private async start(
-		task: { name: string; prompt: string; preparation: readonly WorkspaceSetup[] },
+		task: {
+			name: string;
+			prompt: string;
+			preparation: readonly WorkspaceSetup[];
+			invocationIndex: number;
+		},
 		settings: AgentSettings,
 	): Promise<Run> {
-		const { name, prompt, preparation } = task;
+		const { name, prompt, preparation, invocationIndex } = task;
 		this.signal.throwIfAborted();
 		if (typeof prompt !== "string" || !prompt.trim())
 			throw new Error("agent.run requires a nonempty prompt");
@@ -203,33 +219,41 @@ export class TestRuntime {
 			context,
 			history,
 			prompt,
+			invocationIndex,
 		});
 	}
 	private conversation(name: string, input: RunInput): Promise<Run> {
 		let busy = false;
-		const next = async (prompt: string): Promise<Run> => {
+		const next = async (prompt: string, invocationIndex: number): Promise<Run> => {
 			if (busy) throw new Error("Overlapping continuations of one task are not supported");
 			busy = true;
 			try {
-				return await this.run(name, { ...input, prompt }, (value) => this.track(() => next(value)));
+				return await this.run(name, { ...input, prompt, invocationIndex }, (value) => {
+					const nextIndex = this.nextInvocationIndex++;
+					return this.track(() => next(value, nextIndex));
+				});
 			} finally {
 				busy = false;
 			}
 		};
-		return next(input.prompt);
+		return next(input.prompt, input.invocationIndex);
 	}
 	private async run(
 		name: string,
 		input: RunInput,
 		continuation: (prompt: string) => Promise<Run>,
 	): Promise<Run> {
-		const { session, workspace, prompt, context } = input;
+		const { session, workspace, prompt, invocationIndex, context } = input;
 		const id = crypto.randomUUID(),
 			directory = join(this.options.outputDir, id);
 		await mkdir(directory, { recursive: true });
 		const initial = await snapshot(workspace.path, join(directory, "initial"));
 		const start = performance.now();
-		this.options.onEvent?.({ runId: id, type: "start", value: { prompt, name } });
+		this.options.onEvent?.({
+			runId: id,
+			type: "start",
+			value: { prompt, name, invocationIndex },
+		});
 		try {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
@@ -251,7 +275,7 @@ export class TestRuntime {
 			};
 			await writeJson(join(directory, "run.json"), result);
 			this.options.onEvent?.({ runId: id, type: "complete", value: result });
-			return result;
+			return trackOperationOutput(result);
 		} catch (error) {
 			await writeJson(join(directory, "error.json"), { message: String(error) });
 			throw error;

@@ -8,11 +8,12 @@ import { ExecutionStore, executionHistoryRoot } from "../src/sdk/execution-store
 import { listenViewer } from "../src/viewer/server.js";
 import { createTestCatalog } from "../src/viewer/test-catalog.js";
 
-const CANDIDATE_COMPLETED = /candidate · completed/;
+const CANDIDATE = /^candidate$/;
 const NAMED_OPERATIONS = /named operations/;
 const SETUP_VIEW = /view=setup/;
 const EXECUTION_LABEL = /^Execution /;
 const PASSED_LABEL = /^passed$/;
+const TOKEN_METRIC = /^Tokens\d+$/;
 
 test("TypeScript tests run from the catalog and retain named operations after reload", async ({
 	page,
@@ -131,7 +132,7 @@ test("failed assertion details belong to the Result region", async ({ page, cont
 		await page.goto(new URL(`/tests/${testId}?execution=${executionId}`, viewer.url).toString());
 		await expect(page.getByRole("heading", { name: "failing assertion" })).toBeVisible();
 		await expect(page.getByText("Test attempt", { exact: true })).toHaveCount(0);
-		const result = page.getByRole("region", { name: "Result" });
+		const result = page.getByRole("region", { name: "Result", exact: true });
 		await checkCriterionResults(result);
 		await expect(
 			result.getByText("The test did not satisfy all assertions. See the failure details below."),
@@ -164,51 +165,130 @@ async function checkFailurePlacement(result: Locator) {
 	return comparison;
 }
 
-test("agent and judge operations have separate selectable conversations", async ({ page }) => {
+test("agent and judge operations have separate conversation sections", async ({ page }) => {
 	const fixture = await conversationSwitcherFixture();
 	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
 	try {
 		await page.goto(
 			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
 		);
-		const conversation = page.getByRole("region", { name: "Conversation" });
-		const participants = page.getByRole("tablist", {
-			name: "Conversation participants",
-		});
-		await expect(participants.locator("xpath=preceding-sibling::*[1]")).toHaveAttribute(
-			"aria-label",
-			"Result",
-		);
-		await expect(participants.locator("xpath=following-sibling::*[1]")).toHaveAttribute(
-			"aria-label",
-			"Conversation",
-		);
-		const agent = participants.getByRole("tab", { name: "agent · Agent" });
-		const judge = participants.getByRole("tab", { name: "releaseAdvice · Judge" });
-		const runs = conversation.getByRole("tablist", { name: "agent runs" });
+		const agents = page.getByRole("region", { name: "Agents" });
+		const judges = page.getByRole("region", { name: "Judges" });
+		const agentParticipants = agents.getByRole("tablist", { name: "Agents participants" });
+		const judgeParticipants = judges.getByRole("tablist", { name: "Judges participants" });
+		await checkResultPlacement(agents, "Agents");
+		await expect(judges.getByRole("region", { name: "Result", exact: true })).toHaveCount(0);
+		const agent = agentParticipants.getByRole("tab", { name: "agent", exact: true });
+		const judge = judgeParticipants.getByRole("tab", { name: "releaseAdvice", exact: true });
+		const runs = agents.getByRole("tablist", { name: "agent runs" });
+		await checkAgentControlsPlacement(agents);
 		const runOne = runs.getByRole("tab", { name: "Run 1" });
 		const runTwo = runs.getByRole("tab", { name: "Run 2" });
-		await expect(participants.getByRole("tab")).toHaveCount(2);
-		await expect(page.getByText("agent · completed ×2", { exact: true })).toHaveCount(1);
-		await checkParticipantChipCss(agent, page.getByText("passed", { exact: true }));
+		await expect(agentParticipants.getByRole("tab")).toHaveCount(1);
+		await expect(judgeParticipants.getByRole("tab")).toHaveCount(1);
+		await expect(page.getByText("agent ×2", { exact: true })).toHaveCount(1);
+		await expect(page.getByText("completed", { exact: true })).toHaveCount(0);
+		await checkParticipantTabCss(agent, agentParticipants);
+		await expect(agent.getByRole("status", { name: "agent is done" })).toBeVisible();
 		await expect(agent).toHaveAttribute("aria-selected", "true");
-		await expect(judge).toHaveAttribute("aria-selected", "false");
-		await expect(runOne).toHaveAttribute("aria-selected", "true");
-		await expect(runTwo).toHaveAttribute("aria-selected", "false");
+		await expect(judge).toHaveAttribute("aria-selected", "true");
+		await expect(resultTokenCount(agents)).toHaveText("101");
+		await checkInitialRunSelection(runOne, runTwo);
+		await checkResultCriteria(agents, "The first agent response is useful.");
 		await runTwo.click();
 		await expect(runTwo).toHaveAttribute("aria-selected", "true");
-		await checkMarkdownFormatting(conversation);
-		await expect(conversation.getByText("The answer identifies the production risk.")).toBeHidden();
-		await judge.click();
-		await expect(judge).toHaveAttribute("aria-selected", "true");
-		await expect(conversation.getByRole("tablist")).toHaveCount(0);
-		await checkJudgeReview(conversation);
-		await checkJudgeResultExplanations(page.getByRole("region", { name: "Result" }));
+		await expect(resultTokenCount(agents)).toHaveText("202");
+		await checkResultCriteria(agents, "The second agent response is useful.");
+		await checkMarkdownFormatting(agents.getByRole("region", { name: "Agents messages" }));
+		await expect(agents.getByText("The answer identifies the production risk.")).toBeHidden();
+		await checkJudgeReview(judges);
+		await checkNarrowSections(page, [agents], judges);
+		await expect(judges.getByRole("region", { name: "Context included" })).toBeVisible();
 	} finally {
 		await viewer.close();
 		await rm(fixture.directory, { recursive: true, force: true });
 	}
 });
+
+async function checkAgentControlsPlacement(agents: Locator) {
+	const surface = agents.getByRole("region", { name: "Result", exact: true }).locator("..");
+	await expect(surface.getByRole("heading", { name: "Agents" })).toBeVisible();
+	const participants = surface.getByRole("tablist", { name: "Agents participants" });
+	const runs = surface.getByRole("tablist", { name: "agent runs" });
+	const result = surface.getByRole("region", { name: "Result", exact: true });
+	const [participantBox, runBox, resultBox] = await Promise.all([
+		participants.boundingBox(),
+		runs.boundingBox(),
+		result.boundingBox(),
+	]);
+	expect((participantBox?.y ?? 0) + (participantBox?.height ?? 0)).toBeLessThanOrEqual(
+		runBox?.y ?? 0,
+	);
+	expect((runBox?.y ?? 0) + (runBox?.height ?? 0)).toBeLessThanOrEqual(resultBox?.y ?? 0);
+}
+
+function resultTokenCount(conversation: Locator) {
+	return conversation
+		.getByRole("region", { name: "Result", exact: true })
+		.locator("div")
+		.filter({ hasText: TOKEN_METRIC })
+		.locator("span")
+		.last();
+}
+
+function resultCriteria(conversation: Locator) {
+	return conversation.getByRole("region", { name: "Criterion results" }).getByRole("listitem");
+}
+
+async function checkResultCriteria(conversation: Locator, expected: string) {
+	const criteria = resultCriteria(conversation);
+	await expect(criteria).toHaveCount(1);
+	await expect(criteria).toContainText(expected);
+}
+
+async function checkInitialRunSelection(runOne: Locator, runTwo: Locator) {
+	await expect(runOne).toHaveAttribute("aria-selected", "true");
+	await expect(runTwo).toHaveAttribute("aria-selected", "false");
+}
+
+async function checkResultPlacement(conversation: Locator, label: string) {
+	const result = conversation.getByRole("region", { name: "Result", exact: true });
+	await expect(result).toBeVisible();
+	await expect(conversation.getByRole("heading", { name: label })).toBeVisible();
+	await expect(result.locator("xpath=following-sibling::*[1]")).toHaveAttribute(
+		"aria-label",
+		`${label} messages`,
+	);
+}
+
+async function checkNarrowResultPlacement(page: Page, conversation: Locator) {
+	await page.setViewportSize({ width: 560, height: 800 });
+	const placement = await conversation
+		.getByRole("region", { name: "Result", exact: true })
+		.evaluate((result) => {
+			const parent = result.parentElement?.getBoundingClientRect();
+			const resultBox = result.getBoundingClientRect();
+			const messages = result.nextElementSibling?.getBoundingClientRect();
+			return {
+				inside: Boolean(parent && resultBox.left >= parent.left && resultBox.right <= parent.right),
+				beforeMessages: Boolean(messages && resultBox.bottom <= messages.top),
+			};
+		});
+	expect(placement).toEqual({ inside: true, beforeMessages: true });
+}
+
+async function checkNarrowSections(page: Page, sections: Locator[], judges?: Locator) {
+	for (const section of sections) await checkNarrowResultPlacement(page, section);
+	if (judges) await checkNarrowJudgeContext(judges);
+}
+
+async function checkNarrowJudgeContext(judges: Locator) {
+	const context = judges.getByRole("region", { name: "Context included" });
+	const fits = await context.evaluate((element) => element.scrollWidth <= element.clientWidth);
+	expect(fits).toBe(true);
+	await expect(context.getByRole("tab", { name: "agent · Run 1" })).toBeVisible();
+	await expect(context.getByRole("region", { name: "Additional context" })).toBeVisible();
+}
 
 async function checkMarkdownFormatting(conversation: Locator) {
 	await expect(conversation.locator("strong")).toHaveText("the release");
@@ -234,51 +314,48 @@ async function checkMarkdownFormatting(conversation: Locator) {
 	await expect(conversation.getByText("[src/status.ts:7]", { exact: false })).toHaveCount(0);
 }
 
-async function checkParticipantChipCss(participant: Locator, status: Locator) {
-	const participantCss = await participant.evaluate(compactChipCss);
-	const statusCss = await status.evaluate(compactChipCss);
-	expect(Number.parseFloat(participantCss.fontSize)).toBeLessThan(
-		Number.parseFloat(statusCss.fontSize),
+async function checkParticipantTabCss(participant: Locator, tablist: Locator) {
+	await expect(participant).toHaveCSS("border-radius", "0px");
+	await expect(participant).toHaveCSS("border-bottom-width", "2px");
+	await expect(tablist).toHaveCSS("border-bottom-width", "1px");
+	const height = await participant.evaluate((element) =>
+		Number.parseFloat(getComputedStyle(element).height),
 	);
-	expect(Number.parseFloat(participantCss.height)).toBeLessThan(
-		Number.parseFloat(statusCss.height),
-	);
-	expect(participantCss.borderRadius).toBe(statusCss.borderRadius);
-	expect(participantCss.textTransform).toBe(statusCss.textTransform);
-}
-
-function compactChipCss(element: Element) {
-	const css = getComputedStyle(element);
-	return {
-		borderRadius: css.borderRadius,
-		fontSize: css.fontSize,
-		height: css.height,
-		textTransform: css.textTransform,
-	};
+	expect(height).toBeGreaterThanOrEqual(24);
 }
 
 async function checkJudgeReview(conversation: Locator) {
-	await expect(conversation.getByRole("heading", { name: "Conversation" })).toBeVisible();
+	await expect(conversation.getByRole("heading", { name: "Judges" })).toBeVisible();
 	const findings = conversation.getByRole("region", { name: "Judge response" });
-	await expect(findings).toContainText("Explains Risk");
-	await expect(findings).toContainText("Suggests Next Step");
+	await expect(findings).toContainText("agent · Run 1");
+	await expect(findings).toContainText("agent · Run 2");
 	await expect(findings.getByLabel("Passed")).toHaveCount(2);
 	await expect(findings).toContainText("It names the production rollback risk.");
 	await expect(findings).toContainText("It recommends waiting for a rollback plan.");
 	await expect(
 		conversation.getByText("Identify the release risk and a practical next step.", { exact: true }),
 	).toBeVisible();
-	await expect(conversation.getByText("Define rollback", { exact: true })).toBeHidden();
-}
-
-async function checkJudgeResultExplanations(result: Locator) {
-	const criteria = result.getByRole("region", { name: "Criterion results" });
-	await expect(criteria.getByRole("listitem").nth(0)).toContainText(
-		"It names the production rollback risk.",
-	);
-	await expect(criteria.getByRole("listitem").nth(1)).toContainText(
-		"It recommends waiting for a rollback plan.",
-	);
+	const context = conversation.getByRole("region", { name: "Context included" });
+	await expect(context).toContainText("3 selected fields");
+	const answers = context.getByRole("tablist", { name: "Agent answers included" });
+	const runOne = answers.getByRole("tab", { name: "agent · Run 1" });
+	const runTwo = answers.getByRole("tab", { name: "agent · Run 2" });
+	await expect(runOne).toHaveAttribute("aria-selected", "true");
+	await expect(runTwo).toHaveAttribute("aria-selected", "false");
+	await expect(runOne).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+	const firstAnswer = context.getByRole("tabpanel", { name: "Agent response from agent · Run 1" });
+	await expect(firstAnswer.getByText("Agent Response", { exact: true })).toHaveCount(0);
+	await expect(firstAnswer.locator("strong")).toHaveText("the release");
+	await runOne.focus();
+	await runOne.press("ArrowRight");
+	await expect(runTwo).toBeFocused();
+	await expect(
+		context.getByRole("tabpanel", { name: "Agent response from agent · Run 2" }),
+	).toContainText("Hold the release until rollback is ready.");
+	const additional = context.getByRole("region", { name: "Additional context" });
+	await expect(additional).toContainText("Release State");
+	await expect(additional).toContainText("No rollback plan is available.");
+	await expect(additional).not.toContainText("Agent Response");
 }
 
 async function checkFailureClipboard(page: Page) {
@@ -321,18 +398,18 @@ test("running conversation updates through WebSocket without detail polling", as
 		await page.goto(
 			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
 		);
-		const conversation = page.getByRole("region", { name: "Conversation" });
+		const conversation = page.getByRole("region", { name: "Agents" });
 		const running = conversation.getByRole("status", { name: "Agent is running" });
 		await expect(running).toContainText("Running");
 		await recordLiveConversation(fixture);
 		const completed = page
-			.getByRole("tablist", { name: "Conversation participants" })
-			.getByRole("tab", { name: "finished · Agent" });
+			.getByRole("tablist", { name: "Agents participants" })
+			.getByRole("tab", { name: "finished", exact: true });
 		const participant = page
-			.getByRole("tablist", { name: "Conversation participants" })
-			.getByRole("tab", { name: "seeded · Agent" });
+			.getByRole("tablist", { name: "Agents participants" })
+			.getByRole("tab", { name: "seeded", exact: true });
 		await expect(completed).toHaveAttribute("aria-selected", "true");
-		await expect(completed.getByRole("status")).toHaveCount(0);
+		await expect(completed.getByRole("status", { name: "finished is done" })).toBeVisible();
 		await expect(running).toHaveCount(0);
 		await expect(participant).toBeVisible();
 		await expect(participant.getByRole("status", { name: "seeded is running" })).toBeVisible();
@@ -361,10 +438,10 @@ test("a judge appears while running and completes in place", async ({ page }) =>
 		await page.goto(
 			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
 		);
-		const conversation = page.getByRole("region", { name: "Conversation" });
+		const conversation = page.getByRole("region", { name: "Judges" });
 		const participant = page
-			.getByRole("tablist", { name: "Conversation participants" })
-			.getByRole("tab", { name: "releaseAdvice · Judge" });
+			.getByRole("tablist", { name: "Judges participants" })
+			.getByRole("tab", { name: "releaseAdvice", exact: true });
 		await expect(participant).toHaveAttribute("aria-selected", "true");
 		await expect(
 			participant.getByRole("status", { name: "releaseAdvice is running" }),
@@ -373,11 +450,14 @@ test("a judge appears while running and completes in place", async ({ page }) =>
 		await expect(
 			conversation.getByText("Should this release proceed?", { exact: true }),
 		).toBeVisible();
+		const context = conversation.getByRole("region", { name: "Context included" });
+		await expect(context.getByText("Rollback Ready", { exact: true })).toBeVisible();
+		await expect(context.getByText("true", { exact: true })).toBeVisible();
 		await expect(conversation.getByRole("region", { name: "Judge response" })).toHaveCount(0);
 
 		await finishRunningJudge(fixture);
 		await expect(conversation.getByRole("status", { name: "Judge is running" })).toHaveCount(0);
-		await expect(participant.getByRole("status")).toHaveCount(0);
+		await expect(participant.getByRole("status", { name: "releaseAdvice is done" })).toBeVisible();
 		await expect(conversation.getByRole("region", { name: "Judge response" })).toContainText(
 			"The rollback plan is ready.",
 		);
@@ -599,10 +679,7 @@ async function conversationSwitcherFixture() {
 			file: join(directory, "judge.spec.ts"),
 			title: "viewer › agent and judge",
 			project: "default",
-			criteria: [
-				"The judge finds that the answer explains the release risk.",
-				"The judge finds that the answer suggests a practical next step.",
-			],
+			criteria: ["The first agent response is useful.", "The second agent response is useful."],
 		},
 	]);
 	const store = await ExecutionStore.create({
@@ -635,7 +712,7 @@ async function seedAgentAndJudgeOperations(store: ExecutionStore) {
 	await recordAgentOperation({
 		store,
 		shared,
-		operationId: "agent-1",
+		operationId: "agent-2",
 		output: formattedAgentResponse,
 	});
 	await store.record({
@@ -644,13 +721,21 @@ async function seedAgentAndJudgeOperations(store: ExecutionStore) {
 		operationId: "judge-1",
 		data: {
 			name: "releaseAdvice",
+			invocationIndex: 1,
+			criterionIndexes: [0, 1],
 			evaluation: { prompt: "Identify the release risk and a practical next step." },
+			input: {
+				agentResponse: formattedAgentResponse,
+				secondAgentResponse: formattedAgentResponse,
+				releaseState: "No rollback plan is available.",
+			},
+			usage: { tokens: { total: 303 } },
 			output: {
-				explainsRisk: true,
-				suggestsNextStep: true,
+				agentResponseCorrect: true,
+				secondAgentResponseCorrect: true,
 				explanations: {
-					explainsRisk: "It names the production rollback risk.",
-					suggestsNextStep: "It recommends waiting for a rollback plan.",
+					agentResponseCorrect: "It names the production rollback risk.",
+					secondAgentResponseCorrect: "It recommends waiting for a rollback plan.",
 				},
 				reason: "The answer identifies the production risk.",
 			},
@@ -659,7 +744,7 @@ async function seedAgentAndJudgeOperations(store: ExecutionStore) {
 	await recordAgentOperation({
 		store,
 		shared,
-		operationId: "agent-2",
+		operationId: "agent-1",
 		output: formattedAgentResponse,
 	});
 }
@@ -677,8 +762,11 @@ async function recordAgentOperation(input: {
 		operationId,
 		data: {
 			name: "agent",
+			invocationIndex: operationId === "agent-1" ? 0 : 2,
+			criterionIndex: operationId === "agent-1" ? 0 : 1,
 			prompt: "Should we release without a rollback plan?",
 			output,
+			usage: { tokens: { total: operationId === "agent-1" ? 101 : 202 } },
 			trace: {
 				messages: [{ role: "assistant", content: output, seq: 0 }],
 				toolCalls: [],
@@ -796,22 +884,21 @@ async function waitForPassed(page: Page, timeout?: number) {
 }
 
 async function checkOperationLabels(page: Page) {
-	await expect(page.getByText(CANDIDATE_COMPLETED)).toBeVisible();
+	await expect(page.getByText(CANDIDATE)).toHaveCount(3);
+	await expect(page.getByText("completed", { exact: true })).toHaveCount(0);
 	await expect(page.getByText(NAMED_OPERATIONS)).toBeVisible();
 }
 
 async function checkRunPresentation(page: Page) {
 	const current = page.getByRole("tabpanel", { name: "Current run" });
 	await expect(current.getByText(EXECUTION_LABEL)).toHaveCount(0);
-	await expect(page.getByRole("heading", { name: "Result" })).toBeVisible();
-	const result = page.getByRole("region", { name: "Result" });
-	await expect(result.getByText("Passed — no assertions failed.")).toHaveCount(0);
-	await expect(
-		result.getByText("The candidate uses fewer tokens than the baseline."),
-	).toBeVisible();
-	await expect(result.getByText("Mina turn 1", { exact: true })).toHaveCount(0);
-	await expect(page.getByRole("heading", { name: "Conversation" })).toBeVisible();
-	const conversation = page.getByRole("region", { name: "Conversation" });
+	const agents = page.getByRole("region", { name: "Agents" });
+	const judges = page.getByRole("region", { name: "Judges" });
+	await expect(agents.getByRole("heading", { name: "Result" })).toBeVisible();
+	await expect(judges.getByRole("heading", { name: "Result" })).toHaveCount(0);
+	await expect(judges.getByRole("region", { name: "Judge response" })).toBeVisible();
+	await expect(agents.getByRole("heading", { name: "Agents" })).toBeVisible();
+	const conversation = agents;
 	await expect(conversation.getByText("answer", { exact: true })).toHaveCount(1);
 	await expect(conversation.getByText("Read file", { exact: true })).toBeVisible();
 	await expect(conversation.getByText("PROJECT.md", { exact: true })).toBeVisible();

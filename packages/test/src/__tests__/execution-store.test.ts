@@ -73,6 +73,30 @@ it("execution store › groups attempts with their named operations", async () =
 	}
 });
 
+it("execution store › orders concurrent operations by invocation index", async () => {
+	const root = await mkdtemp(join(tmpdir(), "agent-test-operation-order-"));
+	try {
+		const store = await ExecutionStore.create({ root, id: "run-1", config: "test" });
+		const event = { level: "debug" as const, attemptId: "attempt-1" };
+		await store.record({
+			...event,
+			type: "operation.start",
+			operationId: "agent-2",
+			data: { name: "agent", invocationIndex: 1 },
+		});
+		await store.record({
+			...event,
+			type: "operation.start",
+			operationId: "agent-1",
+			data: { name: "agent", invocationIndex: 0 },
+		});
+		const operations = (await readExecutionDetail(root))?.attempts[0]?.operations;
+		expect(operations?.map((operation) => operation.id)).toEqual(["agent-1", "agent-2"]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 it("execution store › keeps the agent name when tool events arrive", async () => {
 	const root = await mkdtemp(join(tmpdir(), "agent-test-operation-name-"));
 	try {

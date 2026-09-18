@@ -37,6 +37,7 @@ export type ExecutionTestStatus =
 export type ExecutionOperation = {
 	id: string;
 	kind: "agent" | "evaluation";
+	invocationIndex?: number;
 	name?: string;
 	status: "running" | "completed" | "failed" | "interrupted";
 	startedAt?: string;
@@ -204,6 +205,12 @@ function summarizeAttempts(events: ExecutionEvent[]): ExecutionAttempt[] {
 		applyAttemptEvent(attempt, event);
 		attempts.set(event.attemptId, attempt);
 	}
+	for (const attempt of attempts.values())
+		attempt.operations.sort(
+			(left, right) =>
+				(left.invocationIndex ?? Number.POSITIVE_INFINITY) -
+				(right.invocationIndex ?? Number.POSITIVE_INFINITY),
+		);
 	return [...attempts.values()];
 }
 
@@ -302,7 +309,9 @@ function addOperationEvent(attempt: ExecutionAttempt, event: ExecutionEvent): vo
 		attempt.operations.push(operation);
 	}
 	operation.data.push(event.data);
-	const name = asRecord(event.data).name;
+	const data = asRecord(event.data);
+	const name = data.name;
+	if (typeof data.invocationIndex === "number") operation.invocationIndex = data.invocationIndex;
 	if (typeof name === "string" && (event.type === "operation.start" || !operation.name))
 		operation.name = name;
 	if (event.type === "operation.complete" || event.type === "operation.evaluation") {
