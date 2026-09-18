@@ -43,7 +43,7 @@ type Attempt = {
 	output: { stdout: string[]; stderr: string[] };
 	operations: Array<{ id: string; kind: string; name?: string; status: string; data: unknown[] }>;
 };
-type ExecutionDetail = ExecutionSummary & { attempts: Attempt[] };
+type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
 type TestView = "current" | "setup" | "history";
 const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;
 const LOCAL_PATH_LINK = /\[([^\]]+)\]\(<local-path>[^)]*\)/g;
@@ -1688,7 +1688,7 @@ function ExecutionDetailView({
 	const stopLabel = (execution.testIds?.length ?? 0) > 1 ? "Stop suite run" : "Stop this run";
 	return (
 		<div {...stylex.props(styles.statusPanel)}>
-			{execution.status === "running" ? (
+			{execution.status === "running" && execution.cancellable ? (
 				<div {...stylex.props(styles.runControls)}>
 					<button
 						type="button"

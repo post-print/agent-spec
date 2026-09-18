@@ -18,7 +18,7 @@ The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`
 
 Claude users authenticate through the Claude Code CLI. Model and billing are configured on agent definitions, not legacy scenario flags.
 
-The viewer discovers the same TypeScript tests as the CLI, records every execution under `.agent-test/executions`, and restores the newest 50 completed runs after a restart. It supports cancellation, live updates, and reload-safe execution details. Run artifacts remain under the test output directory. It binds to localhost only.
+The viewer discovers the same TypeScript tests as the CLI, records every execution under `.agent-test/executions`, and restores the newest 50 completed runs after a restart. While a viewer is open, a new running execution started from either the viewer or `agent-test test` is selected automatically and streams through the same live execution page. It supports cancellation for viewer-started runs, live updates, and reload-safe execution details. Run artifacts remain under the test output directory. It binds to localhost only.
 
 ```mermaid
 flowchart LR

@@ -33,6 +33,8 @@ export interface ListenViewerOptions {
 	refreshTestCatalog?: () => Promise<TestCatalog>;
 	port?: number;
 	idleMs?: number;
+	executionPollMs?: number;
+	watchWorkspace?: boolean;
 	onClose?: () => void | Promise<void>;
 	startExecution?: (options: StartExecutionOptions) => Promise<StartedExecution>;
 }
@@ -49,6 +51,9 @@ class ViewerServer {
 	private readonly socketToken = crypto.randomUUID();
 	private idle: ReturnType<typeof setTimeout> | undefined;
 	private historyRefresh: ReturnType<typeof setTimeout> | undefined;
+	private executionPoll: ReturnType<typeof setInterval> | undefined;
+	private pollingExecutions = false;
+	private polledRunningExecutions = new Set<string>();
 	private readonly executionRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
 	private catalogRefresh: ReturnType<typeof setTimeout> | undefined;
 	private historyWatcher: FSWatcher | undefined;
@@ -62,7 +67,7 @@ class ViewerServer {
 			void this.handleRequest(request, response);
 		});
 		this.server.on("upgrade", (request, socket, head) => this.handleUpgrade(request, socket, head));
-		this.watchWorkspace();
+		if (options.watchWorkspace !== false) this.watchWorkspace();
 	}
 	private watchWorkspace(): void {
 		try {
@@ -109,6 +114,36 @@ class ViewerServer {
 		await recoverExecutionHistory(root);
 		this.broadcast({ type: "executions.snapshot", executions: await listExecutionHistory(root) });
 	}
+	private startExecutionPolling(): void {
+		if (this.executionPoll) return;
+		const poll = () => void this.pollExecutionHistory();
+		this.executionPoll = setInterval(poll, this.options.executionPollMs ?? 250);
+		poll();
+	}
+	private stopExecutionPolling(): void {
+		if (this.subscribers.size > 0 || !this.executionPoll) return;
+		clearInterval(this.executionPoll);
+		this.executionPoll = undefined;
+		this.polledRunningExecutions.clear();
+	}
+	private async pollExecutionHistory(): Promise<void> {
+		if (this.pollingExecutions || this.closed) return;
+		this.pollingExecutions = true;
+		try {
+			const root = executionHistoryRoot(this.options.suitesDir);
+			await recoverExecutionHistory(root);
+			const executions = await listExecutionHistory(root);
+			this.broadcast({ type: "executions.snapshot", executions });
+			const running = new Set(
+				executions.filter((execution) => execution.status === "running").map(({ id }) => id),
+			);
+			const changed = new Set([...running, ...this.polledRunningExecutions]);
+			this.polledRunningExecutions = running;
+			await Promise.all([...changed].map((id) => this.broadcastExecution(id)));
+		} finally {
+			this.pollingExecutions = false;
+		}
+	}
 	private scheduleExecutionBroadcast(executionId: string): void {
 		const pending = this.executionRefreshes.get(executionId);
 		if (pending) clearTimeout(pending);
@@ -121,9 +156,13 @@ class ViewerServer {
 		);
 	}
 	private async broadcastExecution(executionId: string): Promise<void> {
-		const root = join(executionHistoryRoot(this.options.suitesDir), executionId);
-		const execution = await readExecutionDetail(root);
+		const execution = await this.viewerExecution(executionId);
 		if (execution) this.broadcast({ type: "execution.snapshot", execution });
+	}
+	private async viewerExecution(id: string) {
+		const root = join(executionHistoryRoot(this.options.suitesDir), id);
+		const execution = await readExecutionDetail(root);
+		return execution ? { ...execution, cancellable: this.executions.has(id) } : undefined;
 	}
 	private broadcast(message: object): void {
 		const data = JSON.stringify(message);
@@ -163,7 +202,11 @@ class ViewerServer {
 				return;
 			}
 			this.subscribers.add(client);
-			client.once("close", () => this.subscribers.delete(client));
+			this.startExecutionPolling();
+			client.once("close", () => {
+				this.subscribers.delete(client);
+				this.stopExecutionPolling();
+			});
 			client.send(JSON.stringify({ type: "ready", protocol: VIEWER_PROTOCOL_VERSION }));
 			if (hello.subscriptions.includes("catalog"))
 				this.broadcast({ type: "catalog.snapshot", catalog: this.testCatalog });
@@ -228,13 +271,12 @@ class ViewerServer {
 		writeJson(response, 200, { executions: await listExecutionHistory(root) });
 	}
 	private async writeExecution(response: ServerResponse, id: string): Promise<void> {
-		const root = executionHistoryRoot(this.options.suitesDir);
-		const summary = (await listExecutionHistory(root)).find((execution) => execution.id === id);
-		if (!summary) {
+		const execution = await this.viewerExecution(id);
+		if (!execution) {
 			writeJson(response, 404, { error: "Execution not found" });
 			return;
 		}
-		writeJson(response, 200, { execution: await readExecutionDetail(join(root, id)) });
+		writeJson(response, 200, { execution });
 	}
 	private async startExecution(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		try {
@@ -286,6 +328,7 @@ class ViewerServer {
 	private stopResources(): void {
 		if (this.idle) clearTimeout(this.idle);
 		if (this.historyRefresh) clearTimeout(this.historyRefresh);
+		if (this.executionPoll) clearInterval(this.executionPoll);
 		if (this.catalogRefresh) clearTimeout(this.catalogRefresh);
 		for (const refresh of this.executionRefreshes.values()) clearTimeout(refresh);
 		this.executionRefreshes.clear();

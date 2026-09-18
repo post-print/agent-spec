@@ -354,6 +354,52 @@ test("running conversation updates through WebSocket without detail polling", as
 	}
 });
 
+test("a terminal-started execution opens and streams in an already-open viewer", async ({
+	page,
+}) => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-terminal-run-"));
+	const config = join(directory, "agent-test.config.ts");
+	const executionId = "feed0000-0000-4000-8000-000000000006";
+	const testId = "viewer-terminal-run";
+	const catalog = createTestCatalog(config, [
+		{
+			id: testId,
+			file: join(directory, "terminal.spec.ts"),
+			title: "viewer › terminal run",
+			project: "default",
+		},
+	]);
+	const viewer = await listenViewer({
+		suitesDir: config,
+		testCatalog: catalog,
+		watchWorkspace: false,
+		executionPollMs: 20,
+	});
+	try {
+		await page.goto(new URL(`/tests/${testId}?view=setup`, viewer.url).toString());
+		await expect(page.getByRole("tabpanel", { name: "Test setup" })).toBeVisible();
+		const store = await ExecutionStore.create({
+			root: join(executionHistoryRoot(config), executionId),
+			id: executionId,
+			config,
+			ownerPid: process.pid,
+		});
+		await store.setTests([testId]);
+		await store.record({
+			type: "attempt.started",
+			level: "info",
+			attemptId: "terminal-attempt",
+			data: { testId, title: ["viewer", "terminal run"], project: "default", retry: 0 },
+		});
+		await expect(page).toHaveURL(new RegExp(`/executions/${executionId}$`));
+		await expect(page.getByRole("button", { name: "Stop this run" })).toHaveCount(0);
+		await expect(page.getByText("The test is still running.")).toBeVisible();
+	} finally {
+		await viewer.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("Run all can be stopped before the first attempt starts", async ({ page }) => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-stop-"));
 	const config = join(directory, "agent-test.config.ts");

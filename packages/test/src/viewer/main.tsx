@@ -26,17 +26,44 @@ function ExecutionSync({ bootstrap }: { bootstrap: ViewerBootstrap }) {
 type LiveEvent = {
 	type: string;
 	catalog?: unknown;
-	executions?: unknown[];
+	executions?: LiveExecution[];
 	execution?: { id?: unknown };
 };
+type LiveExecution = { id: string; status: string };
 
 function applyLiveEvent(message: MessageEvent): void {
 	const event = JSON.parse(message.data) as LiveEvent;
 	if (event.type === "catalog.snapshot") queryClient.setQueryData(["test-catalog"], event.catalog);
-	if (event.type === "executions.snapshot")
-		queryClient.setQueryData(["execution-history"], event.executions ?? []);
+	if (event.type === "executions.snapshot") applyExecutionHistory(event.executions ?? []);
 	if (event.type === "execution.snapshot" && typeof event.execution?.id === "string")
 		queryClient.setQueryData(["execution", event.execution.id], event.execution);
+}
+
+function applyExecutionHistory(executions: LiveExecution[]): void {
+	const previous = queryClient.getQueryData<LiveExecution[]>(["execution-history"]);
+	queryClient.setQueryData(["execution-history"], executions);
+	const executionId = newlyRunningExecution(previous, executions);
+	if (executionId && !pageShowsExecution(executionId))
+		void viewerRouter.navigate({
+			to: "/executions/$executionId",
+			params: { executionId },
+		});
+}
+
+function pageShowsExecution(executionId: string): boolean {
+	const url = new URL(window.location.href);
+	return (
+		url.pathname === `/executions/${executionId}` ||
+		url.searchParams.get("execution") === executionId
+	);
+}
+
+function newlyRunningExecution(
+	previous: LiveExecution[] | undefined,
+	executions: LiveExecution[],
+): string | undefined {
+	const known = new Set(previous?.map(({ id }) => id) ?? []);
+	return executions.find(({ id, status }) => status === "running" && !known.has(id))?.id;
 }
 
 function connectExecutionSync(bootstrap: ViewerBootstrap): (() => void) | undefined {
