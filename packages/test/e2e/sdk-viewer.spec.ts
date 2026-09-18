@@ -354,6 +354,39 @@ test("running conversation updates through WebSocket without detail polling", as
 	}
 });
 
+test("a judge appears while running and completes in place", async ({ page }) => {
+	const fixture = await runningJudgeFixture();
+	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
+	try {
+		await page.goto(
+			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
+		);
+		const conversation = page.getByRole("region", { name: "Conversation" });
+		const participant = page
+			.getByRole("tablist", { name: "Conversation participants" })
+			.getByRole("tab", { name: "releaseAdvice · Judge" });
+		await expect(participant).toHaveAttribute("aria-selected", "true");
+		await expect(
+			participant.getByRole("status", { name: "releaseAdvice is running" }),
+		).toBeVisible();
+		await expect(conversation.getByRole("status", { name: "Judge is running" })).toBeVisible();
+		await expect(
+			conversation.getByText("Should this release proceed?", { exact: true }),
+		).toBeVisible();
+		await expect(conversation.getByRole("region", { name: "Judge response" })).toHaveCount(0);
+
+		await finishRunningJudge(fixture);
+		await expect(conversation.getByRole("status", { name: "Judge is running" })).toHaveCount(0);
+		await expect(participant.getByRole("status")).toHaveCount(0);
+		await expect(conversation.getByRole("region", { name: "Judge response" })).toContainText(
+			"The rollback plan is ready.",
+		);
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});
+
 test("a terminal-started execution opens and streams in an already-open viewer", async ({
 	page,
 }) => {
@@ -725,6 +758,36 @@ async function finishRunningExecution(
 		data: { status: "passed", durationMs: 20, errors: [] },
 	});
 	await fixture.store.finish("passed");
+}
+
+async function runningJudgeFixture() {
+	const fixture = await runningExecutionFixture();
+	await fixture.store.record({
+		type: "operation.evaluation-start",
+		level: "debug",
+		attemptId: "attempt-1",
+		operationId: "judge-1",
+		data: {
+			name: "releaseAdvice",
+			input: { rollbackReady: true },
+			evaluation: { prompt: "Should this release proceed?" },
+		},
+	});
+	return fixture;
+}
+
+async function finishRunningJudge(fixture: Awaited<ReturnType<typeof runningJudgeFixture>>) {
+	await fixture.store.record({
+		type: "operation.evaluation",
+		level: "debug",
+		attemptId: "attempt-1",
+		operationId: "judge-1",
+		data: {
+			name: "releaseAdvice",
+			output: { safe: true, reason: "The rollback plan is ready." },
+		},
+	});
+	await finishRunningExecution(fixture);
 }
 
 async function waitForPassed(page: Page, timeout?: number) {

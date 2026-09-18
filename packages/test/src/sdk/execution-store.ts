@@ -294,7 +294,7 @@ function addOperationEvent(attempt: ExecutionAttempt, event: ExecutionEvent): vo
 	if (!operation) {
 		operation = {
 			id: event.operationId,
-			kind: event.type === "operation.evaluation" ? "evaluation" : "agent",
+			kind: event.type.startsWith("operation.evaluation") ? "evaluation" : "agent",
 			status: "running",
 			startedAt: event.at,
 			data: [],

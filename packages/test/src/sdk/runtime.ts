@@ -134,13 +134,24 @@ export class TestRuntime {
 			run: ({ input }) =>
 				this.track(async () => {
 					const definition = configuredAgent(this.options.judge, agentSettings);
+					const id = crypto.randomUUID();
+					let startedEvaluation: { prompt: string; schema: unknown } | undefined;
 					const result = await evaluate({
+						id,
 						name,
 						definition,
 						settings: { ...agentSettings, prompt, schema },
 						input,
 						...this.options,
 						signal: this.signal,
+						onStart: ({ input: selectedInput, evaluation }) => {
+							startedEvaluation = evaluation;
+							this.options.onEvent?.({
+								runId: id,
+								type: "evaluation-start",
+								value: { name, input: selectedInput, evaluation },
+							});
+						},
 					});
 					this.options.onEvent?.({
 						runId: result.id,
@@ -148,7 +159,10 @@ export class TestRuntime {
 						value: {
 							...result,
 							input,
-							evaluation: { prompt, schema: z.toJSONSchema(schema) },
+							evaluation: startedEvaluation ?? {
+								prompt,
+								schema: z.toJSONSchema(schema),
+							},
 						},
 					});
 					return result;

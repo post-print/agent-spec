@@ -2416,7 +2416,7 @@ function Conversation({
 			{timeline.length === 0 && status !== "running" ? (
 				<p {...stylex.props(styles.meta)}>{conversationPlaceholder(status)}</p>
 			) : null}
-			{status === "running" ? <RunningIndicator /> : null}
+			{status === "running" ? <RunningIndicator kind={operation?.kind} /> : null}
 		</section>
 	);
 }
@@ -2758,9 +2758,14 @@ function selectConversationWithKeyboard(input: {
 	tabs?.[(index + direction + operations.length) % operations.length]?.focus();
 }
 
-function RunningIndicator() {
+function RunningIndicator({ kind }: { kind?: Attempt["operations"][number]["kind"] }) {
+	const participant = kind === "evaluation" ? "Judge" : "Agent";
 	return (
-		<div role="status" aria-label="Agent is running" {...stylex.props(styles.runningIndicator)}>
+		<div
+			role="status"
+			aria-label={`${participant} is running`}
+			{...stylex.props(styles.runningIndicator)}
+		>
 			<span>Running</span>
 			<span aria-hidden="true" {...stylex.props(styles.runningDots)}>
 				<span {...stylex.props(styles.runningDot)}>•</span>

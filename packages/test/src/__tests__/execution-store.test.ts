@@ -95,6 +95,45 @@ it("execution store › keeps the agent name when tool events arrive", async () 
 	}
 });
 
+it("execution store › keeps a judge operation running until its evaluation arrives", async () => {
+	const root = await mkdtemp(join(tmpdir(), "agent-test-judge-operation-"));
+	try {
+		const store = await ExecutionStore.create({ root, id: "run-1", config: "test" });
+		const event = { level: "debug" as const, attemptId: "attempt-1", operationId: "judge-1" };
+		await store.record({
+			...event,
+			type: "operation.evaluation-start",
+			data: {
+				name: "releaseAdvice",
+				evaluation: { prompt: "Should this release proceed?" },
+			},
+		});
+		expect((await readExecutionDetail(root))?.attempts[0]?.operations).toEqual([
+			expect.objectContaining({
+				id: "judge-1",
+				kind: "evaluation",
+				name: "releaseAdvice",
+				status: "running",
+			}),
+		]);
+
+		await store.record({
+			...event,
+			type: "operation.evaluation",
+			data: { name: "releaseAdvice", output: { safe: true } },
+		});
+		expect((await readExecutionDetail(root))?.attempts[0]?.operations).toEqual([
+			expect.objectContaining({
+				id: "judge-1",
+				kind: "evaluation",
+				status: "completed",
+			}),
+		]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 it("execution store › retains the newest fifty completed executions", async () => {
 	const root = await mkdtemp(join(tmpdir(), "agent-test-history-"));
 	try {

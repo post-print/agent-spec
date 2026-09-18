@@ -33,6 +33,7 @@ export function serializeInput(input: JsonValue): string {
 	return text;
 }
 export interface EvaluationRequest<S extends z.ZodType> {
+	id?: string;
 	name: string;
 	definition: AgentDefinition;
 	settings: JudgeSettings<S>;
@@ -40,6 +41,7 @@ export interface EvaluationRequest<S extends z.ZodType> {
 	baseDir: string;
 	outputDir: string;
 	signal: AbortSignal;
+	onStart?: (value: { input: JsonValue; evaluation: { prompt: string; schema: unknown } }) => void;
 }
 async function evaluationPrompt<S extends z.ZodType>(
 	request: EvaluationRequest<S>,
@@ -61,7 +63,7 @@ export async function evaluate<S extends z.ZodType>(
 	request: EvaluationRequest<S>,
 ): Promise<Evaluation<z.output<S>>> {
 	request.signal.throwIfAborted();
-	const id = crypto.randomUUID(),
+	const id = request.id ?? crypto.randomUUID(),
 		directory = join(request.outputDir, id);
 	const workspace = join(directory, "workspace");
 	await mkdir(workspace, { recursive: true });
@@ -74,6 +76,10 @@ export async function evaluate<S extends z.ZodType>(
 			workspace,
 			signal: request.signal,
 			readOnly: true,
+		});
+		request.onStart?.({
+			input: prepared.input,
+			evaluation: { prompt: request.settings.prompt, schema: prepared.schema },
 		});
 		const trace = await session.run(prepared.prompt);
 		const response = trace.messages
