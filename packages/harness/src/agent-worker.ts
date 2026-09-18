@@ -9,6 +9,7 @@ import type {
 import { cancelActiveClaudeRun, runClaudeAgent } from "./claude-run.js";
 import { cancelActiveCursorRun, runCursorAgent } from "./cursor-run.js";
 import { cancelActiveOpenaiRun, runOpenaiAgent } from "./openai-run.js";
+import { cancelActiveOpenRouterRun, runOpenRouterAgent } from "./openrouter-run.js";
 import type { AgentTrace } from "./types.js";
 
 let session: AdapterSession;
@@ -30,11 +31,12 @@ async function initialize(input: InitializeInput): Promise<AgentCapabilities> {
 			"Cursor adapter does not yet provide enforced read-only judging; use openai or claude as the judge",
 		);
 	session = builtinSession(input);
+	const apiCapabilities = agent.host === "openrouter";
 	return {
 		conversation: "reconstructed",
-		toolCalls: true,
-		commandExitCodes: true,
-		fileReads: true,
+		toolCalls: !apiCapabilities,
+		commandExitCodes: !apiCapabilities,
+		fileReads: !apiCapabilities,
 		tokenUsage: true,
 		readOnly: agent.host !== "cursor",
 	};
@@ -74,27 +76,42 @@ function builtinOptions(input: InitializeInput, prompt: string) {
 		onAgentEvent: (event: AgentEvent) => send("event", event),
 	};
 }
+function runCursorBuiltin(common: ReturnType<typeof builtinOptions>, model: unknown) {
+	return runCursorAgent({
+		...common,
+		model: typeof model === "string" && model ? { id: model } : undefined,
+	});
+}
 async function runBuiltin(input: InitializeInput, prompt: string) {
 	const common = builtinOptions(input, prompt);
 	const { agent, readOnly } = input;
-	if (agent.host === "openai")
-		return runOpenaiAgent({
-			...common,
-			model: agent.options.model,
-			sandbox: readOnly ? "read-only" : "workspace-write",
-			networkAccess: agent.options.networkAccess,
-		});
-	if (agent.host === "claude")
-		return runClaudeAgent({
-			...common,
-			model: agent.options.model,
-			loadProjectContext: true,
-			readOnly,
-		});
-	return runCursorAgent({
-		...common,
-		model: agent.options.model ? { id: agent.options.model } : undefined,
-	});
+	switch (agent.host) {
+		case "openai":
+			return runOpenaiAgent({
+				...common,
+				model: agent.options.model,
+				sandbox: readOnly ? "read-only" : "workspace-write",
+				networkAccess: agent.options.networkAccess,
+			});
+		case "claude":
+			return runClaudeAgent({
+				...common,
+				model: agent.options.model,
+				loadProjectContext: true,
+				readOnly,
+			});
+		case "openrouter":
+			return runOpenRouterAgent({
+				...common,
+				model: agent.options.model,
+				baseUrl: typeof agent.options.baseUrl === "string" ? agent.options.baseUrl : undefined,
+				httpReferer:
+					typeof agent.options.httpReferer === "string" ? agent.options.httpReferer : undefined,
+				xTitle: typeof agent.options.xTitle === "string" ? agent.options.xTitle : undefined,
+			});
+		default:
+			return runCursorBuiltin(common, agent.options.model);
+	}
 }
 function builtinSession(input: InitializeInput): AdapterSession {
 	const history: string[] = [];
@@ -154,6 +171,7 @@ process.on("SIGTERM", () => {
 	cancelActiveClaudeRun();
 	cancelActiveCursorRun();
 	cancelActiveOpenaiRun();
+	cancelActiveOpenRouterRun();
 });
 process.on("disconnect", () => {
 	signal.abort();

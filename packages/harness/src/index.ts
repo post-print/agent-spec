@@ -11,7 +11,9 @@ export {
 	cursor,
 	customAgent,
 	defineAgent,
+	OpenRouterAgentOptions,
 	openai,
+	openrouter,
 } from "./agent-definition.js";
 export { createAgentSession, HarnessSession } from "./agent-session.js";
 export { resolvedTotalTokens } from "./capture.js";

@@ -17,7 +17,7 @@ export const coder = openai({
 });
 ```
 
-`openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` uses the Cursor SDK. All accept model and authentication options. API-key authentication names an environment variable: `{ type: "api-key", env: "OPENAI_API_KEY" }`.
+`openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` uses the Cursor SDK. `openrouter()` calls an OpenRouter model through the OpenAI-compatible API. All accept model and authentication options. OpenRouter defaults to `{ type: "api-key", env: "OPENROUTER_API_KEY" }`.
 
 Factories do not launch agents. Agent-test prepares workspaces, installs attached skills, supplies context, creates sessions, and guarantees cleanup. Custom adapters use `defineAgent()` and `customAgent()`; see [the SDK guide](../../docs/sdk-v2.md#custom-agents).
 

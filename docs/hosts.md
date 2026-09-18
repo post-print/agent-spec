@@ -2,9 +2,9 @@
 
 <!-- source-of-truth: configured host agents and authentication -->
 <!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
-<!-- review-deps: paths=.env.example,packages/harness/src/agent-definition.ts,packages/harness/src/agent-session.ts,packages/harness/src/agent-worker.ts,packages/harness/src/claude-run.ts,packages/harness/src/openai-run.ts,packages/harness/src/cursor-run.ts -->
+<!-- review-deps: paths=.env.example,packages/harness/src/agent-definition.ts,packages/harness/src/agent-session.ts,packages/harness/src/agent-worker.ts,packages/harness/src/claude-run.ts,packages/harness/src/openai-run.ts,packages/harness/src/openrouter-run.ts,packages/harness/src/cursor-run.ts -->
 
-`openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` runs the Cursor SDK. Factories create immutable definitions; each independent task creates its own worker and session.
+`openai()` runs Codex, `claude()` runs Claude Code, `cursor()` runs the Cursor SDK, and `openrouter()` calls an OpenRouter model through its OpenAI-compatible API. Factories create immutable definitions; each independent task creates its own worker and session.
 
 ```ts
 const coder = openai({
@@ -21,6 +21,7 @@ Omitted authentication means subscription. API-key auth names the environment va
 | `openai()` | `codex login` | `OPENAI_API_KEY` |
 | `claude()` | Claude Code login | `ANTHROPIC_API_KEY` |
 | `cursor()` | `agent-test login` | `CURSOR_API_KEY` |
+| `openrouter()` | None | `OPENROUTER_API_KEY` |
 
 Cursor app login does not authenticate the SDK. Global skills default to excluded for all definitions. Attached project skills and explicit context are configured on the definition before a test runs.
 

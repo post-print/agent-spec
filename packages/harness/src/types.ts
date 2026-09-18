@@ -1,4 +1,4 @@
-export const AGENT_HOSTS = ["cursor", "claude", "openai"] as const;
+export const AGENT_HOSTS = ["cursor", "claude", "openai", "openrouter"] as const;
 export type BuiltinAgentHost = (typeof AGENT_HOSTS)[number];
 /** Builtin host or a registered consumer slug. */
 export type AgentHost = BuiltinAgentHost | (string & {});

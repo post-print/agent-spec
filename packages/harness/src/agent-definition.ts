@@ -15,6 +15,13 @@ export interface AgentOptions {
 	mcpServers?: Record<string, McpServerConfig>;
 	networkAccess?: boolean;
 }
+export interface OpenRouterAgentOptions
+	extends Omit<AgentOptions, "auth" | "mcpServers" | "networkAccess"> {
+	baseUrl?: string;
+	httpReferer?: string;
+	xTitle?: string;
+	auth?: { type: "api-key"; env: string };
+}
 export interface AgentDefinition {
 	readonly host?: BuiltinAgentHost;
 	readonly adapter?: string;
@@ -97,6 +104,12 @@ function builtin(host: BuiltinAgentHost, options: AgentOptions = {}): AgentDefin
 export const openai = (options?: AgentOptions): AgentDefinition => builtin("openai", options);
 export const claude = (options?: AgentOptions): AgentDefinition => builtin("claude", options);
 export const cursor = (options?: AgentOptions): AgentDefinition => builtin("cursor", options);
+/** Run a model through the OpenRouter OpenAI-compatible API. */
+export const openrouter = (options: OpenRouterAgentOptions = {}): AgentDefinition =>
+	definition({
+		host: "openrouter",
+		options: { auth: { type: "api-key", env: "OPENROUTER_API_KEY" }, ...options },
+	});
 export function customAgent<T extends Record<string, unknown>>(input: {
 	adapter: string;
 	options: T & AgentOptions;
