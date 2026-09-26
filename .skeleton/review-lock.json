@@ -5,12 +5,12 @@
 			"reviewedAt": "2026-09-26",
 			"documentHash": "sha256:38bc4dfcbe564889e0478d7c4d8fa320ec5441c67919d6628067f06e145fe5e9",
 			"reviewDependencies": {
-				"AGENTS.md": "sha256:efcc1f288f2f48b894f0cad6ecb78881cc016a7f146b76d8a2cdad78addebe1f",
+				"AGENTS.md": "sha256:595045400713fb58d3c398dfaf5c01ec77b9e180fecbd9d3795fde02c3dd70e7",
 				"docs/cli.md": "sha256:4cb019a270fd88e92cbae577d659dbcb3201113502707ad60d1b5234273395e9",
 				"docs/getting-started.md": "sha256:b6c792b22c47275849d7fddee4df773957737d3932319f40e1d15c7867934b7b",
 				"docs/hosts.md": "sha256:a5f4f13490e05e84a54708f4842bd1f90493fd075558fea3cb9d0f94038e419f",
 				"docs/isolation.md": "sha256:84a79618a87599c73485d26bf1f3a7dcae27308ee5bba5caa6a38fe9777036c2",
-				"docs/reliability.md": "sha256:be9f95f638700a184388ff29a6ec354286510b2dd42e9d4a7daf57d7afa890d0",
+				"docs/reliability.md": "sha256:3aba1623ccec10bfba8161c7baccea6f6366bdffd6970bd0a6d557fe727404ef",
 				"docs/sdk-v2.md": "sha256:00b6e20e47a008d4ddcbcf866c26274e53b1888b60cf7571e2fc19a77c0d8eb4",
 				"docs/suites.md": "sha256:be543a81fd64186eceb41b15eaafff378857394f5627395b108f90ea08c7c91c",
 				"packages/harness/README.md": "sha256:57a367ca8a984352b78979a86f9d42c8664d95bf8165b09ef9ca43ad741d7da7",
@@ -19,12 +19,12 @@
 			}
 		},
 		"AGENTS.md": {
-			"reviewedAt": "2026-09-16",
-			"documentHash": "sha256:efcc1f288f2f48b894f0cad6ecb78881cc016a7f146b76d8a2cdad78addebe1f",
+			"reviewedAt": "2026-09-26",
+			"documentHash": "sha256:595045400713fb58d3c398dfaf5c01ec77b9e180fecbd9d3795fde02c3dd70e7",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"biome.json": "sha256:11888d363647481cfd5b03a90ccbe71e89377b2f6ea230baefcb70050de29b84",
-				"package.json": "sha256:af19da3d79dd65a80b301b6e72d7b0fccafda556069579d35deedd3126120145",
+				"package.json": "sha256:5e5e1ff20b4fd9b9b2027cb3ed6210602dc016155d48d62a380bc78abf91184d",
 				"skeleton.toml": "sha256:4127e8eab5383b925c59ad8c2b4d0ea9abc5fa072e4b00a81e05337d4a8dd131"
 			}
 		},
@@ -32,9 +32,9 @@
 			"reviewedAt": "2026-09-26",
 			"documentHash": "sha256:fa578c4a6257e9f16fe6871de9d31f511f77420bdb29a0beba243835c30fb0c1",
 			"reviewDependencies": {
-				"package.json": "sha256:af19da3d79dd65a80b301b6e72d7b0fccafda556069579d35deedd3126120145",
-				"packages/harness/package.json": "sha256:59ee234837b182bbbbbfcd606023fdab195e216bd84c9530adb57aa0f6ced454",
-				"packages/test/package.json": "sha256:f7eee7807da93fb12b26699ff08996768f5955a81ac9141370c7a1021b72f3a6"
+				"package.json": "sha256:5e5e1ff20b4fd9b9b2027cb3ed6210602dc016155d48d62a380bc78abf91184d",
+				"packages/harness/package.json": "sha256:bb2db4fc90d103c1ea5c436849093ed33f3dc4b3abbaea2c30c925777dad6be5",
+				"packages/test/package.json": "sha256:3e8793ad52db73df6b3a86578837d99a77057f88a0e90c458f3ffb01cf8f2017"
 			}
 		},
 		"docs/cli.md": {
@@ -93,8 +93,8 @@
 			}
 		},
 		"docs/reliability.md": {
-			"reviewedAt": "2026-09-17",
-			"documentHash": "sha256:be9f95f638700a184388ff29a6ec354286510b2dd42e9d4a7daf57d7afa890d0",
+			"reviewedAt": "2026-09-26",
+			"documentHash": "sha256:3aba1623ccec10bfba8161c7baccea6f6366bdffd6970bd0a6d557fe727404ef",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"agent-suites/fixtures/task-list/src/status.ts": "sha256:34ece1eace5f952edbd61290b1278a99402e84149bb3b43b602d01dda76715b9",
@@ -102,7 +102,7 @@
 				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:560945e608967b7f860c4f0b9ed9c7535a8ab74194a65065991ebdac38620151",
 				"agent-suites/tour/agents.ts": "sha256:d06813e2769127e50354ee564aa9920ecae65e5747ee97e5681e78d9c086dabc",
 				"agent-suites/tour/tour.spec.ts": "sha256:15c2662d116faa2df4a3c7bfbf1f2fb3f9b009985225e0fbdbccbd4e5a56d3ae",
-				"package.json": "sha256:af19da3d79dd65a80b301b6e72d7b0fccafda556069579d35deedd3126120145"
+				"package.json": "sha256:5e5e1ff20b4fd9b9b2027cb3ed6210602dc016155d48d62a380bc78abf91184d"
 			}
 		},
 		"docs/sdk-v2.md": {

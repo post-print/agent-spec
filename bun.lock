@@ -6,7 +6,7 @@
       "name": "agent-spec",
       "devDependencies": {
         "@biomejs/biome": "2.5.12",
-        "@csark0812/skeleton": "^5.0.0",
+        "@csark0812/skeleton": "^5.0.4",
         "@post-print/agent-harness": "workspace:*",
         "@post-print/agent-test": "workspace:*",
         "@types/node": "^26.1.1",
@@ -16,7 +16,7 @@
     },
     "packages/harness": {
       "name": "@post-print/agent-harness",
-      "version": "2.0.2",
+      "version": "2.0.7",
       "devDependencies": {
         "@cursor/sdk": "^1.0.27",
         "@types/node": "^26.1.1",
@@ -31,7 +31,7 @@
     },
     "packages/test": {
       "name": "@post-print/agent-test",
-      "version": "2.0.2",
+      "version": "2.0.7",
       "bin": {
         "agent-test": "./dist/cli.js",
       },
@@ -130,7 +130,7 @@
 
     "@connectrpc/connect-web": ["@connectrpc/connect-web@1.7.0", "", { "peerDependencies": { "@bufbuild/protobuf": "^1.10.0", "@connectrpc/connect": "1.7.0" } }, "sha512-qyP0YOnUPRWwCc/VfsoydMJvkb7EyUPr2q9sHgBuJzbADjiqck1gKH5V5ZPzPhTLBvmz5UvG+wiZ5sMRQHU1MQ=="],
 
-    "@csark0812/skeleton": ["@csark0812/skeleton@5.0.0", "", { "dependencies": { "ajv": "8.20.0", "github-slugger": "2.0.0", "remark": "15.0.1", "remark-gfm": "4.0.1", "smol-toml": "1.8.0", "tinyglobby": "0.2.14", "unist-util-visit": "5.0.0", "yaml": "2.9.0" }, "bin": { "skeleton": "dist/cli.js" } }, "sha512-uUrrc3WKxdd4g2A1cANRjGAgYJn8v0eoBIjn+dnT151C7h8GveJn1lt8g/m8AzHhDd2mZ9mo+FdYhMWYgMfmDw=="],
+    "@csark0812/skeleton": ["@csark0812/skeleton@5.0.4", "", { "dependencies": { "ajv": "8.20.0", "github-slugger": "2.0.0", "remark": "15.0.1", "remark-gfm": "4.0.1", "smol-toml": "1.8.0", "tinyglobby": "0.2.14", "unist-util-visit": "5.0.0", "yaml": "2.9.0" }, "bin": { "skeleton": "dist/cli.js" } }, "sha512-0piAfDJXj6xtp+CQTPwVj63nm1UzI7Tt8q9IgIEvlO5R+6etxlE4U3sZGRgjZm1X6E3Rk7fuILBXvwNMXcadPA=="],
 
     "@cursor/sdk": ["@cursor/sdk@1.0.31", "", { "dependencies": { "@bufbuild/protobuf": "1.10.0", "@connectrpc/connect": "^1.6.1", "@connectrpc/connect-node": "^1.6.1", "@connectrpc/connect-web": "^1.6.1", "@statsig/js-client": "3.31.0", "zod": "^3.25.0" }, "optionalDependencies": { "@cursor/sdk-darwin-arm64": "1.0.31", "@cursor/sdk-darwin-x64": "1.0.31", "@cursor/sdk-linux-arm64": "1.0.31", "@cursor/sdk-linux-x64": "1.0.31", "@cursor/sdk-win32-x64": "1.0.31" } }, "sha512-0SdJQqp5oXn81oJqIVkLpgHih+CL6CAudK83pCsdJyA23AvInSWlMaGpLi+JlrK3efHoswiEhhASs9WpeEz3QQ=="],
 
