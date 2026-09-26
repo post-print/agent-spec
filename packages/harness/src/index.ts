@@ -10,11 +10,17 @@ export {
 	claude,
 	cursor,
 	customAgent,
+	DEFAULT_AGENT_TIMEOUT_MS,
 	defineAgent,
 	OpenRouterAgentOptions,
 	openai,
 	openrouter,
 } from "./agent-definition.js";
+export {
+	AgentInfrastructureCode,
+	AgentInfrastructureError,
+	AgentInfrastructureFailure,
+} from "./agent-error.js";
 export { createAgentSession, HarnessSession } from "./agent-session.js";
 export { resolvedTotalTokens } from "./capture.js";
 export { loginCursorSdk } from "./cursor-auth.js";

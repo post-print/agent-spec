@@ -1,7 +1,7 @@
 # @post-print/agent-test
 
 <!-- source-of-truth: named agent and judge factories for TypeScript tests -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-17 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
 <!-- review-deps: paths=packages/test/src/*.ts,packages/test/src/**/*.ts,packages/test/package.json -->
 
 ```ts
@@ -24,6 +24,6 @@ test("answers correctly", async ({ coder, accuracy }) => {
 
 Set default `agent`, `judge`, and `workspace` directly in `defineConfig`. Harness definitions select providers, models, and auth. Factories only declare resources; each test receives its own executable handles. Every run starts fresh; use `run.continue` for the same task. Compare with ordinary JavaScript and `expect`. Use `expect(actual, "Readable criterion")` to give a derived viewer criterion a concise label, or declare explicit test criteria when they should override derived assertions.
 
-Judge input is explicitly selected JSON data. Output is schema-validated and typed. The runner records artifacts and usage, handles cancellation, and owns cleanup. Global skills default to false. No browser is required for CLI execution.
+Judge input is explicitly selected JSON data. Output is schema-validated and typed. The runner records artifacts and usage, handles cancellation, and owns cleanup. Built-in timeouts are recorded as terminal infrastructure failures, including the configured deadline and partial trace. A new recorded run also recovers dead-owner summaries without requiring viewer navigation. Global skills default to false. No browser is required for CLI execution.
 
 See [the SDK guide](../../docs/sdk-v2.md), [tour](../../agent-suites/tour/tour.spec.ts), and [getting started](../../docs/getting-started.md). The old `test.use`, `compare`, `defineJudge`, and run-owned judge API are removed.

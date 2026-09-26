@@ -10,6 +10,7 @@ import {
 import { z } from "zod/v4";
 import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
+import { recordedFailure } from "./failure.js";
 import { evaluate } from "./judge.js";
 import type {
 	AgentFixture,
@@ -145,23 +146,29 @@ export class TestRuntime {
 					const definition = configuredAgent(this.options.judge, agentSettings);
 					const id = crypto.randomUUID();
 					let startedEvaluation: { prompt: string; schema: unknown } | undefined;
-					const result = await evaluate({
-						id,
-						name,
-						definition,
-						settings: { ...agentSettings, prompt, schema },
-						input,
-						...this.options,
-						signal: this.signal,
-						onStart: ({ input: selectedInput, evaluation }) => {
-							startedEvaluation = evaluation;
-							this.options.onEvent?.({
-								runId: id,
-								type: "evaluation-start",
-								value: { name, input: selectedInput, evaluation, invocationIndex },
-							});
-						},
-					});
+					let result;
+					try {
+						result = await evaluate({
+							id,
+							name,
+							definition,
+							settings: { ...agentSettings, prompt, schema },
+							input,
+							...this.options,
+							signal: this.signal,
+							onStart: ({ input: selectedInput, evaluation }) => {
+								startedEvaluation = evaluation;
+								this.options.onEvent?.({
+									runId: id,
+									type: "evaluation-start",
+									value: { name, input: selectedInput, evaluation, invocationIndex },
+								});
+							},
+						});
+					} catch (error) {
+						this.options.onEvent?.({ runId: id, type: "error", value: recordedFailure(error) });
+						throw error;
+					}
 					this.options.onEvent?.({
 						runId: result.id,
 						type: "evaluation",
@@ -277,7 +284,9 @@ export class TestRuntime {
 			this.options.onEvent?.({ runId: id, type: "complete", value: result });
 			return trackOperationOutput(result);
 		} catch (error) {
-			await writeJson(join(directory, "error.json"), { message: String(error) });
+			const failure = recordedFailure(error);
+			this.options.onEvent?.({ runId: id, type: "error", value: failure });
+			await writeJson(join(directory, "error.json"), failure);
 			throw error;
 		}
 	}

@@ -10,6 +10,7 @@ import { cancelActiveClaudeRun, runClaudeAgent } from "./claude-run.js";
 import { cancelActiveCursorRun, runCursorAgent } from "./cursor-run.js";
 import { cancelActiveOpenaiRun, runOpenaiAgent } from "./openai-run.js";
 import { cancelActiveOpenRouterRun, runOpenRouterAgent } from "./openrouter-run.js";
+import { AgentRunTimeoutError, getPartialTrace } from "./run-guards.js";
 import type { AgentTrace } from "./types.js";
 
 let session: AdapterSession;
@@ -70,6 +71,7 @@ function builtinOptions(input: InitializeInput, prompt: string) {
 		prompt,
 		apiKey,
 		authMode: auth.type,
+		timeoutMs: agent.options.timeoutMs,
 		includeGlobalSkills: agent.options.includeGlobalSkills === true,
 		mcpServers: readOnly ? undefined : agent.options.mcpServers,
 		failOnUserInput: true,
@@ -120,7 +122,14 @@ function builtinSession(input: InitializeInput): AdapterSession {
 			const submitted = history.length
 				? `Previous conversation (context only):\n${history.join("\n\n")}\n\nCurrent user request:\n${prompt}`
 				: prompt;
-			const result = await runBuiltin(input, submitted);
+			let result;
+			try {
+				result = await runBuiltin(input, submitted);
+			} catch (error) {
+				const trace = getPartialTrace(error);
+				if (trace) send("event", { type: "trace", trace });
+				throw error;
+			}
 			if (result.status !== "completed") {
 				send("event", { type: "trace", trace: result.trace });
 				throw new Error(`Agent execution failed: ${JSON.stringify(result.trace.artifacts)}`);
@@ -166,6 +175,17 @@ async function run(prompt: string) {
 	}
 	send("result", trace);
 }
+function serializedError(error: unknown) {
+	const message = error instanceof Error ? error.message : String(error);
+	if (error instanceof AgentRunTimeoutError)
+		return {
+			kind: "infrastructure",
+			code: "timeout",
+			message,
+			timeoutMs: error.timeoutMs,
+		};
+	return { name: error instanceof Error ? error.name : "Error", message };
+}
 process.on("SIGTERM", () => {
 	signal.abort();
 	cancelActiveClaudeRun();
@@ -193,7 +213,7 @@ process.on("message", async (raw) => {
 	} catch (error) {
 		process.send?.({
 			type: "error",
-			error: error instanceof Error ? error.message : String(error),
+			error: serializedError(error),
 		});
 	}
 });

@@ -314,10 +314,16 @@ function addOperationEvent(attempt: ExecutionAttempt, event: ExecutionEvent): vo
 	if (typeof data.invocationIndex === "number") operation.invocationIndex = data.invocationIndex;
 	if (typeof name === "string" && (event.type === "operation.start" || !operation.name))
 		operation.name = name;
-	if (event.type === "operation.complete" || event.type === "operation.evaluation") {
-		operation.status = "completed";
+	const status = operationTerminalStatus(event.type);
+	if (status) {
+		operation.status = status;
 		operation.completedAt = event.at;
 	}
+}
+
+function operationTerminalStatus(type: string): "completed" | "failed" | undefined {
+	if (type === "operation.complete" || type === "operation.evaluation") return "completed";
+	return type === "operation.error" ? "failed" : undefined;
 }
 
 export async function listExecutionHistory(root: string): Promise<ExecutionSummary[]> {

@@ -6,6 +6,7 @@ import {
 	ExecutionStore,
 	executionHistoryRoot,
 	finishExecutionIfRunning,
+	recoverExecutionHistory,
 } from "./execution-store.js";
 import { playwrightCli } from "./playwright-cli.js";
 
@@ -26,6 +27,7 @@ export type StartExecutionOptions = {
 export async function startRecordedExecution(
 	options: StartExecutionOptions,
 ): Promise<StartedExecution> {
+	await recoverExecutionHistory(executionHistoryRoot(options.config));
 	const id = crypto.randomUUID();
 	const root = resolve(executionHistoryRoot(options.config), id);
 	await ExecutionStore.create({

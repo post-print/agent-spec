@@ -1,12 +1,12 @@
 # agent-spec
 
 <!-- source-of-truth: package overview -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-17 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
 <!-- review-deps: paths=package.json,packages/*/package.json -->
 
 Executable TypeScript tests for coding agents. `@post-print/agent-test` provides named agent/judge resources, assertions, independent tasks, and typed evaluations. `@post-print/agent-harness` provides configured agents and isolated native host sessions.
 
-Start with [getting started](docs/getting-started.md), [the SDK guide](docs/sdk-v2.md), or [the worked examples](agent-suites/tour/tour.spec.ts). Agent definitions accept models, auth, skills, and context. Global skills default to excluded.
+Start with [getting started](docs/getting-started.md), [the SDK guide](docs/sdk-v2.md), or [the worked examples](agent-suites/tour/tour.spec.ts). Agent definitions accept models, auth, skills, context, and per-run deadlines. Built-in runs default to ten minutes. Global skills default to excluded.
 
 ```sh
 bun install

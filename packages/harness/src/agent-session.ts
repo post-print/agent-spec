@@ -1,6 +1,7 @@
 import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { AgentCapabilities, AgentDefinition, AgentEvent } from "./agent-definition.js";
+import { AgentInfrastructureError } from "./agent-error.js";
 import type { AgentTrace } from "./types.js";
 
 export interface HarnessSession {
@@ -50,7 +51,7 @@ class SessionWorker {
 		this.pending = undefined;
 	}
 	private receive(raw: unknown) {
-		const message = raw as { type: string; value: unknown; error?: string };
+		const message = raw as { type: string; value: unknown; error?: unknown };
 		if (message.type === "event") {
 			try {
 				this.listener?.(message.value as AgentEvent);
@@ -58,7 +59,7 @@ class SessionWorker {
 				this.fail(error as Error);
 				this.abort();
 			}
-		} else if (message.type === "error") this.fail(new Error(message.error));
+		} else if (message.type === "error") this.fail(workerError(message.error));
 		else {
 			this.pending?.resolve(message.value);
 			this.pending = undefined;
@@ -153,6 +154,22 @@ class SessionWorker {
 			await this.exited;
 		}
 	}
+}
+
+function workerError(raw: unknown): Error {
+	if (typeof raw === "string") return new Error(raw);
+	if (!raw || typeof raw !== "object") return new Error("Agent worker failed");
+	const value = raw as Record<string, unknown>;
+	const message = typeof value.message === "string" ? value.message : "Agent worker failed";
+	if (
+		value.kind === "infrastructure" &&
+		value.code === "timeout" &&
+		typeof value.timeoutMs === "number"
+	)
+		return new AgentInfrastructureError(message, value.code, value.timeoutMs);
+	const error = new Error(message);
+	if (typeof value.name === "string") error.name = value.name;
+	return error;
 }
 /** Each session owns a worker and all mutable host state within it. */
 export function createAgentSession(input: SessionInput): Promise<HarnessSession> {
