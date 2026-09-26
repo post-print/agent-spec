@@ -1,12 +1,23 @@
 import { afterEach, expect, it } from "bun:test";
-import { rm } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startRecordedExecution } from "../sdk/execution-runner.js";
-import { executionHistoryRoot, readExecutionDetail } from "../sdk/execution-store.js";
+import {
+	ExecutionStore,
+	executionHistoryRoot,
+	listExecutionHistory,
+	readExecutionDetail,
+} from "../sdk/execution-store.js";
 
 const config = fileURLToPath(
 	new URL("../../fixtures/execution-runner/agent-test.config.ts", import.meta.url),
+);
+const timeoutConfig = fileURLToPath(
+	new URL("../../fixtures/execution-timeout/agent-test.config.ts", import.meta.url),
+);
+const stalledBuiltin = fileURLToPath(
+	new URL("../../../harness/src/__tests__/fixtures/fake-codex-hang.mjs", import.meta.url),
 );
 const roots: string[] = [];
 
@@ -56,6 +67,56 @@ it("isolates Playwright output for overlapping executions", async () => {
 	expect(await Promise.all([first.completed, second.completed])).toEqual([0, 0]);
 	expect((await readExecutionDetail(firstRoot))?.status).toBe("passed");
 	expect((await readExecutionDetail(secondRoot))?.status).toBe("passed");
+});
+
+it("records a stalled builtin as a terminal infrastructure failure", async () => {
+	await chmod(stalledBuiltin, 0o755);
+	const previousBin = process.env.CODEX_BIN;
+	process.env.CODEX_BIN = stalledBuiltin;
+	const execution = await startRecordedExecution({
+		config: timeoutConfig,
+		args: ["--workers", "1"],
+	});
+	if (previousBin === undefined) delete process.env.CODEX_BIN;
+	else process.env.CODEX_BIN = previousBin;
+	const root = join(executionHistoryRoot(timeoutConfig), execution.id);
+	roots.push(root);
+
+	expect(await completesWithin(execution.completed, 5_000)).toBe(true);
+	const detail = await readExecutionDetail(root);
+	expect(detail?.status).toBe("failed");
+	expect(detail?.finishedAt).toBeDefined();
+	expect(detail?.attempts[0]?.operations[0]).toMatchObject({
+		status: "failed",
+		data: expect.arrayContaining([
+			expect.objectContaining({ kind: "infrastructure", code: "timeout", timeoutMs: 75 }),
+		]),
+	});
+});
+
+it("recovers dead-owner executions before starting another recorded run", async () => {
+	const orphanId = `orphan-${crypto.randomUUID()}`;
+	const orphanRoot = join(executionHistoryRoot(config), orphanId);
+	await ExecutionStore.create({
+		root: orphanRoot,
+		id: orphanId,
+		config,
+		ownerPid: 999_999,
+	});
+	roots.push(orphanRoot);
+
+	const execution = await startRecordedExecution({
+		config,
+		args: ["--grep", "keeps an attachment", "--workers", "1"],
+	});
+	roots.push(join(executionHistoryRoot(config), execution.id));
+	await execution.completed;
+
+	const orphan = (await listExecutionHistory(executionHistoryRoot(config))).find(
+		(summary) => summary.id === orphanId,
+	);
+	expect(orphan?.status).toBe("interrupted");
+	expect(orphan?.finishedAt).toBeDefined();
 });
 
 async function completesWithin(completed: Promise<number>, milliseconds: number): Promise<boolean> {

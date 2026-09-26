@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { claude, cursor, customAgent, openai } from "@post-print/agent-harness";
+import {
+	claude,
+	cursor,
+	customAgent,
+	DEFAULT_AGENT_TIMEOUT_MS,
+	openai,
+	openrouter,
+} from "@post-print/agent-harness";
 import { z } from "zod/v4";
 import { configuredAgent, factories } from "../sdk/definitions.js";
 import { parseEvaluation, serializeInput } from "../sdk/judge.js";
@@ -33,6 +40,18 @@ describe("resource preparation", () => {
 		expect(definition.options).not.toHaveProperty("description");
 	});
 });
+
+describe("builtin deadlines", () => {
+	it("bounds runs to ten minutes unless a positive timeout is configured", () => {
+		for (const definition of [openai(), claude(), cursor(), openrouter()])
+			expect(definition.options.timeoutMs).toBe(DEFAULT_AGENT_TIMEOUT_MS);
+		expect(openai({ timeoutMs: 45_000 }).options.timeoutMs).toBe(45_000);
+		for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
+			expect(() => openai({ timeoutMs })).toThrow("finite positive number");
+		expect(() => configuredAgent(openai(), { timeoutMs: 0 })).toThrow("finite positive number");
+	});
+});
+
 describe("v2 evaluation contracts", () => {
 	it("creates immutable definitions without resolving credentials", () => {
 		const agent = openai({

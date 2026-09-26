@@ -59,10 +59,14 @@ export function configuredAgent(
 	const selected = settings.agent ?? defaultAgent;
 	if (!selected) throw new Error("Configure an agent definition for this resource");
 	const { agent: _agent, description: _description, workspace: _workspace, ...options } = settings;
-	return {
+	const configured = {
 		...selected,
 		options: mergeSettings(selected.options, options) as AgentOptions & Record<string, unknown>,
 	};
+	const timeoutMs = configured.options.timeoutMs;
+	if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0))
+		throw new Error("Agent timeoutMs must be a finite positive number");
+	return configured;
 }
 export function validateSkills(skills: readonly string[], baseDir: string) {
 	const names = new Map<string, string>();

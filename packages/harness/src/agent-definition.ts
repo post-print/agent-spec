@@ -1,5 +1,7 @@
 import type { AgentTrace, AgentUsage, BuiltinAgentHost, McpServerConfig } from "./types.js";
 
+export const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
+
 export type AgentAuth = { type: "subscription" } | { type: "api-key"; env: string };
 export interface AgentContext {
 	instructions?: readonly string[];
@@ -8,6 +10,8 @@ export interface AgentContext {
 export interface AgentOptions {
 	model?: string;
 	auth?: AgentAuth;
+	/** Hard cap for each built-in host run. Defaults to ten minutes. */
+	timeoutMs?: number;
 	skills?: readonly string[];
 	context?: AgentContext;
 	/** Include host-global skills only when explicitly enabled. Defaults to false. */
@@ -71,6 +75,9 @@ function freeze<T>(value: T): T {
 function definition(value: AgentDefinition): AgentDefinition {
 	if (Object.hasOwn(value.options, "allowUserSkills"))
 		throw new Error("allowUserSkills was renamed to includeGlobalSkills");
+	const timeoutMs = value.options.timeoutMs ?? (value.host ? DEFAULT_AGENT_TIMEOUT_MS : undefined);
+	if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0))
+		throw new Error("Agent timeoutMs must be a finite positive number");
 	const copy = JSON.parse(
 		JSON.stringify(
 			{
@@ -78,6 +85,7 @@ function definition(value: AgentDefinition): AgentDefinition {
 				options: {
 					...value.options,
 					includeGlobalSkills: value.options.includeGlobalSkills ?? false,
+					...(timeoutMs === undefined ? {} : { timeoutMs }),
 				},
 			},
 			(_key, item) => {

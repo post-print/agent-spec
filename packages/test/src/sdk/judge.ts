@@ -7,6 +7,7 @@ import {
 } from "@post-print/agent-harness";
 import { z } from "zod/v4";
 import { validateSkills } from "./definitions.js";
+import { recordedFailure } from "./failure.js";
 import type { Evaluation, JsonValue, JudgeSettings } from "./types.js";
 import { runUsage } from "./usage.js";
 import { prepareAgent, withContext, writeJson } from "./workspace.js";
@@ -97,7 +98,7 @@ export async function evaluate<S extends z.ZodType>(
 		await writeJson(join(directory, "evaluation.json"), result);
 		return result;
 	} catch (error) {
-		await writeJson(join(directory, "error.json"), { message: String(error) });
+		await writeJson(join(directory, "error.json"), recordedFailure(error));
 		throw error;
 	} finally {
 		try {

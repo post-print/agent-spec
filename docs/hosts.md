@@ -1,7 +1,7 @@
 # Hosts
 
 <!-- source-of-truth: configured host agents and authentication -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
 <!-- review-deps: paths=.env.example,packages/harness/src/agent-definition.ts,packages/harness/src/agent-session.ts,packages/harness/src/agent-worker.ts,packages/harness/src/claude-run.ts,packages/harness/src/openai-run.ts,packages/harness/src/openrouter-run.ts,packages/harness/src/cursor-run.ts -->
 
 `openai()` runs Codex, `claude()` runs Claude Code, `cursor()` runs the Cursor SDK, and `openrouter()` calls an OpenRouter model through its OpenAI-compatible API. Factories create immutable definitions; each independent task creates its own worker and session.
@@ -10,6 +10,7 @@
 const coder = openai({
   model: "your-supported-model",
   auth: { type: "api-key", env: "OPENAI_API_KEY" },
+  timeoutMs: 600_000,
   context: { instructions: ["Run the relevant tests."] },
 });
 ```
@@ -24,6 +25,8 @@ Omitted authentication means subscription. API-key auth names the environment va
 | `openrouter()` | None | `OPENROUTER_API_KEY` |
 
 Cursor app login does not authenticate the SDK. Global skills default to excluded for all definitions. Attached project skills and explicit context are configured on the definition before a test runs.
+
+Every built-in run has a ten-minute deadline by default. Set `timeoutMs` to another finite positive number when a task needs a different bound. OpenAI, Claude, Cursor, and OpenRouter receive the same configured deadline. A timed-out run cancels its host operation, retains streamed trace evidence, and surfaces an `infrastructure` failure with code `timeout` instead of waiting for the outer Playwright deadline.
 
 Built-in conversation continuation is reconstructed. Native host discovery varies: Codex reads scoped AGENTS.md, Claude uses its project settings and CLAUDE.md, and Cursor discovers supported project rules and skills. Captured evidence does not prove which undisclosed host instructions loaded.
 

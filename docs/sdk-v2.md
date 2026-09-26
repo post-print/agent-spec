@@ -1,7 +1,7 @@
 # Agent Test SDK
 
 <!-- source-of-truth: named agent and judge resources, independent runs, and selected evaluation input -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-17 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
 <!-- review-deps: paths=packages/test/src/sdk/*.ts,agent-test*.config.ts,agent-suites/**/*.ts -->
 
 ## Configure defaults
@@ -82,7 +82,7 @@ Run results expose `output`, `trace`, `conversation`, `toolCalls`, `usage`, `dur
 
 ## Task resources
 
-Factory settings and run options can supply `skills`, `context`, `mcpServers`, `workspace`. Model/authentication can be set on the factory or harness definition. `includeGlobalSkills` defaults to false.
+Factory settings and run options can supply `skills`, `context`, `mcpServers`, `workspace`, and `timeoutMs`. Model/authentication can be set on the factory or harness definition. `includeGlobalSkills` defaults to false. Built-in hosts default each run to a ten-minute deadline; a timeout is recorded as an infrastructure failure while preserving streamed trace evidence.
 
 ```ts
 const run = await coder.run({

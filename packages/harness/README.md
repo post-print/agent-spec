@@ -1,7 +1,7 @@
 # @post-print/agent-harness
 
 <!-- source-of-truth: configured agent definitions and isolated harness sessions -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
 <!-- review-deps: paths=packages/harness/src/*.ts,packages/harness/src/**/*.ts,packages/harness/package.json -->
 
 Configure coding agents for agent-test. Definitions are reusable; each task session owns an isolated worker and host runtime.
@@ -11,6 +11,7 @@ import { openai, claude, cursor } from "@post-print/agent-harness";
 
 export const coder = openai({
   auth: { type: "subscription" },
+  timeoutMs: 600_000,
   skills: ["./skills/testing"],
   context: { instructions: ["Run the relevant tests."], files: ["./context/project.md"] },
   includeGlobalSkills: false,
@@ -18,6 +19,8 @@ export const coder = openai({
 ```
 
 `openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` uses the Cursor SDK. `openrouter()` calls an OpenRouter model through the OpenAI-compatible API. All accept model and authentication options. OpenRouter defaults to `{ type: "api-key", env: "OPENROUTER_API_KEY" }`.
+
+Built-in runs default to a ten-minute deadline. A finite positive `timeoutMs` overrides it. Timeout failures retain streamed trace evidence and surface as `AgentInfrastructureError` with code `timeout`.
 
 Factories do not launch agents. Agent-test prepares workspaces, installs attached skills, supplies context, creates sessions, and guarantees cleanup. Custom adapters use `defineAgent()` and `customAgent()`; see [the SDK guide](../../docs/sdk-v2.md#custom-agents).
 
