@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { type ExecutionProgress, readExecutionProgress } from "./progress.js";
 
 export const EXECUTION_FORMAT = 1;
 
@@ -64,7 +65,10 @@ export type ExecutionAttempt = {
 	output: { stdout: string[]; stderr: string[] };
 	operations: ExecutionOperation[];
 };
-export type ExecutionDetail = ExecutionSummary & { attempts: ExecutionAttempt[] };
+export type ExecutionDetail = ExecutionSummary & {
+	attempts: ExecutionAttempt[];
+	progress: ExecutionProgress[];
+};
 
 export function executionPaths(root: string) {
 	return { journal: join(root, "events.ndjson"), summary: join(root, "execution.json") };
@@ -169,9 +173,14 @@ export async function readExecutionEvents(root: string): Promise<ExecutionEvent[
 export async function readExecutionDetail(root: string): Promise<ExecutionDetail | undefined> {
 	const summary = await readExecutionSummary(root);
 	if (!summary) return undefined;
+	const [events, progress] = await Promise.all([
+		readExecutionEvents(root),
+		readExecutionProgress(root),
+	]);
 	return {
 		...summary,
-		attempts: terminalAttempts(summary.status, summarizeAttempts(await readExecutionEvents(root))),
+		attempts: terminalAttempts(summary.status, summarizeAttempts(events)),
+		progress,
 	};
 }
 

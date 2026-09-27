@@ -1,7 +1,7 @@
 # Agent Test SDK
 
 <!-- source-of-truth: named agent and judge resources, independent runs, and selected evaluation input -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-09-27 -->
 <!-- review-deps: paths=packages/test/src/sdk/*.ts,agent-test*.config.ts,agent-suites/**/*.ts -->
 
 ## Configure defaults
@@ -137,6 +137,27 @@ expect(tokens.mean).toBeLessThan(tokenBudget);
 ```
 
 `statistics` computes count/mean/min/max. Missing measurements expose `available: false` and throw when an aggregate is accessed. Judge usage is separate from task usage. Cross-provider tokens are not equivalent cost; small samples do not establish reliability.
+
+## Durable progress for long tests
+
+Use `reportProgress` when one test performs several material steps and an external caller must observe each completed step before the test ends. Pass the current Playwright `TestInfo` so every update records the execution, test, and retry identity. Await each call; the promise resolves only after one complete, redacted JSON record has been appended.
+
+```ts
+import { reportProgress } from "@post-print/agent-test";
+
+qualification("runs paired attempts", async ({ baseline, treatment }, info) => {
+  const pairs = [];
+  for (let index = 0; index < 10; index++) {
+    const pair = await runPair(baseline, treatment);
+    pairs.push(pair);
+    await reportProgress(info, { pair: index + 1, result: pair });
+  }
+});
+```
+
+Recorded executions publish each update through an atomic rename under `.agent-test/executions/<execution-id>/progress/`. The execution detail returned by the local viewer API includes the ordered `progress` records while the test is running. Complete records survive cancellation or a process crash; readers ignore incomplete temporary or invalid records. Concurrent tests share the directory safely and remain distinguishable by `testId` and `attemptId`. Local filesystem paths use the same redaction policy as recorded agent events.
+
+For a future Skeleton qualification run, replace each per-pair attachment with an awaited `reportProgress(info, { taskId: task.id, pair: index + 1, result: pairs.at(-1) })`. A non-blocking orchestrator can then follow the progress journal or the viewer execution endpoint. Keep the final cell JSON write unchanged so existing evidence generation retains its current contract.
 
 ## Custom agents
 

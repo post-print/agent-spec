@@ -1,10 +1,23 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { expect, test } from "@playwright/test";
+import { reportProgress } from "../../src/index.js";
 
 test("pending work can be cancelled", async () => {
 	await new Promise(() => undefined);
 });
+
+test("published progress survives cancellation", async ({ browserName: _browserName }, info) => {
+	await reportProgress(info, { pair: 1, status: "passed" });
+	await new Promise(() => undefined);
+});
+
+for (const lane of ["left", "right"]) {
+	test(`publishes concurrent progress ${lane}`, async ({ browserName: _browserName }, info) => {
+		await reportProgress(info, { lane });
+		await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+	});
+}
 
 test("records the failed criterion before later criteria are skipped", {
 	annotation: {

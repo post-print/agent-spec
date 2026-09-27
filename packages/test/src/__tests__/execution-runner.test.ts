@@ -40,6 +40,27 @@ it("cancel finishes the durable execution as interrupted", async () => {
 	expect(detail?.testIds).toHaveLength(1);
 });
 
+it("retains published progress when a running test is interrupted", async () => {
+	const execution = await startRecordedExecution({
+		config,
+		args: ["--grep", "published progress survives cancellation", "--workers", "1"],
+	});
+	const root = join(executionHistoryRoot(config), execution.id);
+	roots.push(root);
+	await waitForProgress(root);
+	execution.cancel();
+	expect(await completesWithin(execution.completed, 5_000)).toBe(true);
+	const detail = await readExecutionDetail(root);
+	expect(detail?.status).toBe("interrupted");
+	expect(detail?.progress).toEqual([
+		expect.objectContaining({
+			sequence: 1,
+			executionId: execution.id,
+			data: { pair: 1, status: "passed" },
+		}),
+	]);
+});
+
 it("records completed criterion assertions before later assertions are skipped", async () => {
 	const execution = await startRecordedExecution({
 		config,
@@ -119,6 +140,25 @@ it("recovers dead-owner executions before starting another recorded run", async 
 	expect(orphan?.finishedAt).toBeDefined();
 });
 
+it("persists complete progress records from concurrent test workers", async () => {
+	const execution = await startRecordedExecution({
+		config,
+		args: ["--grep", "publishes concurrent progress", "--workers", "2", "--fully-parallel"],
+	});
+	const root = join(executionHistoryRoot(config), execution.id);
+	roots.push(root);
+
+	expect(await execution.completed).toBe(0);
+	const progress = (await readExecutionDetail(root))?.progress ?? [];
+	expect(progress).toHaveLength(2);
+	expect(progress.map(({ sequence }) => sequence)).toEqual([1, 2]);
+	expect(new Set(progress.map(({ testId }) => testId)).size).toBe(2);
+	expect(progress.map(({ data }) => data).sort(byLane)).toEqual([
+		{ lane: "left" },
+		{ lane: "right" },
+	]);
+});
+
 async function completesWithin(completed: Promise<number>, milliseconds: number): Promise<boolean> {
 	return Promise.race([
 		completed.then(() => true),
@@ -132,4 +172,16 @@ async function waitForAttempt(root: string): Promise<void> {
 		await new Promise((resolveWait) => setTimeout(resolveWait, 25));
 	}
 	throw new Error("The fixture did not start its first attempt");
+}
+
+async function waitForProgress(root: string): Promise<void> {
+	for (let tries = 0; tries < 100; tries++) {
+		if ((await readExecutionDetail(root))?.progress.length) return;
+		await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+	}
+	throw new Error("The fixture did not publish progress");
+}
+
+function byLane(left: unknown, right: unknown): number {
+	return JSON.stringify(left).localeCompare(JSON.stringify(right));
 }

@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { storedValue } from "../sdk/execution-reporter.js";
+import { storedValue } from "../sdk/stored-value.js";
 import {
 	conversationPlaceholder,
 	preferredExecutionId,
@@ -27,7 +27,7 @@ it("viewer presentation › defaults to the active execution when a test has mul
 	expect(preferredExecutionId([{ id: "newest", status: "passed" }])).toBe("newest");
 });
 
-it("execution reporter › preserves useful command context while redacting private paths", () => {
+it("stored values preserve useful command context while redacting private paths", () => {
 	expect(
 		storedValue({
 			command: "cat /Users/example/private-workspace/seeded.txt",

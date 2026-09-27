@@ -1,4 +1,3 @@
-import { basename } from "node:path";
 import type {
 	FullConfig,
 	FullResult,
@@ -10,6 +9,7 @@ import type {
 } from "@playwright/test/reporter";
 import { stripAnsi } from "../viewer/presentation.js";
 import { type CriterionResult, ExecutionStore } from "./execution-store.js";
+import { storedValue } from "./stored-value.js";
 
 function executionInput() {
 	const root = process.env.AGENT_TEST_EXECUTION_ROOT;
@@ -69,25 +69,6 @@ type CapturedOutput = {
 	test?: TestCase;
 	result?: TestResult;
 };
-
-const PRIVATE_PATH = /\/(?:Users|home|private|tmp|var\/folders)\/[^\s"']+/g;
-
-function redactLocalPath(value: string): string {
-	return value.replace(PRIVATE_PATH, (path) => `<local-path>/${basename(path)}`);
-}
-
-export function storedValue(value: unknown, key?: string): unknown {
-	if (typeof value === "string")
-		return key === "artifact" || key === "root" ? "<local-path>" : redactLocalPath(value);
-	if (Array.isArray(value)) return value.map((item) => storedValue(item, key));
-	if (typeof value !== "object" || value === null) return value;
-	return Object.fromEntries(
-		Object.entries(value as Record<string, unknown>).map(([entryKey, item]) => [
-			entryKey,
-			storedValue(item, entryKey),
-		]),
-	);
-}
 
 /** Records Playwright lifecycle and agent SDK events without changing terminal output. */
 export default class ExecutionReporter implements Reporter {
