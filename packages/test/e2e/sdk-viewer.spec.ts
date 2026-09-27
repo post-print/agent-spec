@@ -45,6 +45,7 @@ test("TypeScript tests run from the catalog and retain named operations after re
 		await expect.poll(() => new URL(page.url()).searchParams.get("execution")).toBeTruthy();
 		await waitForPassed(page, 15000);
 		await checkSidebarStatus(page, title, "passed");
+		await checkMobileSidebarStatus(page, title, "passed");
 		await checkOperationLabels(page);
 		await checkRunPresentation(page);
 		await checkExecutionSelection(page, title);
@@ -56,6 +57,97 @@ test("TypeScript tests run from the catalog and retain named operations after re
 		await viewer.close();
 	}
 });
+
+test("test navigation becomes an accessible drawer on tablet and mobile", async ({ page }) => {
+	const config = fileURLToPath(new URL("../fixtures/sdk-v2/agent-test.config.ts", import.meta.url));
+	const testCatalog = await loadSdkCatalog(config);
+	const firstTest = testCatalog.tests[0];
+	if (!firstTest) throw new Error("Fixture catalog is empty");
+	const firstTitle = firstTest.title.at(-1);
+	if (!firstTitle) throw new Error("Fixture test title is empty");
+	const viewer = await listenViewer({ testCatalog, suitesDir: config });
+	try {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(viewer.url);
+		await checkClosedMobileNavigation(page);
+		await checkDrawerKeyboardBehavior(page);
+		await checkTabletBackdrop(page);
+		await checkDrawerSelectionAndReflow(page, firstTitle);
+		await checkReducedMotionDrawer(page);
+		await checkDesktopNavigationRestored(page);
+	} finally {
+		await viewer.close();
+	}
+});
+
+async function checkClosedMobileNavigation(page: Page) {
+	await expect(page.getByRole("button", { name: "Open test menu" })).toBeVisible();
+	await expect(page.getByRole("navigation", { name: "Tests" })).toHaveCount(0);
+	await expect(page.getByRole("main")).toHaveCSS("width", "390px");
+}
+
+async function checkDrawerKeyboardBehavior(page: Page) {
+	const menu = page.getByRole("button", { name: "Open test menu" });
+	await menu.click();
+	const dialog = page.getByRole("dialog", { name: "Tests" });
+	await expect(dialog.getByRole("button", { name: "Close test menu" })).toBeFocused();
+	await expect(dialog.getByRole("button", { name: "Run all tests" })).toBeVisible();
+	await expect(dialog.getByRole("spinbutton", { name: "Concurrent workers" })).toHaveValue("1");
+	await page.keyboard.press("Tab");
+	expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+	await page.keyboard.press("Escape");
+	await expect(dialog).toBeHidden();
+	await expect(menu).toBeFocused();
+}
+
+async function checkTabletBackdrop(page: Page) {
+	await page.setViewportSize({ width: 768, height: 1024 });
+	const menu = page.getByRole("button", { name: "Open test menu" });
+	await menu.click();
+	await page.mouse.click(740, 500);
+	await expect(page.getByRole("dialog", { name: "Tests" })).toBeHidden();
+	await expect(menu).toBeFocused();
+}
+
+async function checkDrawerSelectionAndReflow(page: Page, title: string) {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole("button", { name: "Open test menu" }).click();
+	const dialog = page.getByRole("dialog", { name: "Tests" });
+	await dialog
+		.getByRole("navigation", { name: "Tests" })
+		.getByRole("link")
+		.filter({ hasText: title })
+		.click();
+	await expect(dialog).toBeHidden();
+	await expect(page.getByRole("heading", { name: title })).toBeVisible();
+	await page.evaluate(() => {
+		document.documentElement.style.fontSize = "200%";
+	});
+	const fitsViewport = await page.evaluate(
+		() => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+	);
+	expect(fitsViewport).toBe(true);
+	await page.evaluate(() => {
+		document.documentElement.style.fontSize = "";
+	});
+}
+
+async function checkReducedMotionDrawer(page: Page) {
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	await page.getByRole("button", { name: "Open test menu" }).click();
+	await expect(page.getByRole("dialog", { name: "Tests" })).toHaveCSS("animation-name", "none");
+	await page.keyboard.press("Escape");
+}
+
+async function checkDesktopNavigationRestored(page: Page) {
+	await page.setViewportSize({ width: 768, height: 1024 });
+	await page.getByRole("button", { name: "Open test menu" }).click();
+	await expect(page.getByRole("dialog", { name: "Tests" })).toBeVisible();
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await expect(page.getByRole("button", { name: "Open test menu" })).toHaveCount(0);
+	await expect(page.getByRole("navigation", { name: "Tests" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Collapse test sidebar" })).toBeVisible();
+}
 
 async function checkCatalogShell(page: Page, tests: Array<{ title: string[]; file: string }>) {
 	await checkSkipLink(page);
@@ -388,12 +480,7 @@ async function checkCriterionResults(result: ReturnType<Page["getByRole"]>) {
 test("running conversation updates through WebSocket without detail polling", async ({ page }) => {
 	const fixture = await runningExecutionFixture();
 	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
-	let detailRequests = 0;
-	await page.route(`**/api/executions/${fixture.executionId}`, async (route) => {
-		detailRequests++;
-		if (detailRequests === 1) await route.continue();
-		else await route.abort();
-	});
+	const detailRequests = await trackDetailRequests(page, fixture.executionId);
 	try {
 		await page.goto(
 			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
@@ -401,6 +488,7 @@ test("running conversation updates through WebSocket without detail polling", as
 		const conversation = page.getByRole("region", { name: "Agents" });
 		const running = conversation.getByRole("status", { name: "Agent is running" });
 		await expect(running).toContainText("Running");
+		const requestsAfterInitialRender = detailRequests();
 		await recordLiveConversation(fixture);
 		const completed = page
 			.getByRole("tablist", { name: "Agents participants" })
@@ -421,7 +509,7 @@ test("running conversation updates through WebSocket without detail polling", as
 		await expect(
 			page.getByRole("tabpanel", { name: "Current run" }).getByText("running", { exact: true }),
 		).toBeVisible();
-		expect(detailRequests).toBe(1);
+		expect(detailRequests()).toBe(requestsAfterInitialRender);
 		await finishRunningExecution(fixture);
 		await expect(running).toHaveCount(0);
 		await expect(participant.getByRole("status", { name: "seeded is running" })).toHaveCount(0);
@@ -430,6 +518,16 @@ test("running conversation updates through WebSocket without detail polling", as
 		await rm(fixture.directory, { recursive: true, force: true });
 	}
 });
+
+async function trackDetailRequests(page: Page, executionId: string) {
+	let count = 0;
+	await page.route(`**/api/executions/${executionId}`, async (route) => {
+		count++;
+		if (count === 1) await route.continue();
+		else await route.abort();
+	});
+	return () => count;
+}
 
 test("a judge appears while running and completes in place", async ({ page }) => {
 	const fixture = await runningJudgeFixture();
@@ -1017,6 +1115,19 @@ async function checkSidebarStatus(page: Page, title: string, status: string) {
 		.filter({ hasText: title });
 	await expect(link.getByText(status, { exact: true })).toHaveCount(0);
 	await expect(link.getByRole("img", { name: `Latest execution: ${status}` })).toBeVisible();
+}
+
+async function checkMobileSidebarStatus(page: Page, title: string, status: string) {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole("button", { name: "Open test menu" }).click();
+	const link = page
+		.getByRole("dialog", { name: "Tests" })
+		.getByRole("navigation", { name: "Tests" })
+		.getByRole("link")
+		.filter({ hasText: title });
+	await expect(link.getByRole("img", { name: `Latest execution: ${status}` })).toBeVisible();
+	await page.keyboard.press("Escape");
+	await page.setViewportSize({ width: 1280, height: 720 });
 }
 
 async function checkExecutionSelection(page: Page, title: string) {

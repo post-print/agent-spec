@@ -92,5 +92,24 @@ export function viewerCss(): string {
     button:disabled { cursor: not-allowed; opacity: 0.5; }
     summary { list-style: none; }
     summary::-webkit-details-marker { display: none; }
+    dialog[data-mobile-drawer="true"]::backdrop {
+      background: oklch(0.07 0.02 258 / 0.72);
+      animation: viewer-drawer-backdrop-in 160ms ease-out;
+    }
+    dialog[data-mobile-drawer="true"][open] {
+      animation: viewer-drawer-in 180ms ease-out;
+    }
+    @keyframes viewer-drawer-in {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(0); }
+    }
+    @keyframes viewer-drawer-backdrop-in {
+      from { background: transparent; }
+      to { background: oklch(0.07 0.02 258 / 0.72); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      dialog[data-mobile-drawer="true"][open],
+      dialog[data-mobile-drawer="true"]::backdrop { animation: none; }
+    }
   `;
 }

@@ -12,8 +12,12 @@ import {
 	createContext,
 	type KeyboardEvent,
 	type ReactNode,
+	type RefObject,
+	useCallback,
 	useContext,
+	useEffect,
 	useId,
+	useRef,
 	useState,
 } from "react";
 import Markdown from "react-markdown";
@@ -68,6 +72,7 @@ const runningPulse = stylex.keyframes({
 });
 const CAMEL_CASE_BOUNDARY = /([a-z])([A-Z])/g;
 const INITIAL_CHARACTER = /^./;
+const NARROW_VIEWER_QUERY = "(max-width: 820px)";
 const WorkerContext = createContext<{
 	workers: number;
 	setWorkers: (workers: number) => void;
@@ -129,11 +134,11 @@ const styles = stylex.create({
 		gridTemplateColumns: {
 			default: "18rem minmax(0, 1fr)",
 			"@media (max-width: 820px)": "14rem minmax(0, 1fr)",
-			"@media (max-width: 620px)": "1fr",
 		},
 		height: "100dvh",
 		minHeight: 0,
 	},
+	shellNarrow: { gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "auto minmax(0, 1fr)" },
 	shellCollapsed: { gridTemplateColumns: "3.75rem minmax(0, 1fr)" },
 	sidebar: {
 		borderRight: "1px solid var(--border)",
@@ -143,10 +148,54 @@ const styles = stylex.create({
 		padding: "1rem 0 0",
 		backgroundColor: "var(--sidebar)",
 		minHeight: 0,
-		height: { default: "100dvh", "@media (max-width: 620px)": "auto" },
-		maxHeight: { default: "none", "@media (max-width: 620px)": "18rem" },
+		height: "100dvh",
 	},
 	sidebarCollapsed: { paddingTop: "1rem", height: "100dvh", maxHeight: "none" },
+	mobileHeader: {
+		position: "sticky",
+		top: 0,
+		zIndex: 2,
+		display: "flex",
+		alignItems: "center",
+		gap: "0.75rem",
+		minWidth: 0,
+		padding: "0.65rem 0.85rem",
+		borderBottom: "1px solid var(--border)",
+		backgroundColor: "var(--sidebar)",
+	},
+	mobileMenuButton: {
+		width: "2.75rem",
+		height: "2.75rem",
+		padding: 0,
+		borderRadius: 9,
+		backgroundColor: { default: "var(--panel-2)", ":hover": "var(--panel-3)" },
+		color: "var(--text)",
+		fontSize: "1.15rem",
+		cursor: "pointer",
+	},
+	mobileHeaderIdentity: { display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0 },
+	mobileHeaderTitle: { fontSize: "1rem", fontWeight: 720, letterSpacing: "-0.02em" },
+	mobileDrawerDialog: {
+		width: "min(22rem, calc(100vw - 2.75rem))",
+		maxWidth: "none",
+		height: "100dvh",
+		maxHeight: "none",
+		margin: 0,
+		padding: 0,
+		borderWidth: 0,
+		backgroundColor: "var(--sidebar)",
+		color: "var(--text)",
+		overflow: "hidden",
+	},
+	mobileDrawerSurface: {
+		display: "flex",
+		flexDirection: "column",
+		height: "100%",
+		minHeight: 0,
+		paddingTop: "1rem",
+		backgroundColor: "var(--sidebar)",
+		boxShadow: "0 1rem 3rem oklch(0.06 0.02 258 / 0.45)",
+	},
 	main: {
 		overflow: "auto",
 		minWidth: 0,
@@ -199,6 +248,7 @@ const styles = stylex.create({
 		lineHeight: 1,
 		boxShadow: "none",
 	},
+	mobileCloseButton: { width: "2.75rem", height: "2.75rem", fontSize: "1.15rem" },
 	sidebarTitleRow: {
 		display: "flex",
 		alignItems: "center",
@@ -1163,14 +1213,38 @@ const styles = stylex.create({
 
 function ViewerLayout() {
 	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [workers, setWorkers] = useState(1);
+	const narrow = useNarrowViewer();
+	const menuButton = useRef<HTMLButtonElement>(null);
+	const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+	useEffect(() => {
+		if (!narrow) setDrawerOpen(false);
+	}, [narrow]);
 	return (
 		<WorkerContext.Provider value={{ workers, setWorkers }}>
-			<div {...stylex.props(styles.shell, !sidebarOpen && styles.shellCollapsed)}>
+			<div
+				{...stylex.props(
+					styles.shell,
+					narrow && styles.shellNarrow,
+					!narrow && !sidebarOpen && styles.shellCollapsed,
+				)}
+			>
 				<a href="#viewer-main" {...stylex.props(styles.skipLink)}>
 					Skip to content
 				</a>
-				<ViewerSidebar open={sidebarOpen} onToggle={() => setSidebarOpen((open) => !open)} />
+				{narrow ? (
+					<>
+						<MobileViewerHeader
+							buttonRef={menuButton}
+							open={drawerOpen}
+							onOpen={() => setDrawerOpen(true)}
+						/>
+						<MobileTestDrawer open={drawerOpen} onClose={closeDrawer} />
+					</>
+				) : (
+					<ViewerSidebar open={sidebarOpen} onToggle={() => setSidebarOpen((open) => !open)} />
+				)}
 				<main id="viewer-main" tabIndex={-1} {...stylex.props(styles.main)}>
 					<Outlet />
 				</main>
@@ -1179,32 +1253,170 @@ function ViewerLayout() {
 	);
 }
 
+function useNarrowViewer(): boolean {
+	const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW_VIEWER_QUERY).matches);
+	useEffect(() => {
+		const query = window.matchMedia(NARROW_VIEWER_QUERY);
+		const update = () => setNarrow(query.matches);
+		update();
+		query.addEventListener("change", update);
+		return () => query.removeEventListener("change", update);
+	}, []);
+	return narrow;
+}
+
 function useCatalog() {
 	return useQuery({ queryKey: ["test-catalog"], queryFn: fetchTestCatalog });
 }
+
+function MobileViewerHeader({
+	buttonRef,
+	open,
+	onOpen,
+}: {
+	buttonRef: RefObject<HTMLButtonElement | null>;
+	open: boolean;
+	onOpen: () => void;
+}) {
+	const catalog = useCatalog();
+	return (
+		<header {...stylex.props(styles.mobileHeader)}>
+			<button
+				ref={buttonRef}
+				type="button"
+				aria-haspopup="dialog"
+				aria-controls="mobile-test-drawer"
+				aria-expanded={open}
+				aria-label="Open test menu"
+				{...stylex.props(styles.buttonReset, styles.mobileMenuButton)}
+				onClick={onOpen}
+			>
+				<span aria-hidden="true">☰</span>
+			</button>
+			<div {...stylex.props(styles.mobileHeaderIdentity)}>
+				<span {...stylex.props(styles.mobileHeaderTitle)}>Tests</span>
+				<span {...stylex.props(styles.countBadge)}>{catalog.data?.tests.length ?? 0}</span>
+			</div>
+		</header>
+	);
+}
+
+function MobileTestDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+	const dialog = useRef<HTMLDialogElement>(null);
+	useEffect(() => {
+		const element = dialog.current;
+		if (!element) return;
+		const closeOnBackdrop = (event: MouseEvent) => {
+			if (event.target === element) onClose();
+		};
+		element.addEventListener("click", closeOnBackdrop);
+		let focusFrame: number | undefined;
+		if (open && !element.open) {
+			element.showModal();
+			focusFrame = requestAnimationFrame(() => {
+				element.querySelector<HTMLButtonElement>("[data-drawer-close]")?.focus();
+			});
+		}
+		if (!open && element.open) element.close();
+		return () => {
+			element.removeEventListener("click", closeOnBackdrop);
+			if (focusFrame !== undefined) cancelAnimationFrame(focusFrame);
+		};
+	}, [onClose, open]);
+	return (
+		<dialog
+			ref={dialog}
+			id="mobile-test-drawer"
+			data-mobile-drawer="true"
+			aria-labelledby="mobile-tests-title"
+			{...stylex.props(styles.mobileDrawerDialog)}
+			onCancel={onClose}
+			onClose={onClose}
+		>
+			<div {...stylex.props(styles.mobileDrawerSurface)}>
+				<ViewerSidebarContent
+					mode="mobile"
+					headingId="mobile-tests-title"
+					navigationId="mobile-test-navigation"
+					onClose={onClose}
+				/>
+			</div>
+		</dialog>
+	);
+}
+
 function ViewerSidebar({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+	return (
+		<aside {...stylex.props(styles.sidebar, !open && styles.sidebarCollapsed)}>
+			<ViewerSidebarContent
+				mode="desktop"
+				open={open}
+				navigationId="test-navigation"
+				onToggle={onToggle}
+			/>
+		</aside>
+	);
+}
+
+function ViewerSidebarContent({
+	mode,
+	open = true,
+	headingId,
+	navigationId,
+	onToggle,
+	onClose,
+}: {
+	mode: "desktop" | "mobile";
+	open?: boolean;
+	headingId?: string;
+	navigationId: string;
+	onToggle?: () => void;
+	onClose?: () => void;
+}) {
 	const catalog = useCatalog();
 	const history = useExecutionHistory();
 	const groups = groupTests(catalog.data?.tests ?? []);
 	const statuses = latestTestStatuses(history.data ?? []);
 	return (
-		<aside {...stylex.props(styles.sidebar, !open && styles.sidebarCollapsed)}>
-			<SidebarHeader open={open} count={catalog.data?.tests.length ?? 0} onToggle={onToggle} />
+		<>
+			<SidebarHeader
+				mode={mode}
+				open={open}
+				count={catalog.data?.tests.length ?? 0}
+				headingId={headingId}
+				navigationId={navigationId}
+				onToggle={mode === "mobile" ? onClose : onToggle}
+				onNavigate={onClose}
+			/>
 			{open ? (
-				<SidebarNavigation groups={groups} statuses={statuses} error={catalog.isError} />
+				<SidebarNavigation
+					groups={groups}
+					statuses={statuses}
+					error={catalog.isError}
+					navigationId={navigationId}
+					onNavigate={onClose}
+				/>
 			) : null}
-		</aside>
+		</>
 	);
 }
 
 function SidebarHeader({
+	mode,
 	open,
 	count,
+	headingId,
+	navigationId,
 	onToggle,
+	onNavigate,
 }: {
+	mode: "desktop" | "mobile";
 	open: boolean;
 	count: number;
-	onToggle: () => void;
+	headingId?: string;
+	navigationId: string;
+	onToggle?: () => void;
+	onNavigate?: () => void;
 }) {
 	const { workers } = useContext(WorkerContext);
 	const navigate = useNavigate();
@@ -1214,6 +1426,7 @@ function SidebarHeader({
 		onSuccess: ({ executionId }) => {
 			void client.invalidateQueries({ queryKey: ["execution-history"] });
 			void navigate({ to: "/executions/$executionId", params: { executionId } });
+			onNavigate?.();
 		},
 	});
 	return (
@@ -1222,10 +1435,17 @@ function SidebarHeader({
 				<>
 					<div {...stylex.props(styles.sidebarTitleRow)}>
 						<div {...stylex.props(styles.sidebarTitleIdentity)}>
-							<h1 {...stylex.props(styles.title, styles.sidebarTitle)}>Tests</h1>
+							<h1 id={headingId} {...stylex.props(styles.title, styles.sidebarTitle)}>
+								Tests
+							</h1>
 							<span {...stylex.props(styles.countBadge)}>{count}</span>
 						</div>
-						<SidebarToggle open={open} onToggle={onToggle} />
+						<SidebarToggle
+							mode={mode}
+							open={open}
+							navigationId={navigationId}
+							onToggle={onToggle}
+						/>
 					</div>
 					<div {...stylex.props(styles.suiteControls)}>
 						<button
@@ -1242,7 +1462,7 @@ function SidebarHeader({
 					{run.isError ? <p role="alert">{run.error.message}</p> : null}
 				</>
 			) : (
-				<SidebarToggle open={open} onToggle={onToggle} />
+				<SidebarToggle mode={mode} open={open} navigationId={navigationId} onToggle={onToggle} />
 			)}
 		</header>
 	);
@@ -1268,17 +1488,31 @@ function WorkerControl() {
 	);
 }
 
-function SidebarToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+function SidebarToggle({
+	mode,
+	open,
+	navigationId,
+	onToggle,
+}: {
+	mode: "desktop" | "mobile";
+	open: boolean;
+	navigationId: string;
+	onToggle?: () => void;
+}) {
+	const mobile = mode === "mobile";
 	return (
 		<button
 			type="button"
-			aria-controls="test-navigation"
+			data-drawer-close={mobile ? "true" : undefined}
+			aria-controls={navigationId}
 			aria-expanded={open}
-			aria-label={open ? "Collapse test sidebar" : "Expand test sidebar"}
-			{...stylex.props(styles.buttonReset, styles.toggleButton)}
+			aria-label={
+				mobile ? "Close test menu" : open ? "Collapse test sidebar" : "Expand test sidebar"
+			}
+			{...stylex.props(styles.buttonReset, styles.toggleButton, mobile && styles.mobileCloseButton)}
 			onClick={onToggle}
 		>
-			{open ? "←" : "→"}
+			{mobile ? "×" : open ? "←" : "→"}
 		</button>
 	);
 }
@@ -1287,26 +1521,35 @@ function SidebarNavigation({
 	groups,
 	statuses,
 	error,
+	navigationId,
+	onNavigate,
 }: {
 	groups: Map<string, TestRecord[]>;
 	statuses: Map<string, TestStatusValue>;
 	error: boolean;
+	navigationId: string;
+	onNavigate?: () => void;
 }) {
 	return (
 		<>
 			{error ? <p role="alert">Test discovery is unavailable.</p> : null}
-			<nav id="test-navigation" aria-label="Tests" {...stylex.props(styles.navigation)}>
+			<nav id={navigationId} aria-label="Tests" {...stylex.props(styles.navigation)}>
 				{[...groups].map(([name, tests]) => (
 					<section key={name} aria-label={`${name} tests`} {...stylex.props(styles.navSection)}>
 						<div {...stylex.props(styles.groupHeader)}>
 							<strong {...stylex.props(styles.groupLabel)}>{name}</strong>
 							<div {...stylex.props(styles.groupHeaderActions)}>
 								<span {...stylex.props(styles.groupCount)}>{tests.length}</span>
-								<RunTestGroupButton name={name} tests={tests} />
+								<RunTestGroupButton name={name} tests={tests} onNavigate={onNavigate} />
 							</div>
 						</div>
 						{tests.map((test) => (
-							<TestLink key={test.id} test={test} status={statuses.get(test.id)} />
+							<TestLink
+								key={test.id}
+								test={test}
+								status={statuses.get(test.id)}
+								onNavigate={onNavigate}
+							/>
 						))}
 					</section>
 				))}
@@ -1314,7 +1557,15 @@ function SidebarNavigation({
 		</>
 	);
 }
-function RunTestGroupButton({ name, tests }: { name: string; tests: TestRecord[] }) {
+function RunTestGroupButton({
+	name,
+	tests,
+	onNavigate,
+}: {
+	name: string;
+	tests: TestRecord[];
+	onNavigate?: () => void;
+}) {
 	const { workers } = useContext(WorkerContext);
 	const navigate = useNavigate();
 	const client = useQueryClient();
@@ -1327,6 +1578,7 @@ function RunTestGroupButton({ name, tests }: { name: string; tests: TestRecord[]
 		onSuccess: ({ executionId }) => {
 			void client.invalidateQueries({ queryKey: ["execution-history"] });
 			void navigate({ to: "/executions/$executionId", params: { executionId } });
+			onNavigate?.();
 		},
 	});
 	return (
@@ -1342,7 +1594,15 @@ function RunTestGroupButton({ name, tests }: { name: string; tests: TestRecord[]
 		</button>
 	);
 }
-function TestLink({ test, status }: { test: TestRecord; status?: TestStatusValue }) {
+function TestLink({
+	test,
+	status,
+	onNavigate,
+}: {
+	test: TestRecord;
+	status?: TestStatusValue;
+	onNavigate?: () => void;
+}) {
 	return (
 		<Link
 			to="/tests/$testId"
@@ -1350,6 +1610,7 @@ function TestLink({ test, status }: { test: TestRecord; status?: TestStatusValue
 			search={{}}
 			{...stylex.props(styles.navLink)}
 			activeProps={stylex.props(styles.navLink, styles.active)}
+			onClick={onNavigate}
 		>
 			<div {...stylex.props(styles.navItemHeader)}>
 				{status ? <TestStatus status={status} /> : <span aria-hidden="true" />}
