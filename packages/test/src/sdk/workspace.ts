@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { cp, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -6,6 +5,7 @@ import {
 	createSealedWorkspace,
 	type SealedWorkspace,
 } from "@post-print/agent-harness";
+import { captureSnapshot, type SnapshotBudget, snapshotBudget } from "./snapshot-storage.js";
 
 export interface Workspace {
 	path: string;
@@ -34,24 +34,12 @@ export async function copyTree(source: string, target: string): Promise<void> {
 		else if (item.isFile()) await cp(from, to);
 	}
 }
-export async function snapshot(source: string, target: string): Promise<WorkspaceSnapshot> {
-	await copyTree(source, target);
-	const files: WorkspaceSnapshot["files"] = {};
-	async function walk(path: string) {
-		for (const entry of await readdir(path, { withFileTypes: true })) {
-			const full = join(path, entry.name);
-			if (entry.isDirectory()) await walk(full);
-			else {
-				const bytes = await readFile(full);
-				files[relative(target, full).split(sep).join("/")] = {
-					sha256: createHash("sha256").update(bytes).digest("hex"),
-					bytes: bytes.length,
-				};
-			}
-		}
-	}
-	await walk(target);
-	return { path: target, files };
+export async function snapshot(
+	source: string,
+	target: string,
+	budget: SnapshotBudget = snapshotBudget(),
+): Promise<WorkspaceSnapshot> {
+	return { path: target, files: await captureSnapshot({ source, target, budget }) };
 }
 export function changedPaths(before: WorkspaceSnapshot, after: WorkspaceSnapshot): string[] {
 	return [...new Set([...Object.keys(before.files), ...Object.keys(after.files)])]

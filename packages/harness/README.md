@@ -1,7 +1,7 @@
 # @post-print/agent-harness
 
 <!-- source-of-truth: configured agent definitions and isolated harness sessions -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
 <!-- review-deps: paths=packages/harness/src/*.ts,packages/harness/src/**/*.ts,packages/harness/package.json -->
 
 Configure coding agents for agent-test. Definitions are reusable; each task session owns an isolated worker and host runtime.
@@ -25,3 +25,5 @@ Built-in runs default to a ten-minute deadline. A finite positive `timeoutMs` ov
 Factories do not launch agents. Agent-test prepares workspaces, installs attached skills, supplies context, creates sessions, and guarantees cleanup. Custom adapters use `defineAgent()` and `customAgent()`; see [the SDK guide](../../docs/sdk-v2.md#custom-agents).
 
 Built-in continuation currently reconstructs prior conversation. Cursor does not yet support enforced read-only judge sessions; use OpenAI or Claude as the judge. ACP is not introduced by this change.
+
+`createSealedWorkspace` returns a temporary `workspace/` plus idempotent cleanup. A manifest outside that working tree allows startup recovery of expired dead-owner roots. Orchestrators can call `recoverSealedWorkspaces({ temporaryRoot?, minimumAgeMs? })`; see [storage ownership](../../docs/isolation.md#storage-ownership-and-retention) for active-run protection and the 24-hour default grace period.

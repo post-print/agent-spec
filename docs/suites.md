@@ -1,7 +1,7 @@
 # Suites
 
 <!-- source-of-truth: executable suite coverage and resource declaration -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
 <!-- review-deps: paths=agent-test*.config.ts,agent-suites/**/*.ts,packages/test/src/sdk/*.ts -->
 
 A suite calls `describe(name, ({ agent, judge }) => ({ ...namedResources }))` and uses the returned test function. The callback declares resources during discovery; each test receives fresh handles. See [the SDK guide](sdk-v2.md).

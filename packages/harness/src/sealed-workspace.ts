@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -15,7 +14,9 @@ const TRAILING_PUNCTUATION = /[,:]+$/;
 
 const execFileAsync = promisify(execFile);
 
-export const SEALED_WORKSPACE_DIR_PREFIX = "agent-harness-seal-";
+export { SEALED_WORKSPACE_DIR_PREFIX } from "./sealed-storage.js";
+
+import { allocateSealedWorkspace } from "./sealed-storage.js";
 
 export interface SealedWorkspace {
 	path: string;
@@ -152,29 +153,30 @@ async function initNestedGit(dest: string): Promise<void> {
 export async function createSealedWorkspace(
 	options: CreateSealedWorkspaceOptions,
 ): Promise<SealedWorkspace> {
-	const dest = await mkdtemp(join(tmpdir(), SEALED_WORKSPACE_DIR_PREFIX));
 	const parsed = parseScenarioWorkspace(options.workspace);
-	if (!parsed.ok) {
-		await rm(dest, { recursive: true, force: true });
-		throw new Error(parsed.message);
+	if (!parsed.ok) throw new Error(parsed.message);
+	const sealed = await allocateSealedWorkspace(options.callerCwd);
+	try {
+		await materializeSealedWorkspace(options, parsed.rel, sealed.path);
+		await initNestedGit(sealed.path);
+		return sealed;
+	} catch (error) {
+		await sealed.cleanup();
+		throw error;
 	}
+}
 
-	if (parsed.rel) {
-		await materializeWorkspaceFolder(options.callerCwd, parsed.rel, dest);
-	} else {
-		await materializeGitHead(options.callerCwd, dest);
-		for (const rel of options.overlayPaths ?? []) {
-			await overlayPath(options.callerCwd, dest, rel);
-		}
+async function materializeSealedWorkspace(
+	options: CreateSealedWorkspaceOptions,
+	workspaceRel: string | undefined,
+	dest: string,
+): Promise<void> {
+	if (workspaceRel) {
+		await materializeWorkspaceFolder(options.callerCwd, workspaceRel, dest);
+		return;
 	}
-	await initNestedGit(dest);
-
-	return {
-		path: dest,
-		cleanup: async () => {
-			await rm(dest, { recursive: true, force: true });
-		},
-	};
+	await materializeGitHead(options.callerCwd, dest);
+	for (const rel of options.overlayPaths ?? []) await overlayPath(options.callerCwd, dest, rel);
 }
 
 function candidatePathsFromArgs(args: Record<string, unknown> | undefined): string[] {

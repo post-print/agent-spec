@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: topic routing in this repo -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-26 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
 
 <!-- review-deps: paths=README.md,AGENTS.md,packages/*/README.md,docs/*.md -->
 

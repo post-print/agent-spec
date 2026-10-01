@@ -1,6 +1,8 @@
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { ownerIsActive, type ProcessOwner, processOwner } from "@post-print/agent-harness";
 import { type ExecutionProgress, readExecutionProgress } from "./progress.js";
+import { releaseSnapshots } from "./snapshot-storage.js";
 
 export const EXECUTION_FORMAT = 1;
 
@@ -25,6 +27,7 @@ export type ExecutionSummary = {
 	finishedAt?: string;
 	status: "running" | "passed" | "failed" | "interrupted";
 	ownerPid?: number;
+	owner?: ProcessOwner;
 	testIds?: string[];
 	testStatuses?: Record<string, ExecutionTestStatus>;
 };
@@ -98,6 +101,7 @@ export class ExecutionStore {
 			startedAt: new Date().toISOString(),
 			status: "running",
 			ownerPid: input.ownerPid,
+			owner: input.ownerPid ? await processOwner(input.ownerPid) : undefined,
 		});
 		await mkdir(input.root, { recursive: true });
 		await store.saveSummary();
@@ -140,8 +144,10 @@ export class ExecutionStore {
 		return true;
 	}
 	async finish(status: Exclude<ExecutionSummary["status"], "running">) {
+		await this.writes;
 		Object.assign(this.summary, terminalSummary(this.summary, status));
 		await this.saveSummary();
+		await releaseSnapshots(this.root);
 		await retainExecutionHistory(dirname(this.root));
 	}
 	private async saveSummary() {
@@ -341,7 +347,10 @@ export async function listExecutionHistory(root: string): Promise<ExecutionSumma
 		const summaries = await Promise.all(
 			entries
 				.filter((entry) => entry.isDirectory())
-				.map((entry) => readExecutionSummary(join(root, entry.name))),
+				.map(async (entry) => {
+					const summary = await readExecutionSummary(join(root, entry.name));
+					return summary?.id === entry.name ? summary : undefined;
+				}),
 		);
 		return summaries
 			.filter((summary): summary is ExecutionSummary => summary !== undefined)
@@ -355,12 +364,17 @@ export async function listExecutionHistory(root: string): Promise<ExecutionSumma
 /** Marks a process-owned execution interrupted only after its recorded process has exited. */
 export async function recoverExecutionHistory(root: string): Promise<void> {
 	for (const summary of await listExecutionHistory(root)) {
-		if (summary.status !== "running" || !summary.ownerPid || processIsRunning(summary.ownerPid))
+		if (
+			summary.status !== "running" ||
+			!summary.ownerPid ||
+			(await ownerIsActive(summary.owner ?? { pid: summary.ownerPid }))
+		)
 			continue;
 		await updateExecutionSummary(join(root, summary.id), {
 			...terminalSummary(summary, "interrupted"),
 		});
 	}
+	await retainExecutionHistory(root);
 }
 
 export async function finishExecutionIfRunning(
@@ -370,6 +384,7 @@ export async function finishExecutionIfRunning(
 	const summary = await readExecutionSummary(root);
 	if (!summary || summary.status !== "running") return false;
 	await updateExecutionSummary(root, terminalSummary(summary, status));
+	await releaseSnapshots(root);
 	await retainExecutionHistory(dirname(root));
 	return true;
 }
@@ -455,15 +470,6 @@ function applyTestStatusEvent(
 	if (testId) statuses[testId] = outcomeStatus(asRecord(event.data).status);
 }
 
-function processIsRunning(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
-	}
-}
-
 async function updateExecutionSummary(root: string, summary: ExecutionSummary): Promise<void> {
 	const target = executionPaths(root).summary;
 	const temporary = `${target}.tmp`;
@@ -475,6 +481,7 @@ async function retainExecutionHistory(root: string, maximum = 50): Promise<void>
 	const finished = (await listExecutionHistory(root)).filter(
 		(summary) => summary.status !== "running",
 	);
+	for (const summary of finished) await releaseSnapshots(join(root, summary.id));
 	for (const summary of finished.slice(maximum)) {
 		await rm(join(root, summary.id), { recursive: true, force: true });
 	}

@@ -1,7 +1,7 @@
 # Agent Test SDK
 
 <!-- source-of-truth: named agent and judge resources, independent runs, and selected evaluation input -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-27 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
 <!-- review-deps: paths=packages/test/src/sdk/*.ts,agent-test*.config.ts,agent-suites/**/*.ts -->
 
 ## Configure defaults
@@ -78,7 +78,7 @@ const repair = await diagnosis.continue({ prompt: "Apply the fix and run the tes
 
 Continuation keeps the original resources and workspace. Overlapping continuations of the same conversation are rejected. Built-in hosts reconstruct history rather than resume native sessions; custom adapters may declare native continuation.
 
-Run results expose `output`, `trace`, `conversation`, `toolCalls`, `usage`, `durationMs`, `startingContext`, workspace snapshots/changed paths, and an artifact directory. `continue` is the only execution method on a run result.
+Run results expose `output`, `trace`, `conversation`, `toolCalls`, `usage`, `durationMs`, `startingContext`, workspace snapshots/changed paths, and an artifact directory. `continue` is the only execution method on a run result. Snapshot file contents remain available until test teardown. Teardown removes full-tree copies while preserving hash maps and bounded changed-file evidence. See [storage ownership and retention](isolation.md#storage-ownership-and-retention) for budgets, exclusion settings, and recovery boundaries.
 
 ## Task resources
 

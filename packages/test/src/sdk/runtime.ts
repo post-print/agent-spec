@@ -12,6 +12,12 @@ import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import { recordedFailure } from "./failure.js";
 import { evaluate } from "./judge.js";
+import {
+	preserveSourceChanges,
+	releaseSnapshots,
+	snapshotBudget,
+	sourceEvidenceBudget,
+} from "./snapshot-storage.js";
 import type {
 	AgentFixture,
 	AgentSettings,
@@ -103,6 +109,8 @@ export class TestRuntime {
 	private readonly resources: { session?: HarnessSession; cleanup(): Promise<void> }[] = [];
 	private readonly pending = new Set<Promise<unknown>>();
 	private readonly controller = new AbortController();
+	private readonly snapshotStorage = snapshotBudget();
+	private readonly sourceEvidenceStorage = sourceEvidenceBudget();
 	private nextInvocationIndex = 0;
 	private closed = false;
 	constructor(readonly options: RuntimeOptions) {}
@@ -250,23 +258,24 @@ export class TestRuntime {
 		input: RunInput,
 		continuation: (prompt: string) => Promise<Run>,
 	): Promise<Run> {
-		const { session, workspace, prompt, invocationIndex, context } = input;
+		const { session, workspace, prompt, context } = input;
 		const id = crypto.randomUUID(),
 			directory = join(this.options.outputDir, id);
 		await mkdir(directory, { recursive: true });
-		const initial = await snapshot(workspace.path, join(directory, "initial"));
+		const initial = await snapshot(
+			workspace.path,
+			join(directory, "initial"),
+			this.snapshotStorage,
+		);
 		const start = performance.now();
-		this.options.onEvent?.({
-			runId: id,
-			type: "start",
-			value: { prompt, name, invocationIndex },
-		});
+		this.announceRun(id, name, input);
 		try {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
 			);
 			assertWorkspacePaths(trace, workspace.path);
-			const final = await snapshot(workspace.path, join(directory, "final"));
+			const final = await snapshot(workspace.path, join(directory, "final"), this.snapshotStorage);
+			await this.preserveChanges({ initial, final, directory });
 			const result: Run = {
 				...captureRun({
 					...input,
@@ -287,9 +296,38 @@ export class TestRuntime {
 			const failure = recordedFailure(error);
 			this.options.onEvent?.({ runId: id, type: "error", value: failure });
 			await writeJson(join(directory, "error.json"), failure);
+			await this.captureFailure({ workspace, directory, initial });
 			throw error;
 		}
 	}
+	private announceRun(id: string, name: string, input: RunInput): void {
+		this.options.onEvent?.({
+			runId: id,
+			type: "start",
+			value: { prompt: input.prompt, name, invocationIndex: input.invocationIndex },
+		});
+	}
+	private preserveChanges(input: Omit<Parameters<typeof preserveSourceChanges>[0], "budget">) {
+		return preserveSourceChanges({ ...input, budget: this.sourceEvidenceStorage });
+	}
+
+	private async captureFailure(input: {
+		workspace: Workspace;
+		directory: string;
+		initial: Awaited<ReturnType<typeof snapshot>>;
+	}): Promise<void> {
+		try {
+			const final = await snapshot(
+				input.workspace.path,
+				join(input.directory, "failure", "final"),
+				this.snapshotStorage,
+			);
+			await preserveSourceChanges({ ...input, final, budget: this.sourceEvidenceStorage });
+		} catch (error) {
+			await writeJson(join(input.directory, "source-evidence-error.json"), recordedFailure(error));
+		}
+	}
+
 	async close() {
 		this.closed = true;
 		this.controller.abort();
@@ -306,6 +344,11 @@ export class TestRuntime {
 			} catch (error) {
 				errors.push(error);
 			}
+		}
+		try {
+			await releaseSnapshots(this.options.outputDir);
+		} catch (error) {
+			errors.push(error);
 		}
 		if (errors.length) throw new AggregateError(errors, "Agent fixture cleanup failed");
 	}

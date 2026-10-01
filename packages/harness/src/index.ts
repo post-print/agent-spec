@@ -25,6 +25,8 @@ export { createAgentSession, HarnessSession } from "./agent-session.js";
 export { resolvedTotalTokens } from "./capture.js";
 export { loginCursorSdk } from "./cursor-auth.js";
 export { resolveOpenaiBin } from "./openai-run.js";
+export { ownerIsActive, ProcessOwner, processOwner } from "./process-owner.js";
+export { recoverSealedWorkspaces } from "./sealed-storage.js";
 export {
 	createSealedWorkspace,
 	SealedWorkspace,
