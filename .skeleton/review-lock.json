@@ -5,36 +5,36 @@
 			"reviewedAt": "2026-10-01",
 			"documentHash": "sha256:1c1708e4b1d515b8b2c2c8305408a5f9677bbe103f837180a1c1301bb0e11f68",
 			"reviewDependencies": {
-				"AGENTS.md": "sha256:efcc1f288f2f48b894f0cad6ecb78881cc016a7f146b76d8a2cdad78addebe1f",
+				"AGENTS.md": "sha256:6b822043f6e81870ffe8e2c06c51eb9aad4a203eb1cd18459298baf2a801e5d5",
 				"docs/cli.md": "sha256:0146a725a9cc212f939a095485d9ef9ca6b424c19222891ab96f4b39a435d5f5",
 				"docs/getting-started.md": "sha256:b6c792b22c47275849d7fddee4df773957737d3932319f40e1d15c7867934b7b",
 				"docs/hosts.md": "sha256:a5f4f13490e05e84a54708f4842bd1f90493fd075558fea3cb9d0f94038e419f",
 				"docs/isolation.md": "sha256:509f7e6778b86432829a59788ab8436abef077ac3dc9ca338e69cd7305152830",
-				"docs/reliability.md": "sha256:be9f95f638700a184388ff29a6ec354286510b2dd42e9d4a7daf57d7afa890d0",
+				"docs/reliability.md": "sha256:a9f6ac4ea2255417010a8cda2f0f15fb17db57c65d05e47587d0d0fcb285e62f",
 				"docs/sdk-v2.md": "sha256:02bcbb864b09979d29f26dd5b9da86630ab333c7eed35fcb90c3cb17888ee4ed",
 				"docs/suites.md": "sha256:7cd84e9520240df60e4f750d12cb3ab6ff9263770a9022c6d94aacbd434b8c32",
 				"packages/harness/README.md": "sha256:18a1f2880a93efc712efcc79925096751c0390c6f1f7ce35af1019e90a05454b",
 				"packages/test/README.md": "sha256:b2a4914615e0a779a07087c2b9b78561212ef68b8ae4b8f6326680636ad3860c",
-				"README.md": "sha256:fa578c4a6257e9f16fe6871de9d31f511f77420bdb29a0beba243835c30fb0c1"
+				"README.md": "sha256:08571d22ca93fc48ab5ccd4fd43da62313107bec3ab6ae129c42d1fcfd24ff86"
 			}
 		},
 		"AGENTS.md": {
-			"reviewedAt": "2026-09-16",
-			"documentHash": "sha256:efcc1f288f2f48b894f0cad6ecb78881cc016a7f146b76d8a2cdad78addebe1f",
+			"reviewedAt": "2026-10-01",
+			"documentHash": "sha256:6b822043f6e81870ffe8e2c06c51eb9aad4a203eb1cd18459298baf2a801e5d5",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"biome.json": "sha256:11888d363647481cfd5b03a90ccbe71e89377b2f6ea230baefcb70050de29b84",
-				"package.json": "sha256:af19da3d79dd65a80b301b6e72d7b0fccafda556069579d35deedd3126120145",
+				"package.json": "sha256:e676c467974c2827d5c0d2721bf1ff14571c0d6f27387cb203cc4be518cfa1fa",
 				"skeleton.toml": "sha256:4127e8eab5383b925c59ad8c2b4d0ea9abc5fa072e4b00a81e05337d4a8dd131"
 			}
 		},
 		"README.md": {
-			"reviewedAt": "2026-09-26",
-			"documentHash": "sha256:fa578c4a6257e9f16fe6871de9d31f511f77420bdb29a0beba243835c30fb0c1",
+			"reviewedAt": "2026-10-01",
+			"documentHash": "sha256:08571d22ca93fc48ab5ccd4fd43da62313107bec3ab6ae129c42d1fcfd24ff86",
 			"reviewDependencies": {
-				"package.json": "sha256:af19da3d79dd65a80b301b6e72d7b0fccafda556069579d35deedd3126120145",
-				"packages/harness/package.json": "sha256:59ee234837b182bbbbbfcd606023fdab195e216bd84c9530adb57aa0f6ced454",
-				"packages/test/package.json": "sha256:f7eee7807da93fb12b26699ff08996768f5955a81ac9141370c7a1021b72f3a6"
+				"package.json": "sha256:e676c467974c2827d5c0d2721bf1ff14571c0d6f27387cb203cc4be518cfa1fa",
+				"packages/harness/package.json": "sha256:85fd577fd5c08156e4bd659bc066ac86017c4dbbb4aaba49fb261836794c31ac",
+				"packages/test/package.json": "sha256:d74905ae78047c25057f94567dc88462d1de74e3baad9e190c288e53660060d7"
 			}
 		},
 		"docs/cli.md": {
@@ -97,8 +97,8 @@
 			}
 		},
 		"docs/reliability.md": {
-			"reviewedAt": "2026-09-17",
-			"documentHash": "sha256:be9f95f638700a184388ff29a6ec354286510b2dd42e9d4a7daf57d7afa890d0",
+			"reviewedAt": "2026-10-01",
+			"documentHash": "sha256:a9f6ac4ea2255417010a8cda2f0f15fb17db57c65d05e47587d0d0fcb285e62f",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"agent-suites/fixtures/task-list/src/status.ts": "sha256:34ece1eace5f952edbd61290b1278a99402e84149bb3b43b602d01dda76715b9",
@@ -106,7 +106,7 @@
 				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:560945e608967b7f860c4f0b9ed9c7535a8ab74194a65065991ebdac38620151",
 				"agent-suites/tour/agents.ts": "sha256:d06813e2769127e50354ee564aa9920ecae65e5747ee97e5681e78d9c086dabc",
 				"agent-suites/tour/tour.spec.ts": "sha256:15c2662d116faa2df4a3c7bfbf1f2fb3f9b009985225e0fbdbccbd4e5a56d3ae",
-				"package.json": "sha256:af19da3d79dd65a80b301b6e72d7b0fccafda556069579d35deedd3126120145"
+				"package.json": "sha256:e676c467974c2827d5c0d2721bf1ff14571c0d6f27387cb203cc4be518cfa1fa"
 			}
 		},
 		"docs/sdk-v2.md": {

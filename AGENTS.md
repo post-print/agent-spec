@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent cold-start in this repo -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
 
 <!-- review-deps: paths=package.json,biome.json,skeleton.toml,.github/workflows/test.yml -->
 
