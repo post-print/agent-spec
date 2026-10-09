@@ -5,7 +5,7 @@
 			"reviewedAt": "2026-10-09",
 			"documentHash": "sha256:c5a959b57efbc572b8bfd0f49e96b463a23d407adef6a513c09920ba73d89d93",
 			"reviewDependencies": {
-				"AGENTS.md": "sha256:6b822043f6e81870ffe8e2c06c51eb9aad4a203eb1cd18459298baf2a801e5d5",
+				"AGENTS.md": "sha256:b072855aa76804273855a2880fe3822dd17b03032aa3b531ac759aba6d631316",
 				"docs/cli.md": "sha256:0146a725a9cc212f939a095485d9ef9ca6b424c19222891ab96f4b39a435d5f5",
 				"docs/getting-started.md": "sha256:760535fe40732dfa6ff81e0f4f9714042f1639bbb8e565ec8f97d906a16b885d",
 				"docs/hosts.md": "sha256:2120884e81437a6972592d3d597b31374281c5b27da2f423b87b7f16f8716d87",
@@ -15,26 +15,26 @@
 				"docs/suites.md": "sha256:4297de3864463f303fdf999b2c156d267fa7ac62560fc8a7c51bf5b10e8cff7c",
 				"packages/harness/README.md": "sha256:8c10aadef2c3f0df506aa457f41e6081a7d69bb6d2f0db60c7569dd7fd83b967",
 				"packages/test/README.md": "sha256:c9002d88015256e0d460dd21fc7d1a6ac229c5c8d3b299001f2af50f16981367",
-				"README.md": "sha256:08571d22ca93fc48ab5ccd4fd43da62313107bec3ab6ae129c42d1fcfd24ff86"
+				"README.md": "sha256:d9d4e7d33bd1614b51fcaa711080ef0db47f944ec2a46e2bda4010fe39216adc"
 			}
 		},
 		"AGENTS.md": {
-			"reviewedAt": "2026-10-01",
-			"documentHash": "sha256:6b822043f6e81870ffe8e2c06c51eb9aad4a203eb1cd18459298baf2a801e5d5",
+			"reviewedAt": "2026-10-09",
+			"documentHash": "sha256:b072855aa76804273855a2880fe3822dd17b03032aa3b531ac759aba6d631316",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"biome.json": "sha256:11888d363647481cfd5b03a90ccbe71e89377b2f6ea230baefcb70050de29b84",
-				"package.json": "sha256:e676c467974c2827d5c0d2721bf1ff14571c0d6f27387cb203cc4be518cfa1fa",
+				"package.json": "sha256:011baf243ba44fdace363896babc222122d671113677d45b1a80c871ec1d087a",
 				"skeleton.toml": "sha256:4127e8eab5383b925c59ad8c2b4d0ea9abc5fa072e4b00a81e05337d4a8dd131"
 			}
 		},
 		"README.md": {
-			"reviewedAt": "2026-10-01",
-			"documentHash": "sha256:08571d22ca93fc48ab5ccd4fd43da62313107bec3ab6ae129c42d1fcfd24ff86",
+			"reviewedAt": "2026-10-09",
+			"documentHash": "sha256:d9d4e7d33bd1614b51fcaa711080ef0db47f944ec2a46e2bda4010fe39216adc",
 			"reviewDependencies": {
-				"package.json": "sha256:e676c467974c2827d5c0d2721bf1ff14571c0d6f27387cb203cc4be518cfa1fa",
-				"packages/harness/package.json": "sha256:85fd577fd5c08156e4bd659bc066ac86017c4dbbb4aaba49fb261836794c31ac",
-				"packages/test/package.json": "sha256:d74905ae78047c25057f94567dc88462d1de74e3baad9e190c288e53660060d7"
+				"package.json": "sha256:011baf243ba44fdace363896babc222122d671113677d45b1a80c871ec1d087a",
+				"packages/harness/package.json": "sha256:9545cc3798eb79c518c7f51c7556eaf620918b0b65b2d1b883ac36f50b10ebdf",
+				"packages/test/package.json": "sha256:19bbbf6b7675ed68b7d6e6075c3a2a8346d2b25f7dba0a7a228834785d57b420"
 			}
 		},
 		"docs/cli.md": {
