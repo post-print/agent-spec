@@ -757,6 +757,65 @@ async function seedSkippedAttempt(store: ExecutionStore, testId: string) {
 	});
 }
 
+const ENLARGE_READ_IMAGE = /^Enlarge image from Read file/;
+const SHRINK_IMAGE = /^Shrink/;
+const ONE_PIXEL_PNG =
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+test("tool images render as thumbnails, enlarge in place, and oversized images show a placeholder", async ({
+	page,
+}) => {
+	const fixture = await runningExecutionFixture();
+	await fixture.store.record({
+		type: "operation.complete",
+		level: "debug",
+		attemptId: "attempt-1",
+		operationId: "agent-images",
+		data: {
+			name: "screenshotter",
+			prompt: "Read the logo.",
+			output: "It is a single pixel.",
+			trace: {
+				messages: [{ role: "assistant", content: "It is a single pixel.", seq: 1 }],
+				toolCalls: [
+					{
+						name: "Read",
+						args: { file_path: "logo.png" },
+						result: '["[image: image/png, 1 KB]","[image omitted: image/png, 900 KB]"]',
+						images: [
+							{ mediaType: "image/png", bytes: 70, data: ONE_PIXEL_PNG },
+							{ mediaType: "image/png", bytes: 921_600 },
+						],
+						seq: 0,
+					},
+				],
+			},
+		},
+	});
+	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
+	try {
+		await page.goto(
+			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
+		);
+		const images = page.getByRole("list", { name: "Images returned by Read file" });
+		const thumbnail = images.getByRole("img");
+		await expect(thumbnail).toBeVisible();
+		await expect
+			.poll(() => thumbnail.evaluate((node: HTMLImageElement) => node.naturalWidth))
+			.toBe(1);
+		const enlarge = images.getByRole("button", { name: ENLARGE_READ_IMAGE });
+		await enlarge.click();
+		await expect(images.getByRole("button", { name: SHRINK_IMAGE })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await expect(images.getByText("image/png · 900 KB · too large to store")).toBeVisible();
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});
+
 async function expectTestStatus(navigation: Locator, name: string, status: string) {
 	const link = navigation.getByRole("link").filter({ hasText: name });
 	await expect(link.getByRole("img", { name: `Latest execution: ${status}` })).toBeVisible();

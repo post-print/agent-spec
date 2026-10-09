@@ -70,6 +70,21 @@ export interface StartingContext {
 	skills: { source: string; destination: string }[];
 	includeGlobalSkills: boolean;
 }
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/** Starting context is inlined into a text prompt, so binary files fail instead of arriving garbled. */
+async function readTextContextFile(baseDir: string, file: string): Promise<string> {
+	const bytes = await readFile(resolve(baseDir, file));
+	try {
+		if (bytes.includes(0)) throw new Error("binary");
+		return UTF8.decode(bytes);
+	} catch {
+		throw new Error(
+			`Context file ${file} is not UTF-8 text. Starting context is inlined into the prompt; put images and other binary files in the workspace and ask the agent to read them.`,
+		);
+	}
+}
+
 export async function prepareAgent(
 	agent: AgentDefinition,
 	baseDir: string,
@@ -82,7 +97,7 @@ export async function prepareAgent(
 		includeGlobalSkills: agent.options.includeGlobalSkills === true,
 	};
 	for (const file of agent.options.context?.files ?? [])
-		context.files.push({ path: file, content: await readFile(resolve(baseDir, file), "utf8") });
+		context.files.push({ path: file, content: await readTextContextFile(baseDir, file) });
 	for (const skill of agent.options.skills ?? []) {
 		const source = resolve(baseDir, skill);
 		await readFile(join(source, "SKILL.md"), "utf8");

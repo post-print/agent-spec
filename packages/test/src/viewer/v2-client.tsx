@@ -31,6 +31,7 @@ import {
 } from "./presentation.js";
 import { RunInboxPage, RunPage } from "./run-inbox.js";
 import type { DiscoveredTest as TestRecord } from "./test-catalog.js";
+import { type ToolImage, ToolImages, toolImages } from "./tool-images.js";
 import {
 	cancelExecution,
 	type ExecutionSummary,
@@ -2595,6 +2596,7 @@ type TranscriptToolCall = {
 	name: string;
 	args?: Record<string, unknown>;
 	result?: string;
+	images?: ToolImage[];
 	succeeded?: boolean;
 	exitCode?: number;
 	seq?: number;
@@ -2644,6 +2646,7 @@ function toolCallsFromOperation(value: unknown): TranscriptToolCall[] {
 				name: call.name,
 				args: isRecord(call.args) ? call.args : undefined,
 				result: optionalString(call.result),
+				images: toolImages(call.images),
 				succeeded: typeof call.succeeded === "boolean" ? call.succeeded : undefined,
 				exitCode: optionalNumber(call.exitCode),
 				seq: optionalNumber(call.seq),
@@ -2720,6 +2723,7 @@ function liveToolEvent(
 			name: record.name,
 			args: isRecord(record.args) ? record.args : undefined,
 			result: optionalString(record.result),
+			images: toolImages(record.images),
 			exitCode: optionalNumber(record.exitCode),
 			succeeded: typeof record.succeeded === "boolean" ? record.succeeded : undefined,
 			seq,
@@ -3719,6 +3723,7 @@ function ToolActivity({ tool }: { tool: TranscriptToolCall }) {
 			{tool.result && outputOpen ? (
 				<pre {...stylex.props(styles.toolResultPre)}>{tool.result}</pre>
 			) : null}
+			{tool.images ? <ToolImages images={tool.images} toolName={presentation.title} /> : null}
 		</article>
 	);
 }

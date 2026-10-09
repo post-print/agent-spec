@@ -1,7 +1,7 @@
 # Agent Test SDK
 
 <!-- source-of-truth: named agent and judge resources, independent runs, and selected evaluation input -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
 <!-- review-deps: paths=packages/test/src/sdk/*.ts,agent-test*.config.ts,agent-suites/**/*.ts -->
 
 ## Configure defaults
@@ -80,6 +80,8 @@ Continuation keeps the original resources and workspace. Overlapping continuatio
 
 Run results expose `output`, `trace`, `conversation`, `toolCalls`, `usage`, `durationMs`, `startingContext`, workspace snapshots/changed paths, and an artifact directory. `continue` is the only execution method on a run result. Snapshot file contents remain available until test teardown. Teardown removes full-tree copies while preserving hash maps and bounded changed-file evidence. See [storage ownership and retention](isolation.md#storage-ownership-and-retention) for budgets, exclusion settings, and recovery boundaries.
 
+A tool call that returns images, such as a Claude `Read` of a PNG or an MCP screenshot, keeps a short marker like `[image: image/png, 48 KB]` in `toolCalls[n].result`. The images themselves are in `toolCalls[n].images` as `{ mediaType, bytes, data? }`. `data` is base64 and is kept for up to four images per call of at most 256 KB each; a larger image keeps only its type and size. Assertions and judges therefore never receive raw base64 through `result`, and the viewer shows stored images as thumbnails.
+
 ## Task resources
 
 Factory settings and run options can supply `skills`, `context`, `mcpServers`, `workspace`, and `timeoutMs`. Model/authentication can be set on the factory or harness definition. `includeGlobalSkills` defaults to false. Built-in hosts default each run to a ten-minute deadline; a timeout is recorded as an infrastructure failure while preserving streamed trace evidence.
@@ -93,7 +95,7 @@ const run = await coder.run({
 });
 ```
 
-Skill and context-file lists are additive, with duplicate identical paths removed. Instructions append in definition, factory, run order. MCP servers merge by name; later settings replace a server with the same name. Different skill sources targeting the same directory are rejected. Skill paths name directories containing SKILL.md and resolve against the config directory. A skill's availability does not prove its use.
+Skill and context-file lists are additive, with duplicate identical paths removed. Instructions append in definition, factory, run order. MCP servers merge by name; later settings replace a server with the same name. Different skill sources targeting the same directory are rejected. Context files are inlined into the text prompt, so each must be UTF-8 text; a binary file such as an image fails the run with a message to place it in the workspace instead. Skill paths name directories containing SKILL.md and resolve against the config directory. A skill's availability does not prove its use.
 
 `workspace` chooses the source folder for each task. `.setup(fn)` returns a new agent resource or test handle. Chained callbacks run in declaration order after copying the workspace and before recording its initial snapshot or starting the host. They run for every independent `.run()`; `.continue()` reuses the prepared workspace. The original agent is unchanged. Run additions do not affect later independent runs or judges.
 
@@ -188,4 +190,4 @@ test("reads the project owner", {
 
 The viewer lists all discovered tests in its persistent sidebar. Each test has a separate route with its description, pass criteria, project, source file, and declared resources. Resource metadata shows configured hosts, models, skills, MCP server names, and judge instructions; it excludes authentication and MCP credentials. Recorded operations show which declared resources actually ran.
 
-The Current run, Test setup, and Run history tabs keep the selected view and execution in the URL, so reload and browser navigation preserve them. Selecting a run that contains multiple tests shows only the selected test's attempts.
+The Current run, Test setup, and Run history tabs keep the selected view and execution in the URL, so reload and browser navigation preserve them. Selecting a run that contains multiple tests shows only the selected test's attempts and a link back to that run. Current run opens the newest run that executed the test, not one that skipped it, and Run history shows the test's own result in each run rather than the batch result.
