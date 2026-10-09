@@ -3,9 +3,9 @@ import { join } from "node:path";
 import {
 	type AgentDefinition,
 	type AgentTrace,
+	assertInsideWorkspace,
 	createAgentSession,
 	type HarnessSession,
-	toolPathsOutsideWorkspace,
 } from "@post-print/agent-harness";
 import { z } from "zod/v4";
 import { trackOperationOutput } from "./criterion-provenance.js";
@@ -28,6 +28,7 @@ import type {
 } from "./types.js";
 import { runUsage } from "./usage.js";
 import {
+	callerCheckout,
 	changedPaths,
 	prepareAgent,
 	prepareWorkspace,
@@ -99,11 +100,6 @@ function captureRun(input: CaptureInput): Omit<Run, "continue"> {
 function finalAssistantMessage(trace: AgentTrace): string {
 	return trace.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? "";
 }
-function assertWorkspacePaths(trace: AgentTrace, workspace: string) {
-	const escaped = toolPathsOutsideWorkspace(trace, workspace);
-	if (escaped.length)
-		throw new Error(`Agent used paths outside the isolated workspace: ${escaped.join(", ")}`);
-}
 
 export class TestRuntime {
 	private readonly resources: { session?: HarnessSession; cleanup(): Promise<void> }[] = [];
@@ -111,9 +107,15 @@ export class TestRuntime {
 	private readonly controller = new AbortController();
 	private readonly snapshotStorage = snapshotBudget();
 	private readonly sourceEvidenceStorage = sourceEvidenceBudget();
+	private protectedPaths?: Promise<string[]>;
 	private nextInvocationIndex = 0;
 	private closed = false;
 	constructor(readonly options: RuntimeOptions) {}
+	/** Paths every session in this test is denied: the checkout holding the suite. */
+	private checkoutPaths(): Promise<string[]> {
+		this.protectedPaths ??= callerCheckout(this.options.baseDir).then((path) => [path]);
+		return this.protectedPaths;
+	}
 	private get signal() {
 		return AbortSignal.any([this.options.signal, this.controller.signal]);
 	}
@@ -163,6 +165,7 @@ export class TestRuntime {
 							settings: { ...agentSettings, prompt, schema },
 							input,
 							...this.options,
+							protectedPaths: await this.checkoutPaths(),
 							signal: this.signal,
 							onStart: ({ input: selectedInput, evaluation }) => {
 								startedEvaluation = evaluation;
@@ -226,6 +229,7 @@ export class TestRuntime {
 			agent: definition,
 			workspace: workspace.path,
 			signal: this.signal,
+			protectedPaths: await this.checkoutPaths(),
 		});
 		const history: AgentTrace = { messages: [], toolCalls: [], shellCommands: [], artifacts: {} };
 		return this.conversation(name, {
@@ -273,7 +277,7 @@ export class TestRuntime {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
 			);
-			assertWorkspacePaths(trace, workspace.path);
+			assertInsideWorkspace(trace, workspace.path);
 			const final = await snapshot(workspace.path, join(directory, "final"), this.snapshotStorage);
 			await this.preserveChanges({ initial, final, directory });
 			const result: Run = {

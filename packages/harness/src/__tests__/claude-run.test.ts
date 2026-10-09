@@ -3,7 +3,12 @@ import * as childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
-import { buildClaudeEnv, CLAUDE_AUTH_MODE_ENV, parseClaudeAuthMode } from "../claude-run.js";
+import {
+	buildClaudeArgs,
+	buildClaudeEnv,
+	CLAUDE_AUTH_MODE_ENV,
+	parseClaudeAuthMode,
+} from "../claude-run.js";
 import { AgentRunTimeoutError, UserInputRequiredError } from "../run-guards.js";
 
 const INVALID_AUTH = /invalid/;
@@ -318,4 +323,21 @@ it("runClaudeAgent keeps MCP configuration until the child settles", async () =>
 	});
 	expect(configDuringRun).toContain("records.mjs");
 	expect(await Bun.file(configPath).exists()).toBe(false);
+});
+
+it("buildClaudeArgs › passes isolation settings to agents and read-only reviewers", () => {
+	for (const readOnly of [false, true]) {
+		const args = buildClaudeArgs({
+			prompt: "Review.",
+			cwd: "/tmp/seal/workspace",
+			protectedPaths: ["/repo/checkout"],
+			allowedTools: "Read",
+			authMode: "subscription",
+			readOnly,
+		});
+		const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}");
+		expect(settings.permissions.deny).toEqual(["Read(//repo/checkout/**)"]);
+		expect(settings.sandbox.enabled).toBe(true);
+		expect(args.includes("Read,Glob,Grep")).toBe(readOnly);
+	}
 });

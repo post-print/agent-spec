@@ -7,6 +7,7 @@ import type {
 	AgentEvent,
 } from "./agent-definition.js";
 import { cancelActiveClaudeRun, runClaudeAgent } from "./claude-run.js";
+import { historyTurn, reconstructedPrompt } from "./conversation-history.js";
 import { cancelActiveCursorRun, runCursorAgent } from "./cursor-run.js";
 import { cancelActiveOpenaiRun, runOpenaiAgent } from "./openai-run.js";
 import { cancelActiveOpenRouterRun, runOpenRouterAgent } from "./openrouter-run.js";
@@ -23,6 +24,7 @@ interface InitializeInput {
 	agent: AgentDefinition;
 	workspace: string;
 	readOnly: boolean;
+	protectedPaths: readonly string[];
 }
 async function initialize(input: InitializeInput): Promise<AgentCapabilities> {
 	const { agent, readOnly } = input;
@@ -62,7 +64,7 @@ async function initializeCustom(
 	return adapter.capabilities;
 }
 function builtinOptions(input: InitializeInput, prompt: string) {
-	const { agent, workspace, readOnly } = input;
+	const { agent, workspace, readOnly, protectedPaths } = input;
 	const auth = agent.options.auth ?? { type: "subscription" };
 	const apiKey = auth.type === "api-key" ? process.env[auth.env] : undefined;
 	if (auth.type === "api-key" && !apiKey) throw new Error(`Missing API key in ${auth.env}`);
@@ -73,6 +75,7 @@ function builtinOptions(input: InitializeInput, prompt: string) {
 		authMode: auth.type,
 		timeoutMs: agent.options.timeoutMs,
 		includeGlobalSkills: agent.options.includeGlobalSkills === true,
+		protectedPaths,
 		mcpServers: readOnly ? undefined : agent.options.mcpServers,
 		failOnUserInput: true,
 		onAgentEvent: (event: AgentEvent) => send("event", event),
@@ -119,9 +122,7 @@ function builtinSession(input: InitializeInput): AdapterSession {
 	const history: string[] = [];
 	return {
 		async *run(prompt) {
-			const submitted = history.length
-				? `Previous conversation (context only):\n${history.join("\n\n")}\n\nCurrent user request:\n${prompt}`
-				: prompt;
+			const submitted = reconstructedPrompt(history, prompt);
 			let result;
 			try {
 				result = await runBuiltin(input, submitted);
@@ -138,7 +139,7 @@ function builtinSession(input: InitializeInput): AdapterSession {
 				.filter((message) => message.role === "assistant")
 				.map((message) => message.content)
 				.join("\n");
-			history.push(`User: ${prompt}`, `Assistant: ${answer}`);
+			history.push(...historyTurn(prompt, answer));
 			yield { type: "trace", trace: result.trace };
 		},
 		async close() {},

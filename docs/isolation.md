@@ -1,8 +1,8 @@
 # Isolation
 
 <!-- source-of-truth: fixture workspace ownership and judge evidence -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
-<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/user-skills.ts,packages/test/src/sdk/workspace.ts,packages/test/src/sdk/runtime.ts,packages/test/src/sdk/judge.ts,packages/test/src/sdk/snapshot-storage.ts,packages/test/src/sdk/execution-store.ts,packages/harness/src/sealed-storage.ts,packages/harness/src/process-owner.ts -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
+<!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/host-isolation.ts,packages/harness/src/shell-paths.ts,packages/harness/src/user-skills.ts,packages/test/src/sdk/workspace.ts,packages/test/src/sdk/runtime.ts,packages/test/src/sdk/judge.ts,packages/test/src/sdk/snapshot-storage.ts,packages/test/src/sdk/execution-store.ts,packages/harness/src/sealed-storage.ts,packages/harness/src/process-owner.ts -->
 
 Every `agent.run` owns a sealed temporary Git workspace and host session. Independent runs may execute concurrently. Only `run.continue` shares the original task workspace and history.
 
@@ -10,9 +10,26 @@ A test owns all its runs and evaluations. Teardown aborts pending operations, wa
 
 Workspace source paths resolve against the config directory. A fixture folder is copied; the default dot uses committed HEAD. Attached skills and context are supplied afterward. Global skills remain excluded unless explicitly enabled.
 
-Observed tool paths outside the workspace are rejected. Snapshot copying rejects symlinks and excludes `.git`, `node_modules`, `.agent-test`, `.qualification-cache`, `.venv`, and `__pycache__` at every depth. These checks complement host restrictions; they are not a universal sandbox for arbitrary adapter or setup code.
+## Isolation boundary
 
-Judges receive a fresh read-only workspace containing their own explicit resources. No tested-agent workspace or transcript is copied automatically. The caller selects JSON input. Requests, responses, schema validation errors, and separate token usage are recorded as artifacts. See [the SDK guide](sdk-v2.md#explicit-judge-inputs).
+Two layers keep an agent inside its workspace. The host enforces filesystem limits, and agent-test rejects any run whose tool calls name a path outside the workspace.
+
+| Host | Enforced by the host | Outside the boundary |
+| --- | --- | --- |
+| OpenAI (Codex) | A permission profile replaces `--sandbox`. The workspace is writable (read-only for judges). The OS temp folder, which holds sibling sealed workspaces, `/tmp`, and the caller checkout are denied for reads and writes. Network is off unless `networkAccess` is set. | Other paths on disk remain readable. Detection still applies. |
+| Claude Code | `--settings` enables the Bash sandbox with reads of the checkout and the temp folder denied (the workspace is re-allowed) and no unsandboxed fallback. Permission rules block Read, Grep, and Glob outside the workspace. | Other paths remain readable by Bash. Detection still applies. |
+| Cursor | Nothing. | Detection only. |
+| Custom adapters | Whatever the adapter declares. | Detection only. |
+
+The caller checkout is the Git top level of the config directory, or the config directory itself outside Git. It holds the suites and their expected answers.
+
+Detection runs after every agent and judge turn and fails the operation with `WorkspaceEscapeError`, which carries the escaped `paths` and the `trace`. It checks direct path arguments (`path`, `file_path`, `uri`, `cwd`, an absolute Glob `pattern`) and shell commands. A shell command is unwrapped from `sh -c`/`zsh -lc`, split into simple commands, and tokenized. Absolute paths whose top-level directory exists, `~`, `$HOME`, and any token with a `..` segment count as paths. Relative paths resolve against the tool `cwd` and follow `cd`. Read-only system roots (`/bin`, `/usr`, `/sbin`, `/System`, `/Library`, `/opt`, `/dev`) are allowed. Detection is evidence of an attempt; host enforcement is what keeps the content out of the transcript.
+
+The sealed manifest (`owner.json`) sits next to the workspace and records no caller path. Snapshot copying rejects symlinks and excludes `.git`, `node_modules`, `.agent-test`, `.qualification-cache`, `.venv`, and `__pycache__` at every depth. These checks do not sandbox setup callbacks or adapter code, which run as test-owned code.
+
+Judges run in an empty sealed workspace in the OS temp folder with its own Git root, so no caller AGENTS.md or CLAUDE.md is discovered and no run artifacts are nearby. Codex judges also load no project instructions. The same host limits and detection apply. The caller selects JSON input. Requests, responses, schema validation errors, and separate token usage are recorded under the test output folder, not in the judge workspace. See [the SDK guide](sdk-v2.md#explicit-judge-inputs).
+
+`agent-suites/test-sdk-capabilities` includes a live probe that asks the agent to read a canary written into the checkout. The agent may refuse or try. An attempt must fail the run with `WorkspaceEscapeError`, any other error fails the test, and the canary must never appear in the transcript or a tool result. A model that sees its permission policy often refuses, so the probe alone does not exercise the host denial; check that with the host's own sandbox command (for Codex, `codex sandbox -P <profile> -- cat <checkout file>`). The SDK contract suite mirrors the rejection offline.
 
 ## Storage ownership and retention
 
@@ -38,7 +55,7 @@ Each operation preserves changed-file contents in `changed-files/` and additions
 
 Limits are nonnegative safe integer bytes; invalid settings fail before agent execution. Zero is an explicit zero allowance (or disables the free-space floor). Default exclusions apply only to evidence snapshots. Sealed fixture materialization remains faithful to its source, including dependencies/builds needed by the test. `dist` and `target` are not automatically omitted because suites can use them as meaningful inputs or outputs. Parallel tests have independent budgets; these limits do not constitute a machine-wide quota on arbitrary agent output, preparation caches, native builds, or durable transcripts. Qualification launchers must enforce their own aggregate budget and provide suitable exclusion names and worker counts.
 
-Harness temporary roots have layout `agent-harness-seal-*/owner.json` plus `workspace/`. The manifest records version, owner PID and process start identity where available, caller checkout, and creation time. It sits outside the agent's working tree. Setup failures and ordinary teardown remove the whole owned root. New allocations sweep roots at least 24 hours old only after their owner exits or its start identity changes. Unavailable process identity and permission errors protect a live PID conservatively. Unknown, corrupt, unversioned, and symlink roots are preserved. Legacy roots require explicit inspection, not generic deletion.
+Harness temporary roots have layout `agent-harness-seal-*/owner.json` plus `workspace/`. The manifest records version, owner PID and process start identity where available, and creation time. It does not record the caller checkout, because the agent can read it. It sits outside the agent's working tree. Setup failures and ordinary teardown remove the whole owned root. New allocations sweep roots at least 24 hours old only after their owner exits or its start identity changes. Unavailable process identity and permission errors protect a live PID conservatively. Unknown, corrupt, unversioned, and symlink roots are preserved. Legacy roots require explicit inspection, not generic deletion.
 
 The harness exports `recoverSealedWorkspaces({ temporaryRoot?, minimumAgeMs? })` for an orchestrator to run the same recovery explicitly; the default temporary root is the OS temp directory and the default age is 24 hours. A controlled forced-termination trial can use `minimumAgeMs: 0` after confirming the worker has exited. This API deletes only versioned harness roots. Descendant processes surviving their owning worker are not independently leased; the default grace period allows them to exit. Consumers with detached long-lived descendants must keep the owner alive or manage that separate lifetime themselves.
 

@@ -1,8 +1,12 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { cp, mkdir, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
+import { WorkspaceEscapeError } from "./agent-error.js";
+import { shellSegments } from "./shell-paths.js";
 import { SKILL_ROOTS, skillOverlayRelPath } from "./skills-context.js";
 import type { AgentTrace } from "./types.js";
 import { isPathUnderRoot } from "./working-tree-guard.js";
@@ -155,9 +159,24 @@ export async function createSealedWorkspace(
 ): Promise<SealedWorkspace> {
 	const parsed = parseScenarioWorkspace(options.workspace);
 	if (!parsed.ok) throw new Error(parsed.message);
-	const sealed = await allocateSealedWorkspace(options.callerCwd);
+	const sealed = await allocateSealedWorkspace();
 	try {
 		await materializeSealedWorkspace(options, parsed.rel, sealed.path);
+		await initNestedGit(sealed.path);
+		return sealed;
+	} catch (error) {
+		await sealed.cleanup();
+		throw error;
+	}
+}
+
+/**
+ * An empty sealed workspace for read-only reviewers. It lives in the OS temp folder with
+ * its own Git root, so hosts discover no caller AGENTS.md/CLAUDE.md and no run evidence.
+ */
+export async function createEmptySealedWorkspace(): Promise<SealedWorkspace> {
+	const sealed = await allocateSealedWorkspace();
+	try {
 		await initNestedGit(sealed.path);
 		return sealed;
 	} catch (error) {
@@ -179,62 +198,89 @@ async function materializeSealedWorkspace(
 	for (const rel of options.overlayPaths ?? []) await overlayPath(options.callerCwd, dest, rel);
 }
 
-function candidatePathsFromArgs(args: Record<string, unknown> | undefined): string[] {
-	if (!args) {
-		return [];
-	}
-	const paths: string[] = [];
-	for (const key of ["path", "file_path", "filePath", "target_file", "uri", "cwd"]) {
-		const value = args[key];
-		if (typeof value === "string") {
-			paths.push(value.replace(FILE_PROTOCOL, ""));
-		}
-	}
-	paths.push(...contextPathsFromCommand(args.command));
-	return paths;
+/** Read-only toolchain roots a shell command may name without leaving the task. */
+const SYSTEM_READ_ROOTS = ["/bin", "/usr", "/sbin", "/System", "/Library", "/opt", "/dev"];
+const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
+const PATH_ARG_KEYS = ["path", "file_path", "filePath", "target_file", "uri", "cwd"];
+
+/** A path named by a tool call, resolved against the directory it was used from. */
+interface NamedPath {
+	raw: string;
+	absolute: string;
 }
 
-function contextPathsFromCommand(command: unknown): string[] {
-	const paths: string[] = [];
-
-	if (typeof command === "string") {
-		const ignoredExecutables = new Set(["/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/env"]);
-		for (const match of command.matchAll(/(?:^|[\s"'])((?:\.\.\/|\/)[^\s"';&|)]+)/g)) {
-			const path = match[1]?.replace(TRAILING_PUNCTUATION, "");
-			// Shell commands often inspect runner temp folders while running tests.
-			// Only flag external agent configuration paths here; direct tool path
-			// arguments still use the complete escape check below.
-			if (path && !ignoredExecutables.has(path) && isAgentContextPath(path)) {
-				paths.push(path);
-			}
-		}
-	}
-	return paths;
-}
-function isAgentContextPath(path: string): boolean {
-	return (
-		path.includes("/.agents/skills/") ||
-		path.endsWith("/AGENTS.md") ||
-		path.endsWith("/CLAUDE.md") ||
-		path.includes("/.cursor/")
-	);
+function isSystemPath(absolute: string): boolean {
+	return SYSTEM_READ_ROOTS.some((root) => isPathUnderRoot(absolute, root));
 }
 function isCursorToolOutput(path: string): boolean {
 	return path.includes("/.cursor/projects/") && path.includes("/agent-tools/");
 }
-/** Tool paths that resolve outside the sealed workspace. */
+function expandHome(token: string): string {
+	return token.replace(HOME_PREFIX, homedir());
+}
+function namedPath(raw: string, from: string): NamedPath {
+	const value = expandHome(raw.replace(FILE_PROTOCOL, ""));
+	return { raw, absolute: isAbsolute(value) ? resolve(value) : resolve(from, value) };
+}
+
+/**
+ * A shell token that names a filesystem location rather than a pattern or flag.
+ * Absolute tokens count only when their top-level directory exists, so `awk '/x/'`
+ * is not mistaken for a path.
+ */
+function isShellPathToken(token: string): boolean {
+	const value = token.replace(TRAILING_PUNCTUATION, "");
+	if (HOME_PREFIX.test(value) || value.split("/").includes("..")) return true;
+	if (!value.startsWith("/") || value.startsWith("//")) return false;
+	const topLevel = `/${value.split("/")[1] ?? ""}`;
+	return topLevel !== "/" && existsSync(topLevel);
+}
+
+/** Paths named in a shell command, following `cd` so relative paths resolve correctly. */
+function shellCommandPaths(command: string, cwd: string): NamedPath[] {
+	const paths: NamedPath[] = [];
+	let current = cwd;
+	for (const { tokens } of shellSegments(command)) {
+		const named = tokens.filter(isShellPathToken).map((token) => namedPath(token, current));
+		paths.push(...named);
+		if (tokens[0] === "cd" && tokens[1]) current = namedPath(tokens[1], current).absolute;
+	}
+	return paths;
+}
+
+function toolCallPaths(args: Record<string, unknown> | undefined, root: string): NamedPath[] {
+	if (!args) return [];
+	const cwd = typeof args.cwd === "string" ? namedPath(args.cwd, root).absolute : root;
+	const paths = PATH_ARG_KEYS.map((key) => args[key])
+		.filter((value): value is string => typeof value === "string")
+		.map((value) => namedPath(value, root));
+	if (typeof args.pattern === "string" && isAbsolute(args.pattern))
+		paths.push(namedPath(args.pattern, root));
+	if (typeof args.command === "string") paths.push(...shellCommandPaths(args.command, cwd));
+	return paths;
+}
+
+function escapesWorkspace(path: NamedPath, root: string): boolean {
+	if (isCursorToolOutput(path.absolute.replaceAll("\\", "/"))) return false;
+	return !isPathUnderRoot(path.absolute, root) && !isSystemPath(path.absolute);
+}
+
+/**
+ * Paths a tool call named outside the sealed workspace. Shell commands are unwrapped
+ * and scanned for absolute, home-relative, and parent-relative tokens; only read-only
+ * system toolchain roots are allowed.
+ */
 export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: string): string[] {
 	const root = resolve(workspaceRoot);
-	const escaped: string[] = [];
-	for (const raw of trace.toolCalls.flatMap((call) => candidatePathsFromArgs(call.args))) {
-		const abs = isAbsolute(raw) ? resolve(raw) : resolve(root, raw);
-		const normalized = abs.replaceAll("\\", "/");
-		if (isCursorToolOutput(normalized)) {
-			continue;
-		}
-		if (!isPathUnderRoot(abs, root)) {
-			escaped.push(raw);
-		}
-	}
+	const escaped = trace.toolCalls
+		.flatMap((call) => toolCallPaths(call.args, root))
+		.filter((path) => escapesWorkspace(path, root))
+		.map((path) => path.raw);
 	return [...new Set(escaped)];
+}
+
+/** Reject a trace whose tool calls named paths outside the sealed workspace. */
+export function assertInsideWorkspace(trace: AgentTrace, workspaceRoot: string): void {
+	const escaped = toolPathsOutsideWorkspace(trace, workspaceRoot);
+	if (escaped.length) throw new WorkspaceEscapeError(escaped, trace);
 }

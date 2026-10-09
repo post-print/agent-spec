@@ -12,6 +12,7 @@ import {
 	finalizeClaudeTraceAccumulator,
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
+import { claudeIsolationSettings } from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -51,6 +52,8 @@ export interface ClaudeRunOptions {
 	includeGlobalSkills?: boolean;
 	/** Let Claude discover project CLAUDE.md, rules, and skills from disk. */
 	loadProjectContext?: boolean;
+	/** Absolute paths the agent may not read (the caller checkout). */
+	protectedPaths?: readonly string[];
 }
 
 export interface ClaudeRunResult {
@@ -308,8 +311,10 @@ export function resolveClaudeAuthMode(
 	});
 }
 
-function buildClaudeArgs(options: {
+export function buildClaudeArgs(options: {
 	prompt: string;
+	cwd: string;
+	protectedPaths?: readonly string[];
 	model?: string;
 	allowedTools: string;
 	readOnly?: boolean;
@@ -335,6 +340,14 @@ function buildClaudeArgs(options: {
 		options.allowedTools,
 	];
 	if (options.readOnly) args.push("--tools", "Read,Glob,Grep");
+	args.push(
+		"--settings",
+		claudeIsolationSettings({
+			cwd: options.cwd,
+			readOnly: options.readOnly === true,
+			protectedPaths: options.protectedPaths ?? [],
+		}),
+	);
 	const model = options.model?.trim() || process.env.CLAUDE_AGENT_MODEL?.trim();
 	if (model) {
 		args.push("--model", model);
@@ -581,6 +594,8 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 		mcpConfigDir = mcpConfig?.dir;
 		const args = buildClaudeArgs({
 			prompt: options.prompt,
+			cwd: options.cwd,
+			protectedPaths: options.protectedPaths,
 			model: options.model,
 			readOnly: options.readOnly,
 			allowedTools,

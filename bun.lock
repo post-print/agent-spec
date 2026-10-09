@@ -16,7 +16,7 @@
     },
     "packages/harness": {
       "name": "@post-print/agent-harness",
-      "version": "2.0.9",
+      "version": "2.0.10",
       "devDependencies": {
         "@cursor/sdk": "^1.0.27",
         "@types/node": "^26.1.1",
@@ -31,7 +31,7 @@
     },
     "packages/test": {
       "name": "@post-print/agent-test",
-      "version": "2.0.9",
+      "version": "2.0.10",
       "bin": {
         "agent-test": "./dist/cli.js",
       },
@@ -61,6 +61,8 @@
   },
   "overrides": {
     "fast-uri": "4.1.5",
+    "smol-toml": "1.9.1",
+    "source-map-js": "1.2.2",
     "undici": "6.28.1",
   },
   "packages": {
@@ -552,9 +554,9 @@
 
     "simple-git-hooks": ["simple-git-hooks@2.13.1", "", { "bin": { "simple-git-hooks": "cli.js" } }, "sha512-WszCLXwT4h2k1ufIXAgsbiTOazqqevFCIncOuUBZJ91DdvWcC5+OFkluWRQPrcuSYd8fjq+o2y1QfWqYMoAToQ=="],
 
-    "smol-toml": ["smol-toml@1.8.0", "", {}, "sha512-kCZr2V3ch9i00x8zXRhjUNVcjG9ijES5dDudkXvUVCT5QlJNQWElSJdZqyPemffHoLNUYwOcou0Fy+ojN0uHSQ=="],
+    "smol-toml": ["smol-toml@1.9.1", "", {}, "sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ=="],
 
-    "source-map-js": ["source-map-js@1.2.1", "", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
+    "source-map-js": ["source-map-js@1.2.2", "", {}, "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="],
 
     "space-separated-tokens": ["space-separated-tokens@2.0.2", "", {}, "sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q=="],
 

@@ -157,6 +157,7 @@ it("toolPathsOutsideWorkspace › flags absolute and parent-escape paths", () =>
 });
 
 it("toolPathsOutsideWorkspace › flags an outside path inside a shell command", () => {
+	const skill = join(tmpdir(), "example-home/.agents/skills/private/SKILL.md");
 	const escaped = toolPathsOutsideWorkspace(
 		{
 			messages: [],
@@ -164,7 +165,7 @@ it("toolPathsOutsideWorkspace › flags an outside path inside a shell command",
 				{
 					name: "Shell",
 					args: {
-						command: '/bin/zsh -lc "pwd && cat /Users/example/.agents/skills/private/SKILL.md"',
+						command: `/bin/zsh -lc "pwd && cat ${skill}"`,
 						cwd: "/tmp/agent-seal/run-1",
 					},
 				},
@@ -174,7 +175,7 @@ it("toolPathsOutsideWorkspace › flags an outside path inside a shell command",
 		},
 		"/tmp/agent-seal/run-1",
 	);
-	expect(escaped).toEqual(["/Users/example/.agents/skills/private/SKILL.md"]);
+	expect(escaped).toEqual([skill]);
 });
 
 it("toolPathsOutsideWorkspace › does not flag a read through the real path of a symlink workspace", async () => {
@@ -195,4 +196,69 @@ it("toolPathsOutsideWorkspace › does not flag a read through the real path of 
 			linkRoot,
 		),
 	).toEqual([]);
+});
+
+function shellTrace(command: string, cwd?: string) {
+	return {
+		messages: [],
+		toolCalls: [{ name: "Shell", args: { command, ...(cwd ? { cwd } : {}) } }],
+		shellCommands: [],
+		artifacts: {},
+	};
+}
+
+async function sealedLayout() {
+	const parent = realpathSync(await mkdtemp(join(tmpdir(), "seal-escape-")));
+	const workspace = join(parent, "workspace");
+	await mkdir(join(workspace, "src"), { recursive: true });
+	return { parent, workspace };
+}
+
+it("toolPathsOutsideWorkspace › flags shell reads of the caller repo, the manifest, and parents", async () => {
+	const { parent, workspace } = await sealedLayout();
+	const spec = join(parent, "repo", "agent-suites", "tour.spec.ts");
+	const cases = [
+		[`/bin/zsh -lc "cat ${spec}"`, [spec]],
+		['/bin/zsh -lc "cat ../owner.json"', ["../owner.json"]],
+		["cd ../.. && ls", ["../.."]],
+		["cat ~/notes.md", ["~/notes.md"]],
+		["cat $HOME/notes.md", ["$HOME/notes.md"]],
+	] as const;
+	for (const [command, expected] of cases)
+		expect(toolPathsOutsideWorkspace(shellTrace(command, workspace), workspace)).toEqual([
+			...expected,
+		]);
+});
+
+it("toolPathsOutsideWorkspace › allows system toolchains, patterns, and in-workspace cd", async () => {
+	const { workspace } = await sealedLayout();
+	const allowed = [
+		'/bin/zsh -lc "bun test"',
+		"ls /usr/bin",
+		"awk '/completedAt/ {print}' src/status.ts",
+		"cd src && cat ../PROJECT.md",
+		"bun test 2>/dev/null",
+	];
+	for (const command of allowed)
+		expect(toolPathsOutsideWorkspace(shellTrace(command, workspace), workspace)).toEqual([]);
+});
+
+it("toolPathsOutsideWorkspace › resolves relative shell paths against the tool cwd", async () => {
+	const { workspace } = await sealedLayout();
+	const nested = join(workspace, "src");
+	expect(toolPathsOutsideWorkspace(shellTrace("cat ../PROJECT.md", nested), workspace)).toEqual([]);
+	expect(toolPathsOutsideWorkspace(shellTrace("cat ../../x", nested), workspace)).toEqual([
+		"../../x",
+	]);
+});
+
+it("toolPathsOutsideWorkspace › flags an absolute Glob pattern outside the workspace", async () => {
+	const { parent, workspace } = await sealedLayout();
+	const trace = {
+		messages: [],
+		toolCalls: [{ name: "Glob", args: { pattern: `${parent}/**/*.ts` } }],
+		shellCommands: [],
+		artifacts: {},
+	};
+	expect(toolPathsOutsideWorkspace(trace, workspace)).toEqual([`${parent}/**/*.ts`]);
 });
