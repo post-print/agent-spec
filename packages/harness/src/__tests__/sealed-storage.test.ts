@@ -13,11 +13,11 @@ it("sealed ownership protects live processes and distinguishes PID reuse", async
 		expect(await ownerIsActive({ ...owner, startedAt: "different process" })).toBe(false);
 });
 it("sealed storage cleans normal completion and is idempotent", async () => {
-	const sealed = await allocateSealedWorkspace(process.cwd());
+	const sealed = await allocateSealedWorkspace();
 	const root = dirname(sealed.path);
-	expect(JSON.parse(await readFile(join(root, "owner.json"), "utf8"))).toMatchObject({
-		owner: { pid: process.pid },
-	});
+	const manifest = JSON.parse(await readFile(join(root, "owner.json"), "utf8"));
+	expect(manifest).toMatchObject({ owner: { pid: process.pid } });
+	expect(JSON.stringify(manifest)).not.toContain(process.cwd());
 	await recoverSealedWorkspaces({ minimumAgeMs: 0 });
 	expect(await readdir(sealed.path)).toEqual([]);
 	await sealed.cleanup();
@@ -63,7 +63,7 @@ it("setup failure removes the allocated root", async () => {
 });
 it("forced termination leaves a recoverable manifest and recovery removes the owned root", async () => {
 	const module = new URL("../sealed-storage.ts", import.meta.url).pathname;
-	const script = `const { allocateSealedWorkspace } = await import(${JSON.stringify(module)}); const s = await allocateSealedWorkspace(process.cwd()); console.log(s.path); setInterval(() => {}, 1000);`;
+	const script = `const { allocateSealedWorkspace } = await import(${JSON.stringify(module)}); const s = await allocateSealedWorkspace(); console.log(s.path); setInterval(() => {}, 1000);`;
 	const child = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "inherit" });
 	try {
 		const reader = child.stdout.getReader();

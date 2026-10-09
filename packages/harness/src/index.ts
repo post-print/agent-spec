@@ -20,6 +20,7 @@ export {
 	AgentInfrastructureCode,
 	AgentInfrastructureError,
 	AgentInfrastructureFailure,
+	WorkspaceEscapeError,
 } from "./agent-error.js";
 export { createAgentSession, HarnessSession } from "./agent-session.js";
 export { resolvedTotalTokens } from "./capture.js";
@@ -28,14 +29,17 @@ export { resolveOpenaiBin } from "./openai-run.js";
 export { ownerIsActive, ProcessOwner, processOwner } from "./process-owner.js";
 export { recoverSealedWorkspaces } from "./sealed-storage.js";
 export {
+	assertInsideWorkspace,
 	createSealedWorkspace,
 	SealedWorkspace,
 	toolPathsOutsideWorkspace,
 } from "./sealed-workspace.js";
+export { ShellSegment, shellPayload, shellSegments, shellTokens } from "./shell-paths.js";
 export {
 	AgentHost,
 	AgentMessage,
 	AgentToolCall,
+	AgentToolImage,
 	AgentTrace,
 	AgentUsage,
 	ContextMode,

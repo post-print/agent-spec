@@ -3,9 +3,9 @@ import { join } from "node:path";
 import {
 	type AgentDefinition,
 	type AgentTrace,
+	assertInsideWorkspace,
 	createAgentSession,
 	type HarnessSession,
-	toolPathsOutsideWorkspace,
 } from "@post-print/agent-harness";
 import { z } from "zod/v4";
 import { trackOperationOutput } from "./criterion-provenance.js";
@@ -98,11 +98,6 @@ function captureRun(input: CaptureInput): Omit<Run, "continue"> {
 
 function finalAssistantMessage(trace: AgentTrace): string {
 	return trace.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? "";
-}
-function assertWorkspacePaths(trace: AgentTrace, workspace: string) {
-	const escaped = toolPathsOutsideWorkspace(trace, workspace);
-	if (escaped.length)
-		throw new Error(`Agent used paths outside the isolated workspace: ${escaped.join(", ")}`);
 }
 
 export class TestRuntime {
@@ -273,7 +268,7 @@ export class TestRuntime {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
 			);
-			assertWorkspacePaths(trace, workspace.path);
+			assertInsideWorkspace(trace, workspace.path);
 			const final = await snapshot(workspace.path, join(directory, "final"), this.snapshotStorage);
 			await this.preserveChanges({ initial, final, directory });
 			const result: Run = {

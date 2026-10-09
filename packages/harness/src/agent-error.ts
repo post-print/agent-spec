@@ -1,3 +1,5 @@
+import type { AgentTrace } from "./types.js";
+
 export type AgentInfrastructureCode = "timeout";
 
 export interface AgentInfrastructureFailure {
@@ -26,5 +28,21 @@ export class AgentInfrastructureError extends Error {
 			message: this.message,
 			timeoutMs: this.timeoutMs,
 		};
+	}
+}
+
+/** The agent named paths outside its sealed workspace; its result is not trusted evidence. */
+export class WorkspaceEscapeError extends Error {
+	readonly kind = "workspace-escape" as const;
+	constructor(
+		readonly paths: string[],
+		readonly trace: AgentTrace,
+	) {
+		super(`Agent used paths outside the isolated workspace: ${paths.join(", ")}`);
+		this.name = "WorkspaceEscapeError";
+	}
+
+	toJSON(): { kind: "workspace-escape"; message: string; paths: string[] } {
+		return { kind: this.kind, message: this.message, paths: this.paths };
 	}
 }
