@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import { textBlocksFromSdkMessage } from "./cursor-run.js";
 import { skillNameFromWorkflowPath } from "./skills-context.js";
+import { extractToolImages } from "./tool-images.js";
 import type { AgentMessage, AgentToolCall, AgentTrace, AgentUsage } from "./types.js";
 
 const SHELL_TOOL = /^(shell|bash)$/i;
@@ -372,9 +373,17 @@ export function serializeToolResult(result: unknown): string | undefined {
 	}
 }
 
-function toolResultFromEvent(event: SdkMessage): string | undefined {
+/** Text result plus extracted images for one tool call. Base64 never reaches `result`. */
+export function toolResultFields(result: unknown): Pick<AgentToolCall, "result" | "images"> {
+	const { value, images } = extractToolImages(result);
+	const text = serializeToolResult(value);
+	return { ...(text !== undefined ? { result: text } : {}), ...(images.length ? { images } : {}) };
+}
+
+function toolResultFromEvent(event: SdkMessage): Pick<AgentToolCall, "result" | "images"> {
 	// Prefer root `result` (current @cursor/sdk SDKToolUseMessage); keep tool.output as fallback.
-	return serializeToolResult(event.result) ?? serializeToolResult(event.tool?.output);
+	const root = toolResultFields(event.result);
+	return root.result !== undefined || root.images ? root : toolResultFields(event.tool?.output);
 }
 
 /** Extract an execution result without guessing from human-readable output. */
@@ -410,13 +419,12 @@ function isShellToolName(name: string): boolean {
 
 function toolCallFromEvent(event: SdkMessage): AgentToolCall | undefined {
 	if (event.type === "tool_call" && event.name) {
-		const result = toolResultFromEvent(event);
 		const execution = isShellToolName(event.name) ? normalizeToolExecutionStatus(event.result) : {};
 		const args = rootToolArguments(event.args);
 		return {
 			name: event.name,
 			args,
-			...(result !== undefined ? { result } : {}),
+			...toolResultFromEvent(event),
 			...execution,
 		};
 	}
@@ -429,12 +437,11 @@ function legacyToolCall(event: SdkMessage): AgentToolCall | undefined {
 		return undefined;
 	}
 	const args = legacyToolArguments(event);
-	const result = toolResultFromEvent(event);
 	const execution = isShellToolName(name) ? normalizeToolExecutionStatus(event.result) : {};
 	return {
 		name,
 		args,
-		...(result !== undefined ? { result } : {}),
+		...toolResultFromEvent(event),
 		...execution,
 	};
 }

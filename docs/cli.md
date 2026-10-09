@@ -1,7 +1,7 @@
 # CLI
 
 <!-- source-of-truth: TypeScript suite commands and discovery -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
 <!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/sdk/cli.ts,packages/test/src/sdk/viewer.ts,packages/test/src/sdk/execution-runner.ts,packages/test/src/sdk/execution-store.ts,packages/test/package.json -->
 
 The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`.
@@ -16,9 +16,11 @@ The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`
 | `agent-test login` | Authenticate the Cursor SDK |
 | `agent-test login --host openai` | Run Codex login |
 
+After a recorded run, `agent-test test` prints the viewer command for the same configuration, for example `View run 1a2b3c4d: agent-test viewer`. It prints nothing after `--list` or when `CI=true`. When standard output is not a terminal, which usually means a coding agent started the run, it adds one line telling the agent to ask the user before starting the viewer. The viewer is a long-running localhost server, so an agent must not start it without a yes.
+
 Claude users authenticate through the Claude Code CLI. Model and billing are configured on agent definitions, not legacy scenario flags.
 
-The viewer discovers the same TypeScript tests as the CLI, records every execution under `.agent-test/executions`, and restores the newest 50 completed runs after a restart. Before either the CLI or viewer starts another recorded run, it marks any dead-owner execution as interrupted; recovery does not require opening viewer history. While a viewer is open, a new running execution started from either the viewer or `agent-test test` is selected automatically and streams through the same live execution page. It supports cancellation for viewer-started runs, live updates, and reload-safe execution details. Durable run artifacts remain under the test output directory; full-tree snapshots are removed at test teardown or terminal execution recovery. See [storage retention](isolation.md#storage-ownership-and-retention) for byte budgets and the bounded source evidence contract. It binds to localhost only.
+The viewer discovers the same TypeScript tests as the CLI, records every execution under `.agent-test/executions`, and restores the newest 50 completed runs after a restart. Before either the CLI or viewer starts another recorded run, it marks any dead-owner execution as interrupted; recovery does not require opening viewer history. The home page is a run inbox: the running or newest run, with failed tests first and each test's own result, then earlier runs. While a viewer is open, a new running execution started from either the viewer or `agent-test test` is selected automatically and streams live: a single-test run opens on that test's page, and a batch opens its run overview. It supports cancellation for viewer-started runs, live updates, and reload-safe execution details. Durable run artifacts remain under the test output directory; full-tree snapshots are removed at test teardown or terminal execution recovery. See [storage retention](isolation.md#storage-ownership-and-retention) for byte budgets and the bounded source evidence contract. It binds to localhost only.
 
 ```mermaid
 flowchart LR

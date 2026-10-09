@@ -40,6 +40,7 @@ export {
 	AgentHost,
 	AgentMessage,
 	AgentToolCall,
+	AgentToolImage,
 	AgentTrace,
 	AgentUsage,
 	ContextMode,

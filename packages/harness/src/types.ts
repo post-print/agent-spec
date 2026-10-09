@@ -44,14 +44,23 @@ export interface AgentMessage {
 export interface AgentToolCall {
 	name: string;
 	args?: Record<string, unknown>;
-	/** Tool output when the SDK stream includes it (including MCP tools). */
+	/** Tool output when the SDK stream includes it (including MCP tools). Images appear as `[image: …]` markers. */
 	result?: string;
+	/** Images the tool returned, with inline base64 only when within the size budget. */
+	images?: AgentToolImage[];
 	/** Structured execution outcome when the host reports one. */
 	succeeded?: boolean;
 	/** Exact process exit code when the host reports one. */
 	exitCode?: number;
 	/** Monotonic emission order shared with messages, for chronological interleaving. Absent on legacy traces. */
 	seq?: number;
+}
+
+/** An image a tool returned. `data` is base64 and absent when the image exceeded the inline budget. */
+export interface AgentToolImage {
+	mediaType: string;
+	bytes: number;
+	data?: string;
 }
 
 /** Provider-reported token usage when the host SDK surfaces it. */

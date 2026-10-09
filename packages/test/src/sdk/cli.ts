@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { startRecordedExecution } from "./execution-runner.js";
 
 export { playwrightCli } from "./playwright-cli.js";
@@ -52,8 +52,41 @@ export async function runSdkCli(args: string[]): Promise<number> {
 	const cancel = () => execution.cancel();
 	process.once("SIGINT", cancel);
 	try {
-		return await execution.completed;
+		const code = await execution.completed;
+		if (!passThrough.includes("--list"))
+			for (const line of viewerHint({
+				config,
+				executionId: execution.id,
+				interactive: process.stdout.isTTY === true,
+				ci: process.env.CI === "true",
+			}))
+				process.stdout.write(`${line}\n`);
+		return code;
 	} finally {
 		process.removeListener("SIGINT", cancel);
 	}
+}
+
+/**
+ * Closing lines after a recorded run. A terminal user gets the command; a non-interactive
+ * caller, usually a coding agent, is also told to ask before starting the viewer.
+ */
+export function viewerHint(input: {
+	config: string;
+	executionId: string;
+	interactive: boolean;
+	ci: boolean;
+}): string[] {
+	if (input.ci) return [];
+	const configPath = relative(process.cwd(), input.config);
+	const command =
+		configPath === "agent-test.config.ts"
+			? "agent-test viewer"
+			: `agent-test viewer --config ${configPath}`;
+	const lines = [`View run ${input.executionId.slice(0, 8)}: ${command}`];
+	if (!input.interactive)
+		lines.push(
+			"Agent: ask the user whether to open the results viewer; start it only if they agree.",
+		);
+	return lines;
 }

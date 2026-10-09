@@ -4,8 +4,8 @@ import {
 	mergeAgentUsage,
 	mergeToolCall,
 	normalizeAgentUsage,
-	serializeToolResult,
 	type TraceAccumulator,
+	toolResultFields,
 } from "./capture.js";
 import type { AgentToolCall, AgentTrace, AgentUsage } from "./types.js";
 
@@ -193,26 +193,26 @@ function handleContentBlock(acc: ClaudeTraceAccumulator, block: ClaudeContentBlo
 
 function handleToolResult(acc: ClaudeTraceAccumulator, block: ClaudeContentBlock): void {
 	const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : undefined;
-	const result = serializeToolResult(block.content);
+	const result = toolResultFields(block.content);
 	const index = toolUseId === undefined ? undefined : acc.toolCallIndexByToolUseId.get(toolUseId);
 	if (index !== undefined) {
 		const previous = acc.toolCalls[index];
 		if (previous) acc.toolCalls[index] = attachClaudeResult(previous, block, result);
 		return;
 	}
-	if (result !== undefined) {
-		acc.toolOutputChunks.push(result);
+	if (result.result !== undefined) {
+		acc.toolOutputChunks.push(result.result);
 	}
 }
 
 function attachClaudeResult(
 	previous: AgentToolCall,
 	block: ClaudeContentBlock,
-	result: string | undefined,
+	result: Pick<AgentToolCall, "result" | "images">,
 ): AgentToolCall {
 	return {
 		...previous,
-		...(result !== undefined ? { result } : {}),
+		...result,
 		...(typeof block.is_error === "boolean" ? { succeeded: !block.is_error } : {}),
 	};
 }

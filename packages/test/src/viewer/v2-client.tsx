@@ -21,24 +21,32 @@ import {
 	useState,
 } from "react";
 import Markdown from "react-markdown";
-import { viewerApi } from "./generated-api.js";
 import {
 	assertionComparison,
 	conversationPlaceholder,
-	preferredExecutionId,
+	formatRunDate,
+	median,
+	preferredTestExecutionId,
 	stripAnsi,
+	type TestRunStatus,
+	testRunStatus,
+	unwrapShellCommand,
 } from "./presentation.js";
-import type { TestCatalog, DiscoveredTest as TestRecord } from "./test-catalog.js";
+import { RunInboxPage, RunPage } from "./run-inbox.js";
+import type { DiscoveredTest as TestRecord } from "./test-catalog.js";
+import { type ToolImage, ToolImages, toolImages } from "./tool-images.js";
+import {
+	cancelExecution,
+	type ExecutionSummary,
+	fetchExecution as fetchExecutionRecord,
+	startSuite,
+	startTest,
+	startTestGroup,
+	useCatalog,
+	useExecutionHistory,
+} from "./viewer-queries.js";
 
-type ExecutionSummary = {
-	id: string;
-	startedAt: string;
-	finishedAt?: string;
-	testIds?: string[];
-	status: "running" | "passed" | "failed" | "interrupted";
-	testStatuses?: Record<string, TestStatusValue>;
-};
-type TestStatusValue = "queued" | "running" | "passed" | "failed" | "skipped" | "interrupted";
+type TestStatusValue = TestRunStatus;
 type Attempt = {
 	testId?: string;
 	id: string;
@@ -62,8 +70,8 @@ type Attempt = {
 	}>;
 };
 type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
+const fetchExecution = (id: string) => fetchExecutionRecord<ExecutionDetail>(id);
 type TestView = "current" | "setup" | "history";
-const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;
 const LOCAL_PATH_LINK = /\[([^\]]+)\]\(<local-path>[^)]*\)/g;
 
 const runningPulse = stylex.keyframes({
@@ -82,7 +90,7 @@ const rootRoute = createRootRoute({ component: ViewerLayout });
 const indexRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/",
-	component: TestCatalogPage,
+	component: RunInboxPage,
 });
 const testRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -99,7 +107,7 @@ const testRoute = createRoute({
 const executionRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/executions/$executionId",
-	component: ExecutionPage,
+	component: ExecutionRunPage,
 });
 const compareRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -438,6 +446,14 @@ const styles = stylex.create({
 		border: "1px solid transparent",
 		backgroundColor: { default: "transparent", ":hover": "var(--panel)" },
 	},
+	batchRunLink: {
+		justifySelf: "start",
+		marginTop: "0.75rem",
+		color: { default: "var(--muted)", ":hover": "var(--text)" },
+		fontSize: "0.78rem",
+		textDecoration: "none",
+	},
+	runsLink: { display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 650 },
 	navItemHeader: {
 		display: "grid",
 		gridTemplateColumns: "0.65rem minmax(0, 1fr)",
@@ -654,7 +670,7 @@ const styles = stylex.create({
 	},
 	quietHeader: {
 		display: "flex",
-		justifyContent: "flex-end",
+		justifyContent: "flex-start",
 		marginBottom: "0.75rem",
 	},
 	statusPanel: {
@@ -686,6 +702,37 @@ const styles = stylex.create({
 		gap: "0.7rem",
 	},
 	attemptTitle: { fontSize: "0.84rem", lineHeight: 1.4 },
+	verdictPanel: {
+		display: "grid",
+		gap: "0.55rem",
+		padding: "0.7rem 0.8rem",
+		borderRadius: 10,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: "var(--border)",
+		backgroundColor: "var(--panel-2)",
+	},
+	verdictPass: { borderColor: "oklch(0.79 0.16 155 / 0.45)", backgroundColor: "var(--pass-soft)" },
+	verdictFail: { borderColor: "oklch(0.73 0.18 25 / 0.5)", backgroundColor: "var(--fail-soft)" },
+	verdictHeadline: { margin: 0, fontSize: "0.92rem", fontWeight: 720, color: "var(--text)" },
+	verdictMetrics: {
+		display: "grid",
+		gridTemplateColumns: "repeat(auto-fit, minmax(7.5rem, 1fr))",
+		gap: "0.4rem 1rem",
+		margin: 0,
+	},
+	verdictMetric: { display: "grid", gap: "0.1rem", minWidth: 0 },
+	verdictMetricValue: {
+		display: "grid",
+		margin: 0,
+		color: "var(--text)",
+		fontSize: "0.86rem",
+		fontWeight: 650,
+		fontVariantNumeric: "tabular-nums",
+	},
+	verdictMetricMedian: { color: "var(--subtle)", fontSize: "0.68rem", fontWeight: 500 },
+	verdictPassedChecks: { display: "grid", gap: "0.45rem" },
+	verdictCount: { color: "var(--muted)", fontWeight: 560 },
 	resultPanel: {
 		display: "grid",
 		gap: "0.55rem",
@@ -776,9 +823,52 @@ const styles = stylex.create({
 	},
 	conversationHeader: {
 		display: "flex",
-		alignItems: "center",
+		flexWrap: "wrap",
+		alignItems: "baseline",
 		justifyContent: "flex-start",
-		gap: "0.75rem",
+		gap: "0.25rem 0.75rem",
+	},
+	sectionIntro: { margin: 0, color: "var(--subtle)", fontSize: "0.72rem", lineHeight: 1.4 },
+	ranRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.35rem" },
+	ranLabel: {
+		color: "var(--subtle)",
+		fontSize: "0.66rem",
+		fontWeight: 700,
+		letterSpacing: "0.06em",
+		textTransform: "uppercase",
+	},
+	ranChip: {
+		padding: "0.12rem 0.45rem",
+		borderRadius: 999,
+		backgroundColor: "var(--panel-3)",
+		color: "var(--muted)",
+		fontSize: "0.72rem",
+	},
+	judgeOutcomeSource: {
+		gridColumn: 2,
+		margin: 0,
+		color: "var(--subtle)",
+		fontSize: "0.68rem",
+		lineHeight: 1.4,
+	},
+	judgeReason: { margin: 0, color: "var(--muted)", fontSize: "0.74rem", lineHeight: 1.5 },
+	judgeAskedLabel: {
+		marginRight: "0.35rem",
+		color: "var(--subtle)",
+		fontSize: "0.61rem",
+		fontWeight: 750,
+		letterSpacing: "0.06em",
+		textTransform: "uppercase",
+	},
+	judgeContextDisclosure: {
+		borderTop: "1px solid var(--border)",
+		paddingTop: "0.45rem",
+	},
+	judgeContextSummary: {
+		cursor: "pointer",
+		color: { default: "var(--muted)", ":hover": "var(--text)" },
+		fontSize: "0.74rem",
+		fontWeight: 650,
 	},
 	runTabs: { display: "inline-flex", alignItems: "center", gap: "0.12rem" },
 	runTab: {
@@ -910,15 +1000,11 @@ const styles = stylex.create({
 		display: "grid",
 		justifySelf: "stretch",
 		gap: "0.45rem",
-		padding: "0.7rem",
-		border: "1px solid oklch(0.75 0.12 175 / 0.3)",
-		borderRadius: 10,
-		backgroundColor: "var(--accent-soft)",
 	},
 	judgeQuestionText: {
 		margin: 0,
-		color: "var(--text)",
-		fontSize: "0.79rem",
+		color: "var(--muted)",
+		fontSize: "0.76rem",
 		lineHeight: 1.5,
 	},
 	judgeContext: {
@@ -926,14 +1012,6 @@ const styles = stylex.create({
 		gap: "0.4rem",
 		paddingTop: "0.55rem",
 		borderTop: "1px solid oklch(0.75 0.12 175 / 0.22)",
-	},
-	judgeContextHeader: {
-		display: "flex",
-		alignItems: "baseline",
-		justifyContent: "space-between",
-		gap: "0.75rem",
-		color: "var(--text)",
-		fontSize: "0.7rem",
 	},
 	judgeContextNote: { margin: 0, color: "var(--muted)", fontSize: "0.68rem", lineHeight: 1.4 },
 	judgeContextGroup: { display: "grid", gap: "0.35rem" },
@@ -1008,13 +1086,12 @@ const styles = stylex.create({
 	},
 	judgeResponse: {
 		display: "grid",
-		justifySelf: "start",
+		justifySelf: "stretch",
 		gap: "0.4rem",
 		padding: "0.65rem 0.7rem",
 		border: "1px solid var(--border)",
 		borderRadius: 10,
 		backgroundColor: "var(--panel-2)",
-		maxWidth: "78%",
 	},
 	judgeResponseHeading: {
 		margin: 0,
@@ -1108,7 +1185,7 @@ const styles = stylex.create({
 	},
 	criteriaList: { display: "grid", gap: "0.55rem", margin: 0, padding: 0, listStyle: "none" },
 	criterion: { display: "flex", gap: "0.6rem", color: "var(--muted)", fontSize: "0.82rem" },
-	criterionIcon: { color: "var(--accent)", fontWeight: 800 },
+	criterionIcon: { color: "var(--subtle)", fontWeight: 800 },
 	passReasonList: { display: "grid", gap: "0.35rem", margin: 0, padding: 0, listStyle: "none" },
 	passReason: { display: "flex", gap: "0.5rem", color: "var(--text)", fontSize: "0.76rem" },
 	passReasonIcon: { color: "var(--pass)", fontWeight: 800 },
@@ -1263,10 +1340,6 @@ function useNarrowViewer(): boolean {
 		return () => query.removeEventListener("change", update);
 	}, []);
 	return narrow;
-}
-
-function useCatalog() {
-	return useQuery({ queryKey: ["test-catalog"], queryFn: fetchTestCatalog });
 }
 
 function MobileViewerHeader({
@@ -1447,6 +1520,15 @@ function SidebarHeader({
 							onToggle={onToggle}
 						/>
 					</div>
+					<Link
+						to="/"
+						activeOptions={{ exact: true }}
+						{...stylex.props(styles.navLink, styles.runsLink)}
+						activeProps={stylex.props(styles.navLink, styles.runsLink, styles.active)}
+						onClick={onNavigate}
+					>
+						<span aria-hidden="true">◷</span> Runs
+					</Link>
 					<div {...stylex.props(styles.suiteControls)}>
 						<button
 							type="button"
@@ -1641,18 +1723,6 @@ function TestStatus({ status }: { status: TestStatusValue }) {
 		</span>
 	);
 }
-function TestCatalogPage() {
-	return (
-		<section {...stylex.props(styles.hero)}>
-			<div {...stylex.props(styles.brand)}>Test explorer</div>
-			<h2 {...stylex.props(styles.title)}>Choose a test from the sidebar</h2>
-			<p {...stylex.props(styles.description)}>
-				Read what it checks, see its agents and judges, then start a run or inspect a saved
-				execution.
-			</p>
-		</section>
-	);
-}
 function TestPage() {
 	const { testId } = testRoute.useParams();
 	const catalog = useCatalog();
@@ -1669,7 +1739,7 @@ function TestDetail({ test }: { test: TestRecord }) {
 	const history = useExecutionHistory();
 	const navigate = useNavigate();
 	const runs = history.data?.filter((item) => item.testIds?.includes(test.id)) ?? [];
-	const selected = execution ?? preferredExecutionId(runs);
+	const selected = execution ?? preferredTestExecutionId(runs, test.id);
 	const activeView = view ?? "current";
 	const chooseExecution = (id: string) =>
 		void navigate({
@@ -1686,15 +1756,32 @@ function TestDetail({ test }: { test: TestRecord }) {
 	return (
 		<>
 			<TestHeader test={test} onStarted={chooseExecution} />
+			<BatchRunLink run={runs.find((run) => run.id === selected)} />
 			<TestTabs active={activeView} onChange={chooseView} />
 			<TestViewPanel
 				view={activeView}
 				test={test}
 				runs={runs}
 				selected={selected}
+				historyLoading={history.isPending}
 				onChooseExecution={chooseExecution}
 			/>
 		</>
+	);
+}
+
+/** Return path to the run inbox when this test was opened from a batch run. */
+function BatchRunLink({ run }: { run?: ExecutionSummary }) {
+	const count = run?.testIds?.length ?? 0;
+	if (!run || count < 2) return null;
+	return (
+		<Link
+			to="/executions/$executionId"
+			params={{ executionId: run.id }}
+			{...stylex.props(styles.batchRunLink)}
+		>
+			← Back to run · {formatRunDate(run.startedAt)} · {count} tests
+		</Link>
 	);
 }
 
@@ -1772,6 +1859,7 @@ type TestViewPanelProps = {
 	test: TestRecord;
 	runs: ExecutionSummary[];
 	selected?: string;
+	historyLoading: boolean;
 	onChooseExecution: (id: string) => void;
 };
 function TestViewPanel(props: TestViewPanelProps) {
@@ -1784,19 +1872,29 @@ function TestViewPanel(props: TestViewPanelProps) {
 		>
 			{props.view === "setup" ? <TestResources test={props.test} /> : null}
 			{props.view === "current" ? (
-				<CurrentRun test={props.test} executionId={props.selected} />
+				<CurrentRun test={props.test} executionId={props.selected} loading={props.historyLoading} />
 			) : null}
 			{props.view === "history" ? (
-				<RunHistory runs={props.runs} onChoose={props.onChooseExecution} />
+				<RunHistory runs={props.runs} testId={props.test.id} onChoose={props.onChooseExecution} />
 			) : null}
 		</div>
 	);
 }
 
-function CurrentRun({ test, executionId }: { test: TestRecord; executionId?: string }) {
+function CurrentRun({
+	test,
+	executionId,
+	loading,
+}: {
+	test: TestRecord;
+	executionId?: string;
+	loading: boolean;
+}) {
 	return (
 		<section {...stylex.props(styles.tabSection)}>
-			{executionId ? (
+			{loading && !executionId ? (
+				<p {...stylex.props(styles.empty)}>Loading runs…</p>
+			) : executionId ? (
 				<TestExecution id={executionId} test={test} />
 			) : (
 				<p {...stylex.props(styles.empty)}>
@@ -1809,20 +1907,25 @@ function CurrentRun({ test, executionId }: { test: TestRecord; executionId?: str
 
 function RunHistory({
 	runs,
+	testId,
 	onChoose,
 }: {
 	runs: ExecutionSummary[];
+	testId: string;
 	onChoose: (id: string) => void;
 }) {
 	return (
 		<section {...stylex.props(styles.tabSection)}>
 			<div {...stylex.props(styles.quietHeader)}>
-				<span {...stylex.props(styles.resourceCount)}>{runs.length} executions</span>
+				<span {...stylex.props(styles.sectionIntro)}>
+					{runs.length} {pluralize(runs.length, "run")} included this test. Each shows this test's
+					own result.
+				</span>
 			</div>
 			{runs.length ? (
 				<div {...stylex.props(styles.historyList)}>
 					{runs.map((run) => (
-						<HistoryItem key={run.id} run={run} onChoose={onChoose} />
+						<HistoryItem key={run.id} run={run} testId={testId} onChoose={onChoose} />
 					))}
 				</div>
 			) : (
@@ -1832,31 +1935,48 @@ function RunHistory({
 	);
 }
 
-function HistoryItem({ run, onChoose }: { run: ExecutionSummary; onChoose: (id: string) => void }) {
+function HistoryItem({
+	run,
+	testId,
+	onChoose,
+}: {
+	run: ExecutionSummary;
+	testId: string;
+	onChoose: (id: string) => void;
+}) {
+	const status = testRunStatus(run, testId);
+	const others = (run.testIds?.length ?? 1) - 1;
 	return (
 		<button
 			type="button"
-			aria-label={`Open ${run.status} execution ${run.id.slice(0, 8)}`}
+			aria-label={`Open ${status} execution ${run.id.slice(0, 8)}`}
 			{...stylex.props(styles.buttonReset, styles.historyButton)}
 			onClick={() => onChoose(run.id)}
 		>
 			<span {...stylex.props(styles.historyIdentity)}>
-				<span {...stylex.props(styles.historyDate)}>
-					{new Date(run.startedAt).toLocaleString()}
+				<span {...stylex.props(styles.historyDate)}>{formatRunDate(run.startedAt)}</span>
+				<span {...stylex.props(styles.historyId)}>
+					{run.id.slice(0, 8)}
+					{others > 0 ? ` · with ${others} other ${pluralize(others, "test")}` : ""}
 				</span>
-				<span {...stylex.props(styles.historyId)}>{run.id.slice(0, 8)}</span>
 			</span>
-			<span
-				{...stylex.props(
-					styles.status,
-					run.status === "passed" && styles.statusPass,
-					run.status === "failed" && styles.statusFail,
-					run.status === "running" && styles.statusRunning,
-				)}
-			>
-				{run.status}
-			</span>
+			<StatusPill status={status} />
 		</button>
+	);
+}
+
+function StatusPill({ status }: { status: TestStatusValue | ExecutionSummary["status"] }) {
+	return (
+		<span
+			{...stylex.props(
+				styles.status,
+				status === "passed" && styles.statusPass,
+				status === "failed" && styles.statusFail,
+				(status === "running" || status === "queued") && styles.statusRunning,
+			)}
+		>
+			{status}
+		</span>
 	);
 }
 function RunTestButton({ test, onStarted }: { test: TestRecord; onStarted: (id: string) => void }) {
@@ -1917,12 +2037,15 @@ function CriteriaSetup({ test }: { test: TestRecord }) {
 			<h3 id="setup-criteria" {...stylex.props(styles.contentHeading)}>
 				Pass criteria
 			</h3>
+			<p {...stylex.props(styles.sectionIntro)}>
+				Every one of these must hold for the test to pass.
+			</p>
 			{criteria.length ? (
 				<ul {...stylex.props(styles.criteriaList)}>
 					{criteria.map((criterion) => (
 						<li key={criterion} {...stylex.props(styles.criterion)}>
 							<span aria-hidden="true" {...stylex.props(styles.criterionIcon)}>
-								✓
+								•
 							</span>
 							<span>{criterion}</span>
 						</li>
@@ -1990,12 +2113,12 @@ function WorkspaceSetup({ test }: { test: TestRecord }) {
 				<h3 id="setup-workspace" {...stylex.props(styles.contentHeading)}>
 					Workspace
 				</h3>
-				<p {...stylex.props(styles.meta)}>Starting files and execution target for this test.</p>
+				<p {...stylex.props(styles.meta)}>
+					Each agent run starts from a fresh copy of this folder.
+				</p>
 			</div>
 			<div {...stylex.props(styles.workspaceRow)}>
 				<ResourceFact label="Source folder" value={test.workspace ?? "Project directory"} />
-				<ResourceFact label="Project" value={test.project} />
-				<ResourceFact label="Test file" value={test.file} />
 			</div>
 		</section>
 	);
@@ -2051,21 +2174,35 @@ function TestExecution({ id, test }: { id: string; test: TestRecord }) {
 	const attempts = detail.data.attempts.filter((attempt) => attempt.testId === test.id);
 	if (detail.data.testIds && !detail.data.testIds.includes(test.id))
 		return <p>This execution does not contain this test.</p>;
+	if (attempts.length === 0 && testRunStatus(detail.data, test.id) === "skipped")
+		return (
+			<p {...stylex.props(styles.empty)}>
+				This test was skipped in this run. Open Run history to find a run that executed it.
+			</p>
+		);
 	return (
-		<ExecutionDetailView execution={{ ...detail.data, attempts }} criteria={testCriteria(test)} />
+		<AgentDescriptions.Provider value={agentDescriptions(test)}>
+			<ExecutionDetailView execution={{ ...detail.data, attempts }} criteria={testCriteria(test)} />
+		</AgentDescriptions.Provider>
 	);
 }
 
-function ExecutionPage() {
+/** What each agent in the selected test is for, from the test's own `agent({ description })`. */
+const AgentDescriptions = createContext<ReadonlyMap<string, string>>(new Map());
+
+function agentDescriptions(test: TestRecord): ReadonlyMap<string, string> {
+	return new Map(
+		(test.resources ?? []).flatMap((resource) =>
+			resource.kind === "agent" && resource.description
+				? [[resource.name, resource.description] as const]
+				: [],
+		),
+	);
+}
+
+function ExecutionRunPage() {
 	const { executionId } = executionRoute.useParams();
-	const detail = useQuery({
-		queryKey: ["execution", executionId],
-		queryFn: () => fetchExecution(executionId),
-	});
-	if (detail.isLoading) return <p {...stylex.props(styles.empty)}>Loading execution…</p>;
-	if (detail.isError || !detail.data)
-		return <p {...stylex.props(styles.empty)}>Execution is unavailable.</p>;
-	return <ExecutionDetailView execution={detail.data} />;
+	return <RunPage key={executionId} executionId={executionId} />;
 }
 
 function ExecutionDetailView({
@@ -2099,7 +2236,7 @@ function ExecutionDetailView({
 			{cancel.isError ? <p role="alert">The run could not be stopped.</p> : null}
 			<section {...stylex.props(styles.list)}>
 				{execution.attempts.map((attempt) => (
-					<AttemptCard key={attempt.id} attempt={attempt} criteria={criteria} />
+					<AttemptCard key={attempt.id} attempt={attempt} criteria={criteria} showTitle={false} />
 				))}
 				{execution.attempts.length === 0 ? (
 					<p {...stylex.props(styles.empty)}>{emptyExecutionMessage(execution, stopping)}</p>
@@ -2156,7 +2293,16 @@ function ComparisonColumn({ execution, label }: { execution: ExecutionDetail; la
 	);
 }
 
-function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: string[] }) {
+/** `showTitle` is off on a test page, whose header already names the test. */
+function AttemptCard({
+	attempt,
+	criteria = [],
+	showTitle = true,
+}: {
+	attempt: Attempt;
+	criteria?: string[];
+	showTitle?: boolean;
+}) {
 	const { operations, output, title } = attemptPresentation(attempt, criteria);
 	const agents = operations.filter((operation) => operation.kind !== "evaluation");
 	const judges = operations.filter((operation) => operation.kind === "evaluation");
@@ -2164,7 +2310,7 @@ function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: 
 		<article {...stylex.props(styles.attemptCard)}>
 			<div {...stylex.props(styles.row)}>
 				<div>
-					<strong {...stylex.props(styles.attemptTitle)}>{title}</strong>
+					{showTitle ? <strong {...stylex.props(styles.attemptTitle)}>{title}</strong> : null}
 					<p {...stylex.props(styles.meta)}>
 						{attempt.project || "default"} · {attempt.operations.length} named{" "}
 						{pluralize(attempt.operations.length, "operation")}
@@ -2186,23 +2332,170 @@ function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: 
 					</span>
 				</div>
 			</div>
+			<TestVerdict attempt={attempt} criteria={criteria} operations={operations} />
 			<OperationList operations={operations} />
-			<ConversationSection
-				label="Agents"
-				sectionOperations={agents}
-				allOperations={operations}
-				attempt={attempt}
-				criteria={criteria}
-			/>
 			<ConversationSection
 				label="Judges"
 				sectionOperations={judges}
 				allOperations={operations}
 				attempt={attempt}
-				criteria={criteria}
+			/>
+			<ConversationSection
+				label="Agents"
+				sectionOperations={agents}
+				allOperations={operations}
+				attempt={attempt}
 			/>
 			<TechnicalDetails operations={operations} output={output} />
 		</article>
+	);
+}
+
+/** Test-level outcome first: every check with its result, including judge-decided checks. */
+function TestVerdict({
+	attempt,
+	criteria,
+	operations,
+}: {
+	attempt: Attempt;
+	criteria: string[];
+	operations: Attempt["operations"];
+}) {
+	const presentations = criterionPresentations({
+		criteria,
+		explanations: judgeCriterionExplanations(criteria, operations),
+		results: attempt.criterionResults,
+		status: attempt.status,
+		errors: attempt.errors,
+	});
+	return (
+		<section
+			aria-label="Test verdict"
+			{...stylex.props(
+				styles.verdictPanel,
+				attempt.status === "passed" && styles.verdictPass,
+				attempt.status === "failed" && styles.verdictFail,
+			)}
+		>
+			<p {...stylex.props(styles.verdictHeadline)}>
+				{capitalize(attempt.status)}
+				<span {...stylex.props(styles.verdictCount)}>
+					{checkSummary(presentations, attempt.status)}
+				</span>
+			</p>
+			{attempt.status === "running" ? (
+				<p {...stylex.props(styles.meta)}>The test is still running.</p>
+			) : null}
+			<VerdictMetrics operations={operations} />
+			<VerdictChecks presentations={presentations} />
+			<UnassignedFailures errors={attempt.errors} presentations={presentations} />
+		</section>
+	);
+}
+
+const SHORT_CHECK_LIST = 3;
+
+/** Checks needing attention always show; passing checks fold away once the list is long. */
+function VerdictChecks({ presentations }: { presentations: CriterionPresentation[] }) {
+	const checks = presentations;
+	if (checks.length <= SHORT_CHECK_LIST) return <CriterionResults presentations={checks} />;
+	const attention = checks.filter((check) => check.outcome !== "passed");
+	const passed = checks.filter((check) => check.outcome === "passed");
+	return (
+		<>
+			<CriterionResults presentations={attention} />
+			{passed.length ? (
+				<details data-disclosure {...stylex.props(styles.verdictPassedChecks)}>
+					<summary {...stylex.props(styles.judgeContextSummary)}>
+						{passed.length} passed {pluralize(passed.length, "check")}
+					</summary>
+					<CriterionResults presentations={passed} label="Passed checks" />
+				</details>
+			) : null}
+		</>
+	);
+}
+
+/** Failures no check claimed, such as a crash before the first assertion. */
+function UnassignedFailures({
+	errors,
+	presentations,
+}: {
+	errors: Attempt["errors"];
+	presentations: CriterionPresentation[];
+}) {
+	const assigned = new Set(presentations.map((item) => item.failure).filter(Boolean));
+	return errors
+		.filter((error) => !assigned.has(error.message))
+		.map((error, index) => <FailureDetails key={index} message={error.message ?? "Test failed"} />);
+}
+
+type MetricKey = "durationMs" | "totalTokens" | "toolCallCount" | "changedPathCount";
+const VERDICT_METRICS: Array<{ key: MetricKey; label: string; format: (value: number) => string }> =
+	[
+		{ key: "durationMs", label: "Duration", format: formatDuration },
+		{ key: "totalTokens", label: "Tokens", format: (value) => Math.round(value).toLocaleString() },
+		{ key: "toolCallCount", label: "Tool calls", format: (value) => String(Math.round(value)) },
+		{
+			key: "changedPathCount",
+			label: "Files changed",
+			format: (value) => String(Math.round(value)),
+		},
+	];
+
+/** Agent totals for the attempt; a median per run when the test made several agent runs. */
+function VerdictMetrics({ operations }: { operations: Attempt["operations"] }) {
+	const runs = operations
+		.filter((operation) => operation.kind !== "evaluation")
+		.map((operation) => operationResult([operation]));
+	const rows = VERDICT_METRICS.flatMap((metric) => {
+		const values = runs.flatMap((run) =>
+			run[metric.key] === undefined ? [] : [run[metric.key] ?? 0],
+		);
+		if (!values.length) return [];
+		const total = values.reduce((sum, value) => sum + value, 0);
+		return [{ ...metric, total, median: median(values) ?? total }];
+	});
+	if (!rows.length) return null;
+	const repeated = runs.length > 1;
+	return (
+		<dl aria-label="Run metrics" {...stylex.props(styles.verdictMetrics)}>
+			{rows.map((row) => (
+				<div key={row.key} {...stylex.props(styles.verdictMetric)}>
+					<dt {...stylex.props(styles.resourceFactLabel)}>{row.label}</dt>
+					<dd {...stylex.props(styles.verdictMetricValue)}>
+						{row.format(row.total)}
+						{repeated ? (
+							<span {...stylex.props(styles.verdictMetricMedian)}>
+								median {row.format(row.median)} per run
+							</span>
+						) : null}
+					</dd>
+				</div>
+			))}
+		</dl>
+	);
+}
+
+function checkSummary(presentations: CriterionPresentation[], status: string): string {
+	const total = presentations.length;
+	if (!total) return "";
+	const failed = presentations.filter((item) => item.outcome === "failed").length;
+	const passed = presentations.filter((item) => item.outcome === "passed").length;
+	const checks = pluralize(total, "check");
+	if (failed) return ` · ${failed} of ${total} ${checks} failed`;
+	return ` · ${passed} of ${total} ${checks} passed${status === "running" ? " so far" : ""}`;
+}
+
+function judgeCriterionExplanations(
+	criteria: string[],
+	operations: Attempt["operations"],
+): Array<string | undefined> {
+	const judges = operations.filter((operation) => operation.kind === "evaluation");
+	return criteria.map((_, index) =>
+		judges
+			.map((judge) => operationCriterionExplanations(criteria, judge)[index])
+			.find((explanation) => explanation !== undefined),
 	);
 }
 
@@ -2211,13 +2504,11 @@ function ConversationSection({
 	sectionOperations,
 	allOperations,
 	attempt,
-	criteria,
 }: {
 	label: "Agents" | "Judges";
 	sectionOperations: Attempt["operations"];
 	allOperations: Attempt["operations"];
 	attempt: Attempt;
-	criteria: string[];
 }) {
 	const [selectedId, setSelectedId] = useState(sectionOperations[0]?.id);
 	if (!sectionOperations.length && (allOperations.length > 0 || label === "Judges")) return null;
@@ -2234,15 +2525,7 @@ function ConversationSection({
 			select={setSelectedId}
 			status={status}
 			attemptStatus={attempt.status}
-			result={
-				<AttemptResult
-					attempt={attempt}
-					criteria={criteria}
-					operation={selected}
-					operations={allOperations}
-					result={selectedOperationResult(selected)}
-				/>
-			}
+			result={<AttemptResult result={selectedOperationResult(selected)} />}
 		/>
 	);
 }
@@ -2296,55 +2579,9 @@ function operationInvocationIndex(operation: Attempt["operations"][number]): num
 	})[0];
 }
 
-function AttemptResult({
-	attempt,
-	criteria,
-	operation,
-	operations,
-	result,
-}: {
-	attempt: Attempt;
-	criteria: string[];
-	operation?: Attempt["operations"][number];
-	operations: Attempt["operations"];
-	result: RunResultData;
-}) {
-	const hasJudge = operations.some((item) => item.kind === "evaluation");
-	const includeShared =
-		attempt.status !== "running" && (operation?.kind === "evaluation" || !hasJudge);
-	const indexes = selectedCriterionIndexes({ criteria, operation, operations, includeShared });
-	return (
-		<RunResult
-			result={result}
-			status={attempt.status}
-			criteria={selectIndexes(criteria, indexes)}
-			explanations={selectOptionalIndexes(
-				operationCriterionExplanations(criteria, operation),
-				indexes,
-			)}
-			errors={attempt.errors}
-			criterionResults={selectIndexes(attempt.criterionResults, indexes)}
-		/>
-	);
-}
-
-function selectedCriterionIndexes(input: {
-	criteria: string[];
-	operation: Attempt["operations"][number] | undefined;
-	operations: Attempt["operations"];
-	includeShared: boolean;
-}): number[] | undefined {
-	const { criteria, operation, operations, includeShared } = input;
-	const recorded = operationCriterionIndexes(criteria, operation);
-	const allRecorded = new Set(
-		operations.flatMap((item) => operationCriterionIndexes(criteria, item)),
-	);
-	if (allRecorded.size)
-		return criteria.flatMap((_, index) =>
-			recorded.includes(index) || (includeShared && !allRecorded.has(index)) ? [index] : [],
-		);
-	if (!includeShared) return [];
-	return inferredRepeatedRunCriterionIndexes(criteria, operation, operations);
+/** Per-run metrics for comparing runs. Totals and checks live in the test verdict. */
+function AttemptResult({ result }: { result: RunResultData }) {
+	return <RunResult result={result} />;
 }
 
 function operationCriterionIndexes(
@@ -2369,26 +2606,6 @@ function criterionRecordIndexes(criteria: string[], value: unknown): number[] {
 
 const RUN_ORDINALS = ["first", "second", "third", "fourth", "fifth"];
 const CRITERION_WORD_SEPARATOR = /[^a-z0-9]+/;
-
-function inferredRepeatedRunCriterionIndexes(
-	criteria: string[],
-	operation: Attempt["operations"][number] | undefined,
-	operations: Attempt["operations"],
-): number[] | undefined {
-	if (!operation) return undefined;
-	const runs = operations.filter(
-		(item) => operationIdentity(item) === operationIdentity(operation),
-	);
-	if (runs.length < 2) return undefined;
-	const selected =
-		inferredOperationOrdinal(criteria, operation) ??
-		runs.findIndex((run) => run.id === operation.id);
-	const scopes = criteria.map(criterionRunOrdinal);
-	if (selected < 0 || !scopes.some((scope) => scope !== undefined)) return undefined;
-	return scopes.flatMap((scope, index) =>
-		scope === undefined || scope === selected ? [index] : [],
-	);
-}
 
 function inferredOperationOrdinal(
 	criteria: string[],
@@ -2418,16 +2635,6 @@ function criterionRunOrdinal(criterion: string): number | undefined {
 	const normalized = criterion.toLowerCase();
 	const index = RUN_ORDINALS.findIndex((ordinal) => normalized.includes(`${ordinal} `));
 	return index < 0 ? undefined : index;
-}
-
-function selectIndexes<T>(values: T[], indexes: number[] | undefined): T[] {
-	return indexes
-		? indexes.flatMap((index) => (values[index] === undefined ? [] : [values[index]]))
-		: values;
-}
-
-function selectOptionalIndexes<T>(values: Array<T | undefined>, indexes: number[] | undefined) {
-	return indexes ? indexes.map((index) => values[index]) : values;
 }
 
 function CopyFailureButton({ attempt, criteria }: { attempt: Attempt; criteria: string[] }) {
@@ -2553,6 +2760,7 @@ type TranscriptToolCall = {
 	name: string;
 	args?: Record<string, unknown>;
 	result?: string;
+	images?: ToolImage[];
 	succeeded?: boolean;
 	exitCode?: number;
 	seq?: number;
@@ -2602,6 +2810,7 @@ function toolCallsFromOperation(value: unknown): TranscriptToolCall[] {
 				name: call.name,
 				args: isRecord(call.args) ? call.args : undefined,
 				result: optionalString(call.result),
+				images: toolImages(call.images),
 				succeeded: typeof call.succeeded === "boolean" ? call.succeeded : undefined,
 				exitCode: optionalNumber(call.exitCode),
 				seq: optionalNumber(call.seq),
@@ -2678,6 +2887,7 @@ function liveToolEvent(
 			name: record.name,
 			args: isRecord(record.args) ? record.args : undefined,
 			result: optionalString(record.result),
+			images: toolImages(record.images),
 			exitCode: optionalNumber(record.exitCode),
 			succeeded: typeof record.succeeded === "boolean" ? record.succeeded : undefined,
 			seq,
@@ -2757,39 +2967,10 @@ function nestedArrayLength(value: unknown, key: string): number | undefined {
 	return isRecord(value) ? optionalArrayLength(value[key]) : undefined;
 }
 
-function RunResult({
-	result,
-	status,
-	criteria,
-	explanations,
-	errors,
-	criterionResults,
-}: {
-	result: RunResultData;
-	status: string;
-	criteria: string[];
-	explanations: Array<string | undefined>;
-	errors: Attempt["errors"];
-	criterionResults: Attempt["criterionResults"];
-}) {
-	const presentations = criterionPresentations({
-		criteria,
-		explanations,
-		results: criterionResults,
-		status,
-		errors,
-	});
-	const assignedFailures = new Set(presentations.map((item) => item.failure).filter(Boolean));
+function RunResult({ result }: { result: RunResultData }) {
 	return (
 		<section aria-label="Result" {...stylex.props(styles.resultPanel)}>
 			<h3 {...stylex.props(styles.contentHeading)}>Result</h3>
-			<ResultVerdict status={status} />
-			<CriterionResults presentations={presentations} />
-			{errors
-				.filter((error) => !assignedFailures.has(error.message))
-				.map((error, index) => (
-					<FailureDetails key={index} message={error.message ?? "Test failed"} />
-				))}
 			<ResultMetrics result={result} />
 		</section>
 	);
@@ -2817,12 +2998,6 @@ function AssertionValue({ label, value }: { label: string; value: string }) {
 			<dd {...stylex.props(styles.assertionCode)}>{value || "(empty)"}</dd>
 		</div>
 	);
-}
-
-function ResultVerdict({ status }: { status: string }) {
-	return status === "running" ? (
-		<p {...stylex.props(styles.resultOutput)}>The test is still running.</p>
-	) : null;
 }
 
 type CriterionOutcome = "passed" | "failed" | "pending" | "not-recorded";
@@ -2862,10 +3037,16 @@ function criterionPresentations({
 	});
 }
 
-function CriterionResults({ presentations }: { presentations: CriterionPresentation[] }) {
+function CriterionResults({
+	presentations,
+	label = "Criterion results",
+}: {
+	presentations: CriterionPresentation[];
+	label?: string;
+}) {
 	if (!presentations.length) return null;
 	return (
-		<section aria-label="Criterion results" {...stylex.props(styles.criterionResults)}>
+		<section aria-label={label} {...stylex.props(styles.criterionResults)}>
 			<ul {...stylex.props(styles.criterionResultList)}>
 				{presentations.map((presentation) => (
 					<CriterionResultRow
@@ -2995,6 +3176,11 @@ function ResultMetrics({ result }: { result: RunResultData }) {
 	);
 }
 
+const SECTION_INTROS = {
+	Agents: "The task each agent received and how it answered.",
+	Judges: "A separate reviewer graded the agent answers below. Its findings feed the checks above.",
+} as const;
+
 function Conversation({
 	label,
 	operation,
@@ -3020,6 +3206,7 @@ function Conversation({
 			<div {...stylex.props(styles.conversationSurface)}>
 				<header {...stylex.props(styles.conversationHeader)}>
 					<h3 {...stylex.props(styles.contentHeading)}>{label}</h3>
+					<p {...stylex.props(styles.sectionIntro)}>{SECTION_INTROS[label]}</p>
 				</header>
 				<ConversationTabs
 					label={label}
@@ -3029,14 +3216,17 @@ function Conversation({
 					attemptStatus={attemptStatus}
 				/>
 				<ConversationRunTabs operation={operation} operations={operations} select={select} />
-				{operation?.kind === "evaluation" ? null : result}
+				{operation?.kind === "evaluation" || operations.length < 2 ? null : result}
 				<section aria-label={`${label} messages`} {...stylex.props(styles.conversationThread)}>
 					{judge ? (
-						<JudgeQuestion review={judge} operations={allOperations} />
+						<>
+							<JudgeAsked review={judge} />
+							<JudgeResponse review={judge} operations={allOperations} />
+							<JudgeInputs review={judge} operations={allOperations} />
+						</>
 					) : (
 						<ConversationEvents timeline={timeline} />
 					)}
-					<JudgeResponse review={judge} operations={allOperations} />
 				</section>
 				{timeline.length === 0 && status !== "running" ? (
 					<p {...stylex.props(styles.meta)}>{conversationPlaceholder(status)}</p>
@@ -3097,23 +3287,40 @@ type JudgeReviewData = {
 	reason?: string;
 };
 
-function JudgeQuestion({
+/** The judge's instruction comes first: it defines what each finding below means. */
+function JudgeAsked({ review }: { review: JudgeReviewData }) {
+	if (!review.question) return null;
+	return (
+		<section aria-label="Judge question" {...stylex.props(styles.judgeQuestion)}>
+			<p {...stylex.props(styles.judgeQuestionText)}>
+				<span {...stylex.props(styles.judgeAskedLabel)}>Asked</span>
+				<span>{review.question}</span>
+			</p>
+		</section>
+	);
+}
+
+/** Everything the test sent the judge, folded away: it mostly repeats the agent answers. */
+function JudgeInputs({
 	review,
 	operations,
 }: {
 	review: JudgeReviewData;
 	operations: Attempt["operations"];
 }) {
-	if (!review.question && !review.context.length) return null;
+	if (!review.context.length) return null;
+	// Inputs matter most before findings exist and when a finding failed.
+	const inputsFirst =
+		review.outcomes.length === 0 || review.outcomes.some((outcome) => !outcome.passed);
 	return (
-		<section aria-label="Judge question" {...stylex.props(styles.judgeQuestion)}>
-			<h4 {...stylex.props(styles.judgeResponseHeading)}>Judge question</h4>
-			{review.question ? (
-				<p {...stylex.props(styles.judgeQuestionText)}>{review.question}</p>
-			) : null}
-			{review.context.length ? (
+		<section aria-label="Context included">
+			<details data-disclosure open={inputsFirst} {...stylex.props(styles.judgeContextDisclosure)}>
+				<summary {...stylex.props(styles.judgeContextSummary)}>
+					What the judge saw · {review.context.length} selected{" "}
+					{pluralize(review.context.length, "field")}
+				</summary>
 				<JudgeContext context={review.context} operations={operations} />
-			) : null}
+			</details>
 		</section>
 	);
 }
@@ -3121,6 +3328,7 @@ function JudgeQuestion({
 type JudgeAnswerContext = JudgeReviewData["context"][number] & {
 	id: string;
 	tabLabel: string;
+	agentName?: string;
 };
 
 function JudgeContext({
@@ -3135,13 +3343,9 @@ function JudgeContext({
 	const selected = answers.find((item) => item.id === selectedId) ?? answers[0];
 	const panelId = useId();
 	return (
-		<section aria-label="Context included" {...stylex.props(styles.judgeContext)}>
-			<div {...stylex.props(styles.judgeContextHeader)}>
-				<strong>Context included</strong>
-				<span>{context.length} selected fields</span>
-			</div>
+		<div {...stylex.props(styles.judgeContext)}>
 			<p {...stylex.props(styles.judgeContextNote)}>
-				Only these explicitly selected fields were sent to this judge.
+				Only these fields, chosen by the test, were sent to the judge.
 			</p>
 			{answers.length ? (
 				<section aria-label="Agent answers" {...stylex.props(styles.judgeContextGroup)}>
@@ -3201,7 +3405,7 @@ function JudgeContext({
 					</dl>
 				</section>
 			) : null}
-		</section>
+		</div>
 	);
 }
 
@@ -3229,6 +3433,7 @@ function judgeContextGroups(
 			...item,
 			id: `${match.operation.id}:${index}`,
 			tabLabel: agentRunLabel(match.operation, operations),
+			agentName: match.operation.name,
 		});
 	}
 	return { answers, supplied };
@@ -3289,48 +3494,130 @@ function JudgeResponse({
 	operations: Attempt["operations"];
 }) {
 	if (!review || (!review.outcomes.length && !review.reason)) return null;
-	const { answers } = judgeContextGroups(review.context, operations);
-	return <JudgeFindings outcomes={review.outcomes} reason={review.reason} answers={answers} />;
+	const { answers, supplied } = judgeContextGroups(review.context, operations);
+	return (
+		<JudgeFindings
+			outcomes={review.outcomes}
+			reason={review.reason}
+			answers={answers}
+			references={supplied.filter((item) => item.value.length <= SHORT_REFERENCE)}
+		/>
+	);
 }
 
+const SHORT_REFERENCE = 120;
+const ANSWER_QUOTE = 160;
+
+/**
+ * One row per judged field, quoting the answer it judged, then the short reference values the
+ * test supplied and the judge's shared reason. Together they show why each row passed or failed.
+ */
 function JudgeFindings({
 	outcomes,
 	reason,
 	answers = [],
+	references = [],
 }: {
 	outcomes: JudgeReviewData["outcomes"];
 	reason?: string;
 	answers?: JudgeAnswerContext[];
+	references?: JudgeReviewData["context"];
 }) {
 	return (
 		<section aria-label="Judge response" {...stylex.props(styles.judgeResponse)}>
-			<h4 {...stylex.props(styles.judgeResponseHeading)}>Judge response</h4>
+			<h4 {...stylex.props(styles.judgeResponseHeading)}>Findings</h4>
 			<div {...stylex.props(styles.judgeOutcomeList)}>
 				{outcomes.map((outcome) => (
-					<div key={outcome.label} {...stylex.props(styles.judgeOutcome)}>
-						<CriterionOutcomeIcon
-							outcome={outcome.passed ? "passed" : "failed"}
-							label={outcome.passed ? "Passed" : "Failed"}
-						/>
-						<span {...stylex.props(styles.judgeOutcomeLabel)}>
-							{judgeOutcomeLabel(outcome.label, answers)}
-						</span>
-						{outcome.explanation ? (
-							<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
-						) : null}
-					</div>
+					<JudgeFindingRow key={outcome.label} outcome={outcome} answers={answers} />
 				))}
 			</div>
-			{reason && !outcomes.length ? (
-				<p {...stylex.props(styles.judgeOutcomeExplanation)}>{reason}</p>
+			{outcomes.length && references.length ? (
+				<p {...stylex.props(styles.judgeReason)}>
+					<span {...stylex.props(styles.judgeAskedLabel)}>Compared with</span>
+					{references.map((item) => `${item.label}: ${item.value}`).join(" · ")}
+				</p>
+			) : null}
+			{reason ? (
+				<p {...stylex.props(styles.judgeReason)}>
+					{outcomes.length ? <span {...stylex.props(styles.judgeAskedLabel)}>Reason</span> : null}
+					<span>{reason}</span>
+				</p>
 			) : null}
 		</section>
 	);
 }
 
-function judgeOutcomeLabel(label: string, answers: JudgeAnswerContext[]): string {
-	const answer = answers.find((item) => label === `${item.label} Correct` || label === item.label);
-	return answer?.tabLabel ?? label;
+function JudgeFindingRow({
+	outcome,
+	answers,
+}: {
+	outcome: JudgeReviewData["outcomes"][number];
+	answers: JudgeAnswerContext[];
+}) {
+	const answer = judgedAnswer(outcome, answers);
+	return (
+		<div {...stylex.props(styles.judgeOutcome)}>
+			<CriterionOutcomeIcon
+				outcome={outcome.passed ? "passed" : "failed"}
+				label={outcome.passed ? "Passed" : "Failed"}
+			/>
+			<span {...stylex.props(styles.judgeOutcomeLabel)}>{judgeOutcomeLabel(outcome, answer)}</span>
+			{outcome.explanation ? (
+				<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
+			) : null}
+			{answer ? <JudgedAnswerSource answer={answer} /> : null}
+			{answer ? (
+				<p {...stylex.props(styles.judgeOutcomeExplanation)}>“{answerQuote(answer.value)}”</p>
+			) : null}
+		</div>
+	);
+}
+
+/** Which agent run produced the judged answer, and what that agent is for when the test says. */
+function JudgedAnswerSource({ answer }: { answer: JudgeAnswerContext }) {
+	const descriptions = useContext(AgentDescriptions);
+	const description = answer.agentName ? descriptions.get(answer.agentName) : undefined;
+	return (
+		<p {...stylex.props(styles.judgeOutcomeSource)}>
+			From {answer.tabLabel}
+			{description ? ` — ${description}` : ""}
+		</p>
+	);
+}
+
+/** The answer a field is named after: "fileRoundOneCorrect" judges the "fileRoundOne" input. */
+function judgedAnswer(
+	outcome: JudgeReviewData["outcomes"][number],
+	answers: JudgeAnswerContext[],
+): JudgeAnswerContext | undefined {
+	return answers.find(
+		(item) => outcome.label === item.label || outcome.label.startsWith(`${item.label} `),
+	);
+}
+
+/**
+ * A finding is named by what the judge looked at, in the test's own words: the input label
+ * ("File round one") when the field judges an answer, otherwise the field ("Explains risk").
+ * The pass/fail icon carries the verdict, so the label never repeats it.
+ */
+function judgeOutcomeLabel(
+	outcome: JudgeReviewData["outcomes"][number],
+	answer: JudgeAnswerContext | undefined,
+): string {
+	return sentenceCase(answer?.label ?? outcome.label);
+}
+
+function sentenceCase(value: string): string {
+	const lower = value.toLowerCase();
+	return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+function answerQuote(value: string): string {
+	const plain = value
+		.replace(/[*_`#>]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	return plain.length > ANSWER_QUOTE ? `${plain.slice(0, ANSWER_QUOTE - 1)}…` : plain;
 }
 
 function judgeReviewData(operation: Attempt["operations"][number]): JudgeReviewData {
@@ -3341,7 +3628,7 @@ function judgeReviewData(operation: Attempt["operations"][number]): JudgeReviewD
 	return {
 		question: judgeQuestion(record),
 		context: judgeContext(record?.input),
-		outcomes: judgeOutcomes(output, reason),
+		outcomes: judgeOutcomes(output),
 		reason,
 	};
 }
@@ -3369,28 +3656,16 @@ function judgeQuestion(record: Record<string, unknown> | undefined): string | un
 	return optionalString(evaluation?.prompt);
 }
 
-function judgeOutcomes(
-	output: Record<string, unknown>,
-	fallbackExplanation?: string,
-): JudgeReviewData["outcomes"] {
+/** Only an explanation the judge gave for that field attaches to it; a shared reason never does. */
+function judgeOutcomes(output: Record<string, unknown>): JudgeReviewData["outcomes"] {
 	const entries = Object.entries(output).filter(
 		(entry): entry is [string, boolean] => typeof entry[1] === "boolean",
 	);
-	const fallbacks = splitJudgeExplanation(fallbackExplanation, entries.length);
-	return entries.map(([key, passed], index) => ({
+	return entries.map(([key, passed]) => ({
 		label: humanizeKey(key),
 		passed,
-		explanation: judgeOutcomeExplanation(output, key) ?? fallbacks[index],
+		explanation: judgeOutcomeExplanation(output, key),
 	}));
-}
-
-function splitJudgeExplanation(value: string | undefined, count: number): string[] {
-	if (!value || count < 1) return [];
-	const sentences = value.split(SENTENCE_BOUNDARY).filter(Boolean);
-	if (sentences.length < count) return Array.from({ length: count }, () => value);
-	return Array.from({ length: count }, (_, index) =>
-		index === count - 1 ? sentences.slice(index).join(" ") : (sentences[index] ?? value),
-	);
 }
 
 function judgeOutcomeExplanation(output: Record<string, unknown>, key: string): string | undefined {
@@ -3657,7 +3932,9 @@ function ToolActivity({ tool }: { tool: TranscriptToolCall }) {
 			<div {...stylex.props(styles.toolCopy)}>
 				<strong {...stylex.props(styles.toolTitle)}>{presentation.title}</strong>
 				{presentation.detail ? (
-					<span {...stylex.props(styles.toolDetail)}>{presentation.detail}</span>
+					<span title={presentation.detail} {...stylex.props(styles.toolDetail)}>
+						{presentation.detail}
+					</span>
 				) : null}
 			</div>
 			<div role="group" aria-label="Tool controls" {...stylex.props(styles.toolActions)}>
@@ -3677,6 +3954,7 @@ function ToolActivity({ tool }: { tool: TranscriptToolCall }) {
 			{tool.result && outputOpen ? (
 				<pre {...stylex.props(styles.toolResultPre)}>{tool.result}</pre>
 			) : null}
+			{tool.images ? <ToolImages images={tool.images} toolName={presentation.title} /> : null}
 		</article>
 	);
 }
@@ -3689,7 +3967,13 @@ function toolPresentation(tool: TranscriptToolCall) {
 	if (name === "read" || name.includes("read_file"))
 		return { icon: "↗", title: "Read file", detail: argument(tool, "path"), outcome, failed };
 	if (["shell", "bash", "exec_command"].includes(name))
-		return { icon: ">", title: "Run command", detail: argument(tool, "command"), outcome, failed };
+		return {
+			icon: ">",
+			title: "Run command",
+			detail: unwrapShellCommand(argument(tool, "command")),
+			outcome,
+			failed,
+		};
 	if (name.includes("edit") || name.includes("write"))
 		return { icon: "✎", title: "Change file", detail: argument(tool, "path"), outcome, failed };
 	return { icon: "◆", title: tool.name, detail: summarizeArgs(tool.args), outcome, failed };
@@ -3758,12 +4042,13 @@ function OperationList({ operations }: { operations: Attempt["operations"] }) {
 	if (operations.length === 0) return null;
 	const summaries = summarizeOperations(operations);
 	return (
-		<div {...stylex.props(styles.list)}>
+		<div {...stylex.props(styles.ranRow)}>
+			<span {...stylex.props(styles.ranLabel)}>Ran</span>
 			{summaries.map((summary) => (
-				<div key={summary.key} {...stylex.props(styles.meta)}>
+				<span key={summary.key} {...stylex.props(styles.ranChip)}>
 					{summary.name}
 					{summary.count > 1 ? ` ×${summary.count}` : ""}
-				</div>
+				</span>
 			))}
 		</div>
 	);
@@ -3785,43 +4070,14 @@ function summarizeOperations(operations: Attempt["operations"]): Array<{
 	return [...summaries.values()];
 }
 
-function useExecutionHistory() {
-	return useQuery({
-		queryKey: ["execution-history"],
-		queryFn: fetchExecutionHistory,
-	});
-}
-async function fetchTestCatalog(): Promise<TestCatalog> {
-	return viewerApi.getTestCatalog();
-}
-async function fetchExecutionHistory(): Promise<ExecutionSummary[]> {
-	return (await viewerApi.listExecutions<{ executions: ExecutionSummary[] }>()).executions;
-}
-async function fetchExecution(id: string): Promise<ExecutionDetail> {
-	return (await viewerApi.getExecution<{ execution: ExecutionDetail }>(id)).execution;
-}
-async function startTest(testId: string, workers: number): Promise<{ executionId: string }> {
-	return viewerApi.startExecution(testId, workers);
-}
-async function startSuite(workers: number): Promise<{ executionId: string }> {
-	return viewerApi.startSuiteExecution(workers);
-}
-async function startTestGroup(
-	testIds: string[],
-	workers: number,
-): Promise<{ executionId: string }> {
-	return viewerApi.startTestGroup(testIds, workers);
-}
-async function cancelExecution(id: string): Promise<void> {
-	await viewerApi.cancelExecution(id);
-}
-
 function latestTestStatuses(executions: ExecutionSummary[]) {
 	const statuses = new Map<string, TestStatusValue>();
 	for (const execution of executions) {
 		for (const testId of execution.testIds ?? []) {
-			if (statuses.has(testId)) continue;
-			statuses.set(testId, execution.testStatuses?.[testId] ?? execution.status);
+			const status = testRunStatus(execution, testId);
+			const known = statuses.get(testId);
+			if (known === undefined || (known === "skipped" && status !== "skipped"))
+				statuses.set(testId, status);
 		}
 	}
 	return statuses;

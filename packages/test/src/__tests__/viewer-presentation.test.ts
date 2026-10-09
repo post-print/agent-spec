@@ -2,8 +2,13 @@ import { expect, it } from "bun:test";
 import { storedValue } from "../sdk/stored-value.js";
 import {
 	conversationPlaceholder,
-	preferredExecutionId,
+	median,
+	preferredTestExecutionId,
+	runStatusCounts,
 	stripAnsi,
+	testIdsBySeverity,
+	testRunStatus,
+	unwrapShellCommand,
 } from "../viewer/presentation.js";
 
 it("viewer presentation › strips terminal color codes from assertion errors", () => {
@@ -16,15 +21,65 @@ it("viewer presentation › distinguishes a pending conversation from a missing 
 	expect(conversationPlaceholder("failed")).toBe("No conversation was captured.");
 });
 
-it("viewer presentation › defaults to the active execution when a test has multiple runs", () => {
+it("viewer presentation › reads a test's own status instead of the batch status", () => {
+	const batch = {
+		id: "batch",
+		status: "failed",
+		testIds: ["passing", "skipped", "unrecorded"],
+		testStatuses: { passing: "passed", skipped: "skipped" } as const,
+	};
+	expect(testRunStatus(batch, "passing")).toBe("passed");
+	expect(testRunStatus(batch, "skipped")).toBe("skipped");
+	expect(testRunStatus(batch, "unrecorded")).toBe("failed");
+	expect(testRunStatus({ id: "live", status: "running" }, "waiting")).toBe("queued");
+	expect(testRunStatus({ id: "stopped", status: "interrupted" }, "any")).toBe("interrupted");
+});
+
+it("viewer presentation › opens the run where the test is active, then the newest run that ran it", () => {
+	const runs = [
+		{ id: "newest-skipped", status: "passed", testStatuses: { test: "skipped" } as const },
+		{ id: "older-passed", status: "failed", testStatuses: { test: "passed" } as const },
+	];
+	expect(preferredTestExecutionId(runs, "test")).toBe("older-passed");
 	expect(
-		preferredExecutionId([
-			{ id: "newest-finished", status: "passed" },
-			{ id: "active", status: "running" },
-			{ id: "older", status: "failed" },
-		]),
-	).toBe("active");
-	expect(preferredExecutionId([{ id: "newest", status: "passed" }])).toBe("newest");
+		preferredTestExecutionId(
+			[...runs, { id: "live", status: "running", testStatuses: { test: "running" } as const }],
+			"test",
+		),
+	).toBe("live");
+	expect(preferredTestExecutionId(runs.slice(0, 1), "test")).toBe("newest-skipped");
+	expect(preferredTestExecutionId([], "test")).toBeUndefined();
+});
+
+it("viewer presentation › orders a run inbox by severity and counts each outcome", () => {
+	const run = {
+		id: "suite",
+		status: "failed",
+		testIds: ["a", "b", "c", "d"],
+		testStatuses: { a: "passed", b: "skipped", c: "failed", d: "passed" } as const,
+	};
+	expect(testIdsBySeverity(run)).toEqual(["c", "a", "d", "b"]);
+	expect([...runStatusCounts(run)]).toEqual([
+		["failed", 1],
+		["passed", 2],
+		["skipped", 1],
+	]);
+});
+
+it("viewer presentation › summarizes repeated runs with a median", () => {
+	expect(median([])).toBeUndefined();
+	expect(median([4])).toBe(4);
+	expect(median([9, 1, 5])).toBe(5);
+	expect(median([10, 2, 4, 8])).toBe(6);
+});
+
+it("viewer presentation › shows the command a host shell wrapper ran", () => {
+	expect(unwrapShellCommand(`/bin/zsh -lc 'bun test'`)).toBe("bun test");
+	expect(unwrapShellCommand(`bash -c "git diff -- src/status.ts"`)).toBe(
+		"git diff -- src/status.ts",
+	);
+	expect(unwrapShellCommand("bun test")).toBe("bun test");
+	expect(unwrapShellCommand(`/bin/zsh -lc 'a' && b'`)).toBe(`a' && b`);
 });
 
 it("stored values preserve useful command context while redacting private paths", () => {

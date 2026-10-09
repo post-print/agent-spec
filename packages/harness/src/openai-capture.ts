@@ -4,8 +4,8 @@ import {
 	mergeAgentUsage,
 	normalizeAgentUsage,
 	resolvedTotalTokens,
-	serializeToolResult,
 	type TraceAccumulator,
+	toolResultFields,
 } from "./capture.js";
 import type { AgentTrace, AgentUsage } from "./types.js";
 
@@ -170,7 +170,7 @@ function applyMcpTool(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void
 	acc.toolCalls.push({
 		name,
 		args: (item.arguments as Record<string, unknown> | undefined) ?? {},
-		result: serializeToolResult(item.result),
+		...toolResultFields(item.result),
 		seq: acc.nextSeq++,
 	});
 }

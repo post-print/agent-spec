@@ -31,6 +31,7 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 - Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
 - Host-agent runs need host auth. Agent definitions default to subscription. Use `agent-test login` for Cursor SDK auth, `codex login` for OpenAI, or Claude Code login. Explicit API-key auth is `{ type: "api-key", env: "OPENAI_API_KEY" }` on the definition. The CLI does not load `.env`.
 - TypeScript suites return named `agent()` and `judge({ prompt, schema })` resources from `describe`; tests receive executable handles. `judge.run({ input })` sees only selected data and reviewer context. Assertions determine acceptance.
+- After a host-agent run (`agent-test test`, `test:capabilities`, `test:tour`), ask the user whether to open the results viewer: `node packages/test/dist/cli.js viewer --config <same config>`. Start it only after a yes; it is a long-running localhost server. The CLI prints the same prompt at the end of each run.
 - `bun run test`, `bun run test:unit`, and `bun run test:sandbox-safe` do not launch a host agent. Provider-backed capability, tour, matrix, and reliability runs are manual.
 
 ## First hour
