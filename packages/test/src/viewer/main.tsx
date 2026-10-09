@@ -29,7 +29,7 @@ type LiveEvent = {
 	executions?: LiveExecution[];
 	execution?: { id?: unknown };
 };
-type LiveExecution = { id: string; status: string };
+type LiveExecution = { id: string; status: string; testIds?: string[] };
 
 function applyLiveEvent(message: MessageEvent): void {
 	const event = JSON.parse(message.data) as LiveEvent;
@@ -42,11 +42,23 @@ function applyLiveEvent(message: MessageEvent): void {
 function applyExecutionHistory(executions: LiveExecution[]): void {
 	const previous = queryClient.getQueryData<LiveExecution[]>(["execution-history"]);
 	queryClient.setQueryData(["execution-history"], executions);
-	const executionId = newlyRunningExecution(previous, executions);
-	if (executionId && !pageShowsExecution(executionId))
+	const started = newlyRunningExecution(previous, executions);
+	if (started && !pageShowsExecution(started.id)) showStartedExecution(started);
+}
+
+/** A single-test run opens on its test page; a batch opens on the run inbox. */
+function showStartedExecution(execution: LiveExecution): void {
+	const [testId, ...others] = execution.testIds ?? [];
+	if (testId && others.length === 0)
+		void viewerRouter.navigate({
+			to: "/tests/$testId",
+			params: { testId },
+			search: { execution: execution.id },
+		});
+	else
 		void viewerRouter.navigate({
 			to: "/executions/$executionId",
-			params: { executionId },
+			params: { executionId: execution.id },
 		});
 }
 
@@ -61,9 +73,9 @@ function pageShowsExecution(executionId: string): boolean {
 function newlyRunningExecution(
 	previous: LiveExecution[] | undefined,
 	executions: LiveExecution[],
-): string | undefined {
+): LiveExecution | undefined {
 	const known = new Set(previous?.map(({ id }) => id) ?? []);
-	return executions.find(({ id, status }) => status === "running" && !known.has(id))?.id;
+	return executions.find(({ id, status }) => status === "running" && !known.has(id));
 }
 
 function connectExecutionSync(bootstrap: ViewerBootstrap): (() => void) | undefined {

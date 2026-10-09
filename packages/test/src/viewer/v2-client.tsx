@@ -21,24 +21,28 @@ import {
 	useState,
 } from "react";
 import Markdown from "react-markdown";
-import { viewerApi } from "./generated-api.js";
 import {
 	assertionComparison,
 	conversationPlaceholder,
-	preferredExecutionId,
+	preferredTestExecutionId,
 	stripAnsi,
+	type TestRunStatus,
+	testRunStatus,
 } from "./presentation.js";
-import type { TestCatalog, DiscoveredTest as TestRecord } from "./test-catalog.js";
+import { RunInboxPage, RunPage } from "./run-inbox.js";
+import type { DiscoveredTest as TestRecord } from "./test-catalog.js";
+import {
+	cancelExecution,
+	type ExecutionSummary,
+	fetchExecution as fetchExecutionRecord,
+	startSuite,
+	startTest,
+	startTestGroup,
+	useCatalog,
+	useExecutionHistory,
+} from "./viewer-queries.js";
 
-type ExecutionSummary = {
-	id: string;
-	startedAt: string;
-	finishedAt?: string;
-	testIds?: string[];
-	status: "running" | "passed" | "failed" | "interrupted";
-	testStatuses?: Record<string, TestStatusValue>;
-};
-type TestStatusValue = "queued" | "running" | "passed" | "failed" | "skipped" | "interrupted";
+type TestStatusValue = TestRunStatus;
 type Attempt = {
 	testId?: string;
 	id: string;
@@ -62,6 +66,7 @@ type Attempt = {
 	}>;
 };
 type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
+const fetchExecution = (id: string) => fetchExecutionRecord<ExecutionDetail>(id);
 type TestView = "current" | "setup" | "history";
 const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;
 const LOCAL_PATH_LINK = /\[([^\]]+)\]\(<local-path>[^)]*\)/g;
@@ -82,7 +87,7 @@ const rootRoute = createRootRoute({ component: ViewerLayout });
 const indexRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/",
-	component: TestCatalogPage,
+	component: RunInboxPage,
 });
 const testRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -99,7 +104,7 @@ const testRoute = createRoute({
 const executionRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/executions/$executionId",
-	component: ExecutionPage,
+	component: ExecutionRunPage,
 });
 const compareRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -438,6 +443,14 @@ const styles = stylex.create({
 		border: "1px solid transparent",
 		backgroundColor: { default: "transparent", ":hover": "var(--panel)" },
 	},
+	batchRunLink: {
+		justifySelf: "start",
+		marginTop: "0.75rem",
+		color: { default: "var(--muted)", ":hover": "var(--text)" },
+		fontSize: "0.78rem",
+		textDecoration: "none",
+	},
+	runsLink: { display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 650 },
 	navItemHeader: {
 		display: "grid",
 		gridTemplateColumns: "0.65rem minmax(0, 1fr)",
@@ -1265,10 +1278,6 @@ function useNarrowViewer(): boolean {
 	return narrow;
 }
 
-function useCatalog() {
-	return useQuery({ queryKey: ["test-catalog"], queryFn: fetchTestCatalog });
-}
-
 function MobileViewerHeader({
 	buttonRef,
 	open,
@@ -1447,6 +1456,15 @@ function SidebarHeader({
 							onToggle={onToggle}
 						/>
 					</div>
+					<Link
+						to="/"
+						activeOptions={{ exact: true }}
+						{...stylex.props(styles.navLink, styles.runsLink)}
+						activeProps={stylex.props(styles.navLink, styles.runsLink, styles.active)}
+						onClick={onNavigate}
+					>
+						<span aria-hidden="true">◷</span> Runs
+					</Link>
 					<div {...stylex.props(styles.suiteControls)}>
 						<button
 							type="button"
@@ -1641,18 +1659,6 @@ function TestStatus({ status }: { status: TestStatusValue }) {
 		</span>
 	);
 }
-function TestCatalogPage() {
-	return (
-		<section {...stylex.props(styles.hero)}>
-			<div {...stylex.props(styles.brand)}>Test explorer</div>
-			<h2 {...stylex.props(styles.title)}>Choose a test from the sidebar</h2>
-			<p {...stylex.props(styles.description)}>
-				Read what it checks, see its agents and judges, then start a run or inspect a saved
-				execution.
-			</p>
-		</section>
-	);
-}
 function TestPage() {
 	const { testId } = testRoute.useParams();
 	const catalog = useCatalog();
@@ -1669,7 +1675,7 @@ function TestDetail({ test }: { test: TestRecord }) {
 	const history = useExecutionHistory();
 	const navigate = useNavigate();
 	const runs = history.data?.filter((item) => item.testIds?.includes(test.id)) ?? [];
-	const selected = execution ?? preferredExecutionId(runs);
+	const selected = execution ?? preferredTestExecutionId(runs, test.id);
 	const activeView = view ?? "current";
 	const chooseExecution = (id: string) =>
 		void navigate({
@@ -1686,6 +1692,7 @@ function TestDetail({ test }: { test: TestRecord }) {
 	return (
 		<>
 			<TestHeader test={test} onStarted={chooseExecution} />
+			<BatchRunLink run={runs.find((run) => run.id === selected)} />
 			<TestTabs active={activeView} onChange={chooseView} />
 			<TestViewPanel
 				view={activeView}
@@ -1695,6 +1702,21 @@ function TestDetail({ test }: { test: TestRecord }) {
 				onChooseExecution={chooseExecution}
 			/>
 		</>
+	);
+}
+
+/** Return path to the run inbox when this test was opened from a batch run. */
+function BatchRunLink({ run }: { run?: ExecutionSummary }) {
+	const count = run?.testIds?.length ?? 0;
+	if (!run || count < 2) return null;
+	return (
+		<Link
+			to="/executions/$executionId"
+			params={{ executionId: run.id }}
+			{...stylex.props(styles.batchRunLink)}
+		>
+			← Back to run · {new Date(run.startedAt).toLocaleString()} · {count} tests
+		</Link>
 	);
 }
 
@@ -1787,7 +1809,7 @@ function TestViewPanel(props: TestViewPanelProps) {
 				<CurrentRun test={props.test} executionId={props.selected} />
 			) : null}
 			{props.view === "history" ? (
-				<RunHistory runs={props.runs} onChoose={props.onChooseExecution} />
+				<RunHistory runs={props.runs} testId={props.test.id} onChoose={props.onChooseExecution} />
 			) : null}
 		</div>
 	);
@@ -1809,9 +1831,11 @@ function CurrentRun({ test, executionId }: { test: TestRecord; executionId?: str
 
 function RunHistory({
 	runs,
+	testId,
 	onChoose,
 }: {
 	runs: ExecutionSummary[];
+	testId: string;
 	onChoose: (id: string) => void;
 }) {
 	return (
@@ -1822,7 +1846,7 @@ function RunHistory({
 			{runs.length ? (
 				<div {...stylex.props(styles.historyList)}>
 					{runs.map((run) => (
-						<HistoryItem key={run.id} run={run} onChoose={onChoose} />
+						<HistoryItem key={run.id} run={run} testId={testId} onChoose={onChoose} />
 					))}
 				</div>
 			) : (
@@ -1832,11 +1856,21 @@ function RunHistory({
 	);
 }
 
-function HistoryItem({ run, onChoose }: { run: ExecutionSummary; onChoose: (id: string) => void }) {
+function HistoryItem({
+	run,
+	testId,
+	onChoose,
+}: {
+	run: ExecutionSummary;
+	testId: string;
+	onChoose: (id: string) => void;
+}) {
+	const status = testRunStatus(run, testId);
+	const others = (run.testIds?.length ?? 1) - 1;
 	return (
 		<button
 			type="button"
-			aria-label={`Open ${run.status} execution ${run.id.slice(0, 8)}`}
+			aria-label={`Open ${status} execution ${run.id.slice(0, 8)}`}
 			{...stylex.props(styles.buttonReset, styles.historyButton)}
 			onClick={() => onChoose(run.id)}
 		>
@@ -1844,19 +1878,28 @@ function HistoryItem({ run, onChoose }: { run: ExecutionSummary; onChoose: (id: 
 				<span {...stylex.props(styles.historyDate)}>
 					{new Date(run.startedAt).toLocaleString()}
 				</span>
-				<span {...stylex.props(styles.historyId)}>{run.id.slice(0, 8)}</span>
+				<span {...stylex.props(styles.historyId)}>
+					{run.id.slice(0, 8)}
+					{others > 0 ? ` · with ${others} other ${pluralize(others, "test")}` : ""}
+				</span>
 			</span>
-			<span
-				{...stylex.props(
-					styles.status,
-					run.status === "passed" && styles.statusPass,
-					run.status === "failed" && styles.statusFail,
-					run.status === "running" && styles.statusRunning,
-				)}
-			>
-				{run.status}
-			</span>
+			<StatusPill status={status} />
 		</button>
+	);
+}
+
+function StatusPill({ status }: { status: TestStatusValue | ExecutionSummary["status"] }) {
+	return (
+		<span
+			{...stylex.props(
+				styles.status,
+				status === "passed" && styles.statusPass,
+				status === "failed" && styles.statusFail,
+				(status === "running" || status === "queued") && styles.statusRunning,
+			)}
+		>
+			{status}
+		</span>
 	);
 }
 function RunTestButton({ test, onStarted }: { test: TestRecord; onStarted: (id: string) => void }) {
@@ -2051,21 +2094,20 @@ function TestExecution({ id, test }: { id: string; test: TestRecord }) {
 	const attempts = detail.data.attempts.filter((attempt) => attempt.testId === test.id);
 	if (detail.data.testIds && !detail.data.testIds.includes(test.id))
 		return <p>This execution does not contain this test.</p>;
+	if (attempts.length === 0 && testRunStatus(detail.data, test.id) === "skipped")
+		return (
+			<p {...stylex.props(styles.empty)}>
+				This test was skipped in this run. Open Run history to find a run that executed it.
+			</p>
+		);
 	return (
 		<ExecutionDetailView execution={{ ...detail.data, attempts }} criteria={testCriteria(test)} />
 	);
 }
 
-function ExecutionPage() {
+function ExecutionRunPage() {
 	const { executionId } = executionRoute.useParams();
-	const detail = useQuery({
-		queryKey: ["execution", executionId],
-		queryFn: () => fetchExecution(executionId),
-	});
-	if (detail.isLoading) return <p {...stylex.props(styles.empty)}>Loading execution…</p>;
-	if (detail.isError || !detail.data)
-		return <p {...stylex.props(styles.empty)}>Execution is unavailable.</p>;
-	return <ExecutionDetailView execution={detail.data} />;
+	return <RunPage key={executionId} executionId={executionId} />;
 }
 
 function ExecutionDetailView({
@@ -3785,43 +3827,14 @@ function summarizeOperations(operations: Attempt["operations"]): Array<{
 	return [...summaries.values()];
 }
 
-function useExecutionHistory() {
-	return useQuery({
-		queryKey: ["execution-history"],
-		queryFn: fetchExecutionHistory,
-	});
-}
-async function fetchTestCatalog(): Promise<TestCatalog> {
-	return viewerApi.getTestCatalog();
-}
-async function fetchExecutionHistory(): Promise<ExecutionSummary[]> {
-	return (await viewerApi.listExecutions<{ executions: ExecutionSummary[] }>()).executions;
-}
-async function fetchExecution(id: string): Promise<ExecutionDetail> {
-	return (await viewerApi.getExecution<{ execution: ExecutionDetail }>(id)).execution;
-}
-async function startTest(testId: string, workers: number): Promise<{ executionId: string }> {
-	return viewerApi.startExecution(testId, workers);
-}
-async function startSuite(workers: number): Promise<{ executionId: string }> {
-	return viewerApi.startSuiteExecution(workers);
-}
-async function startTestGroup(
-	testIds: string[],
-	workers: number,
-): Promise<{ executionId: string }> {
-	return viewerApi.startTestGroup(testIds, workers);
-}
-async function cancelExecution(id: string): Promise<void> {
-	await viewerApi.cancelExecution(id);
-}
-
 function latestTestStatuses(executions: ExecutionSummary[]) {
 	const statuses = new Map<string, TestStatusValue>();
 	for (const execution of executions) {
 		for (const testId of execution.testIds ?? []) {
-			if (statuses.has(testId)) continue;
-			statuses.set(testId, execution.testStatuses?.[testId] ?? execution.status);
+			const status = testRunStatus(execution, testId);
+			const known = statuses.get(testId);
+			if (known === undefined || (known === "skipped" && status !== "skipped"))
+				statuses.set(testId, status);
 		}
 	}
 	return statuses;

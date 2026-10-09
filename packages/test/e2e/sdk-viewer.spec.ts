@@ -602,7 +602,7 @@ test("a terminal-started execution opens and streams in an already-open viewer",
 			attemptId: "terminal-attempt",
 			data: { testId, title: ["viewer", "terminal run"], project: "default", retry: 0 },
 		});
-		await expect(page).toHaveURL(new RegExp(`/executions/${executionId}$`));
+		await expect(page).toHaveURL(new RegExp(`/tests/${testId}\\?execution=${executionId}$`));
 		await expect(page.getByRole("button", { name: "Stop this run" })).toHaveCount(0);
 		await expect(page.getByText("The test is still running.")).toBeVisible();
 	} finally {
@@ -683,6 +683,79 @@ test("a running suite shows each test's actual status and name", async ({ page }
 		await rm(fixture.directory, { recursive: true, force: true });
 	}
 });
+
+const BACK_TO_RUN = /Back to run/;
+
+test("the run inbox lists failures first and history reads each test's own status", async ({
+	page,
+}) => {
+	const fixture = await inboxExecutionFixture();
+	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
+	try {
+		await page.goto(viewer.url);
+		const main = page.getByRole("main");
+		await expect(main.getByText("Latest run", { exact: true })).toBeVisible();
+		const rows = main.getByRole("list").first().getByRole("link");
+		await expect(rows).toHaveCount(3);
+		await expect(rows.first()).toContainText("Broken test");
+		await expect(rows.last()).toContainText("Skipped test");
+		await main.getByRole("button", { name: "Passed 1" }).click();
+		await expect(rows).toHaveCount(1);
+		await rows.first().click();
+		await expect(page.getByRole("link", { name: BACK_TO_RUN })).toBeVisible();
+		await page.getByRole("tab", { name: "Run history" }).click();
+		await expect(
+			page.getByRole("button", {
+				name: `Open passed execution ${fixture.executionId.slice(0, 8)}`,
+			}),
+		).toBeVisible();
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});
+
+async function inboxExecutionFixture() {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-inbox-"));
+	const config = join(directory, "agent-test.config.ts");
+	const executionId = "feed0000-0000-4000-8000-000000000007";
+	const tests = ["Passing test", "Broken test", "Skipped test"].map((title) => ({
+		id: title.toLowerCase().replace(" ", "-"),
+		file: join(directory, "suite.spec.ts"),
+		title: `suite › ${title}`,
+		project: "default",
+	}));
+	const store = await ExecutionStore.create({
+		root: join(executionHistoryRoot(config), executionId),
+		id: executionId,
+		config,
+	});
+	await store.setTests(tests.map((entry) => entry.id));
+	await seedStatusAttempt(store, {
+		testId: "passing-test",
+		title: "Passing test",
+		status: "passed",
+	});
+	await seedStatusAttempt(store, { testId: "broken-test", title: "Broken test", status: "failed" });
+	await seedSkippedAttempt(store, "skipped-test");
+	await store.finish("failed");
+	return { directory, config, executionId, catalog: createTestCatalog(config, tests) };
+}
+
+async function seedSkippedAttempt(store: ExecutionStore, testId: string) {
+	await store.record({
+		type: "attempt.started",
+		level: "info",
+		attemptId: testId,
+		data: { testId, title: ["suite", "Skipped test"], project: "default", retry: 0 },
+	});
+	await store.record({
+		type: "attempt.finished",
+		level: "info",
+		attemptId: testId,
+		data: { status: "skipped", durationMs: 0, errors: [] },
+	});
+}
 
 async function expectTestStatus(navigation: Locator, name: string, status: string) {
 	const link = navigation.getByRole("link").filter({ hasText: name });

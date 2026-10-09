@@ -24,10 +24,56 @@ export function conversationPlaceholder(status: string): string {
 		: "No conversation was captured.";
 }
 
-export function preferredExecutionId(
-	executions: Array<{ id: string; status: string }>,
-): string | undefined {
-	return executions.find((execution) => execution.status === "running")?.id ?? executions[0]?.id;
+export type TestRunStatus = "queued" | "running" | "passed" | "failed" | "skipped" | "interrupted";
+export type RunSummary = {
+	id: string;
+	status: string;
+	testIds?: string[];
+	testStatuses?: Record<string, TestRunStatus>;
+};
+
+/** Severity order for a run inbox: what needs attention comes first. */
+export const TEST_RUN_STATUS_ORDER: TestRunStatus[] = [
+	"failed",
+	"interrupted",
+	"running",
+	"queued",
+	"passed",
+	"skipped",
+];
+
+/** One test's outcome inside a run. A batch status never replaces a recorded test status. */
+export function testRunStatus(run: RunSummary, testId: string): TestRunStatus {
+	const recorded = run.testStatuses?.[testId];
+	if (recorded) return recorded;
+	if (run.status === "running") return "queued";
+	if (run.status === "passed" || run.status === "failed") return run.status;
+	return "interrupted";
+}
+
+/** Prefer the run where this test is active, then the newest run that actually ran it. */
+export function preferredTestExecutionId(runs: RunSummary[], testId: string): string | undefined {
+	const statuses = runs.map((run) => ({ id: run.id, status: testRunStatus(run, testId) }));
+	const active = statuses.find(({ status }) => status === "running" || status === "queued");
+	const ran = statuses.find(({ status }) => status !== "skipped");
+	return active?.id ?? ran?.id ?? statuses[0]?.id;
+}
+
+export function runStatusCounts(run: RunSummary): Map<TestRunStatus, number> {
+	const counts = new Map<TestRunStatus, number>();
+	for (const testId of run.testIds ?? []) {
+		const status = testRunStatus(run, testId);
+		counts.set(status, (counts.get(status) ?? 0) + 1);
+	}
+	return new Map(
+		TEST_RUN_STATUS_ORDER.filter((s) => counts.has(s)).map((s) => [s, counts.get(s) ?? 0]),
+	);
+}
+
+/** Test ids ordered by severity, keeping run order within one status. */
+export function testIdsBySeverity(run: RunSummary): string[] {
+	const rank = (testId: string) => TEST_RUN_STATUS_ORDER.indexOf(testRunStatus(run, testId));
+	return [...(run.testIds ?? [])].sort((left, right) => rank(left) - rank(right));
 }
 
 export type AssertionComparison = { expected: string; received: string };
