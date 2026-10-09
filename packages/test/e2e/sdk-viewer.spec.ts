@@ -418,10 +418,11 @@ async function checkParticipantTabCss(participant: Locator, tablist: Locator) {
 async function checkJudgeReview(conversation: Locator) {
 	await expect(conversation.getByRole("heading", { name: "Judges" })).toBeVisible();
 	const findings = conversation.getByRole("region", { name: "Judge response" });
-	await expect(findings).toContainText("agent · Run 1");
-	await expect(findings).toContainText("agent · Run 2");
+	await expect(findings).toContainText("Agent response");
+	await expect(findings).toContainText("Second agent response");
+	await expect(findings).not.toContainText("agent · Run 1");
 	await expect(findings.getByLabel("Passed")).toHaveCount(2);
-	await expect(findings).toContainText("agent · Run 1 · judged correct");
+	await expect(findings).not.toContainText("judged");
 	await expect(findings).toContainText("Compared with");
 	await expect(findings).toContainText("Release State: No rollback plan is available.");
 	await expect(findings).toContainText("It names the production rollback risk.");

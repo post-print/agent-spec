@@ -3558,15 +3558,21 @@ function judgedAnswer(
 	);
 }
 
-/** "fileLookup · Run 1 · judged correct"; a field not named after an answer keeps its own name. */
+/**
+ * A finding is named by what the judge looked at, in the test's own words: the input label
+ * ("File round one") when the field judges an answer, otherwise the field ("Explains risk").
+ * The pass/fail icon carries the verdict, so the label never repeats it.
+ */
 function judgeOutcomeLabel(
 	outcome: JudgeReviewData["outcomes"][number],
 	answer: JudgeAnswerContext | undefined,
 ): string {
-	if (!answer) return outcome.label;
-	const judged = outcome.label.slice(answer.label.length).trim().toLowerCase();
-	if (!judged) return answer.tabLabel;
-	return `${answer.tabLabel} · judged ${outcome.passed ? "" : "not "}${judged}`;
+	return sentenceCase(answer?.label ?? outcome.label);
+}
+
+function sentenceCase(value: string): string {
+	const lower = value.toLowerCase();
+	return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
 function answerQuote(value: string): string {
