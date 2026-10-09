@@ -201,7 +201,7 @@ async function checkSkipLink(page: Page) {
 	await expect(page.getByRole("main")).toBeFocused();
 }
 
-test("failed assertion details belong to the Result region", async ({ page, context }) => {
+test("failed assertion details belong to the test verdict", async ({ page, context }) => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-failure-"));
 	const config = join(directory, "agent-test.config.ts");
 	const executionId = "feed0000-0000-4000-8000-000000000001";
@@ -224,7 +224,8 @@ test("failed assertion details belong to the Result region", async ({ page, cont
 		await page.goto(new URL(`/tests/${testId}?execution=${executionId}`, viewer.url).toString());
 		await expect(page.getByRole("heading", { name: "failing assertion" })).toBeVisible();
 		await expect(page.getByText("Test attempt", { exact: true })).toHaveCount(0);
-		const result = page.getByRole("region", { name: "Result", exact: true });
+		const result = page.getByRole("region", { name: "Test verdict" });
+		await checkFailedVerdict(page, result);
 		await checkCriterionResults(result);
 		await expect(
 			result.getByText("The test did not satisfy all assertions. See the failure details below."),
@@ -286,11 +287,10 @@ test("agent and judge operations have separate conversation sections", async ({ 
 		await expect(judge).toHaveAttribute("aria-selected", "true");
 		await expect(resultTokenCount(agents)).toHaveText("101");
 		await checkInitialRunSelection(runOne, runTwo);
-		await checkResultCriteria(agents, "The first agent response is useful.");
+		await checkVerdictCriteria(page, agents);
 		await runTwo.click();
 		await expect(runTwo).toHaveAttribute("aria-selected", "true");
 		await expect(resultTokenCount(agents)).toHaveText("202");
-		await checkResultCriteria(agents, "The second agent response is useful.");
 		await checkMarkdownFormatting(agents.getByRole("region", { name: "Agents messages" }));
 		await expect(agents.getByText("The answer identifies the production risk.")).toBeHidden();
 		await checkJudgeReview(judges);
@@ -328,14 +328,13 @@ function resultTokenCount(conversation: Locator) {
 		.last();
 }
 
-function resultCriteria(conversation: Locator) {
-	return conversation.getByRole("region", { name: "Criterion results" }).getByRole("listitem");
-}
-
-async function checkResultCriteria(conversation: Locator, expected: string) {
-	const criteria = resultCriteria(conversation);
-	await expect(criteria).toHaveCount(1);
-	await expect(criteria).toContainText(expected);
+/** Every check is listed once, in the test verdict; agent results hold only metrics. */
+async function checkVerdictCriteria(page: Page, agents: Locator) {
+	const verdict = page.getByRole("region", { name: "Test verdict" });
+	const criteria = verdict.getByRole("region", { name: "Criterion results" }).getByRole("listitem");
+	await expect(criteria.filter({ hasText: "The first agent response is useful." })).toHaveCount(1);
+	await expect(criteria.filter({ hasText: "The second agent response is useful." })).toHaveCount(1);
+	await expect(agents.getByRole("region", { name: "Criterion results" })).toHaveCount(0);
 }
 
 async function checkInitialRunSelection(runOne: Locator, runTwo: Locator) {
@@ -461,6 +460,12 @@ async function checkFailureClipboard(page: Page) {
 	expect(details).toContain("[not-recorded] The seeded file exists before the run.");
 	expect(details).toContain("[failed] The response is exactly SEED-READY.");
 	expect(details).toContain("Expected  - 0");
+}
+
+async function checkFailedVerdict(page: Page, verdict: Locator) {
+	await expect(verdict).toContainText("Failed · 1 of 2 checks failed");
+	const agentResult = page.getByRole("region", { name: "Result", exact: true });
+	await expect(agentResult.getByRole("region", { name: "Criterion results" })).toHaveCount(0);
 }
 
 async function checkCriterionResults(result: ReturnType<Page["getByRole"]>) {
@@ -815,6 +820,92 @@ test("tool images render as thumbnails, enlarge in place, and oversized images s
 		await rm(fixture.directory, { recursive: true, force: true });
 	}
 });
+
+const JUDGE_CHECKS = [
+	"The judge finds the release risk.",
+	"The judge finds a practical next step.",
+];
+
+test("the test verdict lists every check, including judge-decided checks", async ({ page }) => {
+	const fixture = await judgeVerdictFixture();
+	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
+	try {
+		await page.goto(
+			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
+		);
+		const verdict = page.getByRole("region", { name: "Test verdict" });
+		await expect(verdict).toContainText("Passed · 2 of 2 checks passed");
+		for (const check of JUDGE_CHECKS) await expect(verdict.getByText(check)).toBeVisible();
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});
+
+async function judgeVerdictFixture() {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-verdict-"));
+	const config = join(directory, "agent-test.config.ts");
+	const executionId = "feed0000-0000-4000-8000-000000000008";
+	const testId = "viewer-judge-verdict";
+	const catalog = createTestCatalog(config, [
+		{
+			id: testId,
+			file: join(directory, "judge.spec.ts"),
+			title: "viewer › judged advice",
+			project: "default",
+			criteria: JUDGE_CHECKS,
+		},
+	]);
+	const store = await ExecutionStore.create({
+		root: join(executionHistoryRoot(config), executionId),
+		id: executionId,
+		config,
+	});
+	await store.setTests([testId]);
+	await recordJudgedAttempt(store, testId);
+	await store.finish("passed");
+	return { directory, config, executionId, testId, catalog };
+}
+
+async function recordJudgedAttempt(store: ExecutionStore, testId: string) {
+	const shared = { level: "debug" as const, attemptId: "attempt-1" };
+	await store.record({
+		type: "attempt.started",
+		level: "info",
+		attemptId: "attempt-1",
+		data: { testId, title: ["viewer", "judged advice"], project: "default", retry: 0 },
+	});
+	await recordAgentOperation({
+		store,
+		shared,
+		operationId: "agent-1",
+		output: "Hold the release.",
+	});
+	await store.record({
+		...shared,
+		type: "operation.evaluation",
+		operationId: "judge-1",
+		data: {
+			name: "releaseAdvice",
+			invocationIndex: 1,
+			criterionIndexes: [0, 1],
+			evaluation: { prompt: "Does the answer explain the risk and a next step?" },
+			input: { answer: "Hold the release." },
+			output: { explainsRisk: true, suggestsNextStep: true },
+		},
+	});
+	await store.record({
+		type: "attempt.finished",
+		level: "info",
+		attemptId: "attempt-1",
+		data: {
+			status: "passed",
+			durationMs: 12,
+			criterionResults: JUDGE_CHECKS.map((criterion) => ({ criterion, status: "passed" })),
+			errors: [],
+		},
+	});
+}
 
 async function expectTestStatus(navigation: Locator, name: string, status: string) {
 	const link = navigation.getByRole("link").filter({ hasText: name });

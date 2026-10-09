@@ -700,6 +700,20 @@ const styles = stylex.create({
 		gap: "0.7rem",
 	},
 	attemptTitle: { fontSize: "0.84rem", lineHeight: 1.4 },
+	verdictPanel: {
+		display: "grid",
+		gap: "0.55rem",
+		padding: "0.7rem 0.8rem",
+		borderRadius: 10,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: "var(--border)",
+		backgroundColor: "var(--panel-2)",
+	},
+	verdictPass: { borderColor: "oklch(0.79 0.16 155 / 0.45)", backgroundColor: "var(--pass-soft)" },
+	verdictFail: { borderColor: "oklch(0.73 0.18 25 / 0.5)", backgroundColor: "var(--fail-soft)" },
+	verdictHeadline: { margin: 0, fontSize: "0.92rem", fontWeight: 720, color: "var(--text)" },
+	verdictCount: { color: "var(--muted)", fontWeight: 560 },
 	resultPanel: {
 		display: "grid",
 		gap: "0.55rem",
@@ -1700,6 +1714,7 @@ function TestDetail({ test }: { test: TestRecord }) {
 				test={test}
 				runs={runs}
 				selected={selected}
+				historyLoading={history.isPending}
 				onChooseExecution={chooseExecution}
 			/>
 		</>
@@ -1795,6 +1810,7 @@ type TestViewPanelProps = {
 	test: TestRecord;
 	runs: ExecutionSummary[];
 	selected?: string;
+	historyLoading: boolean;
 	onChooseExecution: (id: string) => void;
 };
 function TestViewPanel(props: TestViewPanelProps) {
@@ -1807,7 +1823,7 @@ function TestViewPanel(props: TestViewPanelProps) {
 		>
 			{props.view === "setup" ? <TestResources test={props.test} /> : null}
 			{props.view === "current" ? (
-				<CurrentRun test={props.test} executionId={props.selected} />
+				<CurrentRun test={props.test} executionId={props.selected} loading={props.historyLoading} />
 			) : null}
 			{props.view === "history" ? (
 				<RunHistory runs={props.runs} testId={props.test.id} onChoose={props.onChooseExecution} />
@@ -1816,10 +1832,20 @@ function TestViewPanel(props: TestViewPanelProps) {
 	);
 }
 
-function CurrentRun({ test, executionId }: { test: TestRecord; executionId?: string }) {
+function CurrentRun({
+	test,
+	executionId,
+	loading,
+}: {
+	test: TestRecord;
+	executionId?: string;
+	loading: boolean;
+}) {
 	return (
 		<section {...stylex.props(styles.tabSection)}>
-			{executionId ? (
+			{loading && !executionId ? (
+				<p {...stylex.props(styles.empty)}>Loading runs…</p>
+			) : executionId ? (
 				<TestExecution id={executionId} test={test} />
 			) : (
 				<p {...stylex.props(styles.empty)}>
@@ -2229,23 +2255,96 @@ function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: 
 					</span>
 				</div>
 			</div>
+			<TestVerdict attempt={attempt} criteria={criteria} operations={operations} />
 			<OperationList operations={operations} />
 			<ConversationSection
 				label="Agents"
 				sectionOperations={agents}
 				allOperations={operations}
 				attempt={attempt}
-				criteria={criteria}
 			/>
 			<ConversationSection
 				label="Judges"
 				sectionOperations={judges}
 				allOperations={operations}
 				attempt={attempt}
-				criteria={criteria}
 			/>
 			<TechnicalDetails operations={operations} output={output} />
 		</article>
+	);
+}
+
+/** Test-level outcome first: every check with its result, including judge-decided checks. */
+function TestVerdict({
+	attempt,
+	criteria,
+	operations,
+}: {
+	attempt: Attempt;
+	criteria: string[];
+	operations: Attempt["operations"];
+}) {
+	const presentations = criterionPresentations({
+		criteria,
+		explanations: judgeCriterionExplanations(criteria, operations),
+		results: attempt.criterionResults,
+		status: attempt.status,
+		errors: attempt.errors,
+	});
+	return (
+		<section
+			aria-label="Test verdict"
+			{...stylex.props(
+				styles.verdictPanel,
+				attempt.status === "passed" && styles.verdictPass,
+				attempt.status === "failed" && styles.verdictFail,
+			)}
+		>
+			<p {...stylex.props(styles.verdictHeadline)}>
+				{capitalize(attempt.status)}
+				<span {...stylex.props(styles.verdictCount)}>
+					{checkSummary(presentations, attempt.status)}
+				</span>
+			</p>
+			<CriterionResults presentations={presentations} />
+			<UnassignedFailures errors={attempt.errors} presentations={presentations} />
+		</section>
+	);
+}
+
+/** Failures no check claimed, such as a crash before the first assertion. */
+function UnassignedFailures({
+	errors,
+	presentations,
+}: {
+	errors: Attempt["errors"];
+	presentations: CriterionPresentation[];
+}) {
+	const assigned = new Set(presentations.map((item) => item.failure).filter(Boolean));
+	return errors
+		.filter((error) => !assigned.has(error.message))
+		.map((error, index) => <FailureDetails key={index} message={error.message ?? "Test failed"} />);
+}
+
+function checkSummary(presentations: CriterionPresentation[], status: string): string {
+	const total = presentations.length;
+	if (!total) return "";
+	const failed = presentations.filter((item) => item.outcome === "failed").length;
+	const passed = presentations.filter((item) => item.outcome === "passed").length;
+	const checks = pluralize(total, "check");
+	if (failed) return ` · ${failed} of ${total} ${checks} failed`;
+	return ` · ${passed} of ${total} ${checks} passed${status === "running" ? " so far" : ""}`;
+}
+
+function judgeCriterionExplanations(
+	criteria: string[],
+	operations: Attempt["operations"],
+): Array<string | undefined> {
+	const judges = operations.filter((operation) => operation.kind === "evaluation");
+	return criteria.map((_, index) =>
+		judges
+			.map((judge) => operationCriterionExplanations(criteria, judge)[index])
+			.find((explanation) => explanation !== undefined),
 	);
 }
 
@@ -2254,13 +2353,11 @@ function ConversationSection({
 	sectionOperations,
 	allOperations,
 	attempt,
-	criteria,
 }: {
 	label: "Agents" | "Judges";
 	sectionOperations: Attempt["operations"];
 	allOperations: Attempt["operations"];
 	attempt: Attempt;
-	criteria: string[];
 }) {
 	const [selectedId, setSelectedId] = useState(sectionOperations[0]?.id);
 	if (!sectionOperations.length && (allOperations.length > 0 || label === "Judges")) return null;
@@ -2277,15 +2374,7 @@ function ConversationSection({
 			select={setSelectedId}
 			status={status}
 			attemptStatus={attempt.status}
-			result={
-				<AttemptResult
-					attempt={attempt}
-					criteria={criteria}
-					operation={selected}
-					operations={allOperations}
-					result={selectedOperationResult(selected)}
-				/>
-			}
+			result={<AttemptResult attempt={attempt} result={selectedOperationResult(selected)} />}
 		/>
 	);
 }
@@ -2339,55 +2428,9 @@ function operationInvocationIndex(operation: Attempt["operations"][number]): num
 	})[0];
 }
 
-function AttemptResult({
-	attempt,
-	criteria,
-	operation,
-	operations,
-	result,
-}: {
-	attempt: Attempt;
-	criteria: string[];
-	operation?: Attempt["operations"][number];
-	operations: Attempt["operations"];
-	result: RunResultData;
-}) {
-	const hasJudge = operations.some((item) => item.kind === "evaluation");
-	const includeShared =
-		attempt.status !== "running" && (operation?.kind === "evaluation" || !hasJudge);
-	const indexes = selectedCriterionIndexes({ criteria, operation, operations, includeShared });
-	return (
-		<RunResult
-			result={result}
-			status={attempt.status}
-			criteria={selectIndexes(criteria, indexes)}
-			explanations={selectOptionalIndexes(
-				operationCriterionExplanations(criteria, operation),
-				indexes,
-			)}
-			errors={attempt.errors}
-			criterionResults={selectIndexes(attempt.criterionResults, indexes)}
-		/>
-	);
-}
-
-function selectedCriterionIndexes(input: {
-	criteria: string[];
-	operation: Attempt["operations"][number] | undefined;
-	operations: Attempt["operations"];
-	includeShared: boolean;
-}): number[] | undefined {
-	const { criteria, operation, operations, includeShared } = input;
-	const recorded = operationCriterionIndexes(criteria, operation);
-	const allRecorded = new Set(
-		operations.flatMap((item) => operationCriterionIndexes(criteria, item)),
-	);
-	if (allRecorded.size)
-		return criteria.flatMap((_, index) =>
-			recorded.includes(index) || (includeShared && !allRecorded.has(index)) ? [index] : [],
-		);
-	if (!includeShared) return [];
-	return inferredRepeatedRunCriterionIndexes(criteria, operation, operations);
+/** Per-run evidence: metrics and live status. Checks live in the test verdict. */
+function AttemptResult({ attempt, result }: { attempt: Attempt; result: RunResultData }) {
+	return <RunResult result={result} status={attempt.status} />;
 }
 
 function operationCriterionIndexes(
@@ -2412,26 +2455,6 @@ function criterionRecordIndexes(criteria: string[], value: unknown): number[] {
 
 const RUN_ORDINALS = ["first", "second", "third", "fourth", "fifth"];
 const CRITERION_WORD_SEPARATOR = /[^a-z0-9]+/;
-
-function inferredRepeatedRunCriterionIndexes(
-	criteria: string[],
-	operation: Attempt["operations"][number] | undefined,
-	operations: Attempt["operations"],
-): number[] | undefined {
-	if (!operation) return undefined;
-	const runs = operations.filter(
-		(item) => operationIdentity(item) === operationIdentity(operation),
-	);
-	if (runs.length < 2) return undefined;
-	const selected =
-		inferredOperationOrdinal(criteria, operation) ??
-		runs.findIndex((run) => run.id === operation.id);
-	const scopes = criteria.map(criterionRunOrdinal);
-	if (selected < 0 || !scopes.some((scope) => scope !== undefined)) return undefined;
-	return scopes.flatMap((scope, index) =>
-		scope === undefined || scope === selected ? [index] : [],
-	);
-}
 
 function inferredOperationOrdinal(
 	criteria: string[],
@@ -2461,16 +2484,6 @@ function criterionRunOrdinal(criterion: string): number | undefined {
 	const normalized = criterion.toLowerCase();
 	const index = RUN_ORDINALS.findIndex((ordinal) => normalized.includes(`${ordinal} `));
 	return index < 0 ? undefined : index;
-}
-
-function selectIndexes<T>(values: T[], indexes: number[] | undefined): T[] {
-	return indexes
-		? indexes.flatMap((index) => (values[index] === undefined ? [] : [values[index]]))
-		: values;
-}
-
-function selectOptionalIndexes<T>(values: Array<T | undefined>, indexes: number[] | undefined) {
-	return indexes ? indexes.map((index) => values[index]) : values;
 }
 
 function CopyFailureButton({ attempt, criteria }: { attempt: Attempt; criteria: string[] }) {
@@ -2803,39 +2816,11 @@ function nestedArrayLength(value: unknown, key: string): number | undefined {
 	return isRecord(value) ? optionalArrayLength(value[key]) : undefined;
 }
 
-function RunResult({
-	result,
-	status,
-	criteria,
-	explanations,
-	errors,
-	criterionResults,
-}: {
-	result: RunResultData;
-	status: string;
-	criteria: string[];
-	explanations: Array<string | undefined>;
-	errors: Attempt["errors"];
-	criterionResults: Attempt["criterionResults"];
-}) {
-	const presentations = criterionPresentations({
-		criteria,
-		explanations,
-		results: criterionResults,
-		status,
-		errors,
-	});
-	const assignedFailures = new Set(presentations.map((item) => item.failure).filter(Boolean));
+function RunResult({ result, status }: { result: RunResultData; status: string }) {
 	return (
 		<section aria-label="Result" {...stylex.props(styles.resultPanel)}>
 			<h3 {...stylex.props(styles.contentHeading)}>Result</h3>
 			<ResultVerdict status={status} />
-			<CriterionResults presentations={presentations} />
-			{errors
-				.filter((error) => !assignedFailures.has(error.message))
-				.map((error, index) => (
-					<FailureDetails key={index} message={error.message ?? "Test failed"} />
-				))}
 			<ResultMetrics result={result} />
 		</section>
 	);
