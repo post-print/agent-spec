@@ -34,6 +34,11 @@ export function viewerCss(): string {
       -webkit-font-smoothing: antialiased;
     }
     h1, h2, h3, p { margin-block: 0; }
+    .message-markdown { white-space: normal; }
+    details[data-disclosure] > summary { list-style: none; }
+    details[data-disclosure] > summary::-webkit-details-marker { display: none; }
+    details[data-disclosure] > summary::before { content: "▸"; display: inline-block; width: 1em; }
+    details[data-disclosure][open] > summary::before { content: "▾"; }
     .message-markdown > :first-child { margin-block-start: 0; }
     .message-markdown > :last-child { margin-block-end: 0; }
     .message-markdown p {

@@ -11,7 +11,7 @@
 				"docs/hosts.md": "sha256:a5f4f13490e05e84a54708f4842bd1f90493fd075558fea3cb9d0f94038e419f",
 				"docs/isolation.md": "sha256:509f7e6778b86432829a59788ab8436abef077ac3dc9ca338e69cd7305152830",
 				"docs/reliability.md": "sha256:a9f6ac4ea2255417010a8cda2f0f15fb17db57c65d05e47587d0d0fcb285e62f",
-				"docs/sdk-v2.md": "sha256:baface3faee7a6354aa92453199f5a73810cc3124be5b26a6a8f2f8734669434",
+				"docs/sdk-v2.md": "sha256:9b0b89ce2f2c2dec5f17068ef691fdef1bac36cfdfb44681b16f65a4e197cfdb",
 				"docs/suites.md": "sha256:7cd84e9520240df60e4f750d12cb3ab6ff9263770a9022c6d94aacbd434b8c32",
 				"packages/harness/README.md": "sha256:18a1f2880a93efc712efcc79925096751c0390c6f1f7ce35af1019e90a05454b",
 				"packages/test/README.md": "sha256:b2a4914615e0a779a07087c2b9b78561212ef68b8ae4b8f6326680636ad3860c",
@@ -111,7 +111,7 @@
 		},
 		"docs/sdk-v2.md": {
 			"reviewedAt": "2026-10-09",
-			"documentHash": "sha256:baface3faee7a6354aa92453199f5a73810cc3124be5b26a6a8f2f8734669434",
+			"documentHash": "sha256:9b0b89ce2f2c2dec5f17068ef691fdef1bac36cfdfb44681b16f65a4e197cfdb",
 			"reviewDependencies": {
 				"agent-suites/fixtures/task-list/src/status.ts": "sha256:34ece1eace5f952edbd61290b1278a99402e84149bb3b43b602d01dda76715b9",
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",

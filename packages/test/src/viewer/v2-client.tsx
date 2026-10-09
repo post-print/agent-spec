@@ -804,9 +804,44 @@ const styles = stylex.create({
 	},
 	conversationHeader: {
 		display: "flex",
-		alignItems: "center",
+		flexWrap: "wrap",
+		alignItems: "baseline",
 		justifyContent: "flex-start",
-		gap: "0.75rem",
+		gap: "0.25rem 0.75rem",
+	},
+	sectionIntro: { margin: 0, color: "var(--subtle)", fontSize: "0.72rem", lineHeight: 1.4 },
+	ranRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.35rem" },
+	ranLabel: {
+		color: "var(--subtle)",
+		fontSize: "0.66rem",
+		fontWeight: 700,
+		letterSpacing: "0.06em",
+		textTransform: "uppercase",
+	},
+	ranChip: {
+		padding: "0.12rem 0.45rem",
+		borderRadius: 999,
+		backgroundColor: "var(--panel-3)",
+		color: "var(--muted)",
+		fontSize: "0.72rem",
+	},
+	judgeAskedLabel: {
+		marginRight: "0.35rem",
+		color: "var(--subtle)",
+		fontSize: "0.61rem",
+		fontWeight: 750,
+		letterSpacing: "0.06em",
+		textTransform: "uppercase",
+	},
+	judgeContextDisclosure: {
+		borderTop: "1px solid var(--border)",
+		paddingTop: "0.45rem",
+	},
+	judgeContextSummary: {
+		cursor: "pointer",
+		color: { default: "var(--muted)", ":hover": "var(--text)" },
+		fontSize: "0.74rem",
+		fontWeight: 650,
 	},
 	runTabs: { display: "inline-flex", alignItems: "center", gap: "0.12rem" },
 	runTab: {
@@ -938,15 +973,11 @@ const styles = stylex.create({
 		display: "grid",
 		justifySelf: "stretch",
 		gap: "0.45rem",
-		padding: "0.7rem",
-		border: "1px solid oklch(0.75 0.12 175 / 0.3)",
-		borderRadius: 10,
-		backgroundColor: "var(--accent-soft)",
 	},
 	judgeQuestionText: {
 		margin: 0,
-		color: "var(--text)",
-		fontSize: "0.79rem",
+		color: "var(--muted)",
+		fontSize: "0.76rem",
 		lineHeight: 1.5,
 	},
 	judgeContext: {
@@ -954,14 +985,6 @@ const styles = stylex.create({
 		gap: "0.4rem",
 		paddingTop: "0.55rem",
 		borderTop: "1px solid oklch(0.75 0.12 175 / 0.22)",
-	},
-	judgeContextHeader: {
-		display: "flex",
-		alignItems: "baseline",
-		justifyContent: "space-between",
-		gap: "0.75rem",
-		color: "var(--text)",
-		fontSize: "0.7rem",
 	},
 	judgeContextNote: { margin: 0, color: "var(--muted)", fontSize: "0.68rem", lineHeight: 1.4 },
 	judgeContextGroup: { display: "grid", gap: "0.35rem" },
@@ -1036,13 +1059,12 @@ const styles = stylex.create({
 	},
 	judgeResponse: {
 		display: "grid",
-		justifySelf: "start",
+		justifySelf: "stretch",
 		gap: "0.4rem",
 		padding: "0.65rem 0.7rem",
 		border: "1px solid var(--border)",
 		borderRadius: 10,
 		backgroundColor: "var(--panel-2)",
-		maxWidth: "78%",
 	},
 	judgeResponseHeading: {
 		margin: 0,
@@ -2168,7 +2190,7 @@ function ExecutionDetailView({
 			{cancel.isError ? <p role="alert">The run could not be stopped.</p> : null}
 			<section {...stylex.props(styles.list)}>
 				{execution.attempts.map((attempt) => (
-					<AttemptCard key={attempt.id} attempt={attempt} criteria={criteria} />
+					<AttemptCard key={attempt.id} attempt={attempt} criteria={criteria} showTitle={false} />
 				))}
 				{execution.attempts.length === 0 ? (
 					<p {...stylex.props(styles.empty)}>{emptyExecutionMessage(execution, stopping)}</p>
@@ -2225,7 +2247,16 @@ function ComparisonColumn({ execution, label }: { execution: ExecutionDetail; la
 	);
 }
 
-function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: string[] }) {
+/** `showTitle` is off on a test page, whose header already names the test. */
+function AttemptCard({
+	attempt,
+	criteria = [],
+	showTitle = true,
+}: {
+	attempt: Attempt;
+	criteria?: string[];
+	showTitle?: boolean;
+}) {
 	const { operations, output, title } = attemptPresentation(attempt, criteria);
 	const agents = operations.filter((operation) => operation.kind !== "evaluation");
 	const judges = operations.filter((operation) => operation.kind === "evaluation");
@@ -2233,7 +2264,7 @@ function AttemptCard({ attempt, criteria = [] }: { attempt: Attempt; criteria?: 
 		<article {...stylex.props(styles.attemptCard)}>
 			<div {...stylex.props(styles.row)}>
 				<div>
-					<strong {...stylex.props(styles.attemptTitle)}>{title}</strong>
+					{showTitle ? <strong {...stylex.props(styles.attemptTitle)}>{title}</strong> : null}
 					<p {...stylex.props(styles.meta)}>
 						{attempt.project || "default"} · {attempt.operations.length} named{" "}
 						{pluralize(attempt.operations.length, "operation")}
@@ -3026,6 +3057,11 @@ function ResultMetrics({ result }: { result: RunResultData }) {
 	);
 }
 
+const SECTION_INTROS = {
+	Agents: "The task each agent received and how it answered.",
+	Judges: "A separate reviewer grades the answer. Its findings feed the checks above.",
+} as const;
+
 function Conversation({
 	label,
 	operation,
@@ -3051,6 +3087,7 @@ function Conversation({
 			<div {...stylex.props(styles.conversationSurface)}>
 				<header {...stylex.props(styles.conversationHeader)}>
 					<h3 {...stylex.props(styles.contentHeading)}>{label}</h3>
+					<p {...stylex.props(styles.sectionIntro)}>{SECTION_INTROS[label]}</p>
 				</header>
 				<ConversationTabs
 					label={label}
@@ -3063,11 +3100,13 @@ function Conversation({
 				{operation?.kind === "evaluation" ? null : result}
 				<section aria-label={`${label} messages`} {...stylex.props(styles.conversationThread)}>
 					{judge ? (
-						<JudgeQuestion review={judge} operations={allOperations} />
+						<>
+							<JudgeResponse review={judge} operations={allOperations} />
+							<JudgeQuestion review={judge} operations={allOperations} />
+						</>
 					) : (
 						<ConversationEvents timeline={timeline} />
 					)}
-					<JudgeResponse review={judge} operations={allOperations} />
 				</section>
 				{timeline.length === 0 && status !== "running" ? (
 					<p {...stylex.props(styles.meta)}>{conversationPlaceholder(status)}</p>
@@ -3128,6 +3167,7 @@ type JudgeReviewData = {
 	reason?: string;
 };
 
+/** What the judge was asked, then its inputs folded away: they mostly repeat the agent's answer. */
 function JudgeQuestion({
 	review,
 	operations,
@@ -3136,14 +3176,31 @@ function JudgeQuestion({
 	operations: Attempt["operations"];
 }) {
 	if (!review.question && !review.context.length) return null;
+	// Inputs matter most before findings exist and when a finding failed.
+	const inputsFirst =
+		review.outcomes.length === 0 || review.outcomes.some((outcome) => !outcome.passed);
 	return (
 		<section aria-label="Judge question" {...stylex.props(styles.judgeQuestion)}>
-			<h4 {...stylex.props(styles.judgeResponseHeading)}>Judge question</h4>
 			{review.question ? (
-				<p {...stylex.props(styles.judgeQuestionText)}>{review.question}</p>
+				<p {...stylex.props(styles.judgeQuestionText)}>
+					<span {...stylex.props(styles.judgeAskedLabel)}>Asked</span>
+					<span>{review.question}</span>
+				</p>
 			) : null}
 			{review.context.length ? (
-				<JudgeContext context={review.context} operations={operations} />
+				<section aria-label="Context included">
+					<details
+						data-disclosure
+						open={inputsFirst}
+						{...stylex.props(styles.judgeContextDisclosure)}
+					>
+						<summary {...stylex.props(styles.judgeContextSummary)}>
+							What the judge saw · {review.context.length} selected{" "}
+							{pluralize(review.context.length, "field")}
+						</summary>
+						<JudgeContext context={review.context} operations={operations} />
+					</details>
+				</section>
 			) : null}
 		</section>
 	);
@@ -3166,13 +3223,9 @@ function JudgeContext({
 	const selected = answers.find((item) => item.id === selectedId) ?? answers[0];
 	const panelId = useId();
 	return (
-		<section aria-label="Context included" {...stylex.props(styles.judgeContext)}>
-			<div {...stylex.props(styles.judgeContextHeader)}>
-				<strong>Context included</strong>
-				<span>{context.length} selected fields</span>
-			</div>
+		<div {...stylex.props(styles.judgeContext)}>
 			<p {...stylex.props(styles.judgeContextNote)}>
-				Only these explicitly selected fields were sent to this judge.
+				Only these fields, chosen by the test, were sent to the judge.
 			</p>
 			{answers.length ? (
 				<section aria-label="Agent answers" {...stylex.props(styles.judgeContextGroup)}>
@@ -3232,7 +3285,7 @@ function JudgeContext({
 					</dl>
 				</section>
 			) : null}
-		</section>
+		</div>
 	);
 }
 
@@ -3335,7 +3388,7 @@ function JudgeFindings({
 }) {
 	return (
 		<section aria-label="Judge response" {...stylex.props(styles.judgeResponse)}>
-			<h4 {...stylex.props(styles.judgeResponseHeading)}>Judge response</h4>
+			<h4 {...stylex.props(styles.judgeResponseHeading)}>Findings</h4>
 			<div {...stylex.props(styles.judgeOutcomeList)}>
 				{outcomes.map((outcome) => (
 					<div key={outcome.label} {...stylex.props(styles.judgeOutcome)}>
@@ -3790,12 +3843,13 @@ function OperationList({ operations }: { operations: Attempt["operations"] }) {
 	if (operations.length === 0) return null;
 	const summaries = summarizeOperations(operations);
 	return (
-		<div {...stylex.props(styles.list)}>
+		<div {...stylex.props(styles.ranRow)}>
+			<span {...stylex.props(styles.ranLabel)}>Ran</span>
 			{summaries.map((summary) => (
-				<div key={summary.key} {...stylex.props(styles.meta)}>
+				<span key={summary.key} {...stylex.props(styles.ranChip)}>
 					{summary.name}
 					{summary.count > 1 ? ` ×${summary.count}` : ""}
-				</div>
+				</span>
 			))}
 		</div>
 	);

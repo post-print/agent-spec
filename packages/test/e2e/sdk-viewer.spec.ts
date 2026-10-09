@@ -427,7 +427,9 @@ async function checkJudgeReview(conversation: Locator) {
 		conversation.getByText("Identify the release risk and a practical next step.", { exact: true }),
 	).toBeVisible();
 	const context = conversation.getByRole("region", { name: "Context included" });
-	await expect(context).toContainText("3 selected fields");
+	await expect(context).toContainText("What the judge saw · 3 selected fields");
+	await expect(context.getByRole("tablist", { name: "Agent answers included" })).toBeHidden();
+	await context.getByText("What the judge saw").click();
 	const answers = context.getByRole("tablist", { name: "Agent answers included" });
 	const runOne = answers.getByRole("tab", { name: "agent · Run 1" });
 	const runTwo = answers.getByRole("tab", { name: "agent · Run 2" });
