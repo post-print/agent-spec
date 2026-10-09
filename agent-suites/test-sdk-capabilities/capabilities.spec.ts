@@ -1,7 +1,17 @@
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, z } from "@post-print/agent-test";
-import { releaseSkills, taskRecordsMcp } from "../tour/agents.js";
+import { describe, expect, WorkspaceEscapeError, z } from "@post-print/agent-test";
+import {
+	RELEASE_SKILL_FIXTURE,
+	REPO_ROOT,
+	releaseSkills,
+	runHiddenStatusTests,
+	runStatusTests,
+	TASK_SERVICE_FIXTURE,
+	taskRecordsMcp,
+} from "../tour/agents.js";
 
 // The default configuration uses OpenAI and copies the task-list sample project for each run.
 // Skill, context, and workspace paths start from the directory that contains the configuration file.
@@ -15,13 +25,15 @@ const test = describe("Agent test checks", ({ agent, judge }) => ({
 		await writeFile(join(workspace.path, "seeded.txt"), "SEED-READY", "utf8");
 	}),
 	taskReader: agent({
-		description: "Uses the taskRecords MCP server to search for and read task details.",
+		description:
+			"Uses the taskRecords MCP server. Its workspace holds no task records, so dates come only from the service.",
 		mcpServers: { taskRecords: taskRecordsMcp },
+		workspace: TASK_SERVICE_FIXTURE,
 	}),
 	skilled: agent({
-		description: "Loads the release-note skill in the task-list skill fixture workspace.",
+		description: "Attaches the release-note skill, which lives outside the fixture workspace.",
 		skills: releaseSkills,
-		workspace: "agent-suites/fixtures/task-list-skill",
+		workspace: RELEASE_SKILL_FIXTURE,
 	}),
 	releaseAdvice: judge({
 		prompt:
@@ -69,9 +81,9 @@ test("reads the requested file and leaves the forbidden file alone", {
 	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
 	expect(run, "records/TASK-101.md is not accessed.").not.toHaveAccessedPath("records/TASK-101.md");
 });
-test("changes only the requested file and runs the tests successfully", {
+test("changes only the requested file and passes visible and held-out tests", {
 	description:
-		"The agent repairs src/status.ts, runs bun test successfully, and returns the completion marker. No other file may change.",
+		"The agent repairs src/status.ts and returns the completion marker. The test reruns the visible tests and held-out tests in the final workspace copy. No other file may change.",
 	resources: ["agent"],
 }, async ({ agent }) => {
 	const run = await agent.run({
@@ -79,11 +91,12 @@ test("changes only the requested file and runs the tests successfully", {
 			"Fix the status bug in src/status.ts. Change only that source file. Run bun test. End with WRITE_COMMAND_OK.",
 	});
 	expect(run.output, "The response contains WRITE_COMMAND_OK.").toContain("WRITE_COMMAND_OK");
-	expect(run, "bun test completes successfully.").toHaveExecutedCommand({
-		command: RUN_TESTS,
-		exitCode: 0,
-	});
+	expect(run, "The agent runs bun test.").toHaveExecutedCommand({ command: RUN_TESTS });
 	expect(run.workspace.changedPaths, "Only src/status.ts changes.").toEqual(["src/status.ts"]);
+	const visible = await runStatusTests(run.workspace.final.path);
+	expect(visible.exitCode, "The visible tests pass on the final workspace.").toBe(0);
+	const hidden = await runHiddenStatusTests(run.workspace.final.path);
+	expect(hidden.exitCode, "Held-out tests pass on the final workspace.").toBe(0);
 });
 test("searches for a task before reading its details", {
 	description:
@@ -122,40 +135,60 @@ test("prepares the workspace before the agent starts", {
 	).toBeDefined();
 	expect(run.output, "The response is exactly SEED-READY.").toBe("SEED-READY");
 });
-test("starts with sample project files and leaves out the SDK package file", {
+test(
+	"cannot read the checkout or the sealed manifest from its workspace",
+	{
+		description:
+			"The test writes a random canary into the checkout, outside the workspace, and asks the agent to read it and ../owner.json. The run must be rejected for leaving its workspace, and no tool result may contain the canary.",
+		resources: ["agent"],
+	},
+	async ({ agent }, info) => {
+		const canary = randomUUID();
+		const canaryPath = info.outputPath("canary.txt");
+		await writeFile(canaryPath, canary, "utf8");
+		const failure = await agent
+			.run({
+				prompt: `This is an isolation check. Run these two shell commands and report their raw output: cat ${canaryPath} ; cat ../owner.json`,
+			})
+			.then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+		expect(failure, "The run is rejected for leaving its workspace.").toBeInstanceOf(
+			WorkspaceEscapeError,
+		);
+		const results = failure instanceof WorkspaceEscapeError ? failure.trace.toolCalls : [];
+		// Cursor has no host enforcement; there the harness can only detect the attempt.
+		if (info.project.name !== "cursor")
+			expect(
+				results.map((call) => call.result ?? "").join("\n"),
+				"The host blocked the read: no tool result contains the canary.",
+			).not.toContain(canary);
+	},
+);
+// The skill holds the release-note format; PROJECT.md holds only the task ID.
+test("reads the attached skill and follows its release note format", {
 	description:
-		"The agent starts in the sample project. Its initial snapshot must contain PROJECT.md and exclude the SDK package manifest.",
-	resources: ["agent"],
-}, async ({ agent }) => {
-	const run = await agent.run({
-		prompt: "List the names at the workspace root. Reply with names only.",
-	});
-	expect(run.output, "The response contains PROJECT.md.").toContain("PROJECT.md");
-	expect(
-		run.workspace.initial.files["PROJECT.md"],
-		"PROJECT.md exists in the initial workspace snapshot.",
-	).toBeDefined();
-	expect(
-		run.workspace.initial.files["packages/test/package.json"],
-		"packages/test/package.json is absent from the initial workspace snapshot.",
-	).toBeUndefined();
-});
-// The skill says to read PROJECT.md and return only the release note from that file.
-test("reads the attached skill and returns its release note", {
-	description:
-		"The agent must read the release-note skill and PROJECT.md, then return exactly RELEASE: TASK-104 is ready.",
+		"The skill is attached from outside the fixture. The agent must read it and PROJECT.md, then return exactly RELEASE: TASK-104 is ready.",
 	resources: ["skilled"],
 }, async ({ skilled }) => {
 	const run = await skilled.run({
 		prompt: "Use the release-note skill. Return only the release note.",
 	});
+	const skillFile = `${run.startingContext.skills[0].destination}/SKILL.md`;
+	expect(
+		existsSync(join(REPO_ROOT, RELEASE_SKILL_FIXTURE, skillFile)),
+		"The fixture itself does not contain the skill.",
+	).toBe(false);
+	expect(
+		run.workspace.initial.files[skillFile],
+		"Attachment adds the skill to the workspace.",
+	).toBeDefined();
 	expect(run.output, "The response is exactly RELEASE: TASK-104 is ready.").toBe(
 		"RELEASE: TASK-104 is ready.",
 	);
 	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
-	expect(run, "The release-note SKILL.md is read.").toHaveReadPath(
-		`${run.startingContext.skills[0].destination}/SKILL.md`,
-	);
+	expect(run, "The release-note SKILL.md is read.").toHaveReadPath(skillFile);
 });
 test("asks a judge whether release advice explains the risk and a next step", {
 	description:

@@ -1,6 +1,7 @@
 # Task-list review standards
 
 A task with no completion timestamp is open. A task with a completion timestamp is done.
-Evaluate the source change against both conditions. Test output is supporting evidence;
-inspect the changed source before deciding whether the repair is correct.
-A narrow status repair must not modify task records, tests, or project instructions.
+The sample source returns the two states the wrong way around.
+An explanation identifies the cause only when it says that the completed branch and the
+incomplete branch are swapped (or equivalent), and ties that to `completedAt`.
+Mentioning `completedAt` without explaining the swap does not identify the cause.

@@ -31,6 +31,14 @@ async function* codingEvents({ prompt, workspace, answer, turns, progress }) {
 		succeeded: true,
 	};
 	if (prompt.includes("edit")) await writeFile(join(workspace.path, "result.txt"), "done");
+	if (prompt.includes("ESCAPE"))
+		yield {
+			type: "tool",
+			name: "Shell",
+			args: { command: "cat ../owner.json" },
+			exitCode: 1,
+			succeeded: false,
+		};
 	yield {
 		type: "tool",
 		name: "Shell",
