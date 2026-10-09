@@ -30,6 +30,7 @@ export { ownerIsActive, ProcessOwner, processOwner } from "./process-owner.js";
 export { recoverSealedWorkspaces } from "./sealed-storage.js";
 export {
 	assertInsideWorkspace,
+	createEmptySealedWorkspace,
 	createSealedWorkspace,
 	SealedWorkspace,
 	toolPathsOutsideWorkspace,

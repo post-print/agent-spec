@@ -1,8 +1,10 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type AgentDefinition,
+	assertInsideWorkspace,
 	createAgentSession,
+	createEmptySealedWorkspace,
 	type HarnessSession,
 } from "@post-print/agent-harness";
 import { z } from "zod/v4";
@@ -66,8 +68,10 @@ export async function evaluate<S extends z.ZodType>(
 	request.signal.throwIfAborted();
 	const id = request.id ?? crypto.randomUUID(),
 		directory = join(request.outputDir, id);
-	const workspace = join(directory, "workspace");
-	await mkdir(workspace, { recursive: true });
+	await mkdir(directory, { recursive: true });
+	// The reviewer works outside the run artifacts and the caller checkout.
+	const sealed = await createEmptySealedWorkspace();
+	const workspace = await realpath(sealed.path);
 	let session: HarnessSession | undefined;
 	try {
 		const prepared = await evaluationPrompt(request, workspace);
@@ -83,6 +87,7 @@ export async function evaluate<S extends z.ZodType>(
 			evaluation: { prompt: request.settings.prompt, schema: prepared.schema },
 		});
 		const trace = await session.run(prepared.prompt);
+		assertInsideWorkspace(trace, workspace);
 		const response = trace.messages
 			.filter((message) => message.role === "assistant")
 			.map((message) => message.content)
@@ -104,7 +109,7 @@ export async function evaluate<S extends z.ZodType>(
 		try {
 			await session?.close();
 		} finally {
-			await rm(workspace, { recursive: true, force: true });
+			await sealed.cleanup();
 		}
 	}
 }

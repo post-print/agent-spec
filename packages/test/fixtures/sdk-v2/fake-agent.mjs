@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -9,6 +10,14 @@ function gradeResponse(prompt, options) {
 			? "not json"
 			: JSON.stringify(options.response ?? { correct: true, reason: "Verified", input }),
 	};
+}
+async function* reviewerProbe(workspace, options) {
+	if (options.recordWorkspace) {
+		const hasGit = existsSync(join(workspace.path, ".git"));
+		await writeFile(options.recordWorkspace, JSON.stringify({ path: workspace.path, hasGit }));
+	}
+	if (options.reviewerRead)
+		yield { type: "tool", name: "Read", args: { path: options.reviewerRead }, succeeded: true };
 }
 async function* codingEvents({ prompt, workspace, answer, turns, progress }) {
 	if (prompt.includes("WAIT_FOREVER")) await new Promise(() => {});
@@ -53,6 +62,7 @@ export default {
 				turns++;
 				if (readOnly) {
 					if (prompt.includes("WAIT_FOREVER")) await new Promise(() => {});
+					yield* reviewerProbe(workspace, options);
 					yield gradeResponse(prompt, options);
 				} else {
 					yield* codingEvents({ prompt, workspace, answer, turns, progress: options.progress });

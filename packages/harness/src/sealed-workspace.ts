@@ -170,6 +170,21 @@ export async function createSealedWorkspace(
 	}
 }
 
+/**
+ * An empty sealed workspace for read-only reviewers. It lives in the OS temp folder with
+ * its own Git root, so hosts discover no caller AGENTS.md/CLAUDE.md and no run evidence.
+ */
+export async function createEmptySealedWorkspace(): Promise<SealedWorkspace> {
+	const sealed = await allocateSealedWorkspace();
+	try {
+		await initNestedGit(sealed.path);
+		return sealed;
+	} catch (error) {
+		await sealed.cleanup();
+		throw error;
+	}
+}
+
 async function materializeSealedWorkspace(
 	options: CreateSealedWorkspaceOptions,
 	workspaceRel: string | undefined,
