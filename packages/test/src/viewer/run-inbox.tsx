@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
+	formatRunDate,
 	runStatusCounts,
 	stripAnsi,
 	type TestRunStatus,
@@ -27,13 +28,6 @@ type StatusFilter = TestRunStatus | "all";
 const EARLIER_RUN_LIMIT = 20;
 const STARTED_STATUSES = new Set<TestRunStatus>(["running", "passed", "failed"]);
 const ERROR_EXCERPT_LENGTH = 180;
-const RUN_DATE = new Intl.DateTimeFormat(undefined, {
-	weekday: "short",
-	month: "short",
-	day: "numeric",
-	hour: "numeric",
-	minute: "2-digit",
-});
 
 /** Home: the run that needs attention now, then earlier runs. */
 export function RunInboxPage() {
@@ -117,7 +111,7 @@ function RunHeader({
 			<div {...stylex.props(styles.headerCopy)}>
 				<span {...stylex.props(styles.eyebrow)}>{eyebrow}</span>
 				<h2 id={`run-${run.id}`} {...stylex.props(styles.title)}>
-					{RUN_DATE.format(new Date(run.startedAt))}
+					{formatRunDate(run.startedAt)}
 				</h2>
 				<RunNotice run={run} />
 				<p {...stylex.props(styles.meta)}>
@@ -297,7 +291,7 @@ function EarlierRunRow({ run }: { run: ExecutionSummary }) {
 	const [onlyTestId, ...others] = run.testIds ?? [];
 	const onlyTest =
 		others.length === 0 ? catalog.data?.tests.find((test) => test.id === onlyTestId) : undefined;
-	const when = RUN_DATE.format(new Date(run.startedAt));
+	const when = formatRunDate(run.startedAt);
 	const body = (
 		<>
 			<StatusDot status={runOutcome(run)} />

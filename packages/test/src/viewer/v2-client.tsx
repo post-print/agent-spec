@@ -24,10 +24,13 @@ import Markdown from "react-markdown";
 import {
 	assertionComparison,
 	conversationPlaceholder,
+	formatRunDate,
+	median,
 	preferredTestExecutionId,
 	stripAnsi,
 	type TestRunStatus,
 	testRunStatus,
+	unwrapShellCommand,
 } from "./presentation.js";
 import { RunInboxPage, RunPage } from "./run-inbox.js";
 import type { DiscoveredTest as TestRecord } from "./test-catalog.js";
@@ -668,7 +671,7 @@ const styles = stylex.create({
 	},
 	quietHeader: {
 		display: "flex",
-		justifyContent: "flex-end",
+		justifyContent: "flex-start",
 		marginBottom: "0.75rem",
 	},
 	statusPanel: {
@@ -713,6 +716,23 @@ const styles = stylex.create({
 	verdictPass: { borderColor: "oklch(0.79 0.16 155 / 0.45)", backgroundColor: "var(--pass-soft)" },
 	verdictFail: { borderColor: "oklch(0.73 0.18 25 / 0.5)", backgroundColor: "var(--fail-soft)" },
 	verdictHeadline: { margin: 0, fontSize: "0.92rem", fontWeight: 720, color: "var(--text)" },
+	verdictMetrics: {
+		display: "grid",
+		gridTemplateColumns: "repeat(auto-fit, minmax(7.5rem, 1fr))",
+		gap: "0.4rem 1rem",
+		margin: 0,
+	},
+	verdictMetric: { display: "grid", gap: "0.1rem", minWidth: 0 },
+	verdictMetricValue: {
+		display: "grid",
+		margin: 0,
+		color: "var(--text)",
+		fontSize: "0.86rem",
+		fontWeight: 650,
+		fontVariantNumeric: "tabular-nums",
+	},
+	verdictMetricMedian: { color: "var(--subtle)", fontSize: "0.68rem", fontWeight: 500 },
+	verdictPassedChecks: { display: "grid", gap: "0.45rem" },
 	verdictCount: { color: "var(--muted)", fontWeight: 560 },
 	resultPanel: {
 		display: "grid",
@@ -1158,7 +1178,7 @@ const styles = stylex.create({
 	},
 	criteriaList: { display: "grid", gap: "0.55rem", margin: 0, padding: 0, listStyle: "none" },
 	criterion: { display: "flex", gap: "0.6rem", color: "var(--muted)", fontSize: "0.82rem" },
-	criterionIcon: { color: "var(--accent)", fontWeight: 800 },
+	criterionIcon: { color: "var(--subtle)", fontWeight: 800 },
 	passReasonList: { display: "grid", gap: "0.35rem", margin: 0, padding: 0, listStyle: "none" },
 	passReason: { display: "flex", gap: "0.5rem", color: "var(--text)", fontSize: "0.76rem" },
 	passReasonIcon: { color: "var(--pass)", fontWeight: 800 },
@@ -1753,7 +1773,7 @@ function BatchRunLink({ run }: { run?: ExecutionSummary }) {
 			params={{ executionId: run.id }}
 			{...stylex.props(styles.batchRunLink)}
 		>
-			← Back to run · {new Date(run.startedAt).toLocaleString()} · {count} tests
+			← Back to run · {formatRunDate(run.startedAt)} · {count} tests
 		</Link>
 	);
 }
@@ -1890,7 +1910,10 @@ function RunHistory({
 	return (
 		<section {...stylex.props(styles.tabSection)}>
 			<div {...stylex.props(styles.quietHeader)}>
-				<span {...stylex.props(styles.resourceCount)}>{runs.length} executions</span>
+				<span {...stylex.props(styles.sectionIntro)}>
+					{runs.length} {pluralize(runs.length, "run")} included this test. Each shows this test's
+					own result.
+				</span>
 			</div>
 			{runs.length ? (
 				<div {...stylex.props(styles.historyList)}>
@@ -1924,9 +1947,7 @@ function HistoryItem({
 			onClick={() => onChoose(run.id)}
 		>
 			<span {...stylex.props(styles.historyIdentity)}>
-				<span {...stylex.props(styles.historyDate)}>
-					{new Date(run.startedAt).toLocaleString()}
-				</span>
+				<span {...stylex.props(styles.historyDate)}>{formatRunDate(run.startedAt)}</span>
 				<span {...stylex.props(styles.historyId)}>
 					{run.id.slice(0, 8)}
 					{others > 0 ? ` · with ${others} other ${pluralize(others, "test")}` : ""}
@@ -2009,12 +2030,15 @@ function CriteriaSetup({ test }: { test: TestRecord }) {
 			<h3 id="setup-criteria" {...stylex.props(styles.contentHeading)}>
 				Pass criteria
 			</h3>
+			<p {...stylex.props(styles.sectionIntro)}>
+				Every one of these must hold for the test to pass.
+			</p>
 			{criteria.length ? (
 				<ul {...stylex.props(styles.criteriaList)}>
 					{criteria.map((criterion) => (
 						<li key={criterion} {...stylex.props(styles.criterion)}>
 							<span aria-hidden="true" {...stylex.props(styles.criterionIcon)}>
-								✓
+								•
 							</span>
 							<span>{criterion}</span>
 						</li>
@@ -2082,12 +2106,12 @@ function WorkspaceSetup({ test }: { test: TestRecord }) {
 				<h3 id="setup-workspace" {...stylex.props(styles.contentHeading)}>
 					Workspace
 				</h3>
-				<p {...stylex.props(styles.meta)}>Starting files and execution target for this test.</p>
+				<p {...stylex.props(styles.meta)}>
+					Each agent run starts from a fresh copy of this folder.
+				</p>
 			</div>
 			<div {...stylex.props(styles.workspaceRow)}>
 				<ResourceFact label="Source folder" value={test.workspace ?? "Project directory"} />
-				<ResourceFact label="Project" value={test.project} />
-				<ResourceFact label="Test file" value={test.file} />
 			</div>
 		</section>
 	);
@@ -2337,10 +2361,48 @@ function TestVerdict({
 					{checkSummary(presentations, attempt.status)}
 				</span>
 			</p>
-			<CriterionResults presentations={presentations} />
+			{attempt.status === "running" ? (
+				<p {...stylex.props(styles.meta)}>The test is still running.</p>
+			) : null}
+			<VerdictMetrics operations={operations} />
+			<VerdictChecks presentations={presentations} />
 			<UnassignedFailures errors={attempt.errors} presentations={presentations} />
 		</section>
 	);
+}
+
+const SHORT_CHECK_LIST = 3;
+
+/** Checks needing attention always show; passing checks fold away once the list is long. */
+function VerdictChecks({ presentations }: { presentations: CriterionPresentation[] }) {
+	const checks = withoutRepeatedExplanations(presentations);
+	if (checks.length <= SHORT_CHECK_LIST) return <CriterionResults presentations={checks} />;
+	const attention = checks.filter((check) => check.outcome !== "passed");
+	const passed = checks.filter((check) => check.outcome === "passed");
+	return (
+		<>
+			<CriterionResults presentations={attention} />
+			{passed.length ? (
+				<details data-disclosure {...stylex.props(styles.verdictPassedChecks)}>
+					<summary {...stylex.props(styles.judgeContextSummary)}>
+						{passed.length} passed {pluralize(passed.length, "check")}
+					</summary>
+					<CriterionResults presentations={passed} label="Passed checks" />
+				</details>
+			) : null}
+		</>
+	);
+}
+
+/** A judge reason shared by several checks is shown once, on the first of them. */
+function withoutRepeatedExplanations(checks: CriterionPresentation[]): CriterionPresentation[] {
+	const seen = new Set<string>();
+	return checks.map((check) => {
+		if (!check.explanation) return check;
+		if (seen.has(check.explanation)) return { ...check, explanation: undefined };
+		seen.add(check.explanation);
+		return check;
+	});
 }
 
 /** Failures no check claimed, such as a crash before the first assertion. */
@@ -2355,6 +2417,53 @@ function UnassignedFailures({
 	return errors
 		.filter((error) => !assigned.has(error.message))
 		.map((error, index) => <FailureDetails key={index} message={error.message ?? "Test failed"} />);
+}
+
+type MetricKey = "durationMs" | "totalTokens" | "toolCallCount" | "changedPathCount";
+const VERDICT_METRICS: Array<{ key: MetricKey; label: string; format: (value: number) => string }> =
+	[
+		{ key: "durationMs", label: "Duration", format: formatDuration },
+		{ key: "totalTokens", label: "Tokens", format: (value) => Math.round(value).toLocaleString() },
+		{ key: "toolCallCount", label: "Tool calls", format: (value) => String(Math.round(value)) },
+		{
+			key: "changedPathCount",
+			label: "Files changed",
+			format: (value) => String(Math.round(value)),
+		},
+	];
+
+/** Agent totals for the attempt; a median per run when the test made several agent runs. */
+function VerdictMetrics({ operations }: { operations: Attempt["operations"] }) {
+	const runs = operations
+		.filter((operation) => operation.kind !== "evaluation")
+		.map((operation) => operationResult([operation]));
+	const rows = VERDICT_METRICS.flatMap((metric) => {
+		const values = runs.flatMap((run) =>
+			run[metric.key] === undefined ? [] : [run[metric.key] ?? 0],
+		);
+		if (!values.length) return [];
+		const total = values.reduce((sum, value) => sum + value, 0);
+		return [{ ...metric, total, median: median(values) ?? total }];
+	});
+	if (!rows.length) return null;
+	const repeated = runs.length > 1;
+	return (
+		<dl aria-label="Run metrics" {...stylex.props(styles.verdictMetrics)}>
+			{rows.map((row) => (
+				<div key={row.key} {...stylex.props(styles.verdictMetric)}>
+					<dt {...stylex.props(styles.resourceFactLabel)}>{row.label}</dt>
+					<dd {...stylex.props(styles.verdictMetricValue)}>
+						{row.format(row.total)}
+						{repeated ? (
+							<span {...stylex.props(styles.verdictMetricMedian)}>
+								median {row.format(row.median)} per run
+							</span>
+						) : null}
+					</dd>
+				</div>
+			))}
+		</dl>
+	);
 }
 
 function checkSummary(presentations: CriterionPresentation[], status: string): string {
@@ -2405,7 +2514,7 @@ function ConversationSection({
 			select={setSelectedId}
 			status={status}
 			attemptStatus={attempt.status}
-			result={<AttemptResult attempt={attempt} result={selectedOperationResult(selected)} />}
+			result={<AttemptResult result={selectedOperationResult(selected)} />}
 		/>
 	);
 }
@@ -2459,9 +2568,9 @@ function operationInvocationIndex(operation: Attempt["operations"][number]): num
 	})[0];
 }
 
-/** Per-run evidence: metrics and live status. Checks live in the test verdict. */
-function AttemptResult({ attempt, result }: { attempt: Attempt; result: RunResultData }) {
-	return <RunResult result={result} status={attempt.status} />;
+/** Per-run metrics for comparing runs. Totals and checks live in the test verdict. */
+function AttemptResult({ result }: { result: RunResultData }) {
+	return <RunResult result={result} />;
 }
 
 function operationCriterionIndexes(
@@ -2847,11 +2956,10 @@ function nestedArrayLength(value: unknown, key: string): number | undefined {
 	return isRecord(value) ? optionalArrayLength(value[key]) : undefined;
 }
 
-function RunResult({ result, status }: { result: RunResultData; status: string }) {
+function RunResult({ result }: { result: RunResultData }) {
 	return (
 		<section aria-label="Result" {...stylex.props(styles.resultPanel)}>
 			<h3 {...stylex.props(styles.contentHeading)}>Result</h3>
-			<ResultVerdict status={status} />
 			<ResultMetrics result={result} />
 		</section>
 	);
@@ -2879,12 +2987,6 @@ function AssertionValue({ label, value }: { label: string; value: string }) {
 			<dd {...stylex.props(styles.assertionCode)}>{value || "(empty)"}</dd>
 		</div>
 	);
-}
-
-function ResultVerdict({ status }: { status: string }) {
-	return status === "running" ? (
-		<p {...stylex.props(styles.resultOutput)}>The test is still running.</p>
-	) : null;
 }
 
 type CriterionOutcome = "passed" | "failed" | "pending" | "not-recorded";
@@ -2924,10 +3026,16 @@ function criterionPresentations({
 	});
 }
 
-function CriterionResults({ presentations }: { presentations: CriterionPresentation[] }) {
+function CriterionResults({
+	presentations,
+	label = "Criterion results",
+}: {
+	presentations: CriterionPresentation[];
+	label?: string;
+}) {
 	if (!presentations.length) return null;
 	return (
-		<section aria-label="Criterion results" {...stylex.props(styles.criterionResults)}>
+		<section aria-label={label} {...stylex.props(styles.criterionResults)}>
 			<ul {...stylex.props(styles.criterionResultList)}>
 				{presentations.map((presentation) => (
 					<CriterionResultRow
@@ -3097,7 +3205,7 @@ function Conversation({
 					attemptStatus={attemptStatus}
 				/>
 				<ConversationRunTabs operation={operation} operations={operations} select={select} />
-				{operation?.kind === "evaluation" ? null : result}
+				{operation?.kind === "evaluation" || operations.length < 2 ? null : result}
 				<section aria-label={`${label} messages`} {...stylex.props(styles.conversationThread)}>
 					{judge ? (
 						<>
@@ -3386,24 +3494,32 @@ function JudgeFindings({
 	reason?: string;
 	answers?: JudgeAnswerContext[];
 }) {
+	const seen = new Set<string>();
+	const firstExplanation = (explanation?: string) => {
+		if (!explanation || seen.has(explanation)) return undefined;
+		seen.add(explanation);
+		return explanation;
+	};
 	return (
 		<section aria-label="Judge response" {...stylex.props(styles.judgeResponse)}>
 			<h4 {...stylex.props(styles.judgeResponseHeading)}>Findings</h4>
 			<div {...stylex.props(styles.judgeOutcomeList)}>
-				{outcomes.map((outcome) => (
-					<div key={outcome.label} {...stylex.props(styles.judgeOutcome)}>
-						<CriterionOutcomeIcon
-							outcome={outcome.passed ? "passed" : "failed"}
-							label={outcome.passed ? "Passed" : "Failed"}
-						/>
-						<span {...stylex.props(styles.judgeOutcomeLabel)}>
-							{judgeOutcomeLabel(outcome.label, answers)}
-						</span>
-						{outcome.explanation ? (
-							<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
-						) : null}
-					</div>
-				))}
+				{outcomes
+					.map((outcome) => ({ ...outcome, explanation: firstExplanation(outcome.explanation) }))
+					.map((outcome) => (
+						<div key={outcome.label} {...stylex.props(styles.judgeOutcome)}>
+							<CriterionOutcomeIcon
+								outcome={outcome.passed ? "passed" : "failed"}
+								label={outcome.passed ? "Passed" : "Failed"}
+							/>
+							<span {...stylex.props(styles.judgeOutcomeLabel)}>
+								{judgeOutcomeLabel(outcome.label, answers)}
+							</span>
+							{outcome.explanation ? (
+								<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
+							) : null}
+						</div>
+					))}
 			</div>
 			{reason && !outcomes.length ? (
 				<p {...stylex.props(styles.judgeOutcomeExplanation)}>{reason}</p>
@@ -3741,7 +3857,9 @@ function ToolActivity({ tool }: { tool: TranscriptToolCall }) {
 			<div {...stylex.props(styles.toolCopy)}>
 				<strong {...stylex.props(styles.toolTitle)}>{presentation.title}</strong>
 				{presentation.detail ? (
-					<span {...stylex.props(styles.toolDetail)}>{presentation.detail}</span>
+					<span title={presentation.detail} {...stylex.props(styles.toolDetail)}>
+						{presentation.detail}
+					</span>
 				) : null}
 			</div>
 			<div role="group" aria-label="Tool controls" {...stylex.props(styles.toolActions)}>
@@ -3774,7 +3892,13 @@ function toolPresentation(tool: TranscriptToolCall) {
 	if (name === "read" || name.includes("read_file"))
 		return { icon: "↗", title: "Read file", detail: argument(tool, "path"), outcome, failed };
 	if (["shell", "bash", "exec_command"].includes(name))
-		return { icon: ">", title: "Run command", detail: argument(tool, "command"), outcome, failed };
+		return {
+			icon: ">",
+			title: "Run command",
+			detail: unwrapShellCommand(argument(tool, "command")),
+			outcome,
+			failed,
+		};
 	if (name.includes("edit") || name.includes("write"))
 		return { icon: "✎", title: "Change file", detail: argument(tool, "path"), outcome, failed };
 	return { icon: "◆", title: tool.name, detail: summarizeArgs(tool.args), outcome, failed };

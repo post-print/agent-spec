@@ -2,11 +2,13 @@ import { expect, it } from "bun:test";
 import { storedValue } from "../sdk/stored-value.js";
 import {
 	conversationPlaceholder,
+	median,
 	preferredTestExecutionId,
 	runStatusCounts,
 	stripAnsi,
 	testIdsBySeverity,
 	testRunStatus,
+	unwrapShellCommand,
 } from "../viewer/presentation.js";
 
 it("viewer presentation › strips terminal color codes from assertion errors", () => {
@@ -62,6 +64,22 @@ it("viewer presentation › orders a run inbox by severity and counts each outco
 		["passed", 2],
 		["skipped", 1],
 	]);
+});
+
+it("viewer presentation › summarizes repeated runs with a median", () => {
+	expect(median([])).toBeUndefined();
+	expect(median([4])).toBe(4);
+	expect(median([9, 1, 5])).toBe(5);
+	expect(median([10, 2, 4, 8])).toBe(6);
+});
+
+it("viewer presentation › shows the command a host shell wrapper ran", () => {
+	expect(unwrapShellCommand(`/bin/zsh -lc 'bun test'`)).toBe("bun test");
+	expect(unwrapShellCommand(`bash -c "git diff -- src/status.ts"`)).toBe(
+		"git diff -- src/status.ts",
+	);
+	expect(unwrapShellCommand("bun test")).toBe("bun test");
+	expect(unwrapShellCommand(`/bin/zsh -lc 'a' && b'`)).toBe(`a' && b`);
 });
 
 it("stored values preserve useful command context while redacting private paths", () => {

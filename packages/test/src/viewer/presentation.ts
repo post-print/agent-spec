@@ -24,6 +24,19 @@ export function conversationPlaceholder(status: string): string {
 		: "No conversation was captured.";
 }
 
+const RUN_DATE = new Intl.DateTimeFormat(undefined, {
+	weekday: "short",
+	month: "short",
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+});
+
+/** One date style for runs everywhere: "Thu, Sep 17, 4:23 PM". */
+export function formatRunDate(value: string): string {
+	return RUN_DATE.format(new Date(value));
+}
+
 export type TestRunStatus = "queued" | "running" | "passed" | "failed" | "skipped" | "interrupted";
 export type RunSummary = {
 	id: string;
@@ -94,4 +107,20 @@ export function assertionComparison(value: string): AssertionComparison | undefi
 		}
 	}
 	return { expected: expected.join("\n"), received: received.join("\n") };
+}
+
+/** Middle value, or the mean of the two middle values; undefined for no values. */
+export function median(values: number[]): number | undefined {
+	if (!values.length) return undefined;
+	const sorted = [...values].sort((left, right) => left - right);
+	const middle = Math.floor(sorted.length / 2);
+	const upper = sorted[middle] ?? 0;
+	return sorted.length % 2 ? upper : ((sorted[middle - 1] ?? upper) + upper) / 2;
+}
+
+const SHELL_WRAPPER = /^(?:\S*\/)?(?:ba|z)?sh\s+-l?c\s+(["'])([\s\S]*)\1$/;
+
+/** `/bin/zsh -lc "bun test"` reads as `bun test`; the wrapper is host plumbing. */
+export function unwrapShellCommand(command: string): string {
+	return SHELL_WRAPPER.exec(command.trim())?.[2] ?? command;
 }
