@@ -29,35 +29,42 @@ it("creates an auth-only home for an isolated Codex run", async () => {
 	}
 });
 
-it("buildOpenaiExecArgs › pins the Codex sandbox to the sealed workspace", () => {
+it("buildOpenaiExecArgs › pins Codex to the sealed workspace with a permission profile", () => {
 	const args = buildOpenaiExecArgs({
 		prompt: "Say hello.",
 		cwd: "/tmp/agent-harness-seal-test",
+		protectedPaths: ["/repo/checkout"],
 	});
-	expect(args.slice(0, 9)).toEqual([
+	expect(args.slice(0, 7)).toEqual([
 		"exec",
 		"--json",
-		"--sandbox",
-		"workspace-write",
 		"--cd",
 		"/tmp/agent-harness-seal-test",
 		"--ignore-user-config",
 		"-c",
 		"approval_policy=never",
 	]);
+	// Codex ignores default_permissions when a legacy --sandbox mode is also set.
+	expect(args).not.toContain("--sandbox");
+	expect(args).toContain('default_permissions="agent_test"');
+	expect(args).toContain('permissions.agent_test.extends=":workspace"');
+	const filesystem = args.find((arg) => arg.startsWith("permissions.agent_test.filesystem="));
+	expect(filesystem).toContain('":tmpdir"="deny"');
+	expect(filesystem).toContain('":slash_tmp"="deny"');
+	expect(filesystem).toContain('"/repo/checkout"="deny"');
+	expect(filesystem).toContain('":workspace_roots"={"."="write"}');
+	expect(args).not.toContain("permissions.agent_test.network.enabled=true");
 	expect(args).not.toContain("--approve-for-me");
-	expect(args).not.toContain("sandbox_workspace_write.network_access=true");
 	expect(args.at(-1)).toBe("Say hello.");
 });
 
-it("buildOpenaiExecArgs › enables network only when a workspace-write run opts in", () => {
+it("buildOpenaiExecArgs › enables network only when a writable run opts in", () => {
 	const args = buildOpenaiExecArgs({
 		prompt: "Install a package.",
 		cwd: "/tmp/agent-harness-seal-test",
 		networkAccess: true,
 	});
-	expect(args).toContain("workspace-write");
-	expect(args).toContain("sandbox_workspace_write.network_access=true");
+	expect(args).toContain("permissions.agent_test.network.enabled=true");
 });
 
 it("buildOpenaiExecArgs › omits --ignore-user-config when user skills are allowed", () => {
@@ -69,39 +76,28 @@ it("buildOpenaiExecArgs › omits --ignore-user-config when user skills are allo
 	expect(args).not.toContain("--ignore-user-config");
 });
 
-it("buildOpenaiExecArgs › uses a read-only sandbox for classifiers", () => {
-	const args = buildOpenaiExecArgs({
-		prompt: "yes or no",
-		cwd: "/tmp/seal",
-		sandbox: "read-only",
-	});
-	expect(args).toContain("read-only");
-	expect(args).toContain("approval_policy=never");
-	expect(args).not.toContain("sandbox_workspace_write.network_access=true");
-	expect(args).not.toContain("--approve-for-me");
-});
-
-it("buildOpenaiExecArgs › allows a read-only classifier to inspect snapshots without git metadata", () => {
-	expect(
-		buildOpenaiExecArgs({
-			prompt: "Inspect evidence",
-			cwd: "/tmp/snapshot",
-			sandbox: "read-only",
-		}),
-	).toContain("--skip-git-repo-check");
-	expect(buildOpenaiExecArgs({ prompt: "Run task", cwd: "/tmp/workspace" })).not.toContain(
-		"--skip-git-repo-check",
-	);
-});
-
-it("buildOpenaiExecArgs › does not enable network for a read-only classifier", () => {
+it("buildOpenaiExecArgs › gives reviewers a read-only profile without project instructions", () => {
 	const args = buildOpenaiExecArgs({
 		prompt: "yes or no",
 		cwd: "/tmp/seal",
 		sandbox: "read-only",
 		networkAccess: true,
 	});
-	expect(args).not.toContain("sandbox_workspace_write.network_access=true");
+	expect(args).toContain('permissions.agent_test.extends=":read-only"');
+	expect(args.find((arg) => arg.startsWith("permissions.agent_test.filesystem="))).toContain(
+		'":workspace_roots"={"."="read"}',
+	);
+	expect(args).toContain("project_doc_max_bytes=0");
+	expect(args).toContain("--skip-git-repo-check");
+	expect(args).toContain("approval_policy=never");
+	expect(args).not.toContain("permissions.agent_test.network.enabled=true");
+	expect(args).not.toContain("--sandbox");
+});
+
+it("buildOpenaiExecArgs › keeps project instructions and git checks for task runs", () => {
+	const args = buildOpenaiExecArgs({ prompt: "Run task", cwd: "/tmp/workspace" });
+	expect(args).not.toContain("--skip-git-repo-check");
+	expect(args).not.toContain("project_doc_max_bytes=0");
 });
 
 it("buildOpenaiExecArgs › passes stdio MCP servers as -c overrides", () => {

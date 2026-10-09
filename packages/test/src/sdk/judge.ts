@@ -43,6 +43,7 @@ export interface EvaluationRequest<S extends z.ZodType> {
 	input: JsonValue;
 	baseDir: string;
 	outputDir: string;
+	protectedPaths: readonly string[];
 	signal: AbortSignal;
 	onStart?: (value: { input: JsonValue; evaluation: { prompt: string; schema: unknown } }) => void;
 }
@@ -81,6 +82,7 @@ export async function evaluate<S extends z.ZodType>(
 			workspace,
 			signal: request.signal,
 			readOnly: true,
+			protectedPaths: request.protectedPaths,
 		});
 		request.onStart?.({
 			input: prepared.input,

@@ -28,6 +28,7 @@ import type {
 } from "./types.js";
 import { runUsage } from "./usage.js";
 import {
+	callerCheckout,
 	changedPaths,
 	prepareAgent,
 	prepareWorkspace,
@@ -106,9 +107,15 @@ export class TestRuntime {
 	private readonly controller = new AbortController();
 	private readonly snapshotStorage = snapshotBudget();
 	private readonly sourceEvidenceStorage = sourceEvidenceBudget();
+	private protectedPaths?: Promise<string[]>;
 	private nextInvocationIndex = 0;
 	private closed = false;
 	constructor(readonly options: RuntimeOptions) {}
+	/** Paths every session in this test is denied: the checkout holding the suite. */
+	private checkoutPaths(): Promise<string[]> {
+		this.protectedPaths ??= callerCheckout(this.options.baseDir).then((path) => [path]);
+		return this.protectedPaths;
+	}
 	private get signal() {
 		return AbortSignal.any([this.options.signal, this.controller.signal]);
 	}
@@ -158,6 +165,7 @@ export class TestRuntime {
 							settings: { ...agentSettings, prompt, schema },
 							input,
 							...this.options,
+							protectedPaths: await this.checkoutPaths(),
 							signal: this.signal,
 							onStart: ({ input: selectedInput, evaluation }) => {
 								startedEvaluation = evaluation;
@@ -221,6 +229,7 @@ export class TestRuntime {
 			agent: definition,
 			workspace: workspace.path,
 			signal: this.signal,
+			protectedPaths: await this.checkoutPaths(),
 		});
 		const history: AgentTrace = { messages: [], toolCalls: [], shellCommands: [], artifacts: {} };
 		return this.conversation(name, {

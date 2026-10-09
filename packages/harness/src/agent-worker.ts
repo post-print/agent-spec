@@ -23,6 +23,7 @@ interface InitializeInput {
 	agent: AgentDefinition;
 	workspace: string;
 	readOnly: boolean;
+	protectedPaths: readonly string[];
 }
 async function initialize(input: InitializeInput): Promise<AgentCapabilities> {
 	const { agent, readOnly } = input;
@@ -62,7 +63,7 @@ async function initializeCustom(
 	return adapter.capabilities;
 }
 function builtinOptions(input: InitializeInput, prompt: string) {
-	const { agent, workspace, readOnly } = input;
+	const { agent, workspace, readOnly, protectedPaths } = input;
 	const auth = agent.options.auth ?? { type: "subscription" };
 	const apiKey = auth.type === "api-key" ? process.env[auth.env] : undefined;
 	if (auth.type === "api-key" && !apiKey) throw new Error(`Missing API key in ${auth.env}`);
@@ -73,6 +74,7 @@ function builtinOptions(input: InitializeInput, prompt: string) {
 		authMode: auth.type,
 		timeoutMs: agent.options.timeoutMs,
 		includeGlobalSkills: agent.options.includeGlobalSkills === true,
+		protectedPaths,
 		mcpServers: readOnly ? undefined : agent.options.mcpServers,
 		failOnUserInput: true,
 		onAgentEvent: (event: AgentEvent) => send("event", event),
