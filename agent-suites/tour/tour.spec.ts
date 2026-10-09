@@ -1,14 +1,24 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, statistics, z } from "@post-print/agent-test";
-import { releaseSkills, taskRecordsMcp } from "./agents.js";
+import {
+	RELEASE_SKILL_FIXTURE,
+	REPO_ROOT,
+	releaseSkills,
+	runHiddenStatusTests,
+	runStatusTests,
+	TASK_SERVICE_FIXTURE,
+	taskRecordsMcp,
+} from "./agents.js";
 
 const RUN_TESTS = /\bbun test\b/;
 const GET_TASK = /get_task/;
 const TASK_INDEX = /task_index/;
 const SEARCH_TASKS = /search_tasks/;
-const LOCAL_TOOLS = /^(Read|Shell|Bash)$/;
+// Any host tool that could read the workspace: file reads, search, shell, and edits.
+const LOCAL_TOOLS = /^(Read|Shell|Bash|Grep|Glob|Edit|Write)$/;
 // The default configuration uses OpenAI and copies the task-list sample project for each run.
 // Each test closes its agents and removes their workspaces when it ends.
 // Skill and workspace paths start from the directory that contains the configuration file.
@@ -18,31 +28,20 @@ const test = describe("Agent test examples", ({ agent, judge }) => ({
 		description: "Has no task tools, so it reads each task record file separately.",
 	}),
 	taskReader: agent({
-		description: "Looks tasks up through the taskRecords MCP server instead of reading files.",
+		description: "Looks tasks up through the taskRecords MCP server in the task-service project.",
 		mcpServers: { taskRecords: taskRecordsMcp },
+		workspace: TASK_SERVICE_FIXTURE,
 	}),
 	releaseWriter: agent({
 		description: "Starts with the release-note skill in a copy of the skill sample project.",
 		skills: releaseSkills,
-		workspace: "agent-suites/fixtures/task-list-skill",
+		workspace: RELEASE_SKILL_FIXTURE,
 	}),
-	repairReview: judge({
+	diagnosisReview: judge({
 		prompt:
-			"Read the supplied source. Does it meet both requirements? Did the agent change only the allowed files?",
+			"Read the supplied source and the agent's explanation. Does the explanation identify the actual cause of the failing status test?",
 		schema: z.object({
-			behaviorCorrect: z.boolean(),
-			onlyAllowedFilesChanged: z.boolean(),
-			reason: z.string(),
-		}),
-	}),
-	answerReview: judge({
-		prompt:
-			"Check whether all four labeled answers give the reference date. Return one correctness result for each label.",
-		schema: z.object({
-			fileRoundOneCorrect: z.boolean(),
-			indexRoundOneCorrect: z.boolean(),
-			fileRoundTwoCorrect: z.boolean(),
-			indexRoundTwoCorrect: z.boolean(),
+			identifiesCause: z.boolean(),
 			reason: z.string(),
 		}),
 	}),
@@ -58,9 +57,9 @@ test("reads the project owner from a file", {
 	expect(run.output, "The response names Mina.").toContain("Mina");
 	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
 });
-test("starts separate tasks and remembers a message when a task continues", {
+test("starts separate tasks and replays conversation text when a task continues", {
 	description:
-		"Two independent tasks must use separate workspaces. Continuing the first task must preserve its workspace and remember a code that the other task never received.",
+		"Two independent tasks must use separate workspaces. Continuing the first task replays its conversation, so it can repeat a code that the separate task never received.",
 	resources: ["coder"],
 }, async ({ coder }) => {
 	const secret = randomUUID();
@@ -74,64 +73,68 @@ test("starts separate tasks and remembers a message when a task continues", {
 		separateTask.workspace.root,
 	);
 	expect(firstTask.output, "The first task repeats the secret code.").toBe(secret);
-	// This code exists only in the first conversation. The follow-up does not repeat it.
-	const followUp = await firstTask.continue({
-		prompt: "What code did I ask you to remember? Reply with the code only. Do not use tools.",
-	});
+	// Built-in hosts replay earlier user and assistant text; the follow-up prompt does not repeat the code.
+	const recall =
+		"What code did I ask you to remember? Reply with the code only, or NONE. Do not use tools.";
+	const [followUp, separateFollowUp] = await Promise.all([
+		firstTask.continue({ prompt: recall }),
+		separateTask.continue({ prompt: recall }),
+	]);
 	expect(followUp.workspace.root, "The continuation reuses the first task workspace.").toBe(
 		firstTask.workspace.root,
 	);
-	expect(followUp.output, "The continuation remembers the secret code.").toBe(secret);
+	expect(followUp.output, "The continuation repeats the secret code.").toBe(secret);
+	expect(separateFollowUp.output, "The separate task never received the code.").not.toContain(
+		secret,
+	);
 	expect(firstTask.toolCalls, "The first task does not use tools.").toEqual([]);
 	expect(followUp.toolCalls, "The continuation does not use tools.").toEqual([]);
 });
-test("runs the failing status test without changing files", {
+test("diagnoses the failing status test without changing files", {
 	description:
-		"The agent investigates the sample status bug, runs bun test, and mentions completedAt. The test requires the workspace to remain unchanged.",
-	resources: ["coder"],
-}, async ({ coder }) => {
+		"The agent investigates the sample status bug and runs bun test without editing. A judge decides whether the explanation identifies the swapped branches; code checks that no file changed.",
+	resources: ["coder", "diagnosisReview"],
+}, async ({ coder, diagnosisReview }) => {
 	const run = await coder.run({
 		prompt:
 			"Find the cause of the failing status test. Read the source and test, run bun test, and explain the cause. Do not change files.",
 	});
-	// The sample code reverses the two states: completed tasks become open, and unfinished tasks become done.
-	// This word check only shows that the answer mentions the relevant field. It does not grade the explanation.
-	expect(run.output, "The explanation mentions completedAt.").toContain("completedAt");
 	expect(run, "The agent runs bun test.").toHaveExecutedCommand({ command: RUN_TESTS });
 	expect(run.workspace.changedPaths, "No files change during the investigation.").toEqual([]);
+	// Whether an explanation is right is a semantic question, so a judge grades it.
+	const evaluation = await diagnosisReview.run({
+		input: {
+			task: run.prompt,
+			explanation: run.output,
+			source: await readFile(join(run.workspace.initial.path, "src/status.ts"), "utf8"),
+		},
+	});
+	expect(
+		evaluation.output.identifiesCause,
+		"The judge finds the explanation identifies the cause.",
+	).toBe(true);
 });
-test("fixes the status bug and asks a judge to review the change", {
+test("fixes the status bug so visible and held-out tests pass", {
 	description:
-		"The agent fixes src/status.ts and runs the tests. A separate judge reviews the supplied source and changed paths against the two task-status requirements.",
-	resources: ["coder", "repairReview"],
-}, async ({ coder, repairReview }) => {
+		"The agent fixes src/status.ts. The test reruns the visible tests and held-out tests the agent never saw in the final workspace copy, and requires that only src/status.ts changed.",
+	resources: ["coder"],
+}, async ({ coder }) => {
 	const run = await coder.run({
 		prompt:
 			"Fix the status bug in src/status.ts. Change only that source file. Run bun test. End with TASK_STATUS_FIXED.",
 	});
 	expect(run.output, "The response contains TASK_STATUS_FIXED.").toContain("TASK_STATUS_FIXED");
-	expect(run, "bun test completes successfully.").toHaveExecutedCommand({
-		command: RUN_TESTS,
-		exitCode: 0,
-	});
+	expect(run, "The agent runs bun test.").toHaveExecutedCommand({ command: RUN_TESTS });
 	expect(run.workspace.changedPaths, "Only src/status.ts changes.").toEqual(["src/status.ts"]);
-	const evaluation = await repairReview.run({
-		input: {
-			source: await readFile(join(run.workspace.final.path, "src/status.ts"), "utf8"),
-			changedPaths: run.workspace.changedPaths,
-			allowedFiles: ["src/status.ts"],
-			requirements: ["A task with completedAt is done.", "A task without completedAt is open."],
-		},
-	});
-	expect(evaluation.output.behaviorCorrect, "The judge confirms the repaired behavior.").toBe(true);
-	expect(
-		evaluation.output.onlyAllowedFilesChanged,
-		"The judge confirms that only allowed files changed.",
-	).toBe(true);
+	// The test runs the checks itself: the agent's own command history is not the proof.
+	const visible = await runStatusTests(run.workspace.final.path);
+	expect(visible.exitCode, "The visible tests pass on the final workspace.").toBe(0);
+	const hidden = await runHiddenStatusTests(run.workspace.final.path);
+	expect(hidden.exitCode, "Held-out tests pass on the final workspace.").toBe(0);
 });
-test("gets a task date without calling Read, Shell, or Bash", {
+test("gets a task date from the task service without local tools", {
 	description:
-		"The agent retrieves TASK-104 through the task service. The answer must contain September 24, 2026, without using file or shell tools.",
+		"The agent retrieves TASK-104 through the task service. Its workspace holds no task records, so the date can only come from the service. No file, search, or shell tool may run.",
 	resources: ["taskReader"],
 }, async ({ taskReader }) => {
 	const run = await taskReader.run({
@@ -140,23 +143,30 @@ test("gets a task date without calling Read, Shell, or Bash", {
 	});
 	expect(run.output, "The response contains 2026-09-24.").toContain("2026-09-24");
 	expect(run, "get_task is called.").toHaveCalledTool(GET_TASK);
-	expect(run, "Read, Shell, and Bash are not called.").not.toHaveCalledTool(LOCAL_TOOLS);
+	expect(run, "No local file, search, or shell tool is called.").not.toHaveCalledTool(LOCAL_TOOLS);
 });
-// The skill says to read PROJECT.md and return only the release note from that file.
-test("reads a skill and follows its release note instructions", {
+// The skill holds the release-note format; PROJECT.md holds only the task ID.
+test("reads an attached skill and follows its release note format", {
 	description:
-		"The agent reads the attached release-note skill and PROJECT.md, then returns exactly the release note stored in the project.",
+		"The release-note skill is attached from outside the fixture. The agent must read it and PROJECT.md, then combine the skill's format with the project's next task.",
 	resources: ["releaseWriter"],
 }, async ({ releaseWriter }) => {
 	const run = await releaseWriter.run({
 		prompt: "Use the release-note skill. Return only the release note.",
 	});
-	expect(run.output, "The response is exactly the project release note.").toBe(
+	const skillFile = `${run.startingContext.skills[0].destination}/SKILL.md`;
+	expect(
+		existsSync(join(REPO_ROOT, RELEASE_SKILL_FIXTURE, skillFile)),
+		"The fixture itself does not contain the skill.",
+	).toBe(false);
+	expect(
+		run.workspace.initial.files[skillFile],
+		"Attachment adds the skill to the workspace.",
+	).toBeDefined();
+	expect(run.output, "The response follows the skill's format.").toBe(
 		"RELEASE: TASK-104 is ready.",
 	);
-	expect(run, "The release-note SKILL.md is read.").toHaveReadPath(
-		`${run.startingContext.skills[0].destination}/SKILL.md`,
-	);
+	expect(run, "The release-note SKILL.md is read.").toHaveReadPath(skillFile);
 	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
 });
 // Search returns an old date, September 20. The task details give the current date, September 24.
@@ -207,45 +217,32 @@ test("gets the current date from task details instead of an old search result", 
 // Reading four separate records adds work on purpose so we can compare it with one index lookup.
 test("uses fewer tokens and tool calls for one index lookup than four file reads", {
 	description:
-		"Across two rounds, compare four separate file reads with one task-index lookup. One judge checks all four answers; assertions compare average token use and tool calls. Two rounds are illustrative, not statistical proof.",
-	resources: ["fileLookup", "taskReader", "answerReview"],
-}, async ({ fileLookup, taskReader, answerReview }) => {
+		"Across two rounds, compare four separate file reads with one task-index lookup. Every answer must contain the current date; assertions compare average token use and tool calls. Two rounds are illustrative, not statistical proof.",
+	resources: ["fileLookup", "taskReader"],
+}, async ({ fileLookup, taskReader }) => {
 	const samples = [];
 	// Two rounds show how to calculate an average. They do not prove that the index always uses fewer tokens.
 	for (let repetition = 0; repetition < 2; repetition++) {
 		const [fileRun, indexRun] = await Promise.all([
 			fileLookup.run({
 				prompt:
-					"Read records/TASK-101.md through records/TASK-104.md separately. Return the current due date for TASK-104.",
+					"Read records/TASK-101.md through records/TASK-104.md separately. Return the current due date for TASK-104 in YYYY-MM-DD format only.",
 			}),
 			taskReader.run({
 				prompt:
-					"Call task_index once to find TASK-104. Return its current due date. Do not use other tools.",
+					"Call task_index once to find TASK-104. Return its current due date in YYYY-MM-DD format only. Do not use other tools.",
 			}),
 		]);
 		for (const id of ["TASK-101", "TASK-102", "TASK-103", "TASK-104"])
 			expect(fileRun, "Each task record is read.").toHaveReadPath(`records/${id}.md`);
+		expect(fileRun.output, "The file-based answer gives the current date.").toContain("2026-09-24");
 		expect(indexRun, "The index task calls task_index.").toHaveCalledTool(TASK_INDEX);
 		expect(indexRun.toolCalls, "The index task makes exactly one tool call.").toHaveLength(1);
+		expect(indexRun.output, "The index-based answer gives the current date.").toContain(
+			"2026-09-24",
+		);
 		samples.push({ fileRun, indexRun });
 	}
-	const [roundOne, roundTwo] = samples;
-	if (!roundOne || !roundTwo) throw new Error("Expected two comparison rounds");
-	const review = await answerReview.run({
-		input: {
-			fileRoundOne: roundOne.fileRun.output,
-			indexRoundOne: roundOne.indexRun.output,
-			fileRoundTwo: roundTwo.fileRun.output,
-			indexRoundTwo: roundTwo.indexRun.output,
-			referenceDate: "2026-09-24",
-		},
-	});
-	expect(review.output.fileRoundOneCorrect, "The first file-based answer is correct.").toBe(true);
-	expect(review.output.indexRoundOneCorrect, "The first index-based answer is correct.").toBe(true);
-	expect(review.output.fileRoundTwoCorrect, "The second file-based answer is correct.").toBe(true);
-	expect(review.output.indexRoundTwoCorrect, "The second index-based answer is correct.").toBe(
-		true,
-	);
 	const fileTokens = statistics(samples.map(({ fileRun }) => fileRun.usage.tokens.total));
 	const indexTokens = statistics(samples.map(({ indexRun }) => indexRun.usage.tokens.total));
 	expect(indexTokens.mean, "The index lookup uses fewer tokens on average.").toBeLessThan(

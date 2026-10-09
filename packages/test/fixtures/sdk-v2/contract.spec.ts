@@ -1,7 +1,7 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { customAgent } from "../../../harness/dist/index.js";
-import { describe, expect, statistics, z } from "../../dist/index.js";
+import { describe, expect, statistics, WorkspaceEscapeError, z } from "../../dist/index.js";
 import { TestRuntime } from "../../dist/sdk/runtime.js";
 
 const fake = (options = {}) =>
@@ -224,4 +224,12 @@ test("failed setup still cleans the task workspace", async (_resources, info) =>
 	}
 	expect(workspacePath).not.toBe("");
 	await expect(access(workspacePath)).rejects.toThrow();
+});
+test("a run that names a path outside its workspace is rejected", async ({ agent }) => {
+	const failure = await agent.run({ prompt: "ESCAPE" }).then(
+		() => undefined,
+		(error: unknown) => error,
+	);
+	expect(failure).toBeInstanceOf(WorkspaceEscapeError);
+	expect(failure instanceof WorkspaceEscapeError ? failure.paths : []).toEqual(["../owner.json"]);
 });

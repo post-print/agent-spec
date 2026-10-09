@@ -1,13 +1,12 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { ownerIsActive, type ProcessOwner, processOwner } from "./process-owner.js";
 
 export const SEALED_WORKSPACE_DIR_PREFIX = "agent-harness-seal-";
 interface SealedManifest {
 	version: 1;
 	kind: "agent-harness-sealed-workspace";
-	callerCwd: string;
 	createdAt: string;
 	owner: ProcessOwner;
 }
@@ -56,14 +55,14 @@ async function readManifest(root: string): Promise<SealedManifest | undefined> {
 	}
 }
 
-export async function allocateSealedWorkspace(callerCwd: string) {
+/** Allocate an owned temp root. The manifest names no caller path: the agent can read it. */
+export async function allocateSealedWorkspace() {
 	await recoverSealedWorkspaces();
 	const root = await mkdtemp(join(tmpdir(), SEALED_WORKSPACE_DIR_PREFIX));
 	try {
 		const manifest: SealedManifest = {
 			version: 1,
 			kind: "agent-harness-sealed-workspace",
-			callerCwd: resolve(callerCwd),
 			createdAt: new Date().toISOString(),
 			owner: await processOwner(),
 		};

@@ -9,10 +9,10 @@ A suite calls `describe(name, ({ agent, judge }) => ({ ...namedResources }))` an
 | Suite | Coverage |
 | --- | --- |
 | tour | Read project files, explain and fix a bug, use task tools, follow a skill, continue a conversation, compare token use |
-| test-sdk-capabilities | Check replies, file access, tool order, successful commands, attached notes, workspace setup, skills, and judge answers |
+| test-sdk-capabilities | Check replies, file access, tool order, verified repairs, attached notes, workspace setup, workspace escape, skills, and judge answers |
 
 The root config uses one OpenAI agent and a separate OpenAI reviewer. The matrix config runs the same tests against OpenAI, Claude, and Cursor. A full default discovery lists 19 tests; the matrix lists 57.
 
 `agent()` resources can declare a viewer description and attach skills, context, MCP servers, a workspace, or a positive `timeoutMs`; chain `.setup(fn)` to prepare each fresh workspace; individual run objects can add task resources. Tests can declare `description` and `criteria` metadata for the setup view. When explicit criteria are omitted, direct assertions supply the criteria; an optional static `expect(actual, "Readable criterion")` message supplies the viewer label. This discovery metadata is not sent to the host. `judge()` resources declare a prompt and schema. Calls pass only selected JSON input. Multiple resources are ordinary named entries returned by the callback.
 
-Comparisons use ordinary JavaScript and assertions. Repeated independent calls start fresh; `run.continue` shares the original task. Skills and MCP definitions are in [agents.ts](../agent-suites/tour/agents.ts). The repair judge sees explicitly selected source content and changed paths, not an implicit workspace copy.
+Comparisons use ordinary JavaScript and assertions. Repeated independent calls start fresh; `run.continue` shares the original task. Skills and MCP definitions are in [agents.ts](../agent-suites/tour/agents.ts). Repair tests rerun the visible tests and held-out tests (from `agent-suites/fixtures/task-list-hidden`, never copied into a task workspace) on the final workspace copy. The release-note skill lives in `agent-suites/skills`, outside every fixture, so its presence in a workspace proves attachment. Task-service tests use a workspace with no task records. The diagnosis judge sees only the selected source and explanation.

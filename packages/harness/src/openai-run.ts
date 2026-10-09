@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
 import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
+import { codexPermissionArgs, tomlString } from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -67,6 +68,8 @@ export interface OpenaiRunOptions {
 	includeGlobalSkills?: boolean;
 	/** Allow network access in a workspace-write sandbox. Default false. */
 	networkAccess?: boolean;
+	/** Absolute paths the agent may neither read nor write (the caller checkout). */
+	protectedPaths?: readonly string[];
 }
 
 export interface OpenaiRunResult {
@@ -234,9 +237,7 @@ export function buildOpenaiEnv(authMode: OpenaiAuthMode, apiKey?: string): NodeJ
 	return env;
 }
 
-export function tomlString(value: string): string {
-	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
+export { tomlString };
 
 /** One `-c mcp_servers.name={…}` override for `codex exec`. */
 export function buildOpenaiMcpOverride(name: string, config: McpServerConfig): string {
@@ -295,13 +296,12 @@ export function buildOpenaiExecArgs(options: {
 	mcpServers?: Record<string, McpServerConfig>;
 	includeGlobalSkills?: boolean;
 	networkAccess?: boolean;
+	protectedPaths?: readonly string[];
 }): string[] {
-	const sandbox = options.sandbox ?? "workspace-write";
+	const readOnly = options.sandbox === "read-only";
 	const args = [
 		"exec",
 		"--json",
-		"--sandbox",
-		sandbox,
 		"--cd",
 		options.cwd,
 		// Deny keeps ~/.codex/config.toml out. Auth still uses CODEX_HOME.
@@ -311,11 +311,15 @@ export function buildOpenaiExecArgs(options: {
 		// cannot prompt, and so we do not need --approve-for-me (Codex >= 0.147).
 		"-c",
 		"approval_policy=never",
+		...codexPermissionArgs({
+			cwd: options.cwd,
+			readOnly,
+			protectedPaths: options.protectedPaths ?? [],
+			networkAccess: options.networkAccess,
+		}),
 	];
-	if (sandbox === "read-only") args.push("--skip-git-repo-check");
-	if (sandbox === "workspace-write" && options.networkAccess === true) {
-		args.push("-c", "sandbox_workspace_write.network_access=true");
-	}
+	// Reviewers get no project instructions: only the evaluation prompt and their own context.
+	if (readOnly) args.push("--skip-git-repo-check", "-c", "project_doc_max_bytes=0");
 	args.push(...buildOpenaiMcpConfigArgs(options.mcpServers));
 	const model =
 		options.model?.trim() ||
@@ -551,6 +555,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
 		includeGlobalSkills: options.includeGlobalSkills === true,
 		networkAccess: options.networkAccess === true,
+		protectedPaths: options.protectedPaths,
 	});
 	const runHome = options.includeGlobalSkills === true ? undefined : await createOpenaiRunHome();
 

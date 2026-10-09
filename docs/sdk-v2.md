@@ -33,31 +33,30 @@ const test = describe("task answers", ({ agent, judge }) => ({
     description: "Adds the research skill for current-information tasks.",
     skills: ["./skills/research"],
   }),
-  accuracy: judge({
-    prompt: "Compare each answer against the supplied reference.",
+  sourcing: judge({
+    prompt: "Does each answer name the authoritative source it used for the deadline?",
     schema: z.object({
-      baselineCorrect: z.boolean(),
-      candidateCorrect: z.boolean(),
+      baselineCitesSource: z.boolean(),
+      candidateCitesSource: z.boolean(),
       reason: z.string(),
     }),
   }),
 }));
 
-test("research preserves accuracy", async ({ baseline, researcher, accuracy }) => {
-  const prompt = "Find the current deadline.";
+test("research preserves accuracy", async ({ baseline, researcher, sourcing }) => {
+  const prompt = "Find the current deadline and name your source.";
   const [first, second] = await Promise.all([
     baseline.run({ prompt }),
     researcher.run({ prompt }),
   ]);
-  const evaluation = await accuracy.run({
-    input: {
-      baseline: first.output,
-      candidate: second.output,
-      reference: "2026-09-24",
-    },
+  // Code decides what code can decide; the judge grades only the semantic question.
+  expect(first.output).toContain("2026-09-24");
+  expect(second.output).toContain("2026-09-24");
+  const evaluation = await sourcing.run({
+    input: { baseline: first.output, candidate: second.output },
   });
-  expect(evaluation.output.baselineCorrect).toBe(true);
-  expect(evaluation.output.candidateCorrect).toBe(true);
+  expect(evaluation.output.baselineCitesSource).toBe(true);
+  expect(evaluation.output.candidateCitesSource).toBe(true);
 });
 ```
 
@@ -76,7 +75,7 @@ const diagnosis = await coder.run({ prompt: "Investigate without editing." });
 const repair = await diagnosis.continue({ prompt: "Apply the fix and run the tests." });
 ```
 
-Continuation keeps the original resources and workspace. Overlapping continuations of the same conversation are rejected. Built-in hosts reconstruct history rather than resume native sessions; custom adapters may declare native continuation.
+Continuation keeps the original resources and workspace. Overlapping continuations of the same conversation are rejected. Built-in hosts do not resume native sessions: each continuation replays the earlier user and assistant text (not tool calls or results) ahead of the new prompt, and reports `capabilities.conversation: "reconstructed"`. A continuation that repeats an earlier message therefore proves the replay, not model memory. Custom adapters may declare native continuation.
 
 Run results expose `output`, `trace`, `conversation`, `toolCalls`, `usage`, `durationMs`, `startingContext`, workspace snapshots/changed paths, and an artifact directory. `continue` is the only execution method on a run result. Snapshot file contents remain available until test teardown. Teardown removes full-tree copies while preserving hash maps and bounded changed-file evidence. See [storage ownership and retention](isolation.md#storage-ownership-and-retention) for budgets, exclusion settings, and recovery boundaries.
 
@@ -115,11 +114,11 @@ A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ in
 
 There is no automatic transcript, workspace, tool, or token inclusion. Passing `run.output` supplies only text. To evaluate a patch, read the selected snapshot files yourself and pass their contents. A whole run object is not JSON input because it contains execution methods. Judge definitions may explicitly attach their own context and skills; those are also supplied.
 
-Every evaluation starts a fresh read-only reviewer in a separate workspace containing only its attached resources. The request records the selected input, output schema, and starting context. Response/trace, parsed result, errors, usage, and artifact paths are retained. Inputs above the 200000-byte request limit fail without truncation. Undefined and non-finite input values fail rather than being silently dropped or coerced.
+Every evaluation starts a fresh read-only reviewer in an empty sealed workspace in the OS temp folder, containing only its attached resources. It is not inside the test output folder or the caller checkout, so run transcripts, snapshots, and the repository's AGENTS.md or CLAUDE.md are out of reach. A reviewer whose tool calls name a path outside that workspace fails with `WorkspaceEscapeError`. The request records the selected input, output schema, and starting context. Response/trace, parsed result, errors, usage, and artifact paths are retained. Inputs above the 200000-byte request limit fail without truncation. Undefined and non-finite input values fail rather than being silently dropped or coerced.
 
 `evaluation.output` is parsed and schema-validated. Invalid JSON or a schema mismatch is an evaluation error, with no automatic retry. There is no built-in score rubric, evidence-citation validator, or winner calculation: request those fields in your schema and assert whatever the test requires. Schema validation proves structure, not factual accuracy.
 
-OpenAI uses a read-only sandbox; Claude restricts judge tools to Read/Glob/Grep. Cursor rejects judge sessions until enforced read-only support exists. Custom adapters must declare and enforce read-only capability.
+OpenAI uses a read-only permission profile that also denies the temp folder and the caller checkout, and loads no project instructions; Claude restricts judge tools to Read/Glob/Grep under the same denials. See [the isolation boundary](isolation.md#isolation-boundary). Cursor rejects judge sessions until enforced read-only support exists. Custom adapters must declare and enforce read-only capability.
 
 ## Comparisons and metrics
 
@@ -139,6 +138,16 @@ expect(tokens.mean).toBeLessThan(tokenBudget);
 ```
 
 `statistics` computes count/mean/min/max. Missing measurements expose `available: false` and throw when an aggregate is accessed. Judge usage is separate from task usage. Cross-provider tokens are not equivalent cost; small samples do not establish reliability.
+
+## Verify results in the test
+
+Assert outcomes with checks the test runs itself. The agent's own commands are weak evidence.
+
+- `runCommand(directory, argv, { timeoutMs })` runs one program with an argument list (no shell) and resolves `{ exitCode, stdout, stderr }`. A nonzero exit resolves; a timeout, abort, or missing program rejects. Run it on `run.workspace.final.path`, a disposable copy, to rerun tests after the agent finishes. Copy held-out checks into that copy first when the visible tests could be satisfied by special-casing them. The copy excludes `node_modules`, `.git`, and `.venv`; a suite that needs dependencies installs them in setup.
+- `toHaveExecutedCommand({ command, exitCode })` matches unwrapped shell commands. With `exitCode`, a command counts only when it runs last, after `cd`, `&&`, or `;`. A command in a pipeline or before `||` does not own the recorded exit code: `bun test | tail` with failing tests no longer passes as exit 0.
+- `toHaveReadPath` needs a successful read through a read tool or a content-printing command (`cat`, `head`, `tail`, `sed`, `awk`, `nl`, `grep`, `rg`, and similar).
+- `toHaveAccessedPath` over-reports, for negative use. The exact path, an enclosing directory, a matching glob, and Grep or Glob without a `path` all count as possible access.
+- Use a judge only for questions code cannot decide, such as whether an explanation is correct. Compare strings, file lists, and dates with assertions.
 
 ## Durable progress for long tests
 
@@ -169,6 +178,8 @@ Use `defineAgent` and `customAgent` from agent-harness. The adapter supplies cap
 
 Replace `test.use` with direct config defaults and factory resources returned from `describe`. Replace string run arguments with `{ prompt }`. Successive independent runs no longer share a workspace: use `run.continue` explicitly. Replace `compare` with JavaScript and assertions. Replace `defineJudge`/`run.judge` with a named `judge({ prompt, schema })` resource and selected `input`.
 
+Behavior changes in this release, all on by default: runs and judges that name paths outside their workspace fail with `WorkspaceEscapeError`; Codex runs use a permission profile instead of `--sandbox`; Claude runs pass sandbox and permission `--settings`; judges no longer work inside the test output folder; `toHaveExecutedCommand` with `exitCode` ignores commands whose exit code belongs to a pipeline or `||` chain; `toHaveAccessedPath` counts enclosing directories, globs, and unscoped searches.
+
 JSON suites and their separate runtime remain removed. Playwright HTML reporting is available through `agent-test test --reporter=html`. No compatibility execution path is retained for the earlier SDK shape.
 
 ## Test pages in the viewer
@@ -190,4 +201,4 @@ test("reads the project owner", {
 
 The viewer lists all discovered tests in its persistent sidebar. Each test has a separate route with its description, pass criteria, project, source file, and declared resources. Resource metadata shows configured hosts, models, skills, MCP server names, and judge instructions; it excludes authentication and MCP credentials. Recorded operations show which declared resources actually ran.
 
-The Current run, Test setup, and Run history tabs keep the selected view and execution in the URL, so reload and browser navigation preserve them. Each attempt opens with a verdict: its status, how many checks passed, agent totals for duration, tokens, tool calls, and changed files (with the median per run when the test made several agent runs), and its checks. Failed and unrecorded checks always show with expected-versus-received detail; when there are more than three checks, passing ones fold under a "passed checks" disclosure. A check shows a judge explanation only when the judge returned one for that field. The judge section comes before the agent section. It opens with the question the judge was asked, since that defines what each finding means. Findings follow. Each is named in the test's own words, using the judge input label ("File round one") when the field judges an answer or the field name otherwise; the pass or fail icon carries the verdict, and the row names the agent run that produced the judged answer, adds that agent's `description` when the test gives one, and quotes the answer; short reference values the test supplied appear as "Compared with", and a single `reason` covering every field is shown once after the findings rather than split across them. Agent sections hold the conversation, and a per-run metrics card appears only when there are several runs to compare. In the judge section, the fields the test sent to the judge are folded under "What the judge saw", which opens on its own while the judge runs or when a finding failed. Selecting a run that contains multiple tests shows only the selected test's attempts and a link back to that run. Current run opens the newest run that executed the test, not one that skipped it, and Run history shows the test's own result in each run rather than the batch result.
+The Current run, Test setup, and Run history tabs keep the selected view and execution in the URL, so reload and browser navigation preserve them. Each attempt opens with a verdict: its status, how many checks passed, agent totals for duration, tokens, tool calls, and changed files (with the median per run when the test made several agent runs), and its checks. Failed and unrecorded checks always show with expected-versus-received detail; when there are more than three checks, passing ones fold under a "passed checks" disclosure. A check shows a judge explanation only when the judge returned one for that field. The judge section comes before the agent section. It opens with the question the judge was asked, since that defines what each finding means. Findings follow. Each is named in the test's own words, using the judge input label (a `baselineCitesSource` field reads as "Baseline") when the field judges an answer or the field name otherwise; the pass or fail icon carries the verdict, and the row names the agent run that produced the judged answer, adds that agent's `description` when the test gives one, and quotes the answer; short reference values the test supplied appear as "Compared with", and a single `reason` covering every field is shown once after the findings rather than split across them. Agent sections hold the conversation, and a per-run metrics card appears only when there are several runs to compare. In the judge section, the fields the test sent to the judge are folded under "What the judge saw", which opens on its own while the judge runs or when a finding failed. Selecting a run that contains multiple tests shows only the selected test's attempts and a link back to that run. Current run opens the newest run that executed the test, not one that skipped it, and Run history shows the test's own result in each run rather than the batch result.

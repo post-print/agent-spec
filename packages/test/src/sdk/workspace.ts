@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { cp, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -63,6 +64,17 @@ export async function prepareWorkspace(
 			return readFile(under(await realpath(sealed.path), actual), "utf8");
 		},
 	};
+}
+/**
+ * The checkout that owns the suite: the Git top level above the config directory, or the
+ * directory itself. Hosts deny it to agents and reviewers because it holds the specs.
+ */
+export function callerCheckout(baseDir: string): Promise<string> {
+	return new Promise((done) => {
+		execFile("git", ["rev-parse", "--show-toplevel"], { cwd: baseDir }, (error, stdout) => {
+			done(error ? resolve(baseDir) : stdout.trim());
+		});
+	});
 }
 export interface StartingContext {
 	instructions: string[];
