@@ -421,6 +421,9 @@ async function checkJudgeReview(conversation: Locator) {
 	await expect(findings).toContainText("agent · Run 1");
 	await expect(findings).toContainText("agent · Run 2");
 	await expect(findings.getByLabel("Passed")).toHaveCount(2);
+	await expect(findings).toContainText("agent · Run 1 · judged correct");
+	await expect(findings).toContainText("Compared with");
+	await expect(findings).toContainText("Release State: No rollback plan is available.");
 	await expect(findings).toContainText("It names the production rollback risk.");
 	await expect(findings).toContainText("It recommends waiting for a rollback plan.");
 	await expect(

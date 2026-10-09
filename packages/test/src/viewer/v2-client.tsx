@@ -3198,8 +3198,9 @@ function Conversation({
 				<section aria-label={`${label} messages`} {...stylex.props(styles.conversationThread)}>
 					{judge ? (
 						<>
+							<JudgeAsked review={judge} />
 							<JudgeResponse review={judge} operations={allOperations} />
-							<JudgeQuestion review={judge} operations={allOperations} />
+							<JudgeInputs review={judge} operations={allOperations} />
 						</>
 					) : (
 						<ConversationEvents timeline={timeline} />
@@ -3264,41 +3265,40 @@ type JudgeReviewData = {
 	reason?: string;
 };
 
-/** What the judge was asked, then its inputs folded away: they mostly repeat the agent's answer. */
-function JudgeQuestion({
+/** The judge's instruction comes first: it defines what each finding below means. */
+function JudgeAsked({ review }: { review: JudgeReviewData }) {
+	if (!review.question) return null;
+	return (
+		<section aria-label="Judge question" {...stylex.props(styles.judgeQuestion)}>
+			<p {...stylex.props(styles.judgeQuestionText)}>
+				<span {...stylex.props(styles.judgeAskedLabel)}>Asked</span>
+				<span>{review.question}</span>
+			</p>
+		</section>
+	);
+}
+
+/** Everything the test sent the judge, folded away: it mostly repeats the agent answers. */
+function JudgeInputs({
 	review,
 	operations,
 }: {
 	review: JudgeReviewData;
 	operations: Attempt["operations"];
 }) {
-	if (!review.question && !review.context.length) return null;
+	if (!review.context.length) return null;
 	// Inputs matter most before findings exist and when a finding failed.
 	const inputsFirst =
 		review.outcomes.length === 0 || review.outcomes.some((outcome) => !outcome.passed);
 	return (
-		<section aria-label="Judge question" {...stylex.props(styles.judgeQuestion)}>
-			{review.question ? (
-				<p {...stylex.props(styles.judgeQuestionText)}>
-					<span {...stylex.props(styles.judgeAskedLabel)}>Asked</span>
-					<span>{review.question}</span>
-				</p>
-			) : null}
-			{review.context.length ? (
-				<section aria-label="Context included">
-					<details
-						data-disclosure
-						open={inputsFirst}
-						{...stylex.props(styles.judgeContextDisclosure)}
-					>
-						<summary {...stylex.props(styles.judgeContextSummary)}>
-							What the judge saw · {review.context.length} selected{" "}
-							{pluralize(review.context.length, "field")}
-						</summary>
-						<JudgeContext context={review.context} operations={operations} />
-					</details>
-				</section>
-			) : null}
+		<section aria-label="Context included">
+			<details data-disclosure open={inputsFirst} {...stylex.props(styles.judgeContextDisclosure)}>
+				<summary {...stylex.props(styles.judgeContextSummary)}>
+					What the judge saw · {review.context.length} selected{" "}
+					{pluralize(review.context.length, "field")}
+				</summary>
+				<JudgeContext context={review.context} operations={operations} />
+			</details>
 		</section>
 	);
 }
@@ -3470,39 +3470,49 @@ function JudgeResponse({
 	operations: Attempt["operations"];
 }) {
 	if (!review || (!review.outcomes.length && !review.reason)) return null;
-	const { answers } = judgeContextGroups(review.context, operations);
-	return <JudgeFindings outcomes={review.outcomes} reason={review.reason} answers={answers} />;
+	const { answers, supplied } = judgeContextGroups(review.context, operations);
+	return (
+		<JudgeFindings
+			outcomes={review.outcomes}
+			reason={review.reason}
+			answers={answers}
+			references={supplied.filter((item) => item.value.length <= SHORT_REFERENCE)}
+		/>
+	);
 }
 
-/** One row per judged field. A reason shared by every field is shown once, after the rows. */
+const SHORT_REFERENCE = 120;
+const ANSWER_QUOTE = 160;
+
+/**
+ * One row per judged field, quoting the answer it judged, then the short reference values the
+ * test supplied and the judge's shared reason. Together they show why each row passed or failed.
+ */
 function JudgeFindings({
 	outcomes,
 	reason,
 	answers = [],
+	references = [],
 }: {
 	outcomes: JudgeReviewData["outcomes"];
 	reason?: string;
 	answers?: JudgeAnswerContext[];
+	references?: JudgeReviewData["context"];
 }) {
 	return (
 		<section aria-label="Judge response" {...stylex.props(styles.judgeResponse)}>
 			<h4 {...stylex.props(styles.judgeResponseHeading)}>Findings</h4>
 			<div {...stylex.props(styles.judgeOutcomeList)}>
 				{outcomes.map((outcome) => (
-					<div key={outcome.label} {...stylex.props(styles.judgeOutcome)}>
-						<CriterionOutcomeIcon
-							outcome={outcome.passed ? "passed" : "failed"}
-							label={outcome.passed ? "Passed" : "Failed"}
-						/>
-						<span {...stylex.props(styles.judgeOutcomeLabel)}>
-							{judgeOutcomeLabel(outcome, answers)}
-						</span>
-						{outcome.explanation ? (
-							<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
-						) : null}
-					</div>
+					<JudgeFindingRow key={outcome.label} outcome={outcome} answers={answers} />
 				))}
 			</div>
+			{outcomes.length && references.length ? (
+				<p {...stylex.props(styles.judgeReason)}>
+					<span {...stylex.props(styles.judgeAskedLabel)}>Compared with</span>
+					{references.map((item) => `${item.label}: ${item.value}`).join(" · ")}
+				</p>
+			) : null}
 			{reason ? (
 				<p {...stylex.props(styles.judgeReason)}>
 					{outcomes.length ? <span {...stylex.props(styles.judgeAskedLabel)}>Reason</span> : null}
@@ -3513,21 +3523,58 @@ function JudgeFindings({
 	);
 }
 
-/**
- * A field named after an answer the judge saw ("fileRoundOneCorrect" for "fileRoundOne") reads as
- * that answer plus what was judged: "fileLookup · Run 1 · judged correct".
- */
-function judgeOutcomeLabel(
+function JudgeFindingRow({
+	outcome,
+	answers,
+}: {
+	outcome: JudgeReviewData["outcomes"][number];
+	answers: JudgeAnswerContext[];
+}) {
+	const answer = judgedAnswer(outcome, answers);
+	return (
+		<div {...stylex.props(styles.judgeOutcome)}>
+			<CriterionOutcomeIcon
+				outcome={outcome.passed ? "passed" : "failed"}
+				label={outcome.passed ? "Passed" : "Failed"}
+			/>
+			<span {...stylex.props(styles.judgeOutcomeLabel)}>{judgeOutcomeLabel(outcome, answer)}</span>
+			{outcome.explanation ? (
+				<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
+			) : null}
+			{answer ? (
+				<p {...stylex.props(styles.judgeOutcomeExplanation)}>“{answerQuote(answer.value)}”</p>
+			) : null}
+		</div>
+	);
+}
+
+/** The answer a field is named after: "fileRoundOneCorrect" judges the "fileRoundOne" input. */
+function judgedAnswer(
 	outcome: JudgeReviewData["outcomes"][number],
 	answers: JudgeAnswerContext[],
-): string {
-	const answer = answers.find(
+): JudgeAnswerContext | undefined {
+	return answers.find(
 		(item) => outcome.label === item.label || outcome.label.startsWith(`${item.label} `),
 	);
+}
+
+/** "fileLookup · Run 1 · judged correct"; a field not named after an answer keeps its own name. */
+function judgeOutcomeLabel(
+	outcome: JudgeReviewData["outcomes"][number],
+	answer: JudgeAnswerContext | undefined,
+): string {
 	if (!answer) return outcome.label;
 	const judged = outcome.label.slice(answer.label.length).trim().toLowerCase();
 	if (!judged) return answer.tabLabel;
 	return `${answer.tabLabel} · judged ${outcome.passed ? "" : "not "}${judged}`;
+}
+
+function answerQuote(value: string): string {
+	const plain = value
+		.replace(/[*_`#>]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	return plain.length > ANSWER_QUOTE ? `${plain.slice(0, ANSWER_QUOTE - 1)}…` : plain;
 }
 
 function judgeReviewData(operation: Attempt["operations"][number]): JudgeReviewData {
