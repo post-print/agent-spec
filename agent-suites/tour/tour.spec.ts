@@ -222,11 +222,11 @@ test("uses fewer tokens and tool calls for one index lookup than four file reads
 		const [fileRun, indexRun] = await Promise.all([
 			fileLookup.run({
 				prompt:
-					"Read records/TASK-101.md through records/TASK-104.md separately. Return the current due date for TASK-104.",
+					"Read records/TASK-101.md through records/TASK-104.md separately. Return the current due date for TASK-104 in YYYY-MM-DD format only.",
 			}),
 			taskReader.run({
 				prompt:
-					"Call task_index once to find TASK-104. Return its current due date. Do not use other tools.",
+					"Call task_index once to find TASK-104. Return its current due date in YYYY-MM-DD format only. Do not use other tools.",
 			}),
 		]);
 		for (const id of ["TASK-101", "TASK-102", "TASK-103", "TASK-104"])
