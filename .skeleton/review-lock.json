@@ -2,11 +2,11 @@
 	"version": 2,
 	"documents": {
 		".skeleton/registry.md": {
-			"reviewedAt": "2026-10-01",
-			"documentHash": "sha256:1c1708e4b1d515b8b2c2c8305408a5f9677bbe103f837180a1c1301bb0e11f68",
+			"reviewedAt": "2026-10-09",
+			"documentHash": "sha256:c5a959b57efbc572b8bfd0f49e96b463a23d407adef6a513c09920ba73d89d93",
 			"reviewDependencies": {
-				"AGENTS.md": "sha256:6b822043f6e81870ffe8e2c06c51eb9aad4a203eb1cd18459298baf2a801e5d5",
-				"docs/cli.md": "sha256:0146a725a9cc212f939a095485d9ef9ca6b424c19222891ab96f4b39a435d5f5",
+				"AGENTS.md": "sha256:5b77df60513b0b2b3b6d1b22705e3be299b6aab4850572c22409cecc1b0822e0",
+				"docs/cli.md": "sha256:c719cf496330fdcf3217ad961b6b0c710e1c363569b7c3faea4a755f1aae323e",
 				"docs/getting-started.md": "sha256:b6c792b22c47275849d7fddee4df773957737d3932319f40e1d15c7867934b7b",
 				"docs/hosts.md": "sha256:a5f4f13490e05e84a54708f4842bd1f90493fd075558fea3cb9d0f94038e419f",
 				"docs/isolation.md": "sha256:509f7e6778b86432829a59788ab8436abef077ac3dc9ca338e69cd7305152830",
@@ -19,8 +19,8 @@
 			}
 		},
 		"AGENTS.md": {
-			"reviewedAt": "2026-10-01",
-			"documentHash": "sha256:6b822043f6e81870ffe8e2c06c51eb9aad4a203eb1cd18459298baf2a801e5d5",
+			"reviewedAt": "2026-10-09",
+			"documentHash": "sha256:5b77df60513b0b2b3b6d1b22705e3be299b6aab4850572c22409cecc1b0822e0",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"biome.json": "sha256:11888d363647481cfd5b03a90ccbe71e89377b2f6ea230baefcb70050de29b84",
@@ -38,12 +38,12 @@
 			}
 		},
 		"docs/cli.md": {
-			"reviewedAt": "2026-10-01",
-			"documentHash": "sha256:0146a725a9cc212f939a095485d9ef9ca6b424c19222891ab96f4b39a435d5f5",
+			"reviewedAt": "2026-10-09",
+			"documentHash": "sha256:c719cf496330fdcf3217ad961b6b0c710e1c363569b7c3faea4a755f1aae323e",
 			"reviewDependencies": {
-				"packages/test/package.json": "sha256:d74905ae78047c25057f94567dc88462d1de74e3baad9e190c288e53660060d7",
+				"packages/test/package.json": "sha256:19bbbf6b7675ed68b7d6e6075c3a2a8346d2b25f7dba0a7a228834785d57b420",
 				"packages/test/src/cli.ts": "sha256:3de5a748fc237fee05c17790fccd71444731a903cf5efc56392245783a77a968",
-				"packages/test/src/sdk/cli.ts": "sha256:dd9f171e5b27560c617717831bccd5a197f40ea10bcf39f6ecec81f74980ebab",
+				"packages/test/src/sdk/cli.ts": "sha256:4e3e1e8dd85bdf258000f3e186d9d3fd9277a73ae5584055f5f0806ba7b9405e",
 				"packages/test/src/sdk/execution-runner.ts": "sha256:9e5a6baba0ffe50299573b38a490798c57fc298f581af08930951c240ab44c33",
 				"packages/test/src/sdk/execution-store.ts": "sha256:67970a111d974983b70e6797bff735fddd50205d27f148fe5e672410075cbce3",
 				"packages/test/src/sdk/viewer.ts": "sha256:c35cf71c0c252cfed5d33dbbbb158a2a28f02fa800fcf9cf9a11ba340ee0661f"
