@@ -1,7 +1,7 @@
 # Getting started
 
 <!-- source-of-truth: first consumer run with named agent-test resources -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-09-16 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
 
 Install `@post-print/agent-test` and `@post-print/agent-harness` as dev dependencies. Use Node 22+. Authenticate the selected host as described in [hosts](hosts.md). The CLI does not load .env.
 
@@ -21,16 +21,19 @@ export default defineConfig({
 Create `agent-tests/basic.spec.ts`:
 
 ```ts
-import { describe, expect } from "@post-print/agent-test";
+import { describe, expect, runCommand } from "@post-print/agent-test";
 const test = describe("project checks", ({ agent }) => ({ coder: agent() }));
 
-test("runs the project tests", async ({ coder }) => {
-  const run = await coder.run({ prompt: "Run npm test." });
-  expect(run).toHaveExecutedCommand({ command: "npm test", exitCode: 0 });
+test("fixes the failing test", async ({ coder }) => {
+  const run = await coder.run({ prompt: "Make npm test pass. Run npm test." });
+  expect(run).toHaveExecutedCommand({ command: "npm test" });
+  // Rerun the tests yourself on the final workspace copy; the agent's report is not the proof.
+  const result = await runCommand(run.workspace.final.path, ["npm", "test"]);
+  expect(result.exitCode).toBe(0);
 });
 ```
 
-Run `npx agent-test test --list` to discover tests without starting agents. Run `npx agent-test test` to execute or `npx agent-test viewer` for the viewer. No browser is needed for CLI execution. Global skills default to excluded.
+Run `npx agent-test test --list` to discover tests without starting agents. Run `npx agent-test test` to execute or `npx agent-test viewer` for the viewer. No browser is needed for CLI execution. Global skills default to excluded. Agents and judges are confined to their workspace; a run that reaches outside it fails (see [isolation](isolation.md#isolation-boundary)).
 
 Read [the SDK guide](sdk-v2.md) for named judges, typed results, selected inputs, independent parallel tasks, continuation, and task resources. Start with the eight [worked examples](../agent-suites/tour/tour.spec.ts). The [SDK checks](../agent-suites/test-sdk-capabilities/capabilities.spec.ts) contain eleven more examples.
 
