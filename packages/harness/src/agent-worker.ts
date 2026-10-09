@@ -7,6 +7,7 @@ import type {
 	AgentEvent,
 } from "./agent-definition.js";
 import { cancelActiveClaudeRun, runClaudeAgent } from "./claude-run.js";
+import { historyTurn, reconstructedPrompt } from "./conversation-history.js";
 import { cancelActiveCursorRun, runCursorAgent } from "./cursor-run.js";
 import { cancelActiveOpenaiRun, runOpenaiAgent } from "./openai-run.js";
 import { cancelActiveOpenRouterRun, runOpenRouterAgent } from "./openrouter-run.js";
@@ -121,9 +122,7 @@ function builtinSession(input: InitializeInput): AdapterSession {
 	const history: string[] = [];
 	return {
 		async *run(prompt) {
-			const submitted = history.length
-				? `Previous conversation (context only):\n${history.join("\n\n")}\n\nCurrent user request:\n${prompt}`
-				: prompt;
+			const submitted = reconstructedPrompt(history, prompt);
 			let result;
 			try {
 				result = await runBuiltin(input, submitted);
@@ -140,7 +139,7 @@ function builtinSession(input: InitializeInput): AdapterSession {
 				.filter((message) => message.role === "assistant")
 				.map((message) => message.content)
 				.join("\n");
-			history.push(`User: ${prompt}`, `Assistant: ${answer}`);
+			history.push(...historyTurn(prompt, answer));
 			yield { type: "trace", trace: result.trace };
 		},
 		async close() {},
