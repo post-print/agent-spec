@@ -13,10 +13,16 @@ const LOCAL_TOOLS = /^(Read|Shell|Bash)$/;
 // Each test closes its agents and removes their workspaces when it ends.
 // Skill and workspace paths start from the directory that contains the configuration file.
 const test = describe("Agent test examples", ({ agent, judge }) => ({
-	coder: agent(),
-	fileLookup: agent(),
-	taskReader: agent({ mcpServers: { taskRecords: taskRecordsMcp } }),
+	coder: agent({ description: "The default agent; edits and tests the task-list sample project." }),
+	fileLookup: agent({
+		description: "Has no task tools, so it reads each task record file separately.",
+	}),
+	taskReader: agent({
+		description: "Looks tasks up through the taskRecords MCP server instead of reading files.",
+		mcpServers: { taskRecords: taskRecordsMcp },
+	}),
 	releaseWriter: agent({
+		description: "Starts with the release-note skill in a copy of the skill sample project.",
 		skills: releaseSkills,
 		workspace: "agent-suites/fixtures/task-list-skill",
 	}),

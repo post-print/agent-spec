@@ -844,6 +844,13 @@ const styles = stylex.create({
 		color: "var(--muted)",
 		fontSize: "0.72rem",
 	},
+	judgeOutcomeSource: {
+		gridColumn: 2,
+		margin: 0,
+		color: "var(--subtle)",
+		fontSize: "0.68rem",
+		lineHeight: 1.4,
+	},
 	judgeReason: { margin: 0, color: "var(--muted)", fontSize: "0.74rem", lineHeight: 1.5 },
 	judgeAskedLabel: {
 		marginRight: "0.35rem",
@@ -2174,7 +2181,22 @@ function TestExecution({ id, test }: { id: string; test: TestRecord }) {
 			</p>
 		);
 	return (
-		<ExecutionDetailView execution={{ ...detail.data, attempts }} criteria={testCriteria(test)} />
+		<AgentDescriptions.Provider value={agentDescriptions(test)}>
+			<ExecutionDetailView execution={{ ...detail.data, attempts }} criteria={testCriteria(test)} />
+		</AgentDescriptions.Provider>
+	);
+}
+
+/** What each agent in the selected test is for, from the test's own `agent({ description })`. */
+const AgentDescriptions = createContext<ReadonlyMap<string, string>>(new Map());
+
+function agentDescriptions(test: TestRecord): ReadonlyMap<string, string> {
+	return new Map(
+		(test.resources ?? []).flatMap((resource) =>
+			resource.kind === "agent" && resource.description
+				? [[resource.name, resource.description] as const]
+				: [],
+		),
 	);
 }
 
@@ -3306,6 +3328,7 @@ function JudgeInputs({
 type JudgeAnswerContext = JudgeReviewData["context"][number] & {
 	id: string;
 	tabLabel: string;
+	agentName?: string;
 };
 
 function JudgeContext({
@@ -3410,6 +3433,7 @@ function judgeContextGroups(
 			...item,
 			id: `${match.operation.id}:${index}`,
 			tabLabel: agentRunLabel(match.operation, operations),
+			agentName: match.operation.name,
 		});
 	}
 	return { answers, supplied };
@@ -3541,10 +3565,23 @@ function JudgeFindingRow({
 			{outcome.explanation ? (
 				<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
 			) : null}
+			{answer ? <JudgedAnswerSource answer={answer} /> : null}
 			{answer ? (
 				<p {...stylex.props(styles.judgeOutcomeExplanation)}>“{answerQuote(answer.value)}”</p>
 			) : null}
 		</div>
+	);
+}
+
+/** Which agent run produced the judged answer, and what that agent is for when the test says. */
+function JudgedAnswerSource({ answer }: { answer: JudgeAnswerContext }) {
+	const descriptions = useContext(AgentDescriptions);
+	const description = answer.agentName ? descriptions.get(answer.agentName) : undefined;
+	return (
+		<p {...stylex.props(styles.judgeOutcomeSource)}>
+			From {answer.tabLabel}
+			{description ? ` — ${description}` : ""}
+		</p>
 	);
 }
 

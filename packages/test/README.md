@@ -1,7 +1,7 @@
 # @post-print/agent-test
 
 <!-- source-of-truth: named agent and judge factories for TypeScript tests -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-01 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
 <!-- review-deps: paths=packages/test/src/*.ts,packages/test/src/**/*.ts,packages/test/package.json -->
 
 ```ts

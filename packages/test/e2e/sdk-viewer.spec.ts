@@ -420,7 +420,8 @@ async function checkJudgeReview(conversation: Locator) {
 	const findings = conversation.getByRole("region", { name: "Judge response" });
 	await expect(findings).toContainText("Agent response");
 	await expect(findings).toContainText("Second agent response");
-	await expect(findings).not.toContainText("agent · Run 1");
+	await expect(findings).toContainText("From agent · Run 1");
+	await expect(findings).toContainText("From agent · Run 2");
 	await expect(findings.getByLabel("Passed")).toHaveCount(2);
 	await expect(findings).not.toContainText("judged");
 	await expect(findings).toContainText("Compared with");
