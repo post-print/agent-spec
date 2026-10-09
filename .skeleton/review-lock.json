@@ -9,8 +9,8 @@
 				"docs/cli.md": "sha256:0146a725a9cc212f939a095485d9ef9ca6b424c19222891ab96f4b39a435d5f5",
 				"docs/getting-started.md": "sha256:760535fe40732dfa6ff81e0f4f9714042f1639bbb8e565ec8f97d906a16b885d",
 				"docs/hosts.md": "sha256:2120884e81437a6972592d3d597b31374281c5b27da2f423b87b7f16f8716d87",
-				"docs/isolation.md": "sha256:663c0ad62218ec45f4f31e84dea63b692f633659e86d8320a18d2e5e7f892724",
-				"docs/reliability.md": "sha256:2989e0aa08d37675fa3cd689e0b7a2508cd758d98a6ffd192c5a99cd59b681d3",
+				"docs/isolation.md": "sha256:a7606efa864825bab57df3643418651338d7115ffa904df2b56c556a549c9297",
+				"docs/reliability.md": "sha256:ed22b68907ac33284466af1efc1b91c39caa855759838cc78eece7d6d48dff68",
 				"docs/sdk-v2.md": "sha256:ba669eda62979ea9e1efad66e34756336e49c1c600a86405a2463eeecf09a054",
 				"docs/suites.md": "sha256:4297de3864463f303fdf999b2c156d267fa7ac62560fc8a7c51bf5b10e8cff7c",
 				"packages/harness/README.md": "sha256:8c10aadef2c3f0df506aa457f41e6081a7d69bb6d2f0db60c7569dd7fd83b967",
@@ -70,7 +70,7 @@
 		},
 		"docs/isolation.md": {
 			"reviewedAt": "2026-10-09",
-			"documentHash": "sha256:663c0ad62218ec45f4f31e84dea63b692f633659e86d8320a18d2e5e7f892724",
+			"documentHash": "sha256:a7606efa864825bab57df3643418651338d7115ffa904df2b56c556a549c9297",
 			"reviewDependencies": {
 				"packages/harness/src/host-isolation.ts": "sha256:14eba644c7bcf4de46df0c37897a48f4cfb74487ac6b4aa9920575b65e230727",
 				"packages/harness/src/process-owner.ts": "sha256:051469b21bdc3b5efde65693240eff2061a7c8c89e7257d2e7dc913409c3eee7",
@@ -100,16 +100,16 @@
 		},
 		"docs/reliability.md": {
 			"reviewedAt": "2026-10-09",
-			"documentHash": "sha256:2989e0aa08d37675fa3cd689e0b7a2508cd758d98a6ffd192c5a99cd59b681d3",
+			"documentHash": "sha256:ed22b68907ac33284466af1efc1b91c39caa855759838cc78eece7d6d48dff68",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"agent-suites/fixtures/task-list-hidden/tests/status.hidden.test.ts": "sha256:cb42d75392f3944f2566d499096fd5b785554c61eb3f4447634d970ffac8fb42",
 				"agent-suites/fixtures/task-list/src/status.ts": "sha256:34ece1eace5f952edbd61290b1278a99402e84149bb3b43b602d01dda76715b9",
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",
-				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:9658ac0f691d6e568cbbaa6c9143fcc5d4a242aa533da8e2aab32f828c4fd4cb",
+				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:2630e61551cab343c1139cc6f488a3be7b3941323b9de466ca8820c4f36813de",
 				"agent-suites/tour/agents.ts": "sha256:dc06650f6a40a016909f023335419d9f793bbf7f585d26cbb3112a0928f9ea18",
-				"agent-suites/tour/tour.spec.ts": "sha256:539eeffbe589e3ba020bccea1d6749b96521cbb1f391a56cf1ecbb155590463c",
-				"package.json": "sha256:e676c467974c2827d5c0d2721bf1ff14571c0d6f27387cb203cc4be518cfa1fa"
+				"agent-suites/tour/tour.spec.ts": "sha256:b857e6e0ca905da1ff7c95672b2193bee60c4e416bee21b516535a1ecdc28753",
+				"package.json": "sha256:011baf243ba44fdace363896babc222122d671113677d45b1a80c871ec1d087a"
 			}
 		},
 		"docs/sdk-v2.md": {
@@ -119,9 +119,9 @@
 				"agent-suites/fixtures/task-list-hidden/tests/status.hidden.test.ts": "sha256:cb42d75392f3944f2566d499096fd5b785554c61eb3f4447634d970ffac8fb42",
 				"agent-suites/fixtures/task-list/src/status.ts": "sha256:34ece1eace5f952edbd61290b1278a99402e84149bb3b43b602d01dda76715b9",
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",
-				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:9658ac0f691d6e568cbbaa6c9143fcc5d4a242aa533da8e2aab32f828c4fd4cb",
+				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:2630e61551cab343c1139cc6f488a3be7b3941323b9de466ca8820c4f36813de",
 				"agent-suites/tour/agents.ts": "sha256:dc06650f6a40a016909f023335419d9f793bbf7f585d26cbb3112a0928f9ea18",
-				"agent-suites/tour/tour.spec.ts": "sha256:539eeffbe589e3ba020bccea1d6749b96521cbb1f391a56cf1ecbb155590463c",
+				"agent-suites/tour/tour.spec.ts": "sha256:b857e6e0ca905da1ff7c95672b2193bee60c4e416bee21b516535a1ecdc28753",
 				"agent-test.config.ts": "sha256:0ac97c421ee8e8458946fda57f24f9296e92d68e39bd646df34ad91fc1c1c643",
 				"agent-test.matrix.config.ts": "sha256:82ad8e78b95a1afabfb18850bd71345ee6b9aa65a2d38e0967906d0245300864",
 				"packages/test/src/sdk/cli.ts": "sha256:dd9f171e5b27560c617717831bccd5a197f40ea10bcf39f6ecec81f74980ebab",
@@ -156,9 +156,9 @@
 				"agent-suites/fixtures/task-list-hidden/tests/status.hidden.test.ts": "sha256:cb42d75392f3944f2566d499096fd5b785554c61eb3f4447634d970ffac8fb42",
 				"agent-suites/fixtures/task-list/src/status.ts": "sha256:34ece1eace5f952edbd61290b1278a99402e84149bb3b43b602d01dda76715b9",
 				"agent-suites/fixtures/task-list/tests/status.test.ts": "sha256:7e57416cb02000778a1cad0c703a019ed3b1974d52f93292483bbe3a9b9a6212",
-				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:9658ac0f691d6e568cbbaa6c9143fcc5d4a242aa533da8e2aab32f828c4fd4cb",
+				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:2630e61551cab343c1139cc6f488a3be7b3941323b9de466ca8820c4f36813de",
 				"agent-suites/tour/agents.ts": "sha256:dc06650f6a40a016909f023335419d9f793bbf7f585d26cbb3112a0928f9ea18",
-				"agent-suites/tour/tour.spec.ts": "sha256:539eeffbe589e3ba020bccea1d6749b96521cbb1f391a56cf1ecbb155590463c",
+				"agent-suites/tour/tour.spec.ts": "sha256:b857e6e0ca905da1ff7c95672b2193bee60c4e416bee21b516535a1ecdc28753",
 				"agent-test.config.ts": "sha256:0ac97c421ee8e8458946fda57f24f9296e92d68e39bd646df34ad91fc1c1c643",
 				"agent-test.matrix.config.ts": "sha256:82ad8e78b95a1afabfb18850bd71345ee6b9aa65a2d38e0967906d0245300864",
 				"packages/test/src/sdk/cli.ts": "sha256:dd9f171e5b27560c617717831bccd5a197f40ea10bcf39f6ecec81f74980ebab",
