@@ -72,7 +72,6 @@ type Attempt = {
 type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
 const fetchExecution = (id: string) => fetchExecutionRecord<ExecutionDetail>(id);
 type TestView = "current" | "setup" | "history";
-const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;
 const LOCAL_PATH_LINK = /\[([^\]]+)\]\(<local-path>[^)]*\)/g;
 
 const runningPulse = stylex.keyframes({
@@ -845,6 +844,7 @@ const styles = stylex.create({
 		color: "var(--muted)",
 		fontSize: "0.72rem",
 	},
+	judgeReason: { margin: 0, color: "var(--muted)", fontSize: "0.74rem", lineHeight: 1.5 },
 	judgeAskedLabel: {
 		marginRight: "0.35rem",
 		color: "var(--subtle)",
@@ -2313,14 +2313,14 @@ function AttemptCard({
 			<TestVerdict attempt={attempt} criteria={criteria} operations={operations} />
 			<OperationList operations={operations} />
 			<ConversationSection
-				label="Agents"
-				sectionOperations={agents}
+				label="Judges"
+				sectionOperations={judges}
 				allOperations={operations}
 				attempt={attempt}
 			/>
 			<ConversationSection
-				label="Judges"
-				sectionOperations={judges}
+				label="Agents"
+				sectionOperations={agents}
 				allOperations={operations}
 				attempt={attempt}
 			/>
@@ -2375,7 +2375,7 @@ const SHORT_CHECK_LIST = 3;
 
 /** Checks needing attention always show; passing checks fold away once the list is long. */
 function VerdictChecks({ presentations }: { presentations: CriterionPresentation[] }) {
-	const checks = withoutRepeatedExplanations(presentations);
+	const checks = presentations;
 	if (checks.length <= SHORT_CHECK_LIST) return <CriterionResults presentations={checks} />;
 	const attention = checks.filter((check) => check.outcome !== "passed");
 	const passed = checks.filter((check) => check.outcome === "passed");
@@ -2392,17 +2392,6 @@ function VerdictChecks({ presentations }: { presentations: CriterionPresentation
 			) : null}
 		</>
 	);
-}
-
-/** A judge reason shared by several checks is shown once, on the first of them. */
-function withoutRepeatedExplanations(checks: CriterionPresentation[]): CriterionPresentation[] {
-	const seen = new Set<string>();
-	return checks.map((check) => {
-		if (!check.explanation) return check;
-		if (seen.has(check.explanation)) return { ...check, explanation: undefined };
-		seen.add(check.explanation);
-		return check;
-	});
 }
 
 /** Failures no check claimed, such as a crash before the first assertion. */
@@ -3167,7 +3156,7 @@ function ResultMetrics({ result }: { result: RunResultData }) {
 
 const SECTION_INTROS = {
 	Agents: "The task each agent received and how it answered.",
-	Judges: "A separate reviewer grades the answer. Its findings feed the checks above.",
+	Judges: "A separate reviewer graded the agent answers below. Its findings feed the checks above.",
 } as const;
 
 function Conversation({
@@ -3485,6 +3474,7 @@ function JudgeResponse({
 	return <JudgeFindings outcomes={review.outcomes} reason={review.reason} answers={answers} />;
 }
 
+/** One row per judged field. A reason shared by every field is shown once, after the rows. */
 function JudgeFindings({
 	outcomes,
 	reason,
@@ -3494,43 +3484,50 @@ function JudgeFindings({
 	reason?: string;
 	answers?: JudgeAnswerContext[];
 }) {
-	const seen = new Set<string>();
-	const firstExplanation = (explanation?: string) => {
-		if (!explanation || seen.has(explanation)) return undefined;
-		seen.add(explanation);
-		return explanation;
-	};
 	return (
 		<section aria-label="Judge response" {...stylex.props(styles.judgeResponse)}>
 			<h4 {...stylex.props(styles.judgeResponseHeading)}>Findings</h4>
 			<div {...stylex.props(styles.judgeOutcomeList)}>
-				{outcomes
-					.map((outcome) => ({ ...outcome, explanation: firstExplanation(outcome.explanation) }))
-					.map((outcome) => (
-						<div key={outcome.label} {...stylex.props(styles.judgeOutcome)}>
-							<CriterionOutcomeIcon
-								outcome={outcome.passed ? "passed" : "failed"}
-								label={outcome.passed ? "Passed" : "Failed"}
-							/>
-							<span {...stylex.props(styles.judgeOutcomeLabel)}>
-								{judgeOutcomeLabel(outcome.label, answers)}
-							</span>
-							{outcome.explanation ? (
-								<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
-							) : null}
-						</div>
-					))}
+				{outcomes.map((outcome) => (
+					<div key={outcome.label} {...stylex.props(styles.judgeOutcome)}>
+						<CriterionOutcomeIcon
+							outcome={outcome.passed ? "passed" : "failed"}
+							label={outcome.passed ? "Passed" : "Failed"}
+						/>
+						<span {...stylex.props(styles.judgeOutcomeLabel)}>
+							{judgeOutcomeLabel(outcome, answers)}
+						</span>
+						{outcome.explanation ? (
+							<p {...stylex.props(styles.judgeOutcomeExplanation)}>{outcome.explanation}</p>
+						) : null}
+					</div>
+				))}
 			</div>
-			{reason && !outcomes.length ? (
-				<p {...stylex.props(styles.judgeOutcomeExplanation)}>{reason}</p>
+			{reason ? (
+				<p {...stylex.props(styles.judgeReason)}>
+					{outcomes.length ? <span {...stylex.props(styles.judgeAskedLabel)}>Reason</span> : null}
+					<span>{reason}</span>
+				</p>
 			) : null}
 		</section>
 	);
 }
 
-function judgeOutcomeLabel(label: string, answers: JudgeAnswerContext[]): string {
-	const answer = answers.find((item) => label === `${item.label} Correct` || label === item.label);
-	return answer?.tabLabel ?? label;
+/**
+ * A field named after an answer the judge saw ("fileRoundOneCorrect" for "fileRoundOne") reads as
+ * that answer plus what was judged: "fileLookup · Run 1 · judged correct".
+ */
+function judgeOutcomeLabel(
+	outcome: JudgeReviewData["outcomes"][number],
+	answers: JudgeAnswerContext[],
+): string {
+	const answer = answers.find(
+		(item) => outcome.label === item.label || outcome.label.startsWith(`${item.label} `),
+	);
+	if (!answer) return outcome.label;
+	const judged = outcome.label.slice(answer.label.length).trim().toLowerCase();
+	if (!judged) return answer.tabLabel;
+	return `${answer.tabLabel} · judged ${outcome.passed ? "" : "not "}${judged}`;
 }
 
 function judgeReviewData(operation: Attempt["operations"][number]): JudgeReviewData {
@@ -3541,7 +3538,7 @@ function judgeReviewData(operation: Attempt["operations"][number]): JudgeReviewD
 	return {
 		question: judgeQuestion(record),
 		context: judgeContext(record?.input),
-		outcomes: judgeOutcomes(output, reason),
+		outcomes: judgeOutcomes(output),
 		reason,
 	};
 }
@@ -3569,28 +3566,16 @@ function judgeQuestion(record: Record<string, unknown> | undefined): string | un
 	return optionalString(evaluation?.prompt);
 }
 
-function judgeOutcomes(
-	output: Record<string, unknown>,
-	fallbackExplanation?: string,
-): JudgeReviewData["outcomes"] {
+/** Only an explanation the judge gave for that field attaches to it; a shared reason never does. */
+function judgeOutcomes(output: Record<string, unknown>): JudgeReviewData["outcomes"] {
 	const entries = Object.entries(output).filter(
 		(entry): entry is [string, boolean] => typeof entry[1] === "boolean",
 	);
-	const fallbacks = splitJudgeExplanation(fallbackExplanation, entries.length);
-	return entries.map(([key, passed], index) => ({
+	return entries.map(([key, passed]) => ({
 		label: humanizeKey(key),
 		passed,
-		explanation: judgeOutcomeExplanation(output, key) ?? fallbacks[index],
+		explanation: judgeOutcomeExplanation(output, key),
 	}));
-}
-
-function splitJudgeExplanation(value: string | undefined, count: number): string[] {
-	if (!value || count < 1) return [];
-	const sentences = value.split(SENTENCE_BOUNDARY).filter(Boolean);
-	if (sentences.length < count) return Array.from({ length: count }, () => value);
-	return Array.from({ length: count }, (_, index) =>
-		index === count - 1 ? sentences.slice(index).join(" ") : (sentences[index] ?? value),
-	);
 }
 
 function judgeOutcomeExplanation(output: Record<string, unknown>, key: string): string | undefined {

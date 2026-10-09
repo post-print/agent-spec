@@ -838,11 +838,25 @@ test("the test verdict lists every check, including judge-decided checks", async
 		const verdict = page.getByRole("region", { name: "Test verdict" });
 		await expect(verdict).toContainText("Passed · 2 of 2 checks passed");
 		for (const check of JUDGE_CHECKS) await expect(verdict.getByText(check)).toBeVisible();
+		await checkSharedJudgeReason(page, verdict);
 	} finally {
 		await viewer.close();
 		await rm(fixture.directory, { recursive: true, force: true });
 	}
 });
+
+const SHARED_REASON = "Both findings rest on the same rollback discussion.";
+
+/** A reason covering every field shows once, after the findings, and never as a per-check note. */
+async function checkSharedJudgeReason(page: Page, verdict: Locator) {
+	await expect(verdict.getByText(SHARED_REASON)).toHaveCount(0);
+	const findings = page.getByRole("region", { name: "Judge response" });
+	await expect(findings.getByText(SHARED_REASON, { exact: true })).toHaveCount(1);
+	await expect(findings.getByText("Reason", { exact: true })).toBeVisible();
+	const judges = await page.getByRole("region", { name: "Judges", exact: true }).boundingBox();
+	const agents = await page.getByRole("region", { name: "Agents", exact: true }).boundingBox();
+	expect(judges?.y ?? 0).toBeLessThan(agents?.y ?? 0);
+}
 
 async function judgeVerdictFixture() {
 	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-verdict-"));
@@ -893,7 +907,7 @@ async function recordJudgedAttempt(store: ExecutionStore, testId: string) {
 			criterionIndexes: [0, 1],
 			evaluation: { prompt: "Does the answer explain the risk and a next step?" },
 			input: { answer: "Hold the release." },
-			output: { explainsRisk: true, suggestsNextStep: true },
+			output: { explainsRisk: true, suggestsNextStep: true, reason: SHARED_REASON },
 		},
 	});
 	await store.record({
