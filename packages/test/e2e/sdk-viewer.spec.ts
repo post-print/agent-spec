@@ -1439,3 +1439,32 @@ async function checkExecutionSelection(page: Page, title: string) {
 	await page.goBack();
 	await expect.poll(() => new URL(page.url()).searchParams.get("execution")).toBe(firstExecution);
 }
+
+test("a failed catalog refresh marks the test list stale and recovers by itself", async ({
+	page,
+}) => {
+	const config = fileURLToPath(new URL("../fixtures/sdk-v2/agent-test.config.ts", import.meta.url));
+	const viewer = await listenViewer({
+		testCatalog: await loadSdkCatalog(config),
+		suitesDir: config,
+	});
+	try {
+		await page.clock.install();
+		await page.goto(viewer.url);
+		const nav = page.getByRole("navigation", { name: "Tests" });
+		await expect(nav.getByRole("link").first()).toBeVisible();
+		await page.route("**/api/test-catalog", (route) => route.abort());
+		await page.clock.fastForward(6_000);
+		await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+		await page.clock.fastForward(20_000);
+		const stale = page.getByText("Test list may be out of date. Retrying…");
+		await expect(stale).toBeVisible();
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		await page.unroute("**/api/test-catalog");
+		await page.clock.fastForward(6_000);
+		await expect(stale).toHaveCount(0);
+		await expect(nav.getByRole("link").first()).toBeVisible();
+	} finally {
+		await viewer.close();
+	}
+});

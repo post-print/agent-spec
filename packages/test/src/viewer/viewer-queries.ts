@@ -13,8 +13,15 @@ export type ExecutionSummary = {
 	testStatuses?: Record<string, TestRunStatus>;
 };
 
+const CATALOG_RETRY_MS = 5_000;
+
+/** The socket only pushes a changed catalog, so a failed refresh keeps retrying until it heals. */
 export function useCatalog() {
-	return useQuery({ queryKey: ["test-catalog"], queryFn: fetchTestCatalog });
+	return useQuery({
+		queryKey: ["test-catalog"],
+		queryFn: fetchTestCatalog,
+		refetchInterval: (query) => (query.state.status === "error" ? CATALOG_RETRY_MS : false),
+	});
 }
 
 /** Newest first; the live socket replaces this cache on every store change. */

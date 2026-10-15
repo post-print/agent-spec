@@ -447,6 +447,18 @@ const styles = stylex.create({
 		letterSpacing: "0.08em",
 		textTransform: "uppercase",
 	},
+	catalogNotice: {
+		margin: "0.6rem 1.25rem 0",
+		color: "var(--muted)",
+		fontSize: "0.72rem",
+		lineHeight: 1.45,
+	},
+	catalogNoticeError: {
+		padding: "0.45rem 0.6rem",
+		borderRadius: 8,
+		color: "var(--fail)",
+		backgroundColor: "var(--fail-soft)",
+	},
 	groupCount: { color: "var(--subtle)", fontSize: "0.66rem", fontVariantNumeric: "tabular-nums" },
 	navLink: {
 		display: "block",
@@ -1552,7 +1564,7 @@ function ViewerSidebarContent({
 				<SidebarNavigation
 					groups={groups}
 					statuses={statuses}
-					error={catalog.isError}
+					catalogState={catalogState(catalog)}
 					navigationId={navigationId}
 					onNavigate={onClose}
 				/>
@@ -1686,22 +1698,45 @@ function SidebarToggle({
 	);
 }
 
+type CatalogState = "ready" | "stale" | "unavailable";
+
+/** A failed refresh over a list already shown is stale, not missing. */
+function catalogState(catalog: { isError: boolean; data?: unknown }): CatalogState {
+	if (!catalog.isError) return "ready";
+	return catalog.data ? "stale" : "unavailable";
+}
+
+function CatalogNotice({ state }: { state: CatalogState }) {
+	if (state === "ready") return null;
+	if (state === "stale")
+		return (
+			<p role="status" {...stylex.props(styles.catalogNotice)}>
+				Test list may be out of date. Retrying…
+			</p>
+		);
+	return (
+		<p role="alert" {...stylex.props(styles.catalogNotice, styles.catalogNoticeError)}>
+			Test discovery is unavailable. Retrying…
+		</p>
+	);
+}
+
 function SidebarNavigation({
 	groups,
 	statuses,
-	error,
+	catalogState,
 	navigationId,
 	onNavigate,
 }: {
 	groups: Map<string, TestRecord[]>;
 	statuses: Map<string, TestStatusValue>;
-	error: boolean;
+	catalogState: CatalogState;
 	navigationId: string;
 	onNavigate?: () => void;
 }) {
 	return (
 		<>
-			{error ? <p role="alert">Test discovery is unavailable.</p> : null}
+			<CatalogNotice state={catalogState} />
 			<nav id={navigationId} aria-label="Tests" {...stylex.props(styles.navigation)}>
 				{[...groups].map(([name, tests]) => (
 					<section key={name} aria-label={`${name} tests`} {...stylex.props(styles.navSection)}>
