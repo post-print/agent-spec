@@ -7,6 +7,7 @@ import {
 	runStatusCounts,
 	stripAnsi,
 	testIdsBySeverity,
+	testIntent,
 	testRunStatus,
 	unwrapShellCommand,
 } from "../viewer/presentation.js";
@@ -89,4 +90,26 @@ it("stored values preserve useful command context while redacting private paths"
 			root: "/Users/example/private-workspace",
 		}),
 	).toEqual({ command: "cat <local-path>/seeded.txt", root: "<local-path>" });
+});
+
+it("viewer presentation › shows a description every test repeats once, as the suite's", () => {
+	const shared = "Portable review conformance.";
+	const first = { file: "a.spec.ts", title: ["review", "one"], description: shared };
+	const second = { file: "a.spec.ts", title: ["review", "two"], description: shared };
+	expect(testIntent(first, [first, second])).toEqual({ suite: shared, own: undefined });
+	expect(testIntent(first, [first])).toEqual({ suite: undefined, own: shared });
+});
+
+it("viewer presentation › keeps a test's own description under a declared suite description", () => {
+	const test = {
+		file: "a.spec.ts",
+		title: ["review", "one"],
+		description: "Only this case.",
+		suiteDescription: "Suite intent.",
+	};
+	expect(testIntent(test, [test])).toEqual({ suite: "Suite intent.", own: "Only this case." });
+	expect(testIntent({ ...test, description: "Suite intent." }, [test])).toEqual({
+		suite: "Suite intent.",
+		own: undefined,
+	});
 });

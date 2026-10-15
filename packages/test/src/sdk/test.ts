@@ -93,10 +93,26 @@ function bind<R extends Resources>(resources: R, runtime: TestRuntime): Fixtures
 		]),
 	) as Fixtures<R>;
 }
+/** What the whole suite proves; shown once above its tests instead of repeated on each. */
+export type SuiteDetails = { description: string };
+type DefineResources<R extends Resources> = (builders: typeof factories) => R;
 export function describe<R extends Resources>(
 	name: string,
-	define: (builders: typeof factories) => R,
+	define: DefineResources<R>,
+): SuiteTest<R>;
+export function describe<R extends Resources>(
+	name: string,
+	details: SuiteDetails,
+	define: DefineResources<R>,
+): SuiteTest<R>;
+export function describe<R extends Resources>(
+	name: string,
+	detailsOrDefine: SuiteDetails | DefineResources<R>,
+	maybeDefine?: DefineResources<R>,
 ): SuiteTest<R> {
+	const define = typeof detailsOrDefine === "function" ? detailsOrDefine : maybeDefine;
+	if (!define) throw new Error("describe needs a function that returns its resources");
+	const suite = typeof detailsOrDefine === "function" ? undefined : detailsOrDefine;
 	const resources = define(factories);
 	if (
 		!resources ||
@@ -109,13 +125,22 @@ export function describe<R extends Resources>(
 		const callback = typeof detailsOrBody === "function" ? detailsOrBody : body;
 		if (!callback) throw new Error("Test body is required");
 		const details = typeof detailsOrBody === "function" ? undefined : detailsOrBody;
-		const annotation = testAnnotations(resources, callback, details);
+		const annotation = [
+			...testAnnotations(resources, callback, details),
+			...suiteAnnotations(suite),
+		];
 		runner.describe(name, () => {
 			runner(title, { annotation }, async ({ runtime }, info) => {
 				await callback(bind(resources, runtime), info);
 			});
 		});
 	};
+}
+
+function suiteAnnotations(suite?: SuiteDetails) {
+	return suite?.description
+		? [{ type: "agent-test.suite-description", description: suite.description }]
+		: [];
 }
 
 function testAnnotations<R extends Resources>(

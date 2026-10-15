@@ -124,3 +124,35 @@ const SHELL_WRAPPER = /^(?:\S*\/)?(?:ba|z)?sh\s+-l?c\s+(["'])([\s\S]*)\1$/;
 export function unwrapShellCommand(command: string): string {
 	return SHELL_WRAPPER.exec(command.trim())?.[2] ?? command;
 }
+
+type IntentSource = {
+	file: string;
+	title: string[];
+	description?: string;
+	suiteDescription?: string;
+};
+export type TestIntent = { suite?: string; own?: string };
+
+/**
+ * What the suite proves and what this one test adds. A description every test in its group
+ * repeats is the suite's, so it is shown once instead of on every test.
+ */
+export function testIntent(test: IntentSource, tests: IntentSource[]): TestIntent {
+	const suite = test.suiteDescription ?? sharedGroupDescription(test, tests);
+	return { suite, own: test.description === suite ? undefined : test.description };
+}
+
+function sharedGroupDescription(test: IntentSource, tests: IntentSource[]): string | undefined {
+	const group = tests.filter((item) => sameGroup(item, test));
+	if (group.length < 2 || !test.description) return undefined;
+	return group.every((item) => item.description === test.description)
+		? test.description
+		: undefined;
+}
+
+function sameGroup(left: IntentSource, right: IntentSource): boolean {
+	return (
+		left.file === right.file &&
+		left.title.slice(0, -1).join("›") === right.title.slice(0, -1).join("›")
+	);
+}

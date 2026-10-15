@@ -28,7 +28,9 @@ import {
 	median,
 	preferredTestExecutionId,
 	stripAnsi,
+	type TestIntent,
 	type TestRunStatus,
+	testIntent,
 	testRunStatus,
 	unwrapShellCommand,
 } from "./presentation.js";
@@ -501,6 +503,16 @@ const styles = stylex.create({
 		alignSelf: "start",
 	},
 	description: { color: "var(--muted)", fontSize: "0.82rem", lineHeight: 1.5, maxWidth: "54rem" },
+	suiteDescription: {
+		margin: 0,
+		color: "var(--subtle)",
+		fontSize: "0.74rem",
+		lineHeight: 1.45,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	headerChecks: { paddingTop: "0.55rem" },
 	path: {
 		color: "var(--subtle)",
 		fontSize: "0.7rem",
@@ -1619,7 +1631,12 @@ function SidebarNavigation({
 				{[...groups].map(([name, tests]) => (
 					<section key={name} aria-label={`${name} tests`} {...stylex.props(styles.navSection)}>
 						<div {...stylex.props(styles.groupHeader)}>
-							<strong {...stylex.props(styles.groupLabel)}>{name}</strong>
+							<strong
+								title={tests[0] ? testIntent(tests[0], tests).suite : undefined}
+								{...stylex.props(styles.groupLabel)}
+							>
+								{name}
+							</strong>
 							<div {...stylex.props(styles.groupHeaderActions)}>
 								<span {...stylex.props(styles.groupCount)}>{tests.length}</span>
 								<RunTestGroupButton name={name} tests={tests} onNavigate={onNavigate} />
@@ -1629,6 +1646,7 @@ function SidebarNavigation({
 							<TestLink
 								key={test.id}
 								test={test}
+								hint={testIntent(test, tests).own}
 								status={statuses.get(test.id)}
 								onNavigate={onNavigate}
 							/>
@@ -1678,10 +1696,12 @@ function RunTestGroupButton({
 }
 function TestLink({
 	test,
+	hint,
 	status,
 	onNavigate,
 }: {
 	test: TestRecord;
+	hint?: string;
 	status?: TestStatusValue;
 	onNavigate?: () => void;
 }) {
@@ -1696,7 +1716,9 @@ function TestLink({
 		>
 			<div {...stylex.props(styles.navItemHeader)}>
 				{status ? <TestStatus status={status} /> : <span aria-hidden="true" />}
-				<span {...stylex.props(styles.navItemTitle)}>{test.title.at(-1)}</span>
+				<span title={hint ?? test.title.at(-1)} {...stylex.props(styles.navItemTitle)}>
+					{test.title.at(-1)}
+				</span>
 			</div>
 			{test.project !== "default" ? <div {...stylex.props(styles.meta)}>{test.project}</div> : null}
 		</Link>
@@ -1732,9 +1754,11 @@ function TestPage() {
 		return (
 			<p role="alert">This test is no longer available. Choose another test in the sidebar.</p>
 		);
-	return <TestDetail key={test.id} test={test} />;
+	return (
+		<TestDetail key={test.id} test={test} intent={testIntent(test, catalog.data?.tests ?? [])} />
+	);
 }
-function TestDetail({ test }: { test: TestRecord }) {
+function TestDetail({ test, intent }: { test: TestRecord; intent: TestIntent }) {
 	const { execution, view } = testRoute.useSearch();
 	const history = useExecutionHistory();
 	const navigate = useNavigate();
@@ -1755,7 +1779,7 @@ function TestDetail({ test }: { test: TestRecord }) {
 		});
 	return (
 		<>
-			<TestHeader test={test} onStarted={chooseExecution} />
+			<TestHeader test={test} intent={intent} onStarted={chooseExecution} />
 			<BatchRunLink run={runs.find((run) => run.id === selected)} />
 			<TestTabs active={activeView} onChange={chooseView} />
 			<TestViewPanel
@@ -1785,23 +1809,57 @@ function BatchRunLink({ run }: { run?: ExecutionSummary }) {
 	);
 }
 
-function TestHeader({ test, onStarted }: { test: TestRecord; onStarted: (id: string) => void }) {
+function TestHeader({
+	test,
+	intent,
+	onStarted,
+}: {
+	test: TestRecord;
+	intent: TestIntent;
+	onStarted: (id: string) => void;
+}) {
 	return (
 		<header {...stylex.props(styles.hero)}>
 			<div {...stylex.props(styles.heroTop)}>
 				<div {...stylex.props(styles.heroCopy)}>
 					<div {...stylex.props(styles.brand)}>{test.title.slice(0, -1).join(" / ")}</div>
+					{intent.suite ? (
+						<p title={intent.suite} {...stylex.props(styles.suiteDescription)}>
+							{intent.suite}
+						</p>
+					) : null}
 					<h2 {...stylex.props(styles.title)}>{test.title.at(-1)}</h2>
-					<p {...stylex.props(styles.description)}>
-						{test.description ?? "This test has no additional description."}
-					</p>
+					{intent.own ? <p {...stylex.props(styles.description)}>{intent.own}</p> : null}
 				</div>
 				<RunTestButton test={test} onStarted={onStarted} />
 			</div>
+			<TestChecks criteria={test.criteria ?? []} />
 			<div {...stylex.props(styles.path)}>
 				{test.project} · {test.file}
 			</div>
 		</header>
+	);
+}
+
+/** What the test checks, folded: the verdict below lists the same checks once a run exists. */
+function TestChecks({ criteria }: { criteria: string[] }) {
+	if (!criteria.length) return null;
+	return (
+		<details data-disclosure {...stylex.props(styles.judgeContextDisclosure)}>
+			<summary {...stylex.props(styles.judgeContextSummary)}>
+				Passes when · {criteria.length} {pluralize(criteria.length, "check")}
+			</summary>
+			<ul {...stylex.props(styles.criteriaList, styles.headerChecks)}>
+				{criteria.map((criterion) => (
+					<li key={criterion} {...stylex.props(styles.criterion)}>
+						<span aria-hidden="true" {...stylex.props(styles.criterionIcon)}>
+							•
+						</span>
+						<span>{criterion}</span>
+					</li>
+				))}
+			</ul>
+		</details>
 	);
 }
 

@@ -73,7 +73,8 @@ function discoveryMetadata(test: TestCase) {
 		test.annotations.find((entry) => entry.type === "agent-test.criteria")?.description,
 	);
 	return {
-		description: test.annotations.find((entry) => entry.type === "description")?.description,
+		description: annotation(test, "description"),
+		suiteDescription: annotation(test, "agent-test.suite-description"),
 		criteria,
 		workspace: use?.workspaceSource,
 		resources: resources.map((resource) => {
@@ -81,6 +82,10 @@ function discoveryMetadata(test: TestCase) {
 			return resolveResource(resource, resource.host ? undefined : definition);
 		}),
 	};
+}
+
+function annotation(test: TestCase, type: string): string | undefined {
+	return test.annotations.find((entry) => entry.type === type)?.description;
 }
 
 function parseCriteria(raw?: string): string[] | undefined {

@@ -20,6 +20,7 @@ export type DiscoveredTest = {
 	title: string[];
 	project: string;
 	description?: string;
+	suiteDescription?: string;
 	criteria?: string[];
 	resources?: TestResource[];
 	workspace?: string;
@@ -41,6 +42,7 @@ export type PlaywrightTestEntry = {
 	file: string;
 	project: string;
 	description?: string;
+	suiteDescription?: string;
 	criteria?: string[];
 	resources?: TestResource[];
 	workspace?: string;
@@ -54,6 +56,7 @@ export function createTestCatalog(config: string, entries: PlaywrightTestEntry[]
 		title: entry.title.split(" › "),
 		project: entry.project,
 		description: entry.description,
+		suiteDescription: entry.suiteDescription,
 		criteria: entry.criteria,
 		resources: entry.resources,
 		workspace: entry.workspace,
