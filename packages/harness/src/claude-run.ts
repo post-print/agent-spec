@@ -25,7 +25,11 @@ import {
 import type { AgentTrace, LiveAgentEvent } from "./types.js";
 import { claudeSessionFlags } from "./user-skills.js";
 
-const DEFAULT_ALLOWED_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,Agent";
+/**
+ * Skill is how Claude Code invokes project skills it has discovered; without it, attached skills are
+ * visible as slash commands but can only be used if the agent happens to open their files.
+ */
+export const DEFAULT_ALLOWED_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,Agent,Skill";
 
 export interface ClaudeRunOptions {
 	readOnly?: boolean;
