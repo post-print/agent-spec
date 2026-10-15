@@ -3,6 +3,7 @@ import { storedValue } from "../sdk/stored-value.js";
 import {
 	conversationPlaceholder,
 	describeShape,
+	formatElapsed,
 	median,
 	preferredTestExecutionId,
 	runStatusCounts,
@@ -121,4 +122,11 @@ it("viewer presentation › sizes a folded judge input by its shape", () => {
 	expect(describeShape("first\nsecond")).toBe("2 lines");
 	expect(describeShape("x".repeat(2048))).toBe("2.0 KB");
 	expect(describeShape(true)).toBe("true");
+});
+
+it("viewer presentation › reads run length in seconds, minutes, then hours", () => {
+	expect(formatElapsed(-5)).toBe("0s");
+	expect(formatElapsed(45_400)).toBe("45s");
+	expect(formatElapsed(334_000)).toBe("5m 34s");
+	expect(formatElapsed(3_725_000)).toBe("1h 02m");
 });

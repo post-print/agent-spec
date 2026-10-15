@@ -21,6 +21,7 @@ import {
 	useState,
 } from "react";
 import Markdown from "react-markdown";
+import { ElapsedTime } from "./elapsed-time.js";
 import {
 	assertionComparison,
 	conversationPlaceholder,
@@ -63,16 +64,26 @@ type Attempt = {
 		assertion?: string;
 	}>;
 	output: { stdout: string[]; stderr: string[] };
+	startedAt?: string;
+	completedAt?: string;
+	durationMs?: number;
 	operations: Array<{
 		id: string;
 		kind: string;
 		name?: string;
 		status: string;
 		invocationIndex?: number;
+		startedAt?: string;
+		completedAt?: string;
 		data: unknown[];
 	}>;
 };
-type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
+type AttemptProgress = { at: string; attemptId: string; data: unknown };
+type ExecutionDetail = ExecutionSummary & {
+	attempts: Attempt[];
+	cancellable?: boolean;
+	progress?: AttemptProgress[];
+};
 const fetchExecution = (id: string) => fetchExecutionRecord<ExecutionDetail>(id);
 type TestView = "current" | "setup" | "history";
 const LOCAL_PATH_LINK = /\[([^\]]+)\]\(<local-path>[^)]*\)/g;
@@ -715,6 +726,46 @@ const styles = stylex.create({
 		gap: "0.7rem",
 	},
 	attemptTitle: { fontSize: "0.84rem", lineHeight: 1.4 },
+	liveStrip: {
+		position: "sticky",
+		top: 0,
+		zIndex: 2,
+		display: "grid",
+		gap: "0.3rem",
+		padding: "0.55rem 0.75rem",
+		border: "1px solid var(--border-strong)",
+		borderRadius: 10,
+		backgroundColor: "var(--panel-2)",
+		minWidth: 0,
+	},
+	liveStripLine: {
+		display: "flex",
+		flexWrap: "wrap",
+		alignItems: "center",
+		gap: "0.4rem 0.75rem",
+	},
+	liveStripElapsed: {
+		color: "var(--text)",
+		fontSize: "0.82rem",
+		fontWeight: 700,
+		fontVariantNumeric: "tabular-nums",
+	},
+	liveStripMeta: { color: "var(--muted)", fontSize: "0.76rem", fontVariantNumeric: "tabular-nums" },
+	liveStripNow: {
+		margin: 0,
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: "var(--text)",
+		fontSize: "0.78rem",
+	},
+	liveStripLabel: { color: "var(--subtle)", fontWeight: 650 },
+	liveStripDetail: {
+		marginLeft: "0.4rem",
+		color: "var(--muted)",
+		fontSize: "0.72rem",
+	},
 	verdictPanel: {
 		display: "grid",
 		gap: "0.55rem",
@@ -2318,7 +2369,13 @@ function ExecutionDetailView({
 			{cancel.isError ? <p role="alert">The run could not be stopped.</p> : null}
 			<section {...stylex.props(styles.list)}>
 				{execution.attempts.map((attempt) => (
-					<AttemptCard key={attempt.id} attempt={attempt} criteria={criteria} showTitle={false} />
+					<AttemptCard
+						key={attempt.id}
+						attempt={attempt}
+						criteria={criteria}
+						showTitle={false}
+						progress={execution.progress?.filter((entry) => entry.attemptId === attempt.id)}
+					/>
 				))}
 				{execution.attempts.length === 0 ? (
 					<p {...stylex.props(styles.empty)}>{emptyExecutionMessage(execution, stopping)}</p>
@@ -2380,10 +2437,12 @@ function AttemptCard({
 	attempt,
 	criteria = [],
 	showTitle = true,
+	progress = [],
 }: {
 	attempt: Attempt;
 	criteria?: string[];
 	showTitle?: boolean;
+	progress?: AttemptProgress[];
 }) {
 	const { operations, output, title } = attemptPresentation(attempt, criteria);
 	const agents = operations.filter((operation) => operation.kind !== "evaluation");
@@ -2414,6 +2473,9 @@ function AttemptCard({
 					</span>
 				</div>
 			</div>
+			{attempt.status === "running" ? (
+				<LiveRunStrip attempt={attempt} operations={operations} progress={progress.at(-1)} />
+			) : null}
 			<TestVerdict attempt={attempt} criteria={criteria} operations={operations} />
 			<OperationList operations={operations} />
 			<ConversationSection
@@ -2431,6 +2493,80 @@ function AttemptCard({
 			<TechnicalDetails operations={operations} output={output} />
 		</article>
 	);
+}
+
+/** Where a long run is right now: how long it has run, how far it got, and what it is doing. */
+function LiveRunStrip({
+	attempt,
+	operations,
+	progress,
+}: {
+	attempt: Attempt;
+	operations: Attempt["operations"];
+	progress?: AttemptProgress;
+}) {
+	const step = currentStep(operations);
+	const reported = progress ? progressSummary(progress.data) : undefined;
+	return (
+		<section aria-label="Live run status" {...stylex.props(styles.liveStrip)}>
+			<div {...stylex.props(styles.liveStripLine)}>
+				<RunningIndicator kind={step.kind} />
+				{attempt.startedAt ? (
+					<span {...stylex.props(styles.liveStripElapsed)}>
+						<ElapsedTime since={attempt.startedAt} />
+					</span>
+				) : null}
+				<span {...stylex.props(styles.liveStripMeta)}>
+					{step.count} {pluralize(step.count, "step")}
+				</span>
+			</div>
+			<p aria-live="polite" title={step.detail} {...stylex.props(styles.liveStripNow)}>
+				<span {...stylex.props(styles.liveStripLabel)}>Now:</span> {step.label}
+				{step.detail ? <code {...stylex.props(styles.liveStripDetail)}>{step.detail}</code> : null}
+			</p>
+			{reported ? (
+				<p title={reported} {...stylex.props(styles.liveStripNow)}>
+					<span {...stylex.props(styles.liveStripLabel)}>Progress:</span> {reported}
+				</p>
+			) : null}
+		</section>
+	);
+}
+
+type CurrentStep = {
+	kind?: Attempt["operations"][number]["kind"];
+	label: string;
+	detail?: string;
+	count: number;
+};
+
+/** The newest thing the running test did, read from the same live records as the transcript. */
+function currentStep(operations: Attempt["operations"]): CurrentStep {
+	const count = operations
+		.filter((operation) => operation.kind !== "evaluation")
+		.flatMap((operation) => liveConversationTimeline(operation.data.filter(isRecord)))
+		.filter((event) => event.kind === "tool").length;
+	const active = [...operations].reverse().find((operation) => operation.status === "running");
+	if (!active) return { label: "Preparing the next step", count };
+	if (active.kind === "evaluation")
+		return { kind: active.kind, label: `Judge ${active.name ?? ""} is reviewing`.trim(), count };
+	const latest = liveConversationTimeline(active.data.filter(isRecord)).at(-1);
+	if (latest?.kind === "tool") {
+		const tool = toolPresentation(latest.tool);
+		return { kind: active.kind, label: tool.title, detail: tool.detail || undefined, count };
+	}
+	const label = latest ? "Writing a reply" : "Waiting for the first agent event";
+	return { kind: active.kind, label, count };
+}
+
+/** One line from whatever the test passed to reportProgress. */
+function progressSummary(data: unknown): string | undefined {
+	if (typeof data === "string") return data || undefined;
+	if (!isRecord(data)) return data === undefined || data === null ? undefined : String(data);
+	const facts = Object.entries(data).map(
+		([key, value]) => `${humanizeKey(key)}: ${formatConversationValue(value)}`,
+	);
+	return facts.join(" · ") || undefined;
 }
 
 /** Test-level outcome first: every check with its result, including judge-decided checks. */
@@ -2465,9 +2601,6 @@ function TestVerdict({
 					{checkSummary(presentations, attempt.status)}
 				</span>
 			</p>
-			{attempt.status === "running" ? (
-				<p {...stylex.props(styles.meta)}>The test is still running.</p>
-			) : null}
 			<VerdictMetrics operations={operations} />
 			<VerdictChecks presentations={presentations} />
 			<UnassignedFailures errors={attempt.errors} presentations={presentations} />
