@@ -1455,7 +1455,8 @@ test("a failed catalog refresh marks the test list stale and recovers by itself"
 		await expect(nav.getByRole("link").first()).toBeVisible();
 		await page.route("**/api/test-catalog", (route) => route.abort());
 		await page.clock.runFor(6_000);
-		await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+		// Opening a test mounts a fresh catalog query, which refetches the now-stale list.
+		await nav.getByRole("link").first().click();
 		const stale = page.getByText("Test list may be out of date. Retrying…");
 		// Each retry is scheduled only after a real network rejection, so advance in steps.
 		await advanceUntil(page, () => expect(stale).toBeVisible({ timeout: 100 }));
