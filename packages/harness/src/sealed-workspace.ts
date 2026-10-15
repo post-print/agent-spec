@@ -199,7 +199,25 @@ async function materializeSealedWorkspace(
 }
 
 /** Read-only toolchain roots a shell command may name without leaving the task. */
-const SYSTEM_READ_ROOTS = ["/bin", "/usr", "/sbin", "/System", "/Library", "/opt", "/dev"];
+const SYSTEM_READ_ROOTS = [
+	"/bin",
+	"/usr",
+	"/sbin",
+	"/System",
+	"/Library",
+	"/opt",
+	"/dev",
+	"/Applications",
+];
+/**
+ * Locations a host hands its own agent: Claude Code's per-user scratch folder (its sandbox TMPDIR)
+ * and the Playwright browser cache that UI checks launch from. They hold no caller data.
+ */
+function hostSanctionedRoots(): string[] {
+	const uid = process.getuid?.();
+	const scratch = uid === undefined ? [] : [`/tmp/claude-${uid}`, `/private/tmp/claude-${uid}`];
+	return [...scratch, join(homedir(), "Library", "Caches", "ms-playwright")];
+}
 const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/;
 const PATH_ARG_KEYS = ["path", "file_path", "filePath", "target_file", "uri", "cwd"];
 
@@ -210,7 +228,9 @@ interface NamedPath {
 }
 
 function isSystemPath(absolute: string): boolean {
-	return SYSTEM_READ_ROOTS.some((root) => isPathUnderRoot(absolute, root));
+	return [...SYSTEM_READ_ROOTS, ...hostSanctionedRoots()].some((root) =>
+		isPathUnderRoot(absolute, root),
+	);
 }
 function isCursorToolOutput(path: string): boolean {
 	return path.includes("/.cursor/projects/") && path.includes("/agent-tools/");
@@ -261,7 +281,14 @@ function toolCallPaths(
 	shellCwd: string,
 ): { paths: NamedPath[]; shellCwd: string } {
 	if (!args) return { paths: [], shellCwd };
-	const cwd = typeof args.cwd === "string" ? namedPath(args.cwd, root).absolute : shellCwd;
+	// Claude Code passes `cwd`; Codex's shell tool passes `workdir`.
+	const callDir =
+		typeof args.cwd === "string"
+			? args.cwd
+			: typeof args.workdir === "string"
+				? args.workdir
+				: undefined;
+	const cwd = callDir === undefined ? shellCwd : namedPath(callDir, root).absolute;
 	const paths = PATH_ARG_KEYS.map((key) => args[key])
 		.filter((value): value is string => typeof value === "string")
 		.map((value) => namedPath(value, root));
@@ -270,7 +297,7 @@ function toolCallPaths(
 	if (typeof args.command !== "string") return { paths, shellCwd };
 	const shell = shellCommandPaths(args.command, cwd);
 	paths.push(...shell.paths);
-	return { paths, shellCwd: typeof args.cwd === "string" ? shellCwd : shell.cwd };
+	return { paths, shellCwd: callDir === undefined ? shell.cwd : shellCwd };
 }
 
 function escapesWorkspace(path: NamedPath, root: string): boolean {

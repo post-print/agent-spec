@@ -313,3 +313,40 @@ it("toolPathsOutsideWorkspace › an explicit per-call cwd does not move the she
 	};
 	expect(toolPathsOutsideWorkspace(trace, "/tmp/sealed-workspace")).toEqual(["../x"]);
 });
+
+it("toolPathsOutsideWorkspace › follows Codex's per-call workdir", () => {
+	const trace = {
+		messages: [],
+		toolCalls: [
+			{
+				name: "Shell",
+				args: { command: "cat ../../.agents/skills/x/SKILL.md", workdir: "projects/app" },
+			},
+		],
+		shellCommands: [],
+		artifacts: {},
+	};
+	expect(toolPathsOutsideWorkspace(trace, "/tmp/sealed-workspace")).toEqual([]);
+});
+
+it("toolPathsOutsideWorkspace › allows the host's own scratch folder and browser toolchain", () => {
+	const uid = process.getuid?.() ?? 0;
+	expect(
+		toolPathsOutsideWorkspace(
+			shellCalls(
+				`node /private/tmp/claude-${uid}/session/scratchpad/probe.mjs`,
+				"ls /Applications/Google\\ Chrome.app ~/Library/Caches/ms-playwright",
+			),
+			"/tmp/sealed-workspace",
+		),
+	).toEqual([]);
+});
+
+it("toolPathsOutsideWorkspace › still flags the user's home and global skills", () => {
+	expect(
+		toolPathsOutsideWorkspace(
+			shellCalls("ls ~/.claude/skills ~/.agents/skills", "cat ~/notes.txt"),
+			"/tmp/sealed-workspace",
+		),
+	).toEqual(["~/.claude/skills", "~/.agents/skills", "~/notes.txt"]);
+});
