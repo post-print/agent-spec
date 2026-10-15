@@ -3,6 +3,7 @@ import * as childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
+import { claude, openai } from "../agent-definition.js";
 import {
 	buildClaudeArgs,
 	buildClaudeEnv,
@@ -340,4 +341,52 @@ it("buildClaudeArgs › passes isolation settings to agents and read-only review
 		expect(settings.sandbox.enabled).toBe(true);
 		expect(args.includes("Read,Glob,Grep")).toBe(readOnly);
 	}
+});
+
+it("buildClaudeArgs › exposes only the named built-in tools", () => {
+	const toolsArg = (tools?: readonly string[]) => {
+		const args = buildClaudeArgs({
+			prompt: "Tap.",
+			cwd: "/tmp/seal/workspace",
+			allowedTools: "mcp__sim,mcp__sim__*",
+			authMode: "subscription",
+			tools,
+		});
+		const index = args.indexOf("--tools");
+		return index === -1 ? undefined : args[index + 1];
+	};
+	expect(toolsArg([])).toBe("");
+	expect(toolsArg(["Read", "Grep"])).toBe("Read,Grep");
+	expect(toolsArg()).toBeUndefined();
+});
+
+it("claude › limits tools and project context to the Claude host", () => {
+	expect(claude({ tools: [], loadProjectContext: false }).options.tools).toEqual([]);
+	expect(() => openai({ tools: [] })).toThrow("tools is not supported by openai");
+	expect(() => openai({ loadProjectContext: false })).toThrow(
+		"loadProjectContext is not supported by openai",
+	);
+});
+
+it("runClaudeAgent › allows only MCP tools when tools is empty", async () => {
+	let args: string[] = [];
+	spawnMock.mockImplementation((_bin: string, spawnArgs: string[]) => {
+		args = spawnArgs;
+		const child = mockChild({ hang: true });
+		setTimeout(() => {
+			child.stdout.end();
+			child.stderr.end();
+			child.emit("close", 0);
+		}, 5);
+		return child;
+	});
+	const { runClaudeAgent } = await import("../claude-run.js");
+	await runClaudeAgent({
+		cwd: process.cwd(),
+		prompt: "Tap.",
+		tools: [],
+		mcpServers: { sim: { command: "node", args: ["sim.mjs"] } },
+	});
+	expect(args[args.indexOf("--tools") + 1]).toBe("");
+	expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__sim,mcp__sim__*");
 });

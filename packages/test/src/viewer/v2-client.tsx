@@ -68,6 +68,8 @@ type Attempt = {
 		invocationIndex?: number;
 		data: unknown[];
 	}>;
+	attachments?: Array<{ name: string; contentType: string; url: string }>;
+	metrics?: Record<string, number>;
 };
 type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
 const fetchExecution = (id: string) => fetchExecutionRecord<ExecutionDetail>(id);
@@ -722,6 +724,16 @@ const styles = stylex.create({
 		margin: 0,
 	},
 	verdictMetric: { display: "grid", gap: "0.1rem", minWidth: 0 },
+	verdictAttachments: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: "0.25rem 1rem",
+		margin: 0,
+		padding: 0,
+		listStyle: "none",
+		fontSize: "0.8rem",
+		overflowWrap: "anywhere",
+	},
 	verdictMetricValue: {
 		display: "grid",
 		margin: 0,
@@ -2386,9 +2398,10 @@ function TestVerdict({
 			{attempt.status === "running" ? (
 				<p {...stylex.props(styles.meta)}>The test is still running.</p>
 			) : null}
-			<VerdictMetrics operations={operations} />
+			<VerdictMetrics operations={operations} reported={attempt.metrics} />
 			<VerdictChecks presentations={presentations} />
 			<UnassignedFailures errors={attempt.errors} presentations={presentations} />
+			<VerdictAttachments attachments={attempt.attachments} />
 		</section>
 	);
 }
@@ -2443,8 +2456,29 @@ const VERDICT_METRICS: Array<{ key: MetricKey; label: string; format: (value: nu
 		},
 	];
 
+/** `p95LatencyMs` → "P95 latency"; numbers keyed `…Ms` read as durations. */
+function reportedMetricRows(reported: Attempt["metrics"]) {
+	return Object.entries(reported ?? {}).map(([key, value]) => {
+		const duration = key.endsWith("Ms");
+		const words = (duration ? key.slice(0, -2) : key).replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+		return {
+			key: `reported:${key}`,
+			label: capitalize(words.toLowerCase()),
+			value: duration
+				? formatDuration(Math.round(value))
+				: value.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+		};
+	});
+}
+
 /** Agent totals for the attempt; a median per run when the test made several agent runs. */
-function VerdictMetrics({ operations }: { operations: Attempt["operations"] }) {
+function VerdictMetrics({
+	operations,
+	reported,
+}: {
+	operations: Attempt["operations"];
+	reported?: Attempt["metrics"];
+}) {
 	const runs = operations
 		.filter((operation) => operation.kind !== "evaluation")
 		.map((operation) => operationResult([operation]));
@@ -2456,7 +2490,8 @@ function VerdictMetrics({ operations }: { operations: Attempt["operations"] }) {
 		const total = values.reduce((sum, value) => sum + value, 0);
 		return [{ ...metric, total, median: median(values) ?? total }];
 	});
-	if (!rows.length) return null;
+	const reportedRows = reportedMetricRows(reported);
+	if (!rows.length && !reportedRows.length) return null;
 	const repeated = runs.length > 1;
 	return (
 		<dl aria-label="Run metrics" {...stylex.props(styles.verdictMetrics)}>
@@ -2473,7 +2508,30 @@ function VerdictMetrics({ operations }: { operations: Attempt["operations"] }) {
 					</dd>
 				</div>
 			))}
+			{reportedRows.map((row) => (
+				<div key={row.key} {...stylex.props(styles.verdictMetric)}>
+					<dt {...stylex.props(styles.resourceFactLabel)}>{row.label}</dt>
+					<dd {...stylex.props(styles.verdictMetricValue)}>{row.value}</dd>
+				</div>
+			))}
 		</dl>
+	);
+}
+
+/** Files the test attached with a path, opened from the viewer server. */
+function VerdictAttachments({ attachments }: { attachments: Attempt["attachments"] }) {
+	if (!attachments?.length) return null;
+	return (
+		<ul aria-label="Attachments" {...stylex.props(styles.verdictAttachments)}>
+			{attachments.map((attachment) => (
+				<li key={attachment.url}>
+					<a href={attachment.url} target="_blank" rel="noreferrer">
+						{attachment.name}
+					</a>
+					<span {...stylex.props(styles.verdictMetricMedian)}> {attachment.contentType}</span>
+				</li>
+			))}
+		</ul>
 	);
 }
 

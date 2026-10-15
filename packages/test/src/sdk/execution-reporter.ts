@@ -22,6 +22,11 @@ function executionInput() {
 function attemptId(test: TestCase, result: TestResult) {
 	return `${test.id}:${result.retry}`;
 }
+function attachmentData(result: TestResult) {
+	return result.attachments.flatMap(({ name, contentType, path }) =>
+		path ? [{ name, contentType, path }] : [],
+	);
+}
 function errorData(result: TestResult) {
 	return result.errors.map((error) => ({
 		message: error.message ? stripAnsi(error.message) : error.message,
@@ -157,6 +162,7 @@ export default class ExecutionReporter implements Reporter {
 				durationMs: result.duration,
 				errors: errorData(result),
 				criterionResults: criterionData(test, result),
+				attachments: attachmentData(result),
 			},
 		});
 	}
