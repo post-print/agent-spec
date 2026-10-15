@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
 import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
-import { codexPermissionArgs, tomlString } from "./host-isolation.js";
+import { codexPermissionArgs, sandboxNodeOptions, tomlString } from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -473,6 +473,8 @@ async function executeOpenaiRun(
 	const acc = createOpenaiTraceAccumulator();
 	const abort = new AbortController();
 	const env = buildOpenaiEnv(authMode, options.apiKey);
+	// Codex is a native binary, so this reaches only the agent's shell commands.
+	env.NODE_OPTIONS = sandboxNodeOptions(env.NODE_OPTIONS);
 	if (runHome) {
 		env.HOME = runHome.home;
 		env.USERPROFILE = runHome.home;
