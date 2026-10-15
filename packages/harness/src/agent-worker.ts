@@ -102,7 +102,8 @@ async function runBuiltin(input: InitializeInput, prompt: string) {
 			return runClaudeAgent({
 				...common,
 				model: agent.options.model,
-				loadProjectContext: true,
+				tools: agent.options.tools,
+				loadProjectContext: agent.options.loadProjectContext !== false,
 				readOnly,
 			});
 		case "openrouter":

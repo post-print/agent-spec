@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1504,4 +1504,72 @@ async function advanceUntil(page: Page, check: () => Promise<void>) {
 		await page.clock.runFor(1_000);
 		await check();
 	}).toPass({ timeout: 15_000 });
+}
+
+test("the verdict shows reported metrics and links attached files", async ({ page }) => {
+	const fixture = await reportedMetricsFixture();
+	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
+	try {
+		await page.goto(
+			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
+		);
+		const verdict = page.getByRole("region", { name: "Test verdict" });
+		const metrics = verdict.getByLabel("Run metrics");
+		await expect(metrics).toContainText("Dead taps2");
+		await expect(metrics).toContainText("P95 latency1.5 s");
+		const link = verdict.getByRole("list", { name: "Attachments" }).getByRole("link", {
+			name: "steps",
+		});
+		const response = await page.request.get(
+			new URL((await link.getAttribute("href")) ?? "", viewer.url).toString(),
+		);
+		expect(await response.text()).toBe('{"step":1}\n');
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});
+
+async function reportedMetricsFixture() {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-metrics-"));
+	const config = join(directory, "agent-test.config.ts");
+	const executionId = "feed0000-0000-4000-8000-000000000009";
+	const testId = "viewer-reported-metrics";
+	const steps = join(directory, "steps.jsonl");
+	await writeFile(steps, '{"step":1}\n');
+	const catalog = createTestCatalog(config, [
+		{
+			id: testId,
+			file: join(directory, "m.spec.ts"),
+			title: "viewer › metrics",
+			project: "default",
+		},
+	]);
+	const root = join(executionHistoryRoot(config), executionId);
+	const store = await ExecutionStore.create({ root, id: executionId, config });
+	await store.setTests([testId]);
+	const attemptId = "attempt-1";
+	await store.record({
+		type: "attempt.started",
+		level: "info",
+		attemptId,
+		data: { testId, title: ["viewer", "metrics"], project: "default", retry: 0 },
+	});
+	await store.record({
+		type: "attempt.finished",
+		level: "info",
+		attemptId,
+		data: {
+			status: "passed",
+			attachments: [{ name: "steps", contentType: "application/x-ndjson", path: steps }],
+		},
+	});
+	await mkdir(join(root, "progress"), { recursive: true });
+	const progress = { version: 1, at: new Date().toISOString(), executionId, testId, attemptId };
+	await writeFile(
+		join(root, "progress", "1.json"),
+		JSON.stringify({ ...progress, data: { deadTaps: 2, p95LatencyMs: 1500 } }),
+	);
+	await store.finish("passed");
+	return { directory, config, executionId, testId, catalog };
 }

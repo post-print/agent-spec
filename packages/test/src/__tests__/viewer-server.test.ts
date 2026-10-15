@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket } from "ws";
@@ -160,3 +160,43 @@ function readSocketMessages(url: string): Promise<string> {
 		});
 	});
 }
+
+it("viewer server › serves only attachments the execution recorded", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-attachments-"));
+	const config = join(directory, "agent-test.config.ts");
+	const steps = join(directory, "steps.jsonl");
+	await writeFile(steps, '{"step":1}\n');
+	const store = await ExecutionStore.create({
+		root: join(executionHistoryRoot(config), "a77a-1"),
+		id: "a77a-1",
+		config,
+	});
+	await store.record({ type: "attempt.started", level: "info", attemptId: "attempt-1" });
+	await store.record({
+		type: "attempt.finished",
+		level: "info",
+		attemptId: "attempt-1",
+		data: {
+			status: "passed",
+			attachments: [{ name: "steps", contentType: "application/x-ndjson", path: steps }],
+		},
+	});
+	await store.finish("passed");
+	const handle = await listenViewer({ suitesDir: config, testCatalog: fixtureCatalog() });
+	try {
+		const detail = await (await fetch(new URL("/api/executions/a77a-1", handle.url))).text();
+		expect(detail).not.toContain(steps);
+		const url = "/api/executions/a77a-1/attempts/0/attachments/0";
+		expect(detail).toContain(url);
+		const file = await fetch(new URL(url, handle.url));
+		expect(file.headers.get("content-type")).toBe("application/x-ndjson");
+		expect(await file.text()).toBe('{"step":1}\n');
+		const missing = await fetch(
+			new URL("/api/executions/a77a-1/attempts/0/attachments/1", handle.url),
+		);
+		expect(missing.status).toBe(404);
+	} finally {
+		await handle.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});

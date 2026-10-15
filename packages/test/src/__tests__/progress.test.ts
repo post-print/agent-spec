@@ -99,3 +99,17 @@ it("reportProgress persists repeated updates in call order with execution and te
 		},
 	]);
 });
+
+it("execution detail folds each attempt's latest numeric progress into its metrics", async () => {
+	const root = await progressRoot("execution-metrics");
+	const store = await ExecutionStore.create({ root, id: "execution-metrics", config: "test" });
+	await store.record({ type: "attempt.started", level: "info", attemptId: "persona:0" });
+	const info = { testId: "persona", retry: 0 } as TestInfo;
+	await reportProgress(info, { deadTaps: 1, p95LatencyMs: 900, note: "first" });
+	await reportProgress(info, { deadTaps: 3 });
+	await reportProgress({ testId: "other", retry: 0 } as TestInfo, { deadTaps: 9 });
+	await store.finish("passed");
+
+	const detail = await readExecutionDetail(root);
+	expect(detail?.attempts[0]?.metrics).toEqual({ deadTaps: 3, p95LatencyMs: 900 });
+});
