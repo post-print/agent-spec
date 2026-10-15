@@ -8,6 +8,7 @@ import {
 	buildClaudeArgs,
 	buildClaudeEnv,
 	CLAUDE_AUTH_MODE_ENV,
+	DEFAULT_ALLOWED_TOOLS,
 	parseClaudeAuthMode,
 } from "../claude-run.js";
 import { AgentRunTimeoutError, UserInputRequiredError } from "../run-guards.js";
@@ -389,4 +390,10 @@ it("runClaudeAgent › allows only MCP tools when tools is empty", async () => {
 	});
 	expect(args[args.indexOf("--tools") + 1]).toBe("");
 	expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__sim,mcp__sim__*");
+});
+
+it("DEFAULT_ALLOWED_TOOLS › lets Claude invoke discovered project skills", () => {
+	expect(DEFAULT_ALLOWED_TOOLS.split(",")).toEqual(
+		expect.arrayContaining(["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "Skill"]),
+	);
 });
