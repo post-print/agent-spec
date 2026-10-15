@@ -561,6 +561,8 @@ test("a judge appears while running and completes in place", async ({ page }) =>
 			conversation.getByText("Should this release proceed?", { exact: true }),
 		).toBeVisible();
 		const context = conversation.getByRole("region", { name: "Context included" });
+		await expect(context.getByText("Rollback Ready", { exact: true })).toBeHidden();
+		await context.getByText("What the judge saw").click();
 		await expect(context.getByText("Rollback Ready", { exact: true })).toBeVisible();
 		await expect(context.getByText("true", { exact: true })).toBeVisible();
 		await expect(conversation.getByRole("region", { name: "Judge response" })).toHaveCount(0);
@@ -1305,7 +1307,11 @@ async function checkTestTabs(page: Page) {
 	await expect(page.getByRole("region", { name: "Workspace" })).toBeVisible();
 	await expect(page.getByRole("tabpanel").getByText("seeded", { exact: true })).toHaveCount(0);
 	await expect(page.getByRole("heading", { name: "Pass criteria" })).toBeVisible();
-	await expect(page.getByText("The candidate uses fewer tokens than the baseline.")).toBeVisible();
+	await expect(
+		page
+			.getByRole("tabpanel", { name: "Test setup" })
+			.getByText("The candidate uses fewer tokens than the baseline."),
+	).toBeVisible();
 	await tabs.getByRole("tab", { name: "Run history" }).click();
 	await expect(page.getByText("Run history", { exact: true })).toHaveCount(1);
 	await tabs.getByRole("tab", { name: "Current run" }).click();

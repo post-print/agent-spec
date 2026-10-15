@@ -24,6 +24,7 @@ import Markdown from "react-markdown";
 import {
 	assertionComparison,
 	conversationPlaceholder,
+	describeShape,
 	formatRunDate,
 	median,
 	preferredTestExecutionId,
@@ -1072,14 +1073,37 @@ const styles = stylex.create({
 	judgeContextList: { display: "grid", gap: "0.3rem", margin: 0 },
 	judgeContextItem: {
 		display: "grid",
-		gridTemplateColumns: {
-			default: "minmax(7.5rem, 0.3fr) minmax(0, 1fr)",
-			"@media (max-width: 620px)": "1fr",
-		},
-		gap: "0.65rem",
+		gap: "0.45rem",
 		padding: "0.4rem 0.5rem",
 		borderRadius: 6,
 		backgroundColor: "var(--bg)",
+	},
+	judgeContextFieldSummary: {
+		display: "flex",
+		alignItems: "baseline",
+		gap: "0.5rem",
+		cursor: "pointer",
+		minWidth: 0,
+	},
+	judgeContextShape: {
+		color: "var(--muted)",
+		fontSize: "0.68rem",
+		fontVariantNumeric: "tabular-nums",
+	},
+	judgeContextFieldBody: {
+		display: "grid",
+		gap: "0.35rem",
+		maxHeight: "24rem",
+		overflow: "auto",
+	},
+	judgeContextStringList: {
+		margin: 0,
+		paddingLeft: "1.1rem",
+		color: "var(--text)",
+		fontSize: "0.72rem",
+		lineHeight: 1.5,
+		fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+		wordBreak: "break-word",
 	},
 	judgeContextLabel: {
 		color: "var(--subtle)",
@@ -3358,7 +3382,7 @@ function JudgeAsked({ review }: { review: JudgeReviewData }) {
 	);
 }
 
-/** Everything the test sent the judge, folded away: it mostly repeats the agent answers. */
+/** Everything the test sent the judge, folded away unless a finding failed. */
 function JudgeInputs({
 	review,
 	operations,
@@ -3367,9 +3391,8 @@ function JudgeInputs({
 	operations: Attempt["operations"];
 }) {
 	if (!review.context.length) return null;
-	// Inputs matter most before findings exist and when a finding failed.
-	const inputsFirst =
-		review.outcomes.length === 0 || review.outcomes.some((outcome) => !outcome.passed);
+	// Inputs explain a failed finding; while the judge runs they only push the transcript away.
+	const inputsFirst = review.outcomes.some((outcome) => !outcome.passed);
 	return (
 		<section aria-label="Context included">
 			<details data-disclosure open={inputsFirst} {...stylex.props(styles.judgeContextDisclosure)}>
@@ -3453,17 +3476,80 @@ function JudgeContext({
 			{supplied.length ? (
 				<section aria-label="Additional context" {...stylex.props(styles.judgeContextGroup)}>
 					<h5 {...stylex.props(styles.judgeContextGroupHeading)}>Additional context</h5>
-					<dl {...stylex.props(styles.judgeContextList)}>
+					<div {...stylex.props(styles.judgeContextList)}>
 						{supplied.map((item) => (
-							<div key={item.label} {...stylex.props(styles.judgeContextItem)}>
-								<dt {...stylex.props(styles.judgeContextLabel)}>{item.label}</dt>
-								<dd {...stylex.props(styles.judgeContextValue)}>{item.value}</dd>
-							</div>
+							<JudgeContextField key={item.label} item={item} />
 						))}
-					</dl>
+					</div>
 				</section>
 			) : null}
 		</div>
+	);
+}
+
+/** One supplied judge input. A short value reads inline; anything larger folds behind its size. */
+function JudgeContextField({ item }: { item: JudgeReviewData["context"][number] }) {
+	if (isInlineValue(item.rawValue))
+		return (
+			<div {...stylex.props(styles.judgeContextItem, styles.judgeContextFieldSummary)}>
+				<span {...stylex.props(styles.judgeContextLabel)}>{item.label}</span>
+				<span {...stylex.props(styles.judgeContextValue)}>{item.value}</span>
+			</div>
+		);
+	return (
+		<details data-disclosure {...stylex.props(styles.judgeContextItem)}>
+			<summary {...stylex.props(styles.judgeContextFieldSummary)}>
+				<span {...stylex.props(styles.judgeContextLabel)}>{item.label}</span>
+				<span {...stylex.props(styles.judgeContextShape)}>{describeShape(item.rawValue)}</span>
+			</summary>
+			<JudgeContextFieldValue item={item} />
+		</details>
+	);
+}
+
+function JudgeContextFieldValue({ item }: { item: JudgeReviewData["context"][number] }) {
+	const tools = judgeInputToolCalls(item.rawValue);
+	if (tools)
+		return (
+			<div {...stylex.props(styles.judgeContextFieldBody)}>
+				{tools.map((tool, index) => (
+					<ToolActivity key={tool.seq ?? index} tool={tool} />
+				))}
+			</div>
+		);
+	if (isStringList(item.rawValue))
+		return (
+			<ul {...stylex.props(styles.judgeContextFieldBody, styles.judgeContextStringList)}>
+				{item.rawValue.map((value, index) => (
+					<li key={`${index}:${value}`}>{value}</li>
+				))}
+			</ul>
+		);
+	return (
+		<div {...stylex.props(styles.judgeContextFieldBody, styles.judgeContextValue)}>
+			{item.value}
+		</div>
+	);
+}
+
+/** A judge input that is a list of agent tool calls reads like the transcript, not as JSON. */
+function judgeInputToolCalls(value: unknown): TranscriptToolCall[] | undefined {
+	if (!Array.isArray(value) || value.length === 0) return undefined;
+	const tools = toolCallsFromOperation({ trace: { toolCalls: value } });
+	return tools.length === value.length ? tools : undefined;
+}
+
+const INLINE_VALUE_LENGTH = 120;
+
+function isInlineValue(value: unknown): boolean {
+	if (typeof value === "string")
+		return value.length <= INLINE_VALUE_LENGTH && !value.includes("\n");
+	return value === null || value === undefined || typeof value !== "object";
+}
+
+function isStringList(value: unknown): value is string[] {
+	return (
+		Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string")
 	);
 }
 

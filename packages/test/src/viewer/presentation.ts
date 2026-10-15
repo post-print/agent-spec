@@ -156,3 +156,26 @@ function sameGroup(left: IntentSource, right: IntentSource): boolean {
 		left.title.slice(0, -1).join("›") === right.title.slice(0, -1).join("›")
 	);
 }
+
+const LONG_TEXT = 200;
+
+/** A short size label for a judge input, so a folded field says how much it holds. */
+export function describeShape(value: unknown): string {
+	if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? "item" : "items"}`;
+	if (typeof value === "string") return describeText(value);
+	if (value !== null && typeof value === "object") {
+		const keys = Object.keys(value).length;
+		return `${keys} ${keys === 1 ? "key" : "keys"}`;
+	}
+	return String(value);
+}
+
+function describeText(value: string): string {
+	if (value.length > LONG_TEXT) return formatBytes(new TextEncoder().encode(value).length);
+	const lines = value.split("\n").length;
+	return `${lines} ${lines === 1 ? "line" : "lines"}`;
+}
+
+function formatBytes(bytes: number): string {
+	return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+}

@@ -2,6 +2,7 @@ import { expect, it } from "bun:test";
 import { storedValue } from "../sdk/stored-value.js";
 import {
 	conversationPlaceholder,
+	describeShape,
 	median,
 	preferredTestExecutionId,
 	runStatusCounts,
@@ -112,4 +113,12 @@ it("viewer presentation › keeps a test's own description under a declared suit
 		suite: "Suite intent.",
 		own: undefined,
 	});
+});
+
+it("viewer presentation › sizes a folded judge input by its shape", () => {
+	expect(describeShape(["a", "b", "c"])).toBe("3 items");
+	expect(describeShape({ one: 1 })).toBe("1 key");
+	expect(describeShape("first\nsecond")).toBe("2 lines");
+	expect(describeShape("x".repeat(2048))).toBe("2.0 KB");
+	expect(describeShape(true)).toBe("true");
 });
