@@ -27,10 +27,19 @@ it("public SDK discovery derives expect criteria and preserves explicit criteria
 	expect(catalog?.tests?.map((test) => test.criteria)).toEqual([
 		["The response contains READY.", "The agent does not access secret.txt."],
 		["The declared criterion wins."],
+		["The response contains READY."],
+	]);
+	expect(catalog?.tests?.map((test) => test.suiteDescription)).toEqual([
+		undefined,
+		undefined,
+		"Suite-level intent shown once.",
 	]);
 });
 
-type CatalogMessage = { type?: string; tests?: Array<{ criteria?: string[] }> };
+type CatalogMessage = {
+	type?: string;
+	tests?: Array<{ criteria?: string[]; suiteDescription?: string }>;
+};
 function parseJson(line: string): CatalogMessage | undefined {
 	try {
 		return JSON.parse(line) as CatalogMessage;

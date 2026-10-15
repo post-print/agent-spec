@@ -21,14 +21,18 @@ import {
 	useState,
 } from "react";
 import Markdown from "react-markdown";
+import { ElapsedTime } from "./elapsed-time.js";
 import {
 	assertionComparison,
 	conversationPlaceholder,
+	describeShape,
 	formatRunDate,
 	median,
 	preferredTestExecutionId,
 	stripAnsi,
+	type TestIntent,
 	type TestRunStatus,
+	testIntent,
 	testRunStatus,
 	unwrapShellCommand,
 } from "./presentation.js";
@@ -60,18 +64,28 @@ type Attempt = {
 		assertion?: string;
 	}>;
 	output: { stdout: string[]; stderr: string[] };
+	startedAt?: string;
+	completedAt?: string;
+	durationMs?: number;
 	operations: Array<{
 		id: string;
 		kind: string;
 		name?: string;
 		status: string;
 		invocationIndex?: number;
+		startedAt?: string;
+		completedAt?: string;
 		data: unknown[];
 	}>;
 	attachments?: Array<{ name: string; contentType: string; url: string }>;
 	metrics?: Record<string, number>;
 };
-type ExecutionDetail = ExecutionSummary & { attempts: Attempt[]; cancellable?: boolean };
+type AttemptProgress = { at: string; attemptId: string; data: unknown };
+type ExecutionDetail = ExecutionSummary & {
+	attempts: Attempt[];
+	cancellable?: boolean;
+	progress?: AttemptProgress[];
+};
 const fetchExecution = (id: string) => fetchExecutionRecord<ExecutionDetail>(id);
 type TestView = "current" | "setup" | "history";
 const LOCAL_PATH_LINK = /\[([^\]]+)\]\(<local-path>[^)]*\)/g;
@@ -435,6 +449,18 @@ const styles = stylex.create({
 		letterSpacing: "0.08em",
 		textTransform: "uppercase",
 	},
+	catalogNotice: {
+		margin: "0.6rem 1.25rem 0",
+		color: "var(--muted)",
+		fontSize: "0.72rem",
+		lineHeight: 1.45,
+	},
+	catalogNoticeError: {
+		padding: "0.45rem 0.6rem",
+		borderRadius: 8,
+		color: "var(--fail)",
+		backgroundColor: "var(--fail-soft)",
+	},
 	groupCount: { color: "var(--subtle)", fontSize: "0.66rem", fontVariantNumeric: "tabular-nums" },
 	navLink: {
 		display: "block",
@@ -503,6 +529,16 @@ const styles = stylex.create({
 		alignSelf: "start",
 	},
 	description: { color: "var(--muted)", fontSize: "0.82rem", lineHeight: 1.5, maxWidth: "54rem" },
+	suiteDescription: {
+		margin: 0,
+		color: "var(--subtle)",
+		fontSize: "0.74rem",
+		lineHeight: 1.45,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	headerChecks: { paddingTop: "0.55rem" },
 	path: {
 		color: "var(--subtle)",
 		fontSize: "0.7rem",
@@ -704,6 +740,46 @@ const styles = stylex.create({
 		gap: "0.7rem",
 	},
 	attemptTitle: { fontSize: "0.84rem", lineHeight: 1.4 },
+	liveStrip: {
+		position: "sticky",
+		top: 0,
+		zIndex: 2,
+		display: "grid",
+		gap: "0.3rem",
+		padding: "0.55rem 0.75rem",
+		border: "1px solid var(--border-strong)",
+		borderRadius: 10,
+		backgroundColor: "var(--panel-2)",
+		minWidth: 0,
+	},
+	liveStripLine: {
+		display: "flex",
+		flexWrap: "wrap",
+		alignItems: "center",
+		gap: "0.4rem 0.75rem",
+	},
+	liveStripElapsed: {
+		color: "var(--text)",
+		fontSize: "0.82rem",
+		fontWeight: 700,
+		fontVariantNumeric: "tabular-nums",
+	},
+	liveStripMeta: { color: "var(--muted)", fontSize: "0.76rem", fontVariantNumeric: "tabular-nums" },
+	liveStripNow: {
+		margin: 0,
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: "var(--text)",
+		fontSize: "0.78rem",
+	},
+	liveStripLabel: { color: "var(--subtle)", fontWeight: 650 },
+	liveStripDetail: {
+		marginLeft: "0.4rem",
+		color: "var(--muted)",
+		fontSize: "0.72rem",
+	},
 	verdictPanel: {
 		display: "grid",
 		gap: "0.55rem",
@@ -1072,14 +1148,37 @@ const styles = stylex.create({
 	judgeContextList: { display: "grid", gap: "0.3rem", margin: 0 },
 	judgeContextItem: {
 		display: "grid",
-		gridTemplateColumns: {
-			default: "minmax(7.5rem, 0.3fr) minmax(0, 1fr)",
-			"@media (max-width: 620px)": "1fr",
-		},
-		gap: "0.65rem",
+		gap: "0.45rem",
 		padding: "0.4rem 0.5rem",
 		borderRadius: 6,
 		backgroundColor: "var(--bg)",
+	},
+	judgeContextFieldSummary: {
+		display: "flex",
+		alignItems: "baseline",
+		gap: "0.5rem",
+		cursor: "pointer",
+		minWidth: 0,
+	},
+	judgeContextShape: {
+		color: "var(--muted)",
+		fontSize: "0.68rem",
+		fontVariantNumeric: "tabular-nums",
+	},
+	judgeContextFieldBody: {
+		display: "grid",
+		gap: "0.35rem",
+		maxHeight: "24rem",
+		overflow: "auto",
+	},
+	judgeContextStringList: {
+		margin: 0,
+		paddingLeft: "1.1rem",
+		color: "var(--text)",
+		fontSize: "0.72rem",
+		lineHeight: 1.5,
+		fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+		wordBreak: "break-word",
 	},
 	judgeContextLabel: {
 		color: "var(--subtle)",
@@ -1477,7 +1576,7 @@ function ViewerSidebarContent({
 				<SidebarNavigation
 					groups={groups}
 					statuses={statuses}
-					error={catalog.isError}
+					catalogState={catalogState(catalog)}
 					navigationId={navigationId}
 					onNavigate={onClose}
 				/>
@@ -1611,27 +1710,55 @@ function SidebarToggle({
 	);
 }
 
+type CatalogState = "ready" | "stale" | "unavailable";
+
+/** A failed refresh over a list already shown is stale, not missing. */
+function catalogState(catalog: { isError: boolean; data?: unknown }): CatalogState {
+	if (!catalog.isError) return "ready";
+	return catalog.data ? "stale" : "unavailable";
+}
+
+function CatalogNotice({ state }: { state: CatalogState }) {
+	if (state === "ready") return null;
+	if (state === "stale")
+		return (
+			<p role="status" {...stylex.props(styles.catalogNotice)}>
+				Test list may be out of date. Retrying…
+			</p>
+		);
+	return (
+		<p role="alert" {...stylex.props(styles.catalogNotice, styles.catalogNoticeError)}>
+			Test discovery is unavailable. Retrying…
+		</p>
+	);
+}
+
 function SidebarNavigation({
 	groups,
 	statuses,
-	error,
+	catalogState,
 	navigationId,
 	onNavigate,
 }: {
 	groups: Map<string, TestRecord[]>;
 	statuses: Map<string, TestStatusValue>;
-	error: boolean;
+	catalogState: CatalogState;
 	navigationId: string;
 	onNavigate?: () => void;
 }) {
 	return (
 		<>
-			{error ? <p role="alert">Test discovery is unavailable.</p> : null}
+			<CatalogNotice state={catalogState} />
 			<nav id={navigationId} aria-label="Tests" {...stylex.props(styles.navigation)}>
 				{[...groups].map(([name, tests]) => (
 					<section key={name} aria-label={`${name} tests`} {...stylex.props(styles.navSection)}>
 						<div {...stylex.props(styles.groupHeader)}>
-							<strong {...stylex.props(styles.groupLabel)}>{name}</strong>
+							<strong
+								title={tests[0] ? testIntent(tests[0], tests).suite : undefined}
+								{...stylex.props(styles.groupLabel)}
+							>
+								{name}
+							</strong>
 							<div {...stylex.props(styles.groupHeaderActions)}>
 								<span {...stylex.props(styles.groupCount)}>{tests.length}</span>
 								<RunTestGroupButton name={name} tests={tests} onNavigate={onNavigate} />
@@ -1641,6 +1768,7 @@ function SidebarNavigation({
 							<TestLink
 								key={test.id}
 								test={test}
+								hint={testIntent(test, tests).own}
 								status={statuses.get(test.id)}
 								onNavigate={onNavigate}
 							/>
@@ -1690,10 +1818,12 @@ function RunTestGroupButton({
 }
 function TestLink({
 	test,
+	hint,
 	status,
 	onNavigate,
 }: {
 	test: TestRecord;
+	hint?: string;
 	status?: TestStatusValue;
 	onNavigate?: () => void;
 }) {
@@ -1708,7 +1838,9 @@ function TestLink({
 		>
 			<div {...stylex.props(styles.navItemHeader)}>
 				{status ? <TestStatus status={status} /> : <span aria-hidden="true" />}
-				<span {...stylex.props(styles.navItemTitle)}>{test.title.at(-1)}</span>
+				<span title={hint ?? test.title.at(-1)} {...stylex.props(styles.navItemTitle)}>
+					{test.title.at(-1)}
+				</span>
 			</div>
 			{test.project !== "default" ? <div {...stylex.props(styles.meta)}>{test.project}</div> : null}
 		</Link>
@@ -1744,9 +1876,11 @@ function TestPage() {
 		return (
 			<p role="alert">This test is no longer available. Choose another test in the sidebar.</p>
 		);
-	return <TestDetail key={test.id} test={test} />;
+	return (
+		<TestDetail key={test.id} test={test} intent={testIntent(test, catalog.data?.tests ?? [])} />
+	);
 }
-function TestDetail({ test }: { test: TestRecord }) {
+function TestDetail({ test, intent }: { test: TestRecord; intent: TestIntent }) {
 	const { execution, view } = testRoute.useSearch();
 	const history = useExecutionHistory();
 	const navigate = useNavigate();
@@ -1767,7 +1901,7 @@ function TestDetail({ test }: { test: TestRecord }) {
 		});
 	return (
 		<>
-			<TestHeader test={test} onStarted={chooseExecution} />
+			<TestHeader test={test} intent={intent} onStarted={chooseExecution} />
 			<BatchRunLink run={runs.find((run) => run.id === selected)} />
 			<TestTabs active={activeView} onChange={chooseView} />
 			<TestViewPanel
@@ -1797,23 +1931,57 @@ function BatchRunLink({ run }: { run?: ExecutionSummary }) {
 	);
 }
 
-function TestHeader({ test, onStarted }: { test: TestRecord; onStarted: (id: string) => void }) {
+function TestHeader({
+	test,
+	intent,
+	onStarted,
+}: {
+	test: TestRecord;
+	intent: TestIntent;
+	onStarted: (id: string) => void;
+}) {
 	return (
 		<header {...stylex.props(styles.hero)}>
 			<div {...stylex.props(styles.heroTop)}>
 				<div {...stylex.props(styles.heroCopy)}>
 					<div {...stylex.props(styles.brand)}>{test.title.slice(0, -1).join(" / ")}</div>
+					{intent.suite ? (
+						<p title={intent.suite} {...stylex.props(styles.suiteDescription)}>
+							{intent.suite}
+						</p>
+					) : null}
 					<h2 {...stylex.props(styles.title)}>{test.title.at(-1)}</h2>
-					<p {...stylex.props(styles.description)}>
-						{test.description ?? "This test has no additional description."}
-					</p>
+					{intent.own ? <p {...stylex.props(styles.description)}>{intent.own}</p> : null}
 				</div>
 				<RunTestButton test={test} onStarted={onStarted} />
 			</div>
+			<TestChecks criteria={test.criteria ?? []} />
 			<div {...stylex.props(styles.path)}>
 				{test.project} · {test.file}
 			</div>
 		</header>
+	);
+}
+
+/** What the test checks, folded: the verdict below lists the same checks once a run exists. */
+function TestChecks({ criteria }: { criteria: string[] }) {
+	if (!criteria.length) return null;
+	return (
+		<details data-disclosure {...stylex.props(styles.judgeContextDisclosure)}>
+			<summary {...stylex.props(styles.judgeContextSummary)}>
+				Passes when · {criteria.length} {pluralize(criteria.length, "check")}
+			</summary>
+			<ul {...stylex.props(styles.criteriaList, styles.headerChecks)}>
+				{criteria.map((criterion) => (
+					<li key={criterion} {...stylex.props(styles.criterion)}>
+						<span aria-hidden="true" {...stylex.props(styles.criterionIcon)}>
+							•
+						</span>
+						<span>{criterion}</span>
+					</li>
+				))}
+			</ul>
+		</details>
 	);
 }
 
@@ -2248,7 +2416,13 @@ function ExecutionDetailView({
 			{cancel.isError ? <p role="alert">The run could not be stopped.</p> : null}
 			<section {...stylex.props(styles.list)}>
 				{execution.attempts.map((attempt) => (
-					<AttemptCard key={attempt.id} attempt={attempt} criteria={criteria} showTitle={false} />
+					<AttemptCard
+						key={attempt.id}
+						attempt={attempt}
+						criteria={criteria}
+						showTitle={false}
+						progress={execution.progress?.filter((entry) => entry.attemptId === attempt.id)}
+					/>
 				))}
 				{execution.attempts.length === 0 ? (
 					<p {...stylex.props(styles.empty)}>{emptyExecutionMessage(execution, stopping)}</p>
@@ -2310,10 +2484,12 @@ function AttemptCard({
 	attempt,
 	criteria = [],
 	showTitle = true,
+	progress = [],
 }: {
 	attempt: Attempt;
 	criteria?: string[];
 	showTitle?: boolean;
+	progress?: AttemptProgress[];
 }) {
 	const { operations, output, title } = attemptPresentation(attempt, criteria);
 	const agents = operations.filter((operation) => operation.kind !== "evaluation");
@@ -2344,6 +2520,9 @@ function AttemptCard({
 					</span>
 				</div>
 			</div>
+			{attempt.status === "running" ? (
+				<LiveRunStrip attempt={attempt} operations={operations} progress={progress.at(-1)} />
+			) : null}
 			<TestVerdict attempt={attempt} criteria={criteria} operations={operations} />
 			<OperationList operations={operations} />
 			<ConversationSection
@@ -2361,6 +2540,80 @@ function AttemptCard({
 			<TechnicalDetails operations={operations} output={output} />
 		</article>
 	);
+}
+
+/** Where a long run is right now: how long it has run, how far it got, and what it is doing. */
+function LiveRunStrip({
+	attempt,
+	operations,
+	progress,
+}: {
+	attempt: Attempt;
+	operations: Attempt["operations"];
+	progress?: AttemptProgress;
+}) {
+	const step = currentStep(operations);
+	const reported = progress ? progressSummary(progress.data) : undefined;
+	return (
+		<section aria-label="Live run status" {...stylex.props(styles.liveStrip)}>
+			<div {...stylex.props(styles.liveStripLine)}>
+				<RunningIndicator kind={step.kind} />
+				{attempt.startedAt ? (
+					<span {...stylex.props(styles.liveStripElapsed)}>
+						<ElapsedTime since={attempt.startedAt} />
+					</span>
+				) : null}
+				<span {...stylex.props(styles.liveStripMeta)}>
+					{step.count} {pluralize(step.count, "step")}
+				</span>
+			</div>
+			<p aria-live="polite" title={step.detail} {...stylex.props(styles.liveStripNow)}>
+				<span {...stylex.props(styles.liveStripLabel)}>Now:</span> {step.label}
+				{step.detail ? <code {...stylex.props(styles.liveStripDetail)}>{step.detail}</code> : null}
+			</p>
+			{reported ? (
+				<p title={reported} {...stylex.props(styles.liveStripNow)}>
+					<span {...stylex.props(styles.liveStripLabel)}>Progress:</span> {reported}
+				</p>
+			) : null}
+		</section>
+	);
+}
+
+type CurrentStep = {
+	kind?: Attempt["operations"][number]["kind"];
+	label: string;
+	detail?: string;
+	count: number;
+};
+
+/** The newest thing the running test did, read from the same live records as the transcript. */
+function currentStep(operations: Attempt["operations"]): CurrentStep {
+	const count = operations
+		.filter((operation) => operation.kind !== "evaluation")
+		.flatMap((operation) => liveConversationTimeline(operation.data.filter(isRecord)))
+		.filter((event) => event.kind === "tool").length;
+	const active = [...operations].reverse().find((operation) => operation.status === "running");
+	if (!active) return { label: "Preparing the next step", count };
+	if (active.kind === "evaluation")
+		return { kind: active.kind, label: `Judge ${active.name ?? ""} is reviewing`.trim(), count };
+	const latest = liveConversationTimeline(active.data.filter(isRecord)).at(-1);
+	if (latest?.kind === "tool") {
+		const tool = toolPresentation(latest.tool);
+		return { kind: active.kind, label: tool.title, detail: tool.detail || undefined, count };
+	}
+	const label = latest ? "Writing a reply" : "Waiting for the first agent event";
+	return { kind: active.kind, label, count };
+}
+
+/** One line from whatever the test passed to reportProgress. */
+function progressSummary(data: unknown): string | undefined {
+	if (typeof data === "string") return data || undefined;
+	if (!isRecord(data)) return data === undefined || data === null ? undefined : String(data);
+	const facts = Object.entries(data).map(
+		([key, value]) => `${humanizeKey(key)}: ${formatConversationValue(value)}`,
+	);
+	return facts.join(" · ") || undefined;
 }
 
 /** Test-level outcome first: every check with its result, including judge-decided checks. */
@@ -2395,9 +2648,6 @@ function TestVerdict({
 					{checkSummary(presentations, attempt.status)}
 				</span>
 			</p>
-			{attempt.status === "running" ? (
-				<p {...stylex.props(styles.meta)}>The test is still running.</p>
-			) : null}
 			<VerdictMetrics operations={operations} reported={attempt.metrics} />
 			<VerdictChecks presentations={presentations} />
 			<UnassignedFailures errors={attempt.errors} presentations={presentations} />
@@ -3358,7 +3608,7 @@ function JudgeAsked({ review }: { review: JudgeReviewData }) {
 	);
 }
 
-/** Everything the test sent the judge, folded away: it mostly repeats the agent answers. */
+/** Everything the test sent the judge, folded away unless a finding failed. */
 function JudgeInputs({
 	review,
 	operations,
@@ -3367,9 +3617,8 @@ function JudgeInputs({
 	operations: Attempt["operations"];
 }) {
 	if (!review.context.length) return null;
-	// Inputs matter most before findings exist and when a finding failed.
-	const inputsFirst =
-		review.outcomes.length === 0 || review.outcomes.some((outcome) => !outcome.passed);
+	// Inputs explain a failed finding; while the judge runs they only push the transcript away.
+	const inputsFirst = review.outcomes.some((outcome) => !outcome.passed);
 	return (
 		<section aria-label="Context included">
 			<details data-disclosure open={inputsFirst} {...stylex.props(styles.judgeContextDisclosure)}>
@@ -3453,17 +3702,80 @@ function JudgeContext({
 			{supplied.length ? (
 				<section aria-label="Additional context" {...stylex.props(styles.judgeContextGroup)}>
 					<h5 {...stylex.props(styles.judgeContextGroupHeading)}>Additional context</h5>
-					<dl {...stylex.props(styles.judgeContextList)}>
+					<div {...stylex.props(styles.judgeContextList)}>
 						{supplied.map((item) => (
-							<div key={item.label} {...stylex.props(styles.judgeContextItem)}>
-								<dt {...stylex.props(styles.judgeContextLabel)}>{item.label}</dt>
-								<dd {...stylex.props(styles.judgeContextValue)}>{item.value}</dd>
-							</div>
+							<JudgeContextField key={item.label} item={item} />
 						))}
-					</dl>
+					</div>
 				</section>
 			) : null}
 		</div>
+	);
+}
+
+/** One supplied judge input. A short value reads inline; anything larger folds behind its size. */
+function JudgeContextField({ item }: { item: JudgeReviewData["context"][number] }) {
+	if (isInlineValue(item.rawValue))
+		return (
+			<div {...stylex.props(styles.judgeContextItem, styles.judgeContextFieldSummary)}>
+				<span {...stylex.props(styles.judgeContextLabel)}>{item.label}</span>
+				<span {...stylex.props(styles.judgeContextValue)}>{item.value}</span>
+			</div>
+		);
+	return (
+		<details data-disclosure {...stylex.props(styles.judgeContextItem)}>
+			<summary {...stylex.props(styles.judgeContextFieldSummary)}>
+				<span {...stylex.props(styles.judgeContextLabel)}>{item.label}</span>
+				<span {...stylex.props(styles.judgeContextShape)}>{describeShape(item.rawValue)}</span>
+			</summary>
+			<JudgeContextFieldValue item={item} />
+		</details>
+	);
+}
+
+function JudgeContextFieldValue({ item }: { item: JudgeReviewData["context"][number] }) {
+	const tools = judgeInputToolCalls(item.rawValue);
+	if (tools)
+		return (
+			<div {...stylex.props(styles.judgeContextFieldBody)}>
+				{tools.map((tool, index) => (
+					<ToolActivity key={tool.seq ?? index} tool={tool} />
+				))}
+			</div>
+		);
+	if (isStringList(item.rawValue))
+		return (
+			<ul {...stylex.props(styles.judgeContextFieldBody, styles.judgeContextStringList)}>
+				{item.rawValue.map((value, index) => (
+					<li key={`${index}:${value}`}>{value}</li>
+				))}
+			</ul>
+		);
+	return (
+		<div {...stylex.props(styles.judgeContextFieldBody, styles.judgeContextValue)}>
+			{item.value}
+		</div>
+	);
+}
+
+/** A judge input that is a list of agent tool calls reads like the transcript, not as JSON. */
+function judgeInputToolCalls(value: unknown): TranscriptToolCall[] | undefined {
+	if (!Array.isArray(value) || value.length === 0) return undefined;
+	const tools = toolCallsFromOperation({ trace: { toolCalls: value } });
+	return tools.length === value.length ? tools : undefined;
+}
+
+const INLINE_VALUE_LENGTH = 120;
+
+function isInlineValue(value: unknown): boolean {
+	if (typeof value === "string")
+		return value.length <= INLINE_VALUE_LENGTH && !value.includes("\n");
+	return value === null || value === undefined || typeof value !== "object";
+}
+
+function isStringList(value: unknown): value is string[] {
+	return (
+		Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string")
 	);
 }
 

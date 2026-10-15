@@ -2,7 +2,9 @@ import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { ElapsedTime } from "./elapsed-time.js";
 import {
+	formatElapsed,
 	formatRunDate,
 	runStatusCounts,
 	stripAnsi,
@@ -27,6 +29,7 @@ type StatusFilter = TestRunStatus | "all";
 
 const EARLIER_RUN_LIMIT = 20;
 const STARTED_STATUSES = new Set<TestRunStatus>(["running", "passed", "failed"]);
+const FINISHED_STATUSES = new Set<TestRunStatus>(["passed", "failed", "skipped", "interrupted"]);
 const ERROR_EXCERPT_LENGTH = 180;
 
 /** Home: the run that needs attention now, then earlier runs. */
@@ -116,7 +119,8 @@ function RunHeader({
 				<RunNotice run={run} />
 				<p {...stylex.props(styles.meta)}>
 					{count} {count === 1 ? "test" : "tests"}
-					{duration ? ` · ${duration}` : ""} ·{" "}
+					{duration ? ` · ${duration}` : ""}
+					{run.status === "running" ? <RunningFor run={run} total={count} /> : null} ·{" "}
 					<span {...stylex.props(styles.mono)}>{run.id.slice(0, 8)}</span>
 				</p>
 			</div>
@@ -125,6 +129,20 @@ function RunHeader({
 				<StatusPill status={runOutcome(run)} />
 			</div>
 		</header>
+	);
+}
+
+/** How long a live run has gone and how many of its tests have finished. */
+function RunningFor({ run, total }: { run: ExecutionSummary; total: number }) {
+	const done = (run.testIds ?? []).filter((testId) =>
+		FINISHED_STATUSES.has(testRunStatus(run, testId)),
+	).length;
+	return (
+		<>
+			{" · running "}
+			<ElapsedTime since={run.startedAt} />
+			{total > 1 ? ` · ${done} of ${total} done` : ""}
+		</>
 	);
 }
 
@@ -389,9 +407,9 @@ function countSummary(run: ExecutionSummary): string {
 
 function runDuration(run: ExecutionSummary): string | undefined {
 	if (!run.finishedAt) return undefined;
-	const seconds = Math.round((Date.parse(run.finishedAt) - Date.parse(run.startedAt)) / 1000);
-	if (!Number.isFinite(seconds) || seconds < 0) return undefined;
-	return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+	const ms = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
+	if (!Number.isFinite(ms) || ms < 0) return undefined;
+	return formatElapsed(ms);
 }
 
 function firstErrorLine(detail: RunDetail | undefined, testId: string): string | undefined {

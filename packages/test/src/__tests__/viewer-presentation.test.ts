@@ -2,11 +2,14 @@ import { expect, it } from "bun:test";
 import { storedValue } from "../sdk/stored-value.js";
 import {
 	conversationPlaceholder,
+	describeShape,
+	formatElapsed,
 	median,
 	preferredTestExecutionId,
 	runStatusCounts,
 	stripAnsi,
 	testIdsBySeverity,
+	testIntent,
 	testRunStatus,
 	unwrapShellCommand,
 } from "../viewer/presentation.js";
@@ -89,4 +92,41 @@ it("stored values preserve useful command context while redacting private paths"
 			root: "/Users/example/private-workspace",
 		}),
 	).toEqual({ command: "cat <local-path>/seeded.txt", root: "<local-path>" });
+});
+
+it("viewer presentation › shows a description every test repeats once, as the suite's", () => {
+	const shared = "Portable review conformance.";
+	const first = { file: "a.spec.ts", title: ["review", "one"], description: shared };
+	const second = { file: "a.spec.ts", title: ["review", "two"], description: shared };
+	expect(testIntent(first, [first, second])).toEqual({ suite: shared, own: undefined });
+	expect(testIntent(first, [first])).toEqual({ suite: undefined, own: shared });
+});
+
+it("viewer presentation › keeps a test's own description under a declared suite description", () => {
+	const test = {
+		file: "a.spec.ts",
+		title: ["review", "one"],
+		description: "Only this case.",
+		suiteDescription: "Suite intent.",
+	};
+	expect(testIntent(test, [test])).toEqual({ suite: "Suite intent.", own: "Only this case." });
+	expect(testIntent({ ...test, description: "Suite intent." }, [test])).toEqual({
+		suite: "Suite intent.",
+		own: undefined,
+	});
+});
+
+it("viewer presentation › sizes a folded judge input by its shape", () => {
+	expect(describeShape(["a", "b", "c"])).toBe("3 items");
+	expect(describeShape({ one: 1 })).toBe("1 key");
+	expect(describeShape("first\nsecond")).toBe("2 lines");
+	expect(describeShape("x".repeat(2048))).toBe("2.0 KB");
+	expect(describeShape(true)).toBe("true");
+});
+
+it("viewer presentation › reads run length in seconds, minutes, then hours", () => {
+	expect(formatElapsed(-5)).toBe("0s");
+	expect(formatElapsed(45_400)).toBe("45s");
+	expect(formatElapsed(334_000)).toBe("5m 34s");
+	expect(formatElapsed(3_725_000)).toBe("1h 02m");
 });

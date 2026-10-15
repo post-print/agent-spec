@@ -124,3 +124,67 @@ const SHELL_WRAPPER = /^(?:\S*\/)?(?:ba|z)?sh\s+-l?c\s+(["'])([\s\S]*)\1$/;
 export function unwrapShellCommand(command: string): string {
 	return SHELL_WRAPPER.exec(command.trim())?.[2] ?? command;
 }
+
+type IntentSource = {
+	file: string;
+	title: string[];
+	description?: string;
+	suiteDescription?: string;
+};
+export type TestIntent = { suite?: string; own?: string };
+
+/**
+ * What the suite proves and what this one test adds. A description every test in its group
+ * repeats is the suite's, so it is shown once instead of on every test.
+ */
+export function testIntent(test: IntentSource, tests: IntentSource[]): TestIntent {
+	const suite = test.suiteDescription ?? sharedGroupDescription(test, tests);
+	return { suite, own: test.description === suite ? undefined : test.description };
+}
+
+function sharedGroupDescription(test: IntentSource, tests: IntentSource[]): string | undefined {
+	const group = tests.filter((item) => sameGroup(item, test));
+	if (group.length < 2 || !test.description) return undefined;
+	return group.every((item) => item.description === test.description)
+		? test.description
+		: undefined;
+}
+
+function sameGroup(left: IntentSource, right: IntentSource): boolean {
+	return (
+		left.file === right.file &&
+		left.title.slice(0, -1).join("›") === right.title.slice(0, -1).join("›")
+	);
+}
+
+const LONG_TEXT = 200;
+
+/** A short size label for a judge input, so a folded field says how much it holds. */
+export function describeShape(value: unknown): string {
+	if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? "item" : "items"}`;
+	if (typeof value === "string") return describeText(value);
+	if (value !== null && typeof value === "object") {
+		const keys = Object.keys(value).length;
+		return `${keys} ${keys === 1 ? "key" : "keys"}`;
+	}
+	return String(value);
+}
+
+function describeText(value: string): string {
+	if (value.length > LONG_TEXT) return formatBytes(new TextEncoder().encode(value).length);
+	const lines = value.split("\n").length;
+	return `${lines} ${lines === 1 ? "line" : "lines"}`;
+}
+
+function formatBytes(bytes: number): string {
+	return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+/** Run length as people read it: `45s`, `5m 34s`, `1h 02m`. */
+export function formatElapsed(ms: number): string {
+	const seconds = Math.max(0, Math.floor(ms / 1000));
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+	return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}

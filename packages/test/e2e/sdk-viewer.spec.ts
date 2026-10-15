@@ -15,6 +15,9 @@ const EXECUTION_LABEL = /^Execution /;
 const PASSED_LABEL = /^passed$/;
 const TOKEN_METRIC = /^Tokens\d+$/;
 
+const ELAPSED_SECONDS = /^\d+s$/;
+const NOW_RUNNING_TESTS = /Now: Run command\s*bun test/;
+
 test("TypeScript tests run from the catalog and retain named operations after reload", async ({
 	page,
 }) => {
@@ -500,6 +503,7 @@ test("running conversation updates through WebSocket without detail polling", as
 		const conversation = page.getByRole("region", { name: "Agents" });
 		const running = conversation.getByRole("status", { name: "Agent is running" });
 		await expect(running).toContainText("Running");
+		const live = await checkLiveStripBeforeEvents(page);
 		const requestsAfterInitialRender = detailRequests();
 		await recordLiveConversation(fixture);
 		const completed = page
@@ -521,15 +525,42 @@ test("running conversation updates through WebSocket without detail polling", as
 		await expect(
 			page.getByRole("tabpanel", { name: "Current run" }).getByText("running", { exact: true }),
 		).toBeVisible();
+		await checkLiveStripFollowsSteps(live, fixture);
 		expect(detailRequests()).toBe(requestsAfterInitialRender);
 		await finishRunningExecution(fixture);
 		await expect(running).toHaveCount(0);
+		await expect(live).toHaveCount(0);
 		await expect(participant.getByRole("status", { name: "seeded is running" })).toHaveCount(0);
 	} finally {
 		await viewer.close();
 		await rm(fixture.directory, { recursive: true, force: true });
 	}
 });
+
+async function checkLiveStripBeforeEvents(page: Page) {
+	const live = page.getByRole("region", { name: "Live run status" });
+	await expect(live).toContainText("0 steps");
+	await expect(live).toContainText("Now: Preparing the next step");
+	await expect(live.locator("time")).toHaveText(ELAPSED_SECONDS);
+	return live;
+}
+
+async function checkLiveStripFollowsSteps(
+	live: Locator,
+	fixture: Awaited<ReturnType<typeof runningExecutionFixture>>,
+) {
+	await expect(live).toContainText("1 step");
+	await expect(live).toContainText("Now: Writing a reply");
+	await fixture.store.record({
+		type: "operation.agent",
+		level: "debug",
+		attemptId: "attempt-1",
+		operationId: "agent-1",
+		data: { type: "tool", name: "bash", args: { command: "bun test" } },
+	});
+	await expect(live).toContainText("2 steps");
+	await expect(live).toContainText(NOW_RUNNING_TESTS);
+}
 
 async function trackDetailRequests(page: Page, executionId: string) {
 	let count = 0;
@@ -561,6 +592,8 @@ test("a judge appears while running and completes in place", async ({ page }) =>
 			conversation.getByText("Should this release proceed?", { exact: true }),
 		).toBeVisible();
 		const context = conversation.getByRole("region", { name: "Context included" });
+		await expect(context.getByText("Rollback Ready", { exact: true })).toBeHidden();
+		await context.getByText("What the judge saw").click();
 		await expect(context.getByText("Rollback Ready", { exact: true })).toBeVisible();
 		await expect(context.getByText("true", { exact: true })).toBeVisible();
 		await expect(conversation.getByRole("region", { name: "Judge response" })).toHaveCount(0);
@@ -616,7 +649,7 @@ test("a terminal-started execution opens and streams in an already-open viewer",
 		});
 		await expect(page).toHaveURL(new RegExp(`/tests/${testId}\\?execution=${executionId}$`));
 		await expect(page.getByRole("button", { name: "Stop this run" })).toHaveCount(0);
-		await expect(page.getByText("The test is still running.")).toBeVisible();
+		await expect(page.getByRole("region", { name: "Live run status" })).toBeVisible();
 	} finally {
 		await viewer.close();
 		await rm(directory, { recursive: true, force: true });
@@ -1305,7 +1338,11 @@ async function checkTestTabs(page: Page) {
 	await expect(page.getByRole("region", { name: "Workspace" })).toBeVisible();
 	await expect(page.getByRole("tabpanel").getByText("seeded", { exact: true })).toHaveCount(0);
 	await expect(page.getByRole("heading", { name: "Pass criteria" })).toBeVisible();
-	await expect(page.getByText("The candidate uses fewer tokens than the baseline.")).toBeVisible();
+	await expect(
+		page
+			.getByRole("tabpanel", { name: "Test setup" })
+			.getByText("The candidate uses fewer tokens than the baseline."),
+	).toBeVisible();
 	await tabs.getByRole("tab", { name: "Run history" }).click();
 	await expect(page.getByText("Run history", { exact: true })).toHaveCount(1);
 	await tabs.getByRole("tab", { name: "Current run" }).click();
@@ -1401,6 +1438,72 @@ async function checkExecutionSelection(page: Page, title: string) {
 	await expect(page.getByRole("heading", { name: title })).not.toBeVisible();
 	await page.goBack();
 	await expect.poll(() => new URL(page.url()).searchParams.get("execution")).toBe(firstExecution);
+}
+
+test("a failed catalog refresh marks the test list stale and recovers by itself", async ({
+	page,
+}) => {
+	const config = fileURLToPath(new URL("../fixtures/sdk-v2/agent-test.config.ts", import.meta.url));
+	const viewer = await listenViewer({
+		testCatalog: await loadSdkCatalog(config),
+		suitesDir: config,
+	});
+	try {
+		await page.clock.install();
+		await page.goto(viewer.url);
+		const nav = page.getByRole("navigation", { name: "Tests" });
+		await expect(nav.getByRole("link").first()).toBeVisible();
+		await page.route("**/api/test-catalog", (route) => route.abort());
+		await page.clock.runFor(6_000);
+		// Opening a test mounts a fresh catalog query, which refetches the now-stale list.
+		await nav.getByRole("link").first().click();
+		const stale = page.getByText("Test list may be out of date. Retrying…");
+		// Each retry is scheduled only after a real network rejection, so advance in steps.
+		await advanceUntil(page, () => expect(stale).toBeVisible({ timeout: 100 }));
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		await page.unroute("**/api/test-catalog");
+		await advanceUntil(page, () => expect(stale).toHaveCount(0, { timeout: 100 }));
+		await expect(nav.getByRole("link").first()).toBeVisible();
+	} finally {
+		await viewer.close();
+	}
+});
+
+test("the test header states suite intent once and folds the pass checks", async ({ page }) => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-intent-"));
+	const config = join(directory, "agent-test.config.ts");
+	const shared = "Review conformance against an offline mirror.";
+	const entry = (id: string, title: string) => ({
+		id,
+		file: join(directory, "review.spec.ts"),
+		title: `review › ${title}`,
+		project: "default",
+		description: shared,
+		criteria: ["Names the failing boundary.", "Does not push."],
+	});
+	const catalog = createTestCatalog(config, [
+		entry("intent-one", "near miss: review the branch"),
+		entry("intent-two", "drive: fix CI"),
+	]);
+	const viewer = await listenViewer({ suitesDir: config, testCatalog: catalog });
+	try {
+		await page.goto(new URL("/tests/intent-one", viewer.url).toString());
+		const header = page.locator("header").filter({ hasText: "near miss: review the branch" });
+		await expect(header.getByText(shared, { exact: true })).toHaveCount(1);
+		await expect(header.getByText("Names the failing boundary.")).toBeHidden();
+		await header.getByText("Passes when · 2 checks").click();
+		await expect(header.getByText("Names the failing boundary.")).toBeVisible();
+	} finally {
+		await viewer.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+async function advanceUntil(page: Page, check: () => Promise<void>) {
+	await expect(async () => {
+		await page.clock.runFor(1_000);
+		await check();
+	}).toPass({ timeout: 15_000 });
 }
 
 test("the verdict shows reported metrics and links attached files", async ({ page }) => {
