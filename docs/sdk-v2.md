@@ -168,6 +168,8 @@ qualification("runs paired attempts", async ({ baseline, treatment }, info) => {
 
 Recorded executions publish each update through an atomic rename under `.agent-test/executions/<execution-id>/progress/`. The execution detail returned by the local viewer API includes the ordered `progress` records while the test is running. Complete records survive cancellation or a process crash; readers ignore incomplete temporary or invalid records. Concurrent tests share the directory safely and remain distinguishable by `testId` and `attemptId`. Local filesystem paths use the same redaction policy as recorded agent events.
 
+The viewer's test verdict shows the top-level numeric fields of an attempt's progress updates beside its run metrics; a later update replaces an earlier value with the same key. A key ending in `Ms` is shown as a duration. Files attached with `testInfo.attach(name, { path, contentType })` appear in the verdict as links that the viewer server serves from the recorded path.
+
 For a future Skeleton qualification run, replace each per-pair attachment with an awaited `reportProgress(info, { taskId: task.id, pair: index + 1, result: pairs.at(-1) })`. A non-blocking orchestrator can then follow the progress journal or the viewer execution endpoint. Keep the final cell JSON write unchanged so existing evidence generation retains its current contract.
 
 ## Custom agents

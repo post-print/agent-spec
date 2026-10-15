@@ -1,4 +1,4 @@
-import { type FSWatcher, watch } from "node:fs";
+import { createReadStream, type FSWatcher, watch } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { WebSocketServer } from "ws";
@@ -8,6 +8,7 @@ import {
 	startRecordedExecution,
 } from "../sdk/execution-runner.js";
 import {
+	type ExecutionDetail,
 	executionHistoryRoot,
 	listExecutionHistory,
 	readExecutionDetail,
@@ -21,6 +22,7 @@ import type { TestCatalog } from "./test-catalog.js";
 
 const EXECUTION_ROUTE = /^\/api\/executions\/([0-9a-f-]+)$/;
 const EXECUTION_CANCEL_ROUTE = /^\/api\/executions\/([0-9a-f-]+)\/cancel$/;
+const ATTACHMENT_ROUTE = /^\/api\/executions\/([0-9a-f-]+)\/attempts\/(\d+)\/attachments\/(\d+)$/;
 const VIEWER_ROUTE = /^\/(tests\/[^/]+|executions\/[0-9a-f-]+|compare\/[0-9a-f-]+\/[0-9a-f-]+)$/;
 const DISCOVERY_FILE = /(^|\/)(agent-test\.config\.ts|[^/]+\.(spec|test)\.[cm]?[jt]sx?)$/;
 const EXECUTION_FILE = /(^|\/)\.agent-test\/executions\/([^/]+)\//;
@@ -160,9 +162,13 @@ class ViewerServer {
 		if (execution) this.broadcast({ type: "execution.snapshot", execution });
 	}
 	private async viewerExecution(id: string) {
-		const root = join(executionHistoryRoot(this.options.suitesDir), id);
-		const execution = await readExecutionDetail(root);
-		return execution ? { ...execution, cancellable: this.executions.has(id) } : undefined;
+		const execution = await this.executionDetail(id);
+		return execution
+			? { ...withAttachmentUrls(execution), cancellable: this.executions.has(id) }
+			: undefined;
+	}
+	private executionDetail(id: string) {
+		return readExecutionDetail(join(executionHistoryRoot(this.options.suitesDir), id));
 	}
 	private broadcast(message: object): void {
 		const data = JSON.stringify(message);
@@ -233,10 +239,41 @@ class ViewerServer {
 			void this.writeHistory(response);
 			return true;
 		}
+		const attachment = path.match(ATTACHMENT_ROUTE);
+		if (attachment) {
+			const [, id = "", attemptIndex = "", attachmentIndex = ""] = attachment;
+			void this.writeAttachment(response, id, [Number(attemptIndex), Number(attachmentIndex)]);
+			return true;
+		}
 		const executionId = path.match(EXECUTION_ROUTE)?.[1];
 		if (!executionId) return false;
 		void this.writeExecution(response, executionId);
 		return true;
+	}
+	/** Serves only a path the execution journal recorded, never one from the request. */
+	private async writeAttachment(
+		response: ServerResponse,
+		id: string,
+		[attemptIndex, attachmentIndex]: [number, number],
+	): Promise<void> {
+		const execution = await this.executionDetail(id);
+		const attachment = execution?.attempts[attemptIndex]?.attachments[attachmentIndex];
+		if (!attachment) {
+			writeJson(response, 404, { error: "Attachment not found" });
+			return;
+		}
+		const file = createReadStream(attachment.path);
+		file.once("error", () => {
+			if (!response.headersSent) writeJson(response, 404, { error: "Attachment file is gone" });
+			else response.destroy();
+		});
+		file.once("open", () => {
+			response.writeHead(200, {
+				"content-type": attachment.contentType,
+				"cache-control": "no-store",
+			});
+			file.pipe(response);
+		});
 	}
 	private async handlePost(
 		path: string,
@@ -403,6 +440,20 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 	}
 	const raw = Buffer.concat(chunks).toString("utf8").trim();
 	return raw ? (JSON.parse(raw) as unknown) : {};
+}
+/** Replaces attachment paths on disk with viewer download URLs. */
+function withAttachmentUrls(execution: ExecutionDetail) {
+	return {
+		...execution,
+		attempts: execution.attempts.map((attempt, attemptIndex) => ({
+			...attempt,
+			attachments: attempt.attachments.map(({ name, contentType }, attachmentIndex) => ({
+				name,
+				contentType,
+				url: `/api/executions/${execution.id}/attempts/${attemptIndex}/attachments/${attachmentIndex}`,
+			})),
+		})),
+	};
 }
 function writeJson(response: ServerResponse, status: number, body: unknown): true {
 	write(response, {

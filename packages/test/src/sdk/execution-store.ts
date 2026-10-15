@@ -53,6 +53,8 @@ export type CriterionResult = {
 	status: "passed" | "failed" | "not-recorded";
 	assertion?: string;
 };
+/** A file the test attached with `testInfo.attach({ path })`. */
+export type ExecutionAttachment = { name: string; contentType: string; path: string };
 export type ExecutionAttempt = {
 	id: string;
 	testId?: string;
@@ -67,6 +69,9 @@ export type ExecutionAttempt = {
 	criterionResults: CriterionResult[];
 	output: { stdout: string[]; stderr: string[] };
 	operations: ExecutionOperation[];
+	attachments: ExecutionAttachment[];
+	/** The latest numeric fields the test sent with `reportProgress`. */
+	metrics: Record<string, number>;
 };
 export type ExecutionDetail = ExecutionSummary & {
 	attempts: ExecutionAttempt[];
@@ -183,11 +188,27 @@ export async function readExecutionDetail(root: string): Promise<ExecutionDetail
 		readExecutionEvents(root),
 		readExecutionProgress(root),
 	]);
-	return {
-		...summary,
-		attempts: terminalAttempts(summary.status, summarizeAttempts(events)),
-		progress,
-	};
+	const attempts = terminalAttempts(summary.status, summarizeAttempts(events));
+	return { ...summary, attempts: withProgressMetrics(attempts, progress), progress };
+}
+
+/** Folds each attempt's progress updates into its metrics; later numbers replace earlier ones. */
+function withProgressMetrics(
+	attempts: ExecutionAttempt[],
+	progress: ExecutionProgress[],
+): ExecutionAttempt[] {
+	const metrics = new Map<string, Record<string, number>>();
+	for (const record of progress) {
+		const numbers = Object.entries(asRecord(record.data)).filter(
+			(entry): entry is [string, number] =>
+				typeof entry[1] === "number" && Number.isFinite(entry[1]),
+		);
+		metrics.set(record.attemptId, {
+			...metrics.get(record.attemptId),
+			...Object.fromEntries(numbers),
+		});
+	}
+	return attempts.map((attempt) => ({ ...attempt, metrics: metrics.get(attempt.id) ?? {} }));
 }
 
 function terminalAttempts(
@@ -238,6 +259,8 @@ function createAttempt(id: string): ExecutionAttempt {
 		errors: [],
 		criterionResults: [],
 		output: { stdout: [], stderr: [] },
+		attachments: [],
+		metrics: {},
 		operations: [],
 	};
 }
@@ -273,6 +296,17 @@ function applyAttemptFinish(attempt: ExecutionAttempt, event: ExecutionEvent): v
 	attempt.durationMs = typeof data.durationMs === "number" ? data.durationMs : undefined;
 	attempt.errors = Array.isArray(data.errors) ? data.errors : [];
 	attempt.criterionResults = parseCriterionResults(data.criterionResults);
+	attempt.attachments = parseAttachments(data.attachments);
+}
+
+function parseAttachments(value: unknown): ExecutionAttachment[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item) => {
+		const { name, contentType, path } = asRecord(item);
+		return typeof name === "string" && typeof contentType === "string" && typeof path === "string"
+			? [{ name, contentType, path }]
+			: [];
+	});
 }
 
 function parseCriterionResults(value: unknown): CriterionResult[] {
