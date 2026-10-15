@@ -46,6 +46,8 @@ export interface ClaudeRunOptions {
 	bin?: string;
 	/** Override --allowedTools; defaults to CLAUDE_CODE_ALLOWED_TOOLS or built-in list. */
 	allowedTools?: string;
+	/** Built-in tools the CLI exposes (`--tools`); `[]` leaves only MCP tools. Also the allow list. */
+	tools?: readonly string[];
 	/** Auth mode; when omitted it is `--auth-mode`, then CLAUDE_AUTH_MODE, then subscription. */
 	authMode?: ClaudeAuthMode;
 	/** Load `~/.claude` user skills and settings. Default false. */
@@ -317,6 +319,7 @@ export function buildClaudeArgs(options: {
 	protectedPaths?: readonly string[];
 	model?: string;
 	allowedTools: string;
+	tools?: readonly string[];
 	readOnly?: boolean;
 	mcpConfigPath?: string;
 	authMode: ClaudeAuthMode;
@@ -339,7 +342,8 @@ export function buildClaudeArgs(options: {
 		"--allowedTools",
 		options.allowedTools,
 	];
-	if (options.readOnly) args.push("--tools", "Read,Glob,Grep");
+	const tools = options.readOnly ? ["Read", "Glob", "Grep"] : options.tools;
+	if (tools) args.push("--tools", tools.join(","));
 	args.push(
 		"--settings",
 		claudeIsolationSettings({
@@ -583,7 +587,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 
 	const bin = await resolveClaudeBin(options.bin);
 	const allowedTools = withMcpAllowedTools(
-		resolveAllowedTools(options.allowedTools),
+		resolveAllowedTools(options.tools ? options.tools.join(",") : options.allowedTools),
 		options.mcpServers,
 	);
 	let mcpConfigDir: string | undefined;
@@ -599,6 +603,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			model: options.model,
 			readOnly: options.readOnly,
 			allowedTools,
+			tools: options.tools,
 			mcpConfigPath: mcpConfig?.path,
 			authMode,
 			includeGlobalSkills: options.includeGlobalSkills === true,

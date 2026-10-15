@@ -32,4 +32,6 @@ Built-in conversation continuation is reconstructed. Native host discovery varie
 
 Config selects a default judge agent; named judge resources may override it. OpenAI judges use a read-only permission profile; Claude judging restricts tools to Read/Glob/Grep. Coding agents and judges on OpenAI and Claude run under host-enforced filesystem limits that deny the caller checkout and the shared temp folder; see [isolation](isolation.md#isolation-boundary). Cursor judging is rejected until enforced read-only support exists. `networkAccess: true` is supported only for the OpenAI coding agent, not its judge.
 
+`claude({ tools })` sets the built-in tools the Claude coding agent can see (`--tools`) and may use. `tools: []` leaves only the suite's MCP tools, for an agent that must act only through them. `claude({ loadProjectContext: false })` stops discovery of workspace CLAUDE.md, rules, and skills; with API-key auth the run is then `--bare`. Both options are Claude-only and throw on other hosts.
+
 Custom integrations use `defineAgent()` and `customAgent()` with explicit capabilities. See [the adapter example](sdk-v2.md#custom-agents). The old host registry and classifier adapters are removed.

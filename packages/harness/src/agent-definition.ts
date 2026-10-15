@@ -18,9 +18,19 @@ export interface AgentOptions {
 	includeGlobalSkills?: boolean;
 	mcpServers?: Record<string, McpServerConfig>;
 	networkAccess?: boolean;
+	/**
+	 * Claude only: the built-in tools the agent may use, passed as `--tools`. `[]` leaves only
+	 * the suite's MCP tools. Omit for the default coding tool set.
+	 */
+	tools?: readonly string[];
+	/** Claude only: discover CLAUDE.md, rules, and skills from the workspace. Defaults to true. */
+	loadProjectContext?: boolean;
 }
 export interface OpenRouterAgentOptions
-	extends Omit<AgentOptions, "auth" | "mcpServers" | "networkAccess"> {
+	extends Omit<
+		AgentOptions,
+		"auth" | "mcpServers" | "networkAccess" | "tools" | "loadProjectContext"
+	> {
 	baseUrl?: string;
 	httpReferer?: string;
 	xTitle?: string;
@@ -103,6 +113,10 @@ function definition(value: AgentDefinition): AgentDefinition {
 function builtin(host: BuiltinAgentHost, options: AgentOptions = {}): AgentDefinition {
 	if (options.networkAccess && host !== "openai")
 		throw new Error(`networkAccess is not supported by ${host}`);
+	if (host !== "claude" && options.tools !== undefined)
+		throw new Error(`tools is not supported by ${host}`);
+	if (host !== "claude" && options.loadProjectContext !== undefined)
+		throw new Error(`loadProjectContext is not supported by ${host}`);
 	return definition({
 		host,
 		options: { auth: { type: "subscription" }, ...options },
