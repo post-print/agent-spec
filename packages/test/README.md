@@ -1,7 +1,7 @@
 # @post-print/agent-test
 
 <!-- source-of-truth: named agent and judge factories for TypeScript tests -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-15 -->
 <!-- review-deps: paths=packages/test/src/*.ts,packages/test/src/**/*.ts,packages/test/package.json -->
 
 ```ts
@@ -23,7 +23,7 @@ test("answers correctly", async ({ coder, grounding }) => {
 });
 ```
 
-Set default `agent`, `judge`, and `workspace` directly in `defineConfig`. Harness definitions select providers, models, and auth. Factories only declare resources; each test receives its own executable handles. Every run starts fresh; use `run.continue` for the same task. Compare with ordinary JavaScript and `expect`. Use `expect(actual, "Readable criterion")` to give a derived viewer criterion a concise label, or declare explicit test criteria when they should override derived assertions.
+Set default `agent`, `judge`, and `workspace` directly in `defineConfig`. Harness definitions select providers, models, and auth. Factories only declare resources; each test receives its own executable handles. Every run starts fresh; use `run.continue` for the same task. Compare with ordinary JavaScript and `expect`. Use `expect(actual, "Readable criterion")` to give a derived viewer criterion a concise label, or declare explicit test criteria when they should override derived assertions. Pass `describe(name, { description }, define)` to state a suite's shared intent once, and keep each test's `description` for what that case adds.
 
 Use assertions for anything code can decide, `runCommand` to verify the final workspace yourself, and a judge only for semantic questions. Judge input is explicitly selected JSON data. Output is schema-validated and typed. The runner records artifacts and usage, handles cancellation, and owns cleanup. Built-in timeouts are recorded as terminal infrastructure failures, including the configured deadline and partial trace. A new recorded run also recovers dead-owner summaries without requiring viewer navigation. Global skills default to false. A run or judge that names a path outside its workspace fails with `WorkspaceEscapeError`; see [isolation](../../docs/isolation.md#isolation-boundary). No browser is required for CLI execution.
 
