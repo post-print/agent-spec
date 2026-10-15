@@ -1468,3 +1468,33 @@ test("a failed catalog refresh marks the test list stale and recovers by itself"
 		await viewer.close();
 	}
 });
+
+test("the test header states suite intent once and folds the pass checks", async ({ page }) => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-intent-"));
+	const config = join(directory, "agent-test.config.ts");
+	const shared = "Review conformance against an offline mirror.";
+	const entry = (id: string, title: string) => ({
+		id,
+		file: join(directory, "review.spec.ts"),
+		title: `review › ${title}`,
+		project: "default",
+		description: shared,
+		criteria: ["Names the failing boundary.", "Does not push."],
+	});
+	const catalog = createTestCatalog(config, [
+		entry("intent-one", "near miss: review the branch"),
+		entry("intent-two", "drive: fix CI"),
+	]);
+	const viewer = await listenViewer({ suitesDir: config, testCatalog: catalog });
+	try {
+		await page.goto(new URL("/tests/intent-one", viewer.url).toString());
+		const header = page.locator("header").filter({ hasText: "near miss: review the branch" });
+		await expect(header.getByText(shared, { exact: true })).toHaveCount(1);
+		await expect(header.getByText("Names the failing boundary.")).toBeHidden();
+		await header.getByText("Passes when · 2 checks").click();
+		await expect(header.getByText("Names the failing boundary.")).toBeVisible();
+	} finally {
+		await viewer.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
