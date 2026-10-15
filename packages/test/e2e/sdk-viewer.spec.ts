@@ -1454,15 +1454,14 @@ test("a failed catalog refresh marks the test list stale and recovers by itself"
 		const nav = page.getByRole("navigation", { name: "Tests" });
 		await expect(nav.getByRole("link").first()).toBeVisible();
 		await page.route("**/api/test-catalog", (route) => route.abort());
-		await page.clock.fastForward(6_000);
+		await page.clock.runFor(6_000);
 		await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-		await page.clock.fastForward(20_000);
 		const stale = page.getByText("Test list may be out of date. Retrying…");
-		await expect(stale).toBeVisible();
+		// Each retry is scheduled only after a real network rejection, so advance in steps.
+		await advanceUntil(page, () => expect(stale).toBeVisible({ timeout: 100 }));
 		await expect(page.getByRole("alert")).toHaveCount(0);
 		await page.unroute("**/api/test-catalog");
-		await page.clock.fastForward(6_000);
-		await expect(stale).toHaveCount(0);
+		await advanceUntil(page, () => expect(stale).toHaveCount(0, { timeout: 100 }));
 		await expect(nav.getByRole("link").first()).toBeVisible();
 	} finally {
 		await viewer.close();
@@ -1498,3 +1497,10 @@ test("the test header states suite intent once and folds the pass checks", async
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+async function advanceUntil(page: Page, check: () => Promise<void>) {
+	await expect(async () => {
+		await page.clock.runFor(1_000);
+		await check();
+	}).toPass({ timeout: 15_000 });
+}
