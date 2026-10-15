@@ -1,7 +1,7 @@
 # Isolation
 
 <!-- source-of-truth: fixture workspace ownership and judge evidence -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-15 -->
 <!-- review-deps: paths=packages/harness/src/sealed-workspace.ts,packages/harness/src/host-isolation.ts,packages/harness/src/shell-paths.ts,packages/harness/src/user-skills.ts,packages/test/src/sdk/workspace.ts,packages/test/src/sdk/runtime.ts,packages/test/src/sdk/judge.ts,packages/test/src/sdk/snapshot-storage.ts,packages/test/src/sdk/execution-store.ts,packages/harness/src/sealed-storage.ts,packages/harness/src/process-owner.ts -->
 
 Every `agent.run` owns a sealed temporary Git workspace and host session. Independent runs may execute concurrently. Only `run.continue` shares the original task workspace and history.
@@ -17,7 +17,7 @@ Two layers keep an agent inside its workspace. The host enforces filesystem limi
 | Host | Enforced by the host | Outside the boundary |
 | --- | --- | --- |
 | OpenAI (Codex) | A permission profile replaces `--sandbox`. The workspace is writable (read-only for judges). The OS temp folder, which holds sibling sealed workspaces, `/tmp`, and the caller checkout are denied for reads and writes. Network is off unless `networkAccess` is set. | Other paths on disk remain readable. Detection still applies. |
-| Claude Code | `--settings` enables the Bash sandbox with reads of the checkout and the temp folder denied (the workspace is re-allowed) and no unsandboxed fallback. Permission rules block Read, Grep, and Glob outside the workspace. | Other paths remain readable by Bash. Detection still applies. |
+| Claude Code | `--settings` enables the Bash sandbox with reads of the checkout and the temp folder denied (the workspace is re-allowed) and no unsandboxed fallback. Permission rules block Read, Grep, and Glob outside the workspace. `claude({ tools })` narrows the built-in tools further; `tools: []` leaves only MCP tools. | Other paths remain readable by Bash. Detection still applies. |
 | Cursor | Nothing. | Detection only. |
 | Custom adapters | Whatever the adapter declares. | Detection only. |
 

@@ -1,7 +1,7 @@
 # CLI
 
 <!-- source-of-truth: TypeScript suite commands and discovery -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
+<!-- doc-meta: owner=eng | last-reviewed=2026-10-15 -->
 <!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/sdk/cli.ts,packages/test/src/sdk/viewer.ts,packages/test/src/sdk/execution-runner.ts,packages/test/src/sdk/execution-store.ts,packages/test/package.json -->
 
 The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`.
