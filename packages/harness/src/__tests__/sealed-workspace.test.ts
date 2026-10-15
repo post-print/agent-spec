@@ -262,3 +262,54 @@ it("toolPathsOutsideWorkspace › flags an absolute Glob pattern outside the wor
 	};
 	expect(toolPathsOutsideWorkspace(trace, workspace)).toEqual([`${parent}/**/*.ts`]);
 });
+
+/** The literal shell text `${PWD}`, built without a template-looking string literal. */
+const BRACED_PWD = ["$", "{PWD}"].join("");
+
+const shellCalls = (...commands: string[]) => ({
+	messages: [],
+	toolCalls: commands.map((command) => ({ name: "Shell", args: { command } })),
+	shellCommands: [],
+	artifacts: {},
+});
+
+it("toolPathsOutsideWorkspace › follows a cd that persists across shell calls", () => {
+	const escaped = toolPathsOutsideWorkspace(
+		shellCalls("cd projects/pr-lab", "cat ../../.agents/skills/review/SKILL.md"),
+		"/tmp/sealed-workspace",
+	);
+	expect(escaped).toEqual([]);
+});
+
+it("toolPathsOutsideWorkspace › still flags a parent path that leaves the workspace after a cd", () => {
+	const escaped = toolPathsOutsideWorkspace(
+		shellCalls("cd projects", "cat ../../outside.txt"),
+		"/tmp/sealed-workspace",
+	);
+	expect(escaped).toEqual(["../../outside.txt"]);
+});
+
+it("toolPathsOutsideWorkspace › resolves $PWD against the shell directory", () => {
+	expect(
+		toolPathsOutsideWorkspace(
+			shellCalls("cd projects/app && mkdir -p $PWD/../../_evidence/tmp"),
+			"/tmp/sealed-workspace",
+		),
+	).toEqual([]);
+	expect(
+		toolPathsOutsideWorkspace(shellCalls(`cat ${BRACED_PWD}/../secret`), "/tmp/sealed-workspace"),
+	).toEqual([`${BRACED_PWD}/../secret`]);
+});
+
+it("toolPathsOutsideWorkspace › an explicit per-call cwd does not move the shell", () => {
+	const trace = {
+		messages: [],
+		toolCalls: [
+			{ name: "Shell", args: { command: "ls", cwd: "/tmp/sealed-workspace/projects/app" } },
+			{ name: "Shell", args: { command: "cat ../x" } },
+		],
+		shellCommands: [],
+		artifacts: {},
+	};
+	expect(toolPathsOutsideWorkspace(trace, "/tmp/sealed-workspace")).toEqual(["../x"]);
+});

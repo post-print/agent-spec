@@ -218,8 +218,10 @@ function isCursorToolOutput(path: string): boolean {
 function expandHome(token: string): string {
 	return token.replace(HOME_PREFIX, homedir());
 }
+/** `$PWD` / `${PWD}` name the shell's current directory, not a path outside it. */
+const PWD_PREFIX = /^(?:\$PWD|\$\{PWD\})(?=\/|$)/;
 function namedPath(raw: string, from: string): NamedPath {
-	const value = expandHome(raw.replace(FILE_PROTOCOL, ""));
+	const value = expandHome(raw.replace(FILE_PROTOCOL, "")).replace(PWD_PREFIX, from);
 	return { raw, absolute: isAbsolute(value) ? resolve(value) : resolve(from, value) };
 }
 
@@ -237,7 +239,7 @@ function isShellPathToken(token: string): boolean {
 }
 
 /** Paths named in a shell command, following `cd` so relative paths resolve correctly. */
-function shellCommandPaths(command: string, cwd: string): NamedPath[] {
+function shellCommandPaths(command: string, cwd: string): { paths: NamedPath[]; cwd: string } {
 	const paths: NamedPath[] = [];
 	let current = cwd;
 	for (const { tokens } of shellSegments(command)) {
@@ -245,19 +247,30 @@ function shellCommandPaths(command: string, cwd: string): NamedPath[] {
 		paths.push(...named);
 		if (tokens[0] === "cd" && tokens[1]) current = namedPath(tokens[1], current).absolute;
 	}
-	return paths;
+	return { paths, cwd: current };
 }
 
-function toolCallPaths(args: Record<string, unknown> | undefined, root: string): NamedPath[] {
-	if (!args) return [];
-	const cwd = typeof args.cwd === "string" ? namedPath(args.cwd, root).absolute : root;
+/**
+ * Paths one tool call named. A persistent shell keeps its `cd` across calls, so the caller
+ * passes the shell's directory in and gets the next one back; an explicit per-call `cwd`
+ * applies to that call only.
+ */
+function toolCallPaths(
+	args: Record<string, unknown> | undefined,
+	root: string,
+	shellCwd: string,
+): { paths: NamedPath[]; shellCwd: string } {
+	if (!args) return { paths: [], shellCwd };
+	const cwd = typeof args.cwd === "string" ? namedPath(args.cwd, root).absolute : shellCwd;
 	const paths = PATH_ARG_KEYS.map((key) => args[key])
 		.filter((value): value is string => typeof value === "string")
 		.map((value) => namedPath(value, root));
 	if (typeof args.pattern === "string" && isAbsolute(args.pattern))
 		paths.push(namedPath(args.pattern, root));
-	if (typeof args.command === "string") paths.push(...shellCommandPaths(args.command, cwd));
-	return paths;
+	if (typeof args.command !== "string") return { paths, shellCwd };
+	const shell = shellCommandPaths(args.command, cwd);
+	paths.push(...shell.paths);
+	return { paths, shellCwd: typeof args.cwd === "string" ? shellCwd : shell.cwd };
 }
 
 function escapesWorkspace(path: NamedPath, root: string): boolean {
@@ -272,10 +285,15 @@ function escapesWorkspace(path: NamedPath, root: string): boolean {
  */
 export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: string): string[] {
 	const root = resolve(workspaceRoot);
-	const escaped = trace.toolCalls
-		.flatMap((call) => toolCallPaths(call.args, root))
-		.filter((path) => escapesWorkspace(path, root))
-		.map((path) => path.raw);
+	const escaped: string[] = [];
+	let shellCwd = root;
+	for (const call of trace.toolCalls) {
+		const named = toolCallPaths(call.args, root, shellCwd);
+		shellCwd = named.shellCwd;
+		escaped.push(
+			...named.paths.filter((path) => escapesWorkspace(path, root)).map((path) => path.raw),
+		);
+	}
 	return [...new Set(escaped)];
 }
 

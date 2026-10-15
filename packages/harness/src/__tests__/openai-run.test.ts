@@ -52,7 +52,7 @@ it("buildOpenaiExecArgs › pins Codex to the sealed workspace with a permission
 	expect(filesystem).toContain('":tmpdir"="deny"');
 	expect(filesystem).toContain('":slash_tmp"="deny"');
 	expect(filesystem).toContain('"/repo/checkout"="deny"');
-	expect(filesystem).toContain('":workspace_roots"={"."="write"}');
+	expect(filesystem).toContain('":workspace_roots"={"."="write",".git"="write"}');
 	expect(args).not.toContain("permissions.agent_test.network.enabled=true");
 	expect(args).not.toContain("--approve-for-me");
 	expect(args.at(-1)).toBe("Say hello.");

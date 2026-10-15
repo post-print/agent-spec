@@ -13,6 +13,20 @@ export interface HostIsolation {
 	networkAccess?: boolean;
 }
 
+/**
+ * Node resolves a script's real path by `lstat`-ing every parent directory, and the sealed
+ * workspace's parents (the denied temp folder) cannot be stat-ed. Preserving symlinks skips that
+ * walk, so `node script.mjs` runs inside the workspace without widening the sandbox.
+ */
+const WHITESPACE = /\s+/;
+export const SANDBOX_NODE_OPTIONS = ["--preserve-symlinks", "--preserve-symlinks-main"];
+
+/** `NODE_OPTIONS` for commands run inside a sealed workspace, keeping any existing options. */
+export function sandboxNodeOptions(existing?: string): string {
+	const current = (existing ?? "").split(WHITESPACE).filter(Boolean);
+	return [...current, ...SANDBOX_NODE_OPTIONS.filter((flag) => !current.includes(flag))].join(" ");
+}
+
 /** Codex permission profile name installed for every harness run. */
 export const CODEX_PERMISSION_PROFILE = "agent_test";
 
@@ -43,7 +57,9 @@ export function codexPermissionArgs(isolation: HostIsolation): string[] {
 		'":tmpdir"="deny"',
 		'":slash_tmp"="deny"',
 		...denied,
-		`":workspace_roots"={"."="${workspaceAccess}"}`,
+		// Codex keeps `.git` read-only inside writable roots; agents must be able to commit in
+		// their own throwaway repository.
+		`":workspace_roots"={"."="${workspaceAccess}"${isolation.readOnly ? "" : ',".git"="write"'}}`,
 	];
 	const args = [
 		"-c",
@@ -74,6 +90,7 @@ export function claudeIsolationSettings(isolation: HostIsolation): string {
 				allowRead: uniquePaths([isolation.cwd]),
 			},
 		},
+		env: { NODE_OPTIONS: sandboxNodeOptions() },
 		permissions: {
 			blockReadsOutsideWorkingDirectories: true,
 			deny: protectedPaths.map((path) => `Read(/${path}/**)`),
