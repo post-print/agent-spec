@@ -381,3 +381,10 @@ it("toolPathsOutsideWorkspace › allows a parent path that names a workspace fi
 		"../owner.json",
 	]);
 });
+
+it("toolPathsOutsideWorkspace › reads a path inside escaped quotes without the escape", async () => {
+	const { workspace } = await sealedLayout();
+	await writeFile(join(workspace, "src", "export.mjs"), "");
+	const command = `/bin/zsh -lc "node -e \\"import(\\\\\\"../src/export.mjs\\\\\\")\\""`;
+	expect(toolPathsOutsideWorkspace(shellTrace(command), workspace)).toEqual([]);
+});
