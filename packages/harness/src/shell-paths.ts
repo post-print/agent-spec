@@ -6,6 +6,8 @@ const HEREDOC =
 const TOKEN_SEPARATORS = /[\s"']+/;
 const REDIRECTION_PREFIX = /^\d*[<>]+&?/;
 const OPTION_VALUE = /^--?[\w-]+=(.+)$/;
+/** Backslashes left on a token by an escaped quote, as in `node -e "import(\"../x.mjs\")"`. */
+const ESCAPE_TAIL = /\\+$/;
 
 /** One simple command inside a shell payload, with the operator that follows it. */
 export interface ShellSegment {
@@ -38,7 +40,7 @@ export function shellTokens(segment: string): string[] {
 	return segment
 		.trim()
 		.split(TOKEN_SEPARATORS)
-		.map((token) => token.replace(REDIRECTION_PREFIX, ""))
+		.map((token) => token.replace(REDIRECTION_PREFIX, "").replace(ESCAPE_TAIL, ""))
 		.map((token) => token.match(OPTION_VALUE)?.[1] ?? token)
 		.filter(Boolean);
 }
