@@ -350,3 +350,34 @@ it("toolPathsOutsideWorkspace › still flags the user's home and global skills"
 		),
 	).toEqual(["~/.claude/skills", "~/.agents/skills", "~/notes.txt"]);
 });
+
+it("toolPathsOutsideWorkspace › ignores paths inside a heredoc body", async () => {
+	const { workspace } = await sealedLayout();
+	const command = `/bin/zsh -lc "cat > src/check.mjs <<'EOF'\nimport { a } from '../../outside.mjs'\nEOF\nnode src/check.mjs"`;
+	expect(toolPathsOutsideWorkspace(shellTrace(command), workspace)).toEqual([]);
+});
+
+it("toolPathsOutsideWorkspace › follows a cd on an earlier line of the same command", async () => {
+	const { workspace } = await sealedLayout();
+	await writeFile(join(workspace, "PROJECT.md"), "");
+	const command = `/bin/zsh -lc 'cd src\ncat ../PROJECT.md'`;
+	expect(toolPathsOutsideWorkspace(shellTrace(command), workspace)).toEqual([]);
+});
+
+it("toolPathsOutsideWorkspace › allows a parent path that names a workspace file from an unrecorded subfolder", async () => {
+	const { workspace } = await sealedLayout();
+	await mkdir(join(workspace, ".agents/skills/x/scripts"), { recursive: true });
+	await writeFile(join(workspace, ".agents/skills/x/scripts/status.mjs"), "");
+	expect(
+		toolPathsOutsideWorkspace(
+			shellTrace("node ../../.agents/skills/x/scripts/status.mjs"),
+			workspace,
+		),
+	).toEqual([]);
+	expect(
+		toolPathsOutsideWorkspace(shellTrace("cat ../../../Users/someone/.ssh/id_rsa"), workspace),
+	).toEqual(["../../../Users/someone/.ssh/id_rsa"]);
+	expect(toolPathsOutsideWorkspace(shellTrace("cat ../owner.json"), workspace)).toEqual([
+		"../owner.json",
+	]);
+});

@@ -69,14 +69,14 @@
 			}
 		},
 		"docs/isolation.md": {
-			"reviewedAt": "2026-10-15",
-			"documentHash": "sha256:bd0aaaf654354b96573b79566f5ef063ad00d0b7be138c8dc8721e53907c45e4",
+			"reviewedAt": "2026-10-16T02:30:56Z",
+			"documentHash": "sha256:7db5f099ef31aa02c930a79f86f97984ee8559c61932ee30c3017580499c629b",
 			"reviewDependencies": {
 				"packages/harness/src/host-isolation.ts": "sha256:8b1d3dcebb5393b1370e5bcfe8e8ec793d27a45b144c777348d0185c937c023e",
 				"packages/harness/src/process-owner.ts": "sha256:051469b21bdc3b5efde65693240eff2061a7c8c89e7257d2e7dc913409c3eee7",
 				"packages/harness/src/sealed-storage.ts": "sha256:6d4eda191918b98f710846626441b9aef1aacc986c424ea696c1984945f454f6",
-				"packages/harness/src/sealed-workspace.ts": "sha256:b11f5c67b24a2c9aaf1c5762c8b0b0ff59c3d99b0a17780672b0e6c7fa4a61d4",
-				"packages/harness/src/shell-paths.ts": "sha256:b6d5991d7480cbe96cb29a0bab8fd1c323d18ebdc7df86489d44a8fc55d8fbfe",
+				"packages/harness/src/sealed-workspace.ts": "sha256:06d55ecd51802b6af156fea1894fd51ab082f78e0ccbb48886837a365dcb5927",
+				"packages/harness/src/shell-paths.ts": "sha256:416de9f443a655be4df4639bc167b1da8ad8d980975e42343f33cb57bb1ef188",
 				"packages/harness/src/user-skills.ts": "sha256:18803a4fcc2e165767eabb76e4cad51f50e543244cf03de6ea5b3b5d070fc4ec",
 				"packages/test/src/sdk/execution-store.ts": "sha256:332ca6fffe9ced03cf0591f8758d86d2c240cc8128912b50070f7cdc15efc455",
 				"packages/test/src/sdk/judge.ts": "sha256:e403e8b0a490d0c00d136882692a32dcab19db76eab4bbfad68de2b872a1f58f",

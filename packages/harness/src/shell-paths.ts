@@ -1,5 +1,8 @@
 const SHELL_WRAPPER = /\s-(?:lc|c)\s+(["'])([\s\S]*)\1\s*$/;
-const SEGMENT_SEPARATOR = /(&&|\|\||[;|])/;
+const SEGMENT_SEPARATOR = /(&&|\|\||[;|\n])/;
+/** A heredoc body: file content written by the command, not paths it names. */
+const HEREDOC =
+	/<<-?\s*(["']?)(?<tag>\w+)\1(?<rest>[^\n]*)\n[\s\S]*?\n[ \t]*\k<tag>[ \t]*(?=\n|$)/g;
 const TOKEN_SEPARATORS = /[\s"']+/;
 const REDIRECTION_PREFIX = /^\d*[<>]+&?/;
 const OPTION_VALUE = /^--?[\w-]+=(.+)$/;
@@ -18,11 +21,13 @@ export function shellPayload(command: string): string {
 
 /** Split a payload into simple commands, keeping the operator between them. */
 export function shellSegments(command: string): ShellSegment[] {
-	const parts = shellPayload(command).split(SEGMENT_SEPARATOR);
+	const parts = shellPayload(command).replace(HEREDOC, "$<rest>").split(SEGMENT_SEPARATOR);
 	const segments: ShellSegment[] = [];
 	for (let index = 0; index < parts.length; index += 2) {
 		const tokens = shellTokens(parts[index] ?? "");
-		const next = parts[index + 1] as ShellSegment["next"];
+		// A newline ends a command the way `;` does.
+		const operator = parts[index + 1] === "\n" ? ";" : parts[index + 1];
+		const next = operator as ShellSegment["next"];
 		if (tokens.length) segments.push({ tokens, next });
 	}
 	return segments;

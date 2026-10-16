@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { cp, mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -302,7 +302,42 @@ function toolCallPaths(
 
 function escapesWorkspace(path: NamedPath, root: string): boolean {
 	if (isCursorToolOutput(path.absolute.replaceAll("\\", "/"))) return false;
-	return !isPathUnderRoot(path.absolute, root) && !isSystemPath(path.absolute);
+	if (isPathUnderRoot(path.absolute, root) || isSystemPath(path.absolute)) return false;
+	return !existsInsideFromSubfolder(path.raw, root);
+}
+
+/** Folders the guard searches when a parent-relative path may start below the workspace root. */
+const SEARCH_DEPTH = 4;
+const SKIPPED_FOLDERS = new Set([".git", "node_modules"]);
+const LEADING_DOT_SLASH = /^\.\//;
+const LEADING_PARENTS = /^(?:\.\.\/)+/;
+
+/**
+ * A `../`-relative path the trace cannot place: hosts such as Codex run a command in a subfolder
+ * without recording it. The path is inside when, with its leading `../` removed, it names an
+ * existing file under the workspace root or one of its folders.
+ */
+function existsInsideFromSubfolder(raw: string, root: string): boolean {
+	const relative = raw.replace(PWD_PREFIX, ".").replace(LEADING_DOT_SLASH, "");
+	const parents = relative.match(LEADING_PARENTS)?.[0];
+	if (!parents) return false;
+	const rest = relative.slice(parents.length);
+	if (!rest || rest.split("/").includes("..")) return false;
+	const search = (folder: string, level: number): boolean => {
+		if (existsSync(join(folder, rest))) return true;
+		if (level === SEARCH_DEPTH) return false;
+		return readdirSync(folder, { withFileTypes: true }).some(
+			(entry) =>
+				entry.isDirectory() &&
+				!SKIPPED_FOLDERS.has(entry.name) &&
+				search(join(folder, entry.name), level + 1),
+		);
+	};
+	try {
+		return search(resolve(root), 0);
+	} catch {
+		return false;
+	}
 }
 
 /**
