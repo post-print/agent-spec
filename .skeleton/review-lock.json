@@ -69,8 +69,8 @@
 			}
 		},
 		"docs/isolation.md": {
-			"reviewedAt": "2026-10-16T02:30:56Z",
-			"documentHash": "sha256:7db5f099ef31aa02c930a79f86f97984ee8559c61932ee30c3017580499c629b",
+			"reviewedAt": "2026-10-15",
+			"documentHash": "sha256:f4bb6cc530e58025ed154fab51268a2ae43ccd15c46372ebd875d4794a0116e2",
 			"reviewDependencies": {
 				"packages/harness/src/host-isolation.ts": "sha256:8b1d3dcebb5393b1370e5bcfe8e8ec793d27a45b144c777348d0185c937c023e",
 				"packages/harness/src/process-owner.ts": "sha256:051469b21bdc3b5efde65693240eff2061a7c8c89e7257d2e7dc913409c3eee7",
@@ -190,7 +190,7 @@
 			"reviewedAt": "2026-10-15",
 			"documentHash": "sha256:6b632171ef3503eaa4505fa2fe4dec351445fcb67da724327038a57bb28faa11",
 			"reviewDependencies": {
-				"packages/harness/package.json": "sha256:e0225039c9f1264342b1a085bbe587097dada72c099ff7216ad150f59f601406",
+				"packages/harness/package.json": "sha256:d3e544f7045f7338c6b00eefc9048f7a3d89b458d85a3fad75a5d8040c3fb92e",
 				"packages/harness/src/__tests__/agent-session.test.ts": "sha256:459d3feda082c159ba25eb6ecd40a901a7ecba43320fb44247140b0199c1fb69",
 				"packages/harness/src/__tests__/auth-mode.test.ts": "sha256:6a1430d0108a1f795b7b441561f58e14eac1ba967662e36d84f8ac306b1de641",
 				"packages/harness/src/__tests__/capture-depth.test.ts": "sha256:4d5edf22fa19688f4b89146c43153b6d22c9a5ef2e8ae59cd3099fc807792fb7",
@@ -209,7 +209,7 @@
 				"packages/harness/src/__tests__/routing-contract.test.ts": "sha256:f5c2d04d0e08232fe923103a27d81182f38252ac2710f3b09d22c76c9d35b4bf",
 				"packages/harness/src/__tests__/run-guards.test.ts": "sha256:1d4b8480ce512f25d6ffd6eff15991b4d40d035bfe8f13f44dc1cb4d2d52d51b",
 				"packages/harness/src/__tests__/sealed-storage.test.ts": "sha256:327902fb2f7a85ef4da85ae8eb4f7b5b703de5487cd3716208e94d49d04e44e8",
-				"packages/harness/src/__tests__/sealed-workspace.test.ts": "sha256:f0fb8eedd70057c92b0340c915eb3e5a2b3abf435d049a94d79a2096650e6a55",
+				"packages/harness/src/__tests__/sealed-workspace.test.ts": "sha256:9c108861ca01c67553a6df1985367eb47bc616ce21ee8c75d0f3a34a61961550",
 				"packages/harness/src/__tests__/skills-context.test.ts": "sha256:38b682836a5aea3a271e641be02cafa4db5141734b9aa7da764a0f762ce2a31d",
 				"packages/harness/src/__tests__/tool-images.test.ts": "sha256:cbbd88ced43505ab962d7e4e45f3460b1cc05aae4aade39ba3b08bff8e42a237",
 				"packages/harness/src/__tests__/usage-breakdown.test.ts": "sha256:ac673eaae73f8c1d18c01643e19d6243991dfe850a1b53cd68903d1c956ebe34",
@@ -238,8 +238,8 @@
 				"packages/harness/src/routing-contract.ts": "sha256:5f6993f25d23a151ee7e1921b1c25ffae27434fc999a36b10bef476b1b52794f",
 				"packages/harness/src/run-guards.ts": "sha256:5f9eab92cde33b6189bb04bf254712f7f731693de93a675ddf419326351ef27e",
 				"packages/harness/src/sealed-storage.ts": "sha256:6d4eda191918b98f710846626441b9aef1aacc986c424ea696c1984945f454f6",
-				"packages/harness/src/sealed-workspace.ts": "sha256:b11f5c67b24a2c9aaf1c5762c8b0b0ff59c3d99b0a17780672b0e6c7fa4a61d4",
-				"packages/harness/src/shell-paths.ts": "sha256:b6d5991d7480cbe96cb29a0bab8fd1c323d18ebdc7df86489d44a8fc55d8fbfe",
+				"packages/harness/src/sealed-workspace.ts": "sha256:06d55ecd51802b6af156fea1894fd51ab082f78e0ccbb48886837a365dcb5927",
+				"packages/harness/src/shell-paths.ts": "sha256:416de9f443a655be4df4639bc167b1da8ad8d980975e42343f33cb57bb1ef188",
 				"packages/harness/src/skills-context.ts": "sha256:077018b9642af0e47c2ca1f7d006cfd2374cc61ebf937686013e7df4fef12299",
 				"packages/harness/src/tool-images.ts": "sha256:09505df07b9eb241eda1fcb4e7570966a6e9b0ef1f43bb08c84ee60660543b06",
 				"packages/harness/src/types.ts": "sha256:c33130e14986a8bd4e60d4f7799eabff7beb2907510670a4026a7a6a66acbf29",
