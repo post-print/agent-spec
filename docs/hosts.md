@@ -1,7 +1,7 @@
 # Hosts
 
 <!-- source-of-truth: configured host agents and authentication -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-15 -->
+<!-- doc-meta: owner=eng -->
 <!-- review-deps: paths=.env.example,packages/harness/src/agent-definition.ts,packages/harness/src/agent-session.ts,packages/harness/src/agent-worker.ts,packages/harness/src/claude-run.ts,packages/harness/src/openai-run.ts,packages/harness/src/openrouter-run.ts,packages/harness/src/cursor-run.ts -->
 
 `openai()` runs Codex, `claude()` runs Claude Code, `cursor()` runs the Cursor SDK, and `openrouter()` calls an OpenRouter model through its OpenAI-compatible API. Factories create immutable definitions; each independent task creates its own worker and session.

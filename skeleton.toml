@@ -26,8 +26,16 @@ paths = []
 [skillOwnership]
 lockfile = "skills-lock.json"
 
-[reviewProof]
-mode = "hash"
+[review]
+humanPaths = [
+  ".github/workflows/**",
+  "packages/*/package.json",
+  "packages/harness/src/host-isolation.ts",
+  "packages/harness/src/sealed-*.ts",
+  "packages/harness/src/run-guards.ts",
+  "packages/harness/src/working-tree-guard.ts",
+  "packages/harness/src/*auth*.ts",
+]
 
 [reviewCoverage]
 include = [

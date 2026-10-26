@@ -1,7 +1,7 @@
 # Agent Test SDK
 
 <!-- source-of-truth: named agent and judge resources, independent runs, and selected evaluation input -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-26 -->
+<!-- doc-meta: owner=eng -->
 <!-- review-deps: paths=packages/test/src/sdk/*.ts,agent-test*.config.ts,agent-suites/**/*.ts -->
 
 ## Configure defaults

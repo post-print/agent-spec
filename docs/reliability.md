@@ -1,8 +1,8 @@
 # Reliability
 
 <!-- source-of-truth: offline checks and manual provider proof -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-26 -->
-<!-- review-deps: paths=package.json,agent-suites/**/*.ts,.github/workflows/test.yml -->
+<!-- doc-meta: owner=eng -->
+<!-- review-deps: paths=package.json#scripts,agent-suites/**/*.ts,.github/workflows/test.yml -->
 
 Offline checks do not establish live provider reliability. Unit tests cover retained host capture/isolation and viewer behavior; SDK contracts use a fake adapter to prove resource ownership, parallel tasks, continuation, selected judge input, schema validation, and rejection of a run that leaves its workspace.
 

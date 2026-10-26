@@ -1,8 +1,8 @@
 # @post-print/agent-harness
 
 <!-- source-of-truth: configured agent definitions and isolated harness sessions -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-26 -->
-<!-- review-deps: paths=packages/harness/src/*.ts,packages/harness/src/**/*.ts,packages/harness/package.json -->
+<!-- doc-meta: owner=eng -->
+<!-- review-deps: paths=packages/harness/src/*.ts,packages/harness/src/**/*.ts,packages/harness/package.json#name,packages/harness/package.json#exports,packages/harness/package.json#peerDependencies,packages/harness/package.json#peerDependenciesMeta -->
 
 Configure coding agents for agent-test. Definitions are reusable; each task session owns an isolated worker and host runtime.
 

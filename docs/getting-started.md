@@ -1,7 +1,7 @@
 # Getting started
 
 <!-- source-of-truth: first consumer run with named agent-test resources -->
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-09 -->
+<!-- doc-meta: owner=eng -->
 
 Install `@post-print/agent-test` and `@post-print/agent-harness` as dev dependencies. Use Node 22+. Authenticate the selected host as described in [hosts](hosts.md). The CLI does not load .env.
 
