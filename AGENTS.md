@@ -4,7 +4,7 @@
 
 <!-- doc-meta: owner=eng -->
 
-<!-- review-deps: paths=package.json,biome.json,skeleton.toml,.github/workflows/test.yml -->
+<!-- review-deps: paths=package.json#scripts,package.json#engines,package.json#packageManager,package.json#devDependencies,package.json#simple-git-hooks,biome.json,skeleton.toml,.github/workflows/test.yml -->
 
 Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agent-harness` and `@post-print/agent-test`.
 
@@ -73,8 +73,10 @@ Manual host-agent proof after host login uses `bun run test:capabilities` or `bu
 `validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Review proof is one dateless hash entry per document in `.skeleton/review-lock.toml`; commit it with the document. After a complete re-read, attest explicit paths only:
 
 ```bash
-skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewed
+skeleton attest docs/reliability.md
 ```
+
+If a dependency changed but the document text did not need to, add `--reason "<what you checked>"`, and only after checking. After a merge conflict in the lock file, run `skeleton attest --repair`.
 
 Before opening a pull request, run `npx --no-install skeleton review prepare --base origin/main` and re-read and attest every document it lists. If it names human-review paths (`[review] humanPaths` in `skeleton.toml`), a person must review those changes; do not approve them with an agent review.
 

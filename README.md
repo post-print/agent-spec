@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: package overview -->
 <!-- doc-meta: owner=eng -->
-<!-- review-deps: paths=package.json#scripts,package.json#engines,package.json#packageManager,packages/*/package.json -->
+<!-- review-deps: paths=package.json#scripts,package.json#engines,package.json#packageManager,packages/harness/package.json#name,packages/harness/package.json#exports,packages/test/package.json#name,packages/test/package.json#exports,packages/test/package.json#bin -->
 
 Executable TypeScript tests for coding agents. `@post-print/agent-test` provides named agent/judge resources, assertions, independent tasks, and typed evaluations. `@post-print/agent-harness` provides configured agents and isolated native host sessions.
 

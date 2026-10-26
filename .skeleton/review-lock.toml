@@ -1,14 +1,14 @@
-# Skeleton review lock. Written by `skeleton audit docs --fix=doc-meta --confirm-reviewed`.
+# Skeleton review lock. Written by `skeleton attest`.
 # One entry per document. Do not edit by hand; keep the blank line between entries.
 version = 4
 
-".skeleton/registry.md" = { doc = "sha256:9e22837a761ccb25", deps = "sha256:48bcbfa94dafcd76" }
+".skeleton/registry.md" = { doc = "sha256:9e22837a761ccb25", deps = "sha256:2e818cc77e202fef", note = "Topic rows and canonical file links re-checked; dependency changes were review-deps narrowing and AGENTS.md attest wording, no topic or file moved" }
 
-"AGENTS.md" = { doc = "sha256:07a73bc649936627", deps = "sha256:2ece6dcad9c0a4a3" }
+"AGENTS.md" = { doc = "sha256:bff411ba659d56c1", deps = "sha256:78b0e751392b0d68" }
 
-"README.md" = { doc = "sha256:6c28e49e2b0d7cf1", deps = "sha256:8eaedda9a6aeef43" }
+"README.md" = { doc = "sha256:3ca5e198c9551501", deps = "sha256:89f04a9f51fb2940" }
 
-"docs/cli.md" = { doc = "sha256:23a7020108712a9c", deps = "sha256:a6749324e4761122" }
+"docs/cli.md" = { doc = "sha256:69749349c58b1ce7", deps = "sha256:fe1b4000f606ce12" }
 
 "docs/getting-started.md" = { doc = "sha256:903c5b3f6c4efb06" }
 
@@ -22,6 +22,6 @@ version = 4
 
 "docs/suites.md" = { doc = "sha256:fbee635ba6ab9ac0", deps = "sha256:fd374637145c3eeb" }
 
-"packages/harness/README.md" = { doc = "sha256:098e953092a6bf7a", deps = "sha256:dfdf5e059b54db3d" }
+"packages/harness/README.md" = { doc = "sha256:01e304538ecb51ee", deps = "sha256:354cff44a64fb236" }
 
-"packages/test/README.md" = { doc = "sha256:e8d5a96c5257f808", deps = "sha256:2b348d5382128e0b" }
+"packages/test/README.md" = { doc = "sha256:7c332c90b1e7e7b4", deps = "sha256:255d67f1c64cfb3a" }

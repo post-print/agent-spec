@@ -25,7 +25,7 @@ Do not run Skeleton commands just because Skeleton is installed. They are not a 
 
 When you are about to open a pull request, or the user asks for a review, run `npx --no-install skeleton review prepare --base <base branch>`. Then:
 
-1. Re-read each listed document whose review proof no longer matches, fix it, and attest it with `npx --no-install skeleton audit docs --paths=<doc> --fix=doc-meta --confirm-reviewed`.
+1. Re-read each listed document whose review proof no longer matches, fix it, and attest it with `npx --no-install skeleton attest <doc>`. If the text did not need to change, say what you checked: `--reason "…"`.
 2. If the output names human-review paths, stop and tell the user which paths need a person. Do not attest or approve them yourself.
 3. Get a review with fresh context: use `--run` when `[review] command` is set; otherwise give the printed bundle to a new session or subagent. Fix every `important` finding. Resolve the others with a one-line reason.
 4. Run at most three review cycles. After the first, review only the new diff (`--base <last reviewed commit>`). Fix a named bug class everywhere it occurs. Do not re-report resolved findings. After three cycles, stop and ask the user to re-evaluate the approach.

@@ -6,7 +6,7 @@
       "name": "agent-spec",
       "devDependencies": {
         "@biomejs/biome": "2.5.12",
-        "@csark0812/skeleton": "^8.0.0",
+        "@csark0812/skeleton": "^8.1.0",
         "@post-print/agent-harness": "workspace:*",
         "@post-print/agent-test": "workspace:*",
         "@types/node": "^26.1.1",
@@ -130,7 +130,7 @@
 
     "@connectrpc/connect-web": ["@connectrpc/connect-web@1.7.0", "", { "peerDependencies": { "@bufbuild/protobuf": "^1.10.0", "@connectrpc/connect": "1.7.0" } }, "sha512-qyP0YOnUPRWwCc/VfsoydMJvkb7EyUPr2q9sHgBuJzbADjiqck1gKH5V5ZPzPhTLBvmz5UvG+wiZ5sMRQHU1MQ=="],
 
-    "@csark0812/skeleton": ["@csark0812/skeleton@8.0.0", "", { "dependencies": { "ajv": "8.20.0", "github-slugger": "2.0.0", "remark": "15.0.1", "remark-gfm": "4.0.1", "smol-toml": "1.9.0", "tinyglobby": "0.2.14", "unist-util-visit": "5.0.0", "yaml": "2.9.0" }, "bin": { "skeleton": "dist/cli.js" } }, "sha512-6VBuY8+ucRpFR4ril8eM1wRfY9JClsg7l4xfY/Ytrti1beetAiV6KEqJihcFTwLKbvmSG70bVLHfZTXzKMPB2Q=="],
+    "@csark0812/skeleton": ["@csark0812/skeleton@8.1.0", "", { "dependencies": { "ajv": "8.20.0", "github-slugger": "2.0.0", "remark": "15.0.1", "remark-gfm": "4.0.1", "smol-toml": "1.9.0", "tinyglobby": "0.2.14", "unist-util-visit": "5.0.0", "yaml": "2.9.0" }, "bin": { "skeleton": "dist/cli.js" } }, "sha512-gzAWws2uXyeQISWmZdddh4hEku8dNdoqZ5D+6J9jMVPQK7QrsUjPpKpTHo/d0nC9pkAtqLByZPA3ccgk9Z07mQ=="],
 
     "@cursor/sdk": ["@cursor/sdk@1.0.40", "", { "dependencies": { "@bufbuild/protobuf": "1.10.0", "@connectrpc/connect": "^1.6.1", "@connectrpc/connect-web": "^1.6.1", "@statsig/js-client": "3.31.0" }, "optionalDependencies": { "@cursor/sdk-darwin-arm64": "1.0.40", "@cursor/sdk-darwin-x64": "1.0.40", "@cursor/sdk-linux-arm64": "1.0.40", "@cursor/sdk-linux-x64": "1.0.40", "@cursor/sdk-win32-x64": "1.0.40" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-IaI59014gXLUTiWnVS2LlagOdSgWfMma0Sl4MwzsOh79UQf+CrKj+jj/AeX4vVPTlJ81X/Ca3dGytwPf/hWAQA=="],
 
