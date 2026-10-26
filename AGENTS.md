@@ -70,7 +70,7 @@ Manual host-agent proof after host login uses `bun run test:capabilities` or `bu
 | Viewer e2e (Playwright) | `bunx playwright install chromium` then `bun run test:e2e` |
 | Host-agent suite | `bun run test:capabilities` for configured-agent SDK capabilities. Run `test:matrix` and `test:reliability` manually. |
 
-`validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Review proof is one dateless hash file per document under `.skeleton/reviews/`; commit it with the document. After a complete re-read, attest explicit paths only:
+`validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Review proof is one dateless hash line per document in `.skeleton/review-proof`; commit it with the document. After a complete re-read, attest explicit paths only:
 
 ```bash
 skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewed

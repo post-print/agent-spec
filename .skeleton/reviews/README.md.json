@@ -1,9 +1,0 @@
-{
-	"version": 3,
-	"documentHash": "sha256:930be97bc72b7e57af1861edc8567ac0a396721dc24567e61d21b72dc9ea911d",
-	"reviewDependencies": {
-		"package.json": "sha256:477cda06ed5886de41ee15c15f160b2acb8e61ccd5df370bb4b3916fac6d60df",
-		"packages/harness/package.json": "sha256:6f5b6061a0b4982d2aac7d2b815ecb2c49b86379dafdb1be751dabfa9c73abea",
-		"packages/test/package.json": "sha256:7b7c5ed9bc657f17c52a65670a9aaf0c5a6efab94c172363328ae2bd86ca8ad2"
-	}
-}
