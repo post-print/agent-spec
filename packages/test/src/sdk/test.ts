@@ -7,7 +7,7 @@ import {
 	type TestInfo,
 } from "@playwright/test";
 import type { AgentDefinition } from "@post-print/agent-harness";
-import type { z } from "zod/v4";
+import type { z } from "zod";
 import { derivedExpectCriteria } from "./criteria.js";
 import { type AgentResource, factories, type JudgeResource, type Resource } from "./definitions.js";
 import { TestRuntime } from "./runtime.js";

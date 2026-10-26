@@ -33,7 +33,7 @@
 		}
 	},
 	"devDependencies": {
-		"@cursor/sdk": "^1.0.27",
+		"@cursor/sdk": "^1.0.40",
 		"@types/node": "^26.1.1",
 		"typescript": "~7.0.2"
 	},
