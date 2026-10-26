@@ -2,7 +2,7 @@
 	"version": 3,
 	"documentHash": "sha256:9e22837a761ccb25e327db7abcf58049619e6c62af9e10e2496cbda796c912ac",
 	"reviewDependencies": {
-		"AGENTS.md": "sha256:c6a8d6223df7b00cbbf80479eca5024c93b8a3542f30986a860acc6d1a875dc8",
+		"AGENTS.md": "sha256:623361d6b4fbd696a05ecfaebf584f021fa82e839572ffb931dce4a38f690b30",
 		"docs/cli.md": "sha256:23a7020108712a9c5363bd6f88b6c8701264869d32e2fdb70c7290bb071bc90e",
 		"docs/getting-started.md": "sha256:903c5b3f6c4efb06fa63dfbdac3c0080ae3d15df19a347495ee4de35d155b377",
 		"docs/hosts.md": "sha256:2c24c82b7d924c5a4c877f3440c99402b12710f73ddcf048bc4091b1c052ccdf",

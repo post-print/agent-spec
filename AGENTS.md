@@ -76,7 +76,7 @@ Manual host-agent proof after host login uses `bun run test:capabilities` or `bu
 skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewed
 ```
 
-Before opening a pull request, run `npx --no-install skeleton review prepare --base origin/main` and re-read and attest every document it lists.
+Before opening a pull request, run `npx --no-install skeleton review prepare --base origin/main` and re-read and attest every document it lists. If it names human-review paths (`[review] humanPaths` in `skeleton.toml`), a person must review those changes; do not approve them with an agent review.
 
 ## Layout
 
