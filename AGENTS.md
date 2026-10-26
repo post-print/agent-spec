@@ -2,7 +2,7 @@
 
 <!-- source-of-truth: agent cold-start in this repo -->
 
-<!-- doc-meta: owner=eng | last-reviewed=2026-10-26 -->
+<!-- doc-meta: owner=eng -->
 
 <!-- review-deps: paths=package.json,biome.json,skeleton.toml,.github/workflows/test.yml -->
 
@@ -70,11 +70,13 @@ Manual host-agent proof after host login uses `bun run test:capabilities` or `bu
 | Viewer e2e (Playwright) | `bunx playwright install chromium` then `bun run test:e2e` |
 | Host-agent suite | `bun run test:capabilities` for configured-agent SDK capabilities. Run `test:matrix` and `test:reliability` manually. |
 
-`validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Hash review proof lives in `.skeleton/review-lock.json`. After a complete re-read, attest explicit paths only:
+`validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). Review proof is one dateless hash file per document under `.skeleton/reviews/`; commit it with the document. After a complete re-read, attest explicit paths only:
 
 ```bash
 skeleton audit docs --paths=docs/reliability.md --fix=doc-meta --confirm-reviewed
 ```
+
+Before opening a pull request, run `npx --no-install skeleton review prepare --base origin/main` and re-read and attest every document it lists.
 
 ## Layout
 

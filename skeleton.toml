@@ -26,9 +26,6 @@ paths = []
 [skillOwnership]
 lockfile = "skills-lock.json"
 
-[reviewProof]
-mode = "hash"
-
 [reviewCoverage]
 include = [
   "packages/harness/src/**/*.ts",
