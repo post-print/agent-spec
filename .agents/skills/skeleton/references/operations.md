@@ -32,7 +32,7 @@ After a complete human re-read, record review evidence for explicit paths only:
 npx --no-install skeleton audit docs --paths=docs/example.md --fix=doc-meta --confirm-reviewed
 ```
 
-Attestation rewrites that document's line in `.skeleton/review-proof` and writes no date into the document. Commit that file with the change. Entries are one line each with a blank line between them, so parallel PRs that review different documents do not conflict. To upgrade from Skeleton 5 or 6 proof, to resolve a merge conflict in that file, or to move or drop entries for renamed or deleted documents, run `npx --no-install skeleton audit docs --fix=review-proof`; it never attests anything new.
+Attestation rewrites that document's line in `.skeleton/review-lock.toml` and writes no date into the document. Commit that file with the change. Entries are one line each with a blank line between them, so parallel PRs that re-attest different existing documents merge cleanly. To upgrade from Skeleton 5, 6, or 7 proof, to resolve a merge conflict in that file, or to move or drop entries for renamed or deleted documents, run `npx --no-install skeleton audit docs --fix=review-proof`; it never attests anything new.
 
 Bare `--fix` changes anchors and legacy SSOT markers; it does not attest review.
 
