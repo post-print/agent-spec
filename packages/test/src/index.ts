@@ -1,5 +1,5 @@
 export { WorkspaceEscapeError } from "@post-print/agent-harness";
-export { z } from "zod/v4";
+export { z } from "zod";
 export { expect } from "./sdk/expect.js";
 export { statistics } from "./sdk/metrics.js";
 export { type ExecutionProgress, reportProgress } from "./sdk/progress.js";

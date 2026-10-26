@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { customAgent } from "@post-print/agent-harness";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { TestRuntime } from "../sdk/runtime.js";
 
 it("runtime events › announces a judge before evaluation completes", async () => {

@@ -7,7 +7,7 @@ import {
 	openai,
 	openrouter,
 } from "@post-print/agent-harness";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { configuredAgent, factories } from "../sdk/definitions.js";
 import { parseEvaluation, serializeInput } from "../sdk/judge.js";
 import { statistics } from "../sdk/metrics.js";

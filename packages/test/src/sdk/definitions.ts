@@ -1,6 +1,6 @@
 import { basename, resolve } from "node:path";
 import type { AgentDefinition, AgentOptions } from "@post-print/agent-harness";
-import type { z } from "zod/v4";
+import type { z } from "zod";
 import type { AgentSettings, JudgeSettings, WorkspaceSetup } from "./types.js";
 export interface AgentResource {
 	readonly kind: "agent";

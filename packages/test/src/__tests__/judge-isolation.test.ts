@@ -3,7 +3,7 @@ import { mkdtemp, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { customAgent, WorkspaceEscapeError } from "@post-print/agent-harness";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { TestRuntime } from "../sdk/runtime.js";
 
 const FAKE_AGENT = new URL("../../fixtures/sdk-v2/fake-agent.mjs", import.meta.url).href;

@@ -7,7 +7,7 @@ import {
 	createEmptySealedWorkspace,
 	type HarnessSession,
 } from "@post-print/agent-harness";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { validateSkills } from "./definitions.js";
 import { recordedFailure } from "./failure.js";
 import type { Evaluation, JsonValue, JudgeSettings } from "./types.js";

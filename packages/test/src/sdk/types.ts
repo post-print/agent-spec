@@ -4,7 +4,7 @@ import type {
 	AgentOptions,
 	AgentTrace,
 } from "@post-print/agent-harness";
-import type { z } from "zod/v4";
+import type { z } from "zod";
 import type { StartingContext, Workspace, WorkspaceSnapshot } from "./workspace.js";
 export interface AgentSettings extends AgentOptions {
 	agent?: AgentDefinition;

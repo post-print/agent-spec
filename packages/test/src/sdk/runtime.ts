@@ -7,7 +7,7 @@ import {
 	createAgentSession,
 	type HarnessSession,
 } from "@post-print/agent-harness";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import { recordedFailure } from "./failure.js";
