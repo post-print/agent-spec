@@ -2,29 +2,29 @@
 	"version": 2,
 	"documents": {
 		".skeleton/registry.md": {
-			"reviewedAt": "2026-10-15",
-			"documentHash": "sha256:f5ff589ef5211f4cb5c41805f4b591760abfdd88e8dd8144f31b9a67a9f71bd4",
+			"reviewedAt": "2026-10-26",
+			"documentHash": "sha256:e32f4a3318d1efb2cf84903acfc10af7fffad6df86e5a466d48d3c939310ec8d",
 			"reviewDependencies": {
-				"AGENTS.md": "sha256:5b77df60513b0b2b3b6d1b22705e3be299b6aab4850572c22409cecc1b0822e0",
-				"docs/cli.md": "sha256:c20a4e4d606c02b91b3b2dbb4ecc61c8c3f764f269788b1c8b687f3818a41f33",
+				"AGENTS.md": "sha256:e3d604ccea586f08a472a9b5e130f8ecdcc9d5fbff4c7a328194558d000dbaee",
+				"docs/cli.md": "sha256:f990c1d8018f6c84586e0ab261499ef9de3d124f5f56fef9a5a798e0f92139d5",
 				"docs/getting-started.md": "sha256:760535fe40732dfa6ff81e0f4f9714042f1639bbb8e565ec8f97d906a16b885d",
 				"docs/hosts.md": "sha256:e4de5287f456aedec8a64d50ea58c3a6207ccd77c63a3831c9112ca9508c0141",
-				"docs/isolation.md": "sha256:71635cfd6510f32e638d319aa9a8a06380c90a4debb6ca76003583e8caa3a5c9",
-				"docs/reliability.md": "sha256:ed22b68907ac33284466af1efc1b91c39caa855759838cc78eece7d6d48dff68",
-				"docs/sdk-v2.md": "sha256:e882bf2449310064a9d4c1f049ceaa4af840f8a05aedd7fdf100deb5f5cf3645",
-				"docs/suites.md": "sha256:32e650a3f6872b2a3924ed902f1de7716ff429a00c400a66d197b6049c774cb2",
-				"packages/harness/README.md": "sha256:6b632171ef3503eaa4505fa2fe4dec351445fcb67da724327038a57bb28faa11",
-				"packages/test/README.md": "sha256:76a44f4adfba11989c676f431835c44177e9604b868c4e922d73b769a82d7d72",
-				"README.md": "sha256:d9d4e7d33bd1614b51fcaa711080ef0db47f944ec2a46e2bda4010fe39216adc"
+				"docs/isolation.md": "sha256:f592b0e5f07aa9c550949ae31ab97860ba0e8e277564b0acadfc20101828ecc2",
+				"docs/reliability.md": "sha256:eb04715c901e443d3bd91dc7d4b5786c51e898e3c2e9f391ef193928923b9db8",
+				"docs/sdk-v2.md": "sha256:fad874baf1cdd75e3107510b9c7f64886e6415d8084adc4a72af886ecdf6535f",
+				"docs/suites.md": "sha256:0f2a7c3dd685d9e4977af18d9f12e0fab4120f64d412a866f612fc42fc5f7c0f",
+				"packages/harness/README.md": "sha256:8e17d514bbb1f0aca60c5c23e9cef3e7649c396ceceb7f1f68e409e027803879",
+				"packages/test/README.md": "sha256:0853c47d05d0da416e65dd2bc2ec554cd9af5327ac96946955580bebf2444acd",
+				"README.md": "sha256:5cea2f1324eecd589527121e9fbec93e72467506bd7ef3a7dd0fe86e9137afa1"
 			}
 		},
 		"AGENTS.md": {
-			"reviewedAt": "2026-10-09",
-			"documentHash": "sha256:5b77df60513b0b2b3b6d1b22705e3be299b6aab4850572c22409cecc1b0822e0",
+			"reviewedAt": "2026-10-26",
+			"documentHash": "sha256:e3d604ccea586f08a472a9b5e130f8ecdcc9d5fbff4c7a328194558d000dbaee",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"biome.json": "sha256:11888d363647481cfd5b03a90ccbe71e89377b2f6ea230baefcb70050de29b84",
-				"package.json": "sha256:011baf243ba44fdace363896babc222122d671113677d45b1a80c871ec1d087a",
+				"package.json": "sha256:aa15727faf605aaafb468736548c3ae675e2f4975b351fbb69e76ad2f463c5c6",
 				"skeleton.toml": "sha256:4127e8eab5383b925c59ad8c2b4d0ea9abc5fa072e4b00a81e05337d4a8dd131"
 			}
 		},
@@ -99,8 +99,8 @@
 			}
 		},
 		"docs/reliability.md": {
-			"reviewedAt": "2026-10-09",
-			"documentHash": "sha256:ed22b68907ac33284466af1efc1b91c39caa855759838cc78eece7d6d48dff68",
+			"reviewedAt": "2026-10-26",
+			"documentHash": "sha256:eb04715c901e443d3bd91dc7d4b5786c51e898e3c2e9f391ef193928923b9db8",
 			"reviewDependencies": {
 				".github/workflows/test.yml": "sha256:023138ae57621774ce118c788b5eef6e2a15cf6a339db2c97d6a0f18d6f2a8e3",
 				"agent-suites/fixtures/task-list-hidden/tests/status.hidden.test.ts": "sha256:cb42d75392f3944f2566d499096fd5b785554c61eb3f4447634d970ffac8fb42",
@@ -109,7 +109,7 @@
 				"agent-suites/test-sdk-capabilities/capabilities.spec.ts": "sha256:2630e61551cab343c1139cc6f488a3be7b3941323b9de466ca8820c4f36813de",
 				"agent-suites/tour/agents.ts": "sha256:dc06650f6a40a016909f023335419d9f793bbf7f585d26cbb3112a0928f9ea18",
 				"agent-suites/tour/tour.spec.ts": "sha256:9a0ff9a83a043bd30174a6ba7fc431dc03491d7f37732942b20cd7b58cd3c8f2",
-				"package.json": "sha256:011baf243ba44fdace363896babc222122d671113677d45b1a80c871ec1d087a"
+				"package.json": "sha256:aa15727faf605aaafb468736548c3ae675e2f4975b351fbb69e76ad2f463c5c6"
 			}
 		},
 		"docs/sdk-v2.md": {
