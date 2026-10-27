@@ -65,3 +65,18 @@ it("claudeIsolationSettings › passes the sandbox Node options to tool commands
 	);
 	expect(settings.env).toEqual({ NODE_OPTIONS: "--preserve-symlinks --preserve-symlinks-main" });
 });
+
+it("claudeIsolationSettings › allows Unix sockets only when asked", () => {
+	const settings = (allowUnixSockets?: boolean) =>
+		JSON.parse(
+			claudeIsolationSettings({
+				cwd: "/tmp/seal/workspace",
+				readOnly: false,
+				protectedPaths: [],
+				allowUnixSockets,
+			}),
+		).sandbox;
+	expect(settings().network).toBeUndefined();
+	expect(settings(true).network).toEqual({ allowAllUnixSockets: true });
+	expect(settings(true).filesystem.allowRead).toContain("/tmp/seal/workspace");
+});

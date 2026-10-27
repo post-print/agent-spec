@@ -24,7 +24,7 @@ Built-in runs default to a ten-minute deadline. A finite positive `timeoutMs` ov
 
 Factories do not launch agents. Agent-test prepares workspaces, installs attached skills, supplies context, creates sessions, and guarantees cleanup. Custom adapters use `defineAgent()` and `customAgent()`; see [the SDK guide](../../docs/sdk-v2.md#custom-agents).
 
-Built-in sessions run under host-enforced filesystem limits: Codex uses a permission profile and Claude Code a sandbox and permission settings, both denying the caller checkout and the shared temp folder. Agents can still commit in their own workspace and start Node scripts there. `assertInsideWorkspace` and `toolPathsOutsideWorkspace` detect tool calls that name paths outside a workspace and raise `WorkspaceEscapeError`. See [the isolation boundary](../../docs/isolation.md#isolation-boundary).
+Built-in sessions run under host-enforced filesystem limits: Codex uses a permission profile and Claude Code a sandbox and permission settings, both denying the caller checkout and the shared temp folder. Agents can still commit in their own workspace and start Node scripts there. On Linux, `claude({ allowUnixSockets: true })` also lets sandboxed commands create Unix sockets, which headless Chrome needs to start. `assertInsideWorkspace` and `toolPathsOutsideWorkspace` detect tool calls that name paths outside a workspace and raise `WorkspaceEscapeError`. See [the isolation boundary](../../docs/isolation.md#isolation-boundary).
 
 Built-in continuation currently replays prior user and assistant text. Cursor does not yet support enforced read-only judge sessions; use OpenAI or Claude as the judge. ACP is not introduced by this change.
 

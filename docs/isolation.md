@@ -17,7 +17,7 @@ Two layers keep an agent inside its workspace. The host enforces filesystem limi
 | Host | Enforced by the host | Outside the boundary |
 | --- | --- | --- |
 | OpenAI (Codex) | A permission profile replaces `--sandbox`. The workspace is writable, including its `.git`, so agents can commit in their own repository (read-only for judges). The OS temp folder, which holds sibling sealed workspaces, `/tmp`, and the caller checkout are denied for reads and writes. Network is off unless `networkAccess` is set. | Other paths on disk remain readable. Detection still applies. |
-| Claude Code | `--settings` enables the Bash sandbox with reads of the checkout and the temp folder denied (the workspace is re-allowed) and no unsandboxed fallback. Its `env` sets the sandbox `NODE_OPTIONS` described below. Permission rules block Read, Grep, and Glob outside the workspace. `claude({ tools })` narrows the built-in tools further; `tools: []` leaves only MCP tools. | Other paths remain readable by Bash. Detection still applies. |
+| Claude Code | `--settings` enables the Bash sandbox with reads of the checkout and the temp folder denied (the workspace is re-allowed) and no unsandboxed fallback. Its `env` sets the sandbox `NODE_OPTIONS` described below. Permission rules block Read, Grep, and Glob outside the workspace. `claude({ tools })` narrows the built-in tools further; `tools: []` leaves only MCP tools. On Linux the sandbox also blocks Unix socket creation; `claude({ allowUnixSockets: true })` lifts that one filter for tools such as headless Chrome. | Other paths remain readable by Bash. Detection still applies. |
 | Cursor | Nothing. | Detection only. |
 | Custom adapters | Whatever the adapter declares. | Detection only. |
 

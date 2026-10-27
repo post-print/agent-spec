@@ -11,6 +11,8 @@ export interface HostIsolation {
 	readOnly: boolean;
 	protectedPaths: readonly string[];
 	networkAccess?: boolean;
+	/** Claude only: let sandboxed commands create Unix sockets, which headless Chrome needs. */
+	allowUnixSockets?: boolean;
 }
 
 /**
@@ -85,6 +87,9 @@ export function claudeIsolationSettings(isolation: HostIsolation): string {
 			enabled: true,
 			failIfUnavailable: true,
 			allowUnsandboxedCommands: false,
+			// On Linux the sandbox's seccomp filter blocks Unix socket creation, which kills
+			// Chrome at startup. Opting in drops only that filter; the filesystem limits stay.
+			...(isolation.allowUnixSockets === true ? { network: { allowAllUnixSockets: true } } : {}),
 			filesystem: {
 				denyRead: [...protectedPaths, ...uniquePaths([tmpdir()])],
 				allowRead: uniquePaths([isolation.cwd]),
