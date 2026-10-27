@@ -367,6 +367,10 @@ it("claude › limits tools and project context to the Claude host", () => {
 	expect(() => openai({ loadProjectContext: false })).toThrow(
 		"loadProjectContext is not supported by openai",
 	);
+	expect(claude({ allowUnixSockets: true }).options.allowUnixSockets).toBe(true);
+	expect(() => openai({ allowUnixSockets: true })).toThrow(
+		"allowUnixSockets is not supported by openai",
+	);
 });
 
 it("runClaudeAgent › allows only MCP tools when tools is empty", async () => {

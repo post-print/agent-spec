@@ -60,6 +60,8 @@ export interface ClaudeRunOptions {
 	loadProjectContext?: boolean;
 	/** Absolute paths the agent may not read (the caller checkout). */
 	protectedPaths?: readonly string[];
+	/** Let sandboxed commands create Unix sockets (headless Chrome on Linux). Default false. */
+	allowUnixSockets?: boolean;
 }
 
 export interface ClaudeRunResult {
@@ -329,6 +331,7 @@ export function buildClaudeArgs(options: {
 	authMode: ClaudeAuthMode;
 	includeGlobalSkills?: boolean;
 	loadProjectContext?: boolean;
+	allowUnixSockets?: boolean;
 }): string[] {
 	const args = [
 		"-p",
@@ -354,6 +357,7 @@ export function buildClaudeArgs(options: {
 			cwd: options.cwd,
 			readOnly: options.readOnly === true,
 			protectedPaths: options.protectedPaths ?? [],
+			allowUnixSockets: options.allowUnixSockets === true,
 		}),
 	);
 	const model = options.model?.trim() || process.env.CLAUDE_AGENT_MODEL?.trim();
@@ -612,6 +616,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			authMode,
 			includeGlobalSkills: options.includeGlobalSkills === true,
 			loadProjectContext: options.loadProjectContext === true,
+			allowUnixSockets: options.allowUnixSockets === true,
 		});
 
 		return await runClaudeWithDeadline(options, { bin, args, authMode, deadline, apiKey });

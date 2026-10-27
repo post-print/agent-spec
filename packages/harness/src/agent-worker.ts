@@ -104,6 +104,7 @@ async function runBuiltin(input: InitializeInput, prompt: string) {
 				model: agent.options.model,
 				tools: agent.options.tools,
 				loadProjectContext: agent.options.loadProjectContext !== false,
+				allowUnixSockets: agent.options.allowUnixSockets === true,
 				readOnly,
 			});
 		case "openrouter":

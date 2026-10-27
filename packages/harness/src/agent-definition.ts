@@ -25,11 +25,16 @@ export interface AgentOptions {
 	tools?: readonly string[];
 	/** Claude only: discover CLAUDE.md, rules, and skills from the workspace. Defaults to true. */
 	loadProjectContext?: boolean;
+	/**
+	 * Claude only: let sandboxed Bash commands create Unix sockets. Linux needs this for headless
+	 * Chrome, which the sandbox's seccomp filter otherwise kills at startup. Defaults to false.
+	 */
+	allowUnixSockets?: boolean;
 }
 export interface OpenRouterAgentOptions
 	extends Omit<
 		AgentOptions,
-		"auth" | "mcpServers" | "networkAccess" | "tools" | "loadProjectContext"
+		"auth" | "mcpServers" | "networkAccess" | "tools" | "loadProjectContext" | "allowUnixSockets"
 	> {
 	baseUrl?: string;
 	httpReferer?: string;
@@ -117,6 +122,8 @@ function builtin(host: BuiltinAgentHost, options: AgentOptions = {}): AgentDefin
 		throw new Error(`tools is not supported by ${host}`);
 	if (host !== "claude" && options.loadProjectContext !== undefined)
 		throw new Error(`loadProjectContext is not supported by ${host}`);
+	if (host !== "claude" && options.allowUnixSockets !== undefined)
+		throw new Error(`allowUnixSockets is not supported by ${host}`);
 	return definition({
 		host,
 		options: { auth: { type: "subscription" }, ...options },
