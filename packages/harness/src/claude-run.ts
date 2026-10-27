@@ -12,7 +12,7 @@ import {
 	finalizeClaudeTraceAccumulator,
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
-import { claudeIsolationSettings, prepareSandboxPath } from "./host-isolation.js";
+import { claudeIsolationSettings, prepareClaudeEnvFile } from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -358,7 +358,6 @@ export function buildClaudeArgs(options: {
 			readOnly: options.readOnly === true,
 			protectedPaths: options.protectedPaths ?? [],
 			allowUnixSockets: options.allowUnixSockets === true,
-			path: prepareSandboxPath(options.cwd),
 		}),
 	);
 	const model = options.model?.trim() || process.env.CLAUDE_AGENT_MODEL?.trim();
@@ -525,9 +524,12 @@ async function executeClaudeRun(
 
 	const acc = createClaudeTraceAccumulator();
 	const abort = new AbortController();
+	const env = buildClaudeEnv(authMode, apiKey);
+	const envFile = prepareClaudeEnvFile(options.cwd, env.PATH);
+	if (envFile) env.CLAUDE_ENV_FILE = envFile;
 	const child = spawn(bin, args, {
 		cwd: options.cwd,
-		env: buildClaudeEnv(authMode, apiKey),
+		env,
 		stdio: ["ignore", "pipe", "pipe"],
 		detached: process.platform !== "win32" && process.env.AGENT_HARNESS_SESSION_WORKER !== "1",
 	}) as ClaudeChildProcess;

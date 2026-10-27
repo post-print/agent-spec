@@ -21,15 +21,13 @@ export interface HostIsolation {
 	networkAccess?: boolean;
 	/** Claude only: let sandboxed commands create Unix sockets, which headless Chrome needs. */
 	allowUnixSockets?: boolean;
-	/** `PATH` for sandboxed commands, from `prepareSandboxPath`; null or omitted keeps the host's. */
-	path?: string | null;
 }
 
 /**
  * Node resolves a script's real path by `lstat`-ing every parent directory, and the sealed
  * workspace's parents (the denied temp folder) cannot be stat-ed. Preserving symlinks skips that
  * walk, so `node script.mjs` runs inside the workspace without widening the sandbox. It also
- * breaks package-manager CLIs reached through a bin symlink; `prepareSandboxPath` shims those.
+ * breaks package-manager CLIs reached through a bin symlink; `writeNodeCliShims` shims those.
  */
 const WHITESPACE = /\s+/;
 export const SANDBOX_NODE_OPTIONS = ["--preserve-symlinks", "--preserve-symlinks-main"];
@@ -82,11 +80,11 @@ function symlinkedNodeEntry(candidate: string): string | null {
 
 /**
  * Write shims that start each symlinked package-manager CLI from its real path, and return
- * the `PATH` sealed commands get with the shims first. The shims live in the workspace's own
- * `.git`, the one folder the sandbox lets commands read that snapshots and diffs skip.
- * Null when there is nothing to shim: no `.git`, no `node` on `PATH`, or no symlinked CLI.
+ * their folder. The shims live in the workspace's own `.git`, the one folder the sandbox lets
+ * commands read that snapshots and diffs skip. Null when there is nothing to shim: no `.git`,
+ * no `node` on `PATH`, or no symlinked CLI.
  */
-export function prepareSandboxPath(cwd: string, path = process.env.PATH ?? ""): string | null {
+function writeNodeCliShims(cwd: string, path: string): string | null {
 	const dirs = path.split(delimiter).filter(Boolean);
 	const nodeBin = onPath("node", dirs);
 	if (!(existsSync(join(cwd, ".git")) && nodeBin)) return null;
@@ -105,7 +103,27 @@ export function prepareSandboxPath(cwd: string, path = process.env.PATH ?? ""): 
 		);
 		written++;
 	}
-	return written > 0 ? [shimDir, ...dirs].join(delimiter) : null;
+	return written > 0 ? shimDir : null;
+}
+
+/** Codex: the `PATH` sealed commands get with the shims first, or null when nothing needs one. */
+export function prepareSandboxPath(cwd: string, path = process.env.PATH ?? ""): string | null {
+	const shimDir = writeNodeCliShims(cwd, path);
+	return shimDir ? [shimDir, ...path.split(delimiter).filter(Boolean)].join(delimiter) : null;
+}
+
+/**
+ * Claude: a `CLAUDE_ENV_FILE` script that puts the shims first. Claude Code restores `PATH`
+ * from its login-shell snapshot, so neither the spawn environment nor settings `env` can set
+ * it; the env file is sourced before each Bash command, after the snapshot. Null when nothing
+ * needs a shim.
+ */
+export function prepareClaudeEnvFile(cwd: string, path = process.env.PATH ?? ""): string | null {
+	const shimDir = writeNodeCliShims(cwd, path);
+	if (!shimDir) return null;
+	const envFile = join(cwd, ".git", "agent-harness", "claude-env.sh");
+	writeFileSync(envFile, `export PATH=${shellQuote(shimDir)}:"$PATH"\n`);
+	return envFile;
 }
 
 /** Codex permission profile name installed for every harness run. */
@@ -174,10 +192,7 @@ export function claudeIsolationSettings(isolation: HostIsolation): string {
 				allowRead: uniquePaths([isolation.cwd]),
 			},
 		},
-		env: {
-			NODE_OPTIONS: sandboxNodeOptions(),
-			...(isolation.path ? { PATH: isolation.path } : {}),
-		},
+		env: { NODE_OPTIONS: sandboxNodeOptions() },
 		permissions: {
 			blockReadsOutsideWorkingDirectories: true,
 			deny: protectedPaths.map((path) => `Read(/${path}/**)`),
