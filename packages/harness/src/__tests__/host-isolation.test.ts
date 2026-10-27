@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
 	claudeIsolationSettings,
 	codexPermissionArgs,
+	prepareClaudeEnvFile,
 	prepareSandboxPath,
 	sandboxNodeOptions,
 } from "../host-isolation.js";
@@ -135,15 +136,14 @@ describe("prepareSandboxPath", () => {
 		expect(prepareSandboxPath(workspace, "/nonexistent")).toBeNull();
 	});
 
-	it("reaches Claude tool commands through the settings env", () => {
-		const settings = JSON.parse(
-			claudeIsolationSettings({
-				cwd: "/tmp/seal/workspace",
-				readOnly: false,
-				protectedPaths: [],
-				path: "/tmp/seal/workspace/.git/agent-harness/bin:/usr/bin",
-			}),
+	it("gives Claude an env file that puts the shims first", () => {
+		const { workspace, bin } = setupToolchain();
+		const envFile = prepareClaudeEnvFile(workspace, `${bin}:/usr/bin`);
+		expect(envFile).toBe(join(workspace, ".git", "agent-harness", "claude-env.sh"));
+		expect(readFileSync(envFile ?? "", "utf8")).toBe(
+			`export PATH='${join(workspace, ".git", "agent-harness", "bin")}':"$PATH"\n`,
 		);
-		expect(settings.env.PATH).toBe("/tmp/seal/workspace/.git/agent-harness/bin:/usr/bin");
+		rmSync(join(bin, "npx"));
+		expect(prepareClaudeEnvFile(join(workspace, "missing"), bin)).toBeNull();
 	});
 });
