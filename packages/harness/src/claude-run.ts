@@ -12,7 +12,7 @@ import {
 	finalizeClaudeTraceAccumulator,
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
-import { claudeIsolationSettings } from "./host-isolation.js";
+import { claudeIsolationSettings, prepareSandboxPath } from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -358,6 +358,7 @@ export function buildClaudeArgs(options: {
 			readOnly: options.readOnly === true,
 			protectedPaths: options.protectedPaths ?? [],
 			allowUnixSockets: options.allowUnixSockets === true,
+			path: prepareSandboxPath(options.cwd),
 		}),
 	);
 	const model = options.model?.trim() || process.env.CLAUDE_AGENT_MODEL?.trim();
