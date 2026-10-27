@@ -1,5 +1,13 @@
-import { realpathSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 
 /**
  * Host-enforced filesystem limits for one agent or reviewer session. The workspace stays
@@ -13,12 +21,15 @@ export interface HostIsolation {
 	networkAccess?: boolean;
 	/** Claude only: let sandboxed commands create Unix sockets, which headless Chrome needs. */
 	allowUnixSockets?: boolean;
+	/** `PATH` for sandboxed commands, from `prepareSandboxPath`; null or omitted keeps the host's. */
+	path?: string | null;
 }
 
 /**
  * Node resolves a script's real path by `lstat`-ing every parent directory, and the sealed
  * workspace's parents (the denied temp folder) cannot be stat-ed. Preserving symlinks skips that
- * walk, so `node script.mjs` runs inside the workspace without widening the sandbox.
+ * walk, so `node script.mjs` runs inside the workspace without widening the sandbox. It also
+ * breaks package-manager CLIs reached through a bin symlink; `prepareSandboxPath` shims those.
  */
 const WHITESPACE = /\s+/;
 export const SANDBOX_NODE_OPTIONS = ["--preserve-symlinks", "--preserve-symlinks-main"];
@@ -27,6 +38,74 @@ export const SANDBOX_NODE_OPTIONS = ["--preserve-symlinks", "--preserve-symlinks
 export function sandboxNodeOptions(existing?: string): string {
 	const current = (existing ?? "").split(WHITESPACE).filter(Boolean);
 	return [...current, ...SANDBOX_NODE_OPTIONS.filter((flag) => !current.includes(flag))].join(" ");
+}
+
+/**
+ * Package-manager CLIs that install as a bin symlink to a JavaScript entry. With
+ * `--preserve-symlinks-main` Node resolves that entry's relative imports from the symlink's
+ * folder (`/opt/homebrew/bin/../lib/cli.js`), so `npm` and `npx` fail inside a sealed workspace.
+ */
+const SYMLINKED_NODE_CLIS = ["npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg", "corepack"];
+
+function onPath(name: string, dirs: readonly string[]): string | null {
+	for (const dir of dirs) {
+		const candidate = join(dir, name);
+		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
+const NODE_SCRIPT_EXTENSION = /\.[cm]?js$/;
+const NODE_SHEBANG = /^#!.*\bnode\b/;
+
+function isNodeScript(path: string): boolean {
+	if (NODE_SCRIPT_EXTENSION.test(path)) return true;
+	try {
+		return NODE_SHEBANG.test(readFileSync(path, "utf8").slice(0, 128));
+	} catch {
+		return false;
+	}
+}
+
+const SINGLE_QUOTE = /'/g;
+
+function shellQuote(value: string): string {
+	return `'${value.replace(SINGLE_QUOTE, "'\\''")}'`;
+}
+
+/** The symlinked Node CLI's real entry, or null when it needs no shim. */
+function symlinkedNodeEntry(candidate: string): string | null {
+	if (!lstatSync(candidate).isSymbolicLink()) return null;
+	const entry = realpathSync(candidate);
+	return isNodeScript(entry) ? entry : null;
+}
+
+/**
+ * Write shims that start each symlinked package-manager CLI from its real path, and return
+ * the `PATH` sealed commands get with the shims first. The shims live in the workspace's own
+ * `.git`, the one folder the sandbox lets commands read that snapshots and diffs skip.
+ * Null when there is nothing to shim: no `.git`, no `node` on `PATH`, or no symlinked CLI.
+ */
+export function prepareSandboxPath(cwd: string, path = process.env.PATH ?? ""): string | null {
+	const dirs = path.split(delimiter).filter(Boolean);
+	const nodeBin = onPath("node", dirs);
+	if (!(existsSync(join(cwd, ".git")) && nodeBin)) return null;
+	const node = realpathSync(nodeBin);
+	const shimDir = join(cwd, ".git", "agent-harness", "bin");
+	let written = 0;
+	for (const name of SYMLINKED_NODE_CLIS) {
+		const candidate = onPath(name, dirs);
+		const entry = candidate ? symlinkedNodeEntry(candidate) : null;
+		if (!entry) continue;
+		mkdirSync(shimDir, { recursive: true });
+		writeFileSync(
+			join(shimDir, name),
+			`#!/bin/sh\nexec ${shellQuote(node)} ${shellQuote(entry)} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		written++;
+	}
+	return written > 0 ? [shimDir, ...dirs].join(delimiter) : null;
 }
 
 /** Codex permission profile name installed for every harness run. */
@@ -95,7 +174,10 @@ export function claudeIsolationSettings(isolation: HostIsolation): string {
 				allowRead: uniquePaths([isolation.cwd]),
 			},
 		},
-		env: { NODE_OPTIONS: sandboxNodeOptions() },
+		env: {
+			NODE_OPTIONS: sandboxNodeOptions(),
+			...(isolation.path ? { PATH: isolation.path } : {}),
+		},
 		permissions: {
 			blockReadsOutsideWorkingDirectories: true,
 			deny: protectedPaths.map((path) => `Read(/${path}/**)`),
