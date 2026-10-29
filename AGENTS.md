@@ -27,8 +27,8 @@ Executable specs for coding-agent behavior. Monorepo packages: `@post-print/agen
 
 ## Prerequisites
 
-- Bun `1.4.0` (see `packageManager` in `package.json`)
-- Node ≥ 22 (see `engines` / `.node-version`) for published packages and `agent-test` CLI consumers
+- Bun: `bun@1.4.0` (`packageManager` in `package.json`)
+- Node: `>=22` (`engines.node` in `package.json`, and `.node-version`) for published packages and `agent-test` CLI consumers
 - Host-agent runs need host auth. Agent definitions default to subscription. Use `agent-test login` for Cursor SDK auth, `codex login` for OpenAI, or Claude Code login. Explicit API-key auth is `{ type: "api-key", env: "OPENAI_API_KEY" }` on the definition. The CLI does not load `.env`.
 - TypeScript suites return named `agent()` and `judge({ prompt, schema })` resources from `describe`; tests receive executable handles. `judge.run({ input })` sees only selected data and reviewer context. Assertions determine acceptance.
 - After a host-agent run (`agent-test test`, `test:capabilities`, `test:tour`), ask the user whether to open the results viewer: `node packages/test/dist/cli.js viewer --config <same config>`. Start it only after a yes; it is a long-running localhost server. The CLI prints the same prompt at the end of each run.
@@ -70,7 +70,7 @@ Manual host-agent proof after host login uses `bun run test:capabilities` or `bu
 | Viewer e2e (Playwright) | `bunx playwright install chromium` then `bun run test:e2e` |
 | Host-agent suite | `bun run test:capabilities` for configured-agent SDK capabilities. Run `test:matrix` and `test:reliability` manually. |
 
-`validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). A change to a file that a document lists in `review-deps` should change that document in the same commit. `bun run validate:changed -- --staged` reports `review-dependency-changed` as an error, and `validate:ci` reports it as a warning. If the document is still correct after a full re-read, leave it unchanged.
+`validate:changed` fails a live coverage-candidate path with no owning paper (`uncovered-changed-path`). A change to a file that a document lists in `review-deps` should change that document in the same commit. Every run (`bun run validate:changed -- --staged`, the pre-commit hook, and `validate:ci`) reports `review-dependency-changed` as a warning; it does not block the commit. If the document is still correct after a full re-read, leave it unchanged.
 
 Before opening a pull request, run `npx --no-install skeleton review prepare --base origin/main`, then re-read and update every document it lists. If it names human-review paths (`[review] humanPaths` in `skeleton.toml`), a person must review those changes; do not approve them with an agent review.
 

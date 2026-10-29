@@ -15,7 +15,7 @@ npx skeleton init --skills
 
 Init adds a bounded `skeleton context` guide to `AGENTS.md` and adds `.skeleton/catalog.md` to `.gitignore`. A `no-context` result includes a recovery action to inspect code, tests, and nearby docs; repair an existing owner or document durable behavior; and repeat the same request until it finds the owner. Read-only tasks report the gap without editing. `--skills` copies this skill from the installed package so its guidance matches the CLI version. Edit `skeleton.toml` scan trees for the repository shape. Legacy `.skeleton/config.yaml` loads only when `skeleton.toml` is absent.
 
-For ordinary source tasks, context includes `test-command` when it can derive the repository-native focused runner, and the guide stops after that command passes. It does not ask the agent to run repository audits or validation unless the user requested them or the focused test fails. Before a pull request it tells agents to run `skeleton review prepare --base <base branch>` and stop on any human-review path.
+For ordinary source tasks, context includes `test-command` when it can derive the repository-native focused runner, and the guide stops after that command passes. It marks an excerpt that is the entire file `whole-file`, and adds a `reference` line for each tracked file and line that names a code identifier from the request, so a rename edits that list instead of searching. It does not ask the agent to run repository audits or validation unless the user requested them or the focused test fails. Before a pull request it tells agents to run `skeleton review prepare --base <base branch>` and stop on any human-review path.
 
 ## Documentation workflow
 
@@ -26,12 +26,9 @@ For ordinary source tasks, context includes `test-command` when it can derive th
 
 Catalog honesty is enforced by `ssot-summary` and near-duplicate audits. `CI=true` skips catalog writes.
 
-When a change touches a file a document declares in `review-deps`, re-read the document and update it in the same commit. Nothing records reviews:
+When a change touches a file a document declares in `review-deps`, re-read the document and update it in the same commit if it is out of date. Nothing records reviews and nothing blocks: `validate changed` (`--staged` in pre-commit, `--base` in pull request CI) warns with `review-dependency-changed` when the dependency changed and the document did not, and `review prepare` lists the document.
 
-- `validate changed --staged` (pre-commit) fails with `review-dependency-changed` when the dependency changed and the document did not;
-- `validate changed --base` (pull request CI) and `review prepare` only warn and list the document.
-
-A `package.json` release `version`, keys outside a `#key` selector, and doc-meta-only edits do not count. If the document is still correct, commit once without that hook (`SKIP=<hook id> git commit …`).
+A `package.json` release `version`, changes outside a `#` selector (a JSON key, a Markdown section, a JS/TS declaration), and doc-meta-only edits do not count.
 
 Bare `--fix` changes anchors and legacy SSOT markers; it never edits document prose.
 
