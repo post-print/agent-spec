@@ -49,7 +49,7 @@ The full local check (`bun run check` = lint + typecheck + unit tests + build) n
 
 `bun install` can warn that `simple-git-hooks` cannot write `.git/hooks` under a sandbox. That is safe to ignore or re-run with `all` permissions.
 
-Use `bun run lint` / `bunx biome` (pinned 2.5.12). The policy matches PostPrint applications: all project/types/react/test domains, 40-line functions, cognitive complexity 10, at most three parameters, and no explicit `any` even in tests. Non-null assertions are also errors; the lint script fails on warnings. Root configuration, scripts, and the TypeScript tour are included. Existing legacy violations are not suppressed. A global `biome` on PATH is often older and will fail this repo's config.
+Use `bun run lint` / `bunx biome` (pinned 2.5.14). The policy matches PostPrint applications: all project/types/react/test domains, 40-line functions, cognitive complexity 10, at most three parameters, and no explicit `any` even in tests. Non-null assertions are also errors; the lint script fails on warnings. Root configuration, scripts, and the TypeScript tour are included. Existing legacy violations are not suppressed. A global `biome` on PATH is often older and will fail this repo's config.
 
 Offline product tests:
 
