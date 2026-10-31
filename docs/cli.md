@@ -4,7 +4,7 @@
 <!-- doc-meta: owner=eng -->
 <!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/sdk/cli.ts,packages/test/src/sdk/viewer.ts,packages/test/src/sdk/execution-runner.ts,packages/test/src/sdk/execution-store.ts,packages/test/package.json#bin,packages/test/package.json#dependencies -->
 
-The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`.
+The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`. It ends with one verdict sentence and exits 0 when the tests passed, 1 when a check failed, and 2 when the run has no verdict; see [exit codes](reliability.md#exit-codes).
 
 | Command | Behavior |
 | --- | --- |

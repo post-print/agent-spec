@@ -1,5 +1,6 @@
 import { relative, resolve } from "node:path";
 import { startRecordedExecution } from "./execution-runner.js";
+import { verdictSentence } from "./verdict.js";
 
 export { playwrightCli } from "./playwright-cli.js";
 
@@ -53,6 +54,8 @@ export async function runSdkCli(args: string[]): Promise<number> {
 	process.once("SIGINT", cancel);
 	try {
 		const code = await execution.completed;
+		if (!passThrough.includes("--list"))
+			process.stdout.write(`${verdictSentence(await execution.verdict)}\n`);
 		if (!passThrough.includes("--list"))
 			for (const line of viewerHint({
 				config,

@@ -17,6 +17,8 @@
 		"agent-test.probe.config.ts",
 		"agent-test.matrix.config.ts",
 		"packages/test/fixtures/sdk-v2/contract.spec.ts",
-		"packages/test/fixtures/sdk-v2/agent-test.config.ts"
+		"packages/test/fixtures/sdk-v2/agent-test.config.ts",
+		"packages/test/fixtures/instrument/agent-test.config.ts",
+		"packages/test/fixtures/instrument/instrument.spec.ts"
 	]
 }

@@ -6,14 +6,19 @@ import {
 	ExecutionStore,
 	executionHistoryRoot,
 	finishExecutionIfRunning,
+	readExecutionDetail,
 	recoverExecutionHistory,
+	saveExecutionVerdict,
 } from "./execution-store.js";
 import { playwrightCli } from "./playwright-cli.js";
+import { reduceVerdict, type VerdictResult } from "./verdict.js";
 
 export type StartedExecution = {
 	id: string;
 	cancel: () => void;
+	/** The exit code for this run, from its verdict. */
 	completed: Promise<number>;
+	verdict: Promise<VerdictResult>;
 };
 
 export type StartExecutionOptions = {
@@ -48,22 +53,45 @@ export async function startRecordedExecution(
 	});
 	pipeOutput(child.stdout, options.onOutput);
 	let cancelRequested = false;
+	const verdict = new Promise<VerdictResult>((resolveVerdict, reject) => {
+		child.once("error", reject);
+		child.once("close", (code) => {
+			void concludeExecution({
+				root,
+				runnerExitCode: code ?? 1,
+				cancelled: cancelRequested,
+				listOnly: options.args.includes("--list"),
+			}).then(resolveVerdict, reject);
+		});
+	});
 	return {
 		id,
 		cancel: () => {
 			cancelRequested = true;
 			child.kill("SIGTERM");
 		},
-		completed: new Promise((resolveCode, reject) => {
-			child.once("error", reject);
-			child.once("close", (code) => {
-				void finishExecutionIfRunning(root, cancelRequested ? "interrupted" : "failed").then(
-					() => resolveCode(code ?? 1),
-					reject,
-				);
-			});
-		}),
+		verdict,
+		completed: verdict.then(({ exitCode }) => exitCode),
 	};
+}
+
+async function concludeExecution(input: {
+	root: string;
+	runnerExitCode: number;
+	cancelled: boolean;
+	listOnly: boolean;
+}): Promise<VerdictResult> {
+	const { root, runnerExitCode, cancelled, listOnly } = input;
+	await finishExecutionIfRunning(root, cancelled ? "interrupted" : "failed");
+	const detail = await readExecutionDetail(root);
+	const verdict = reduceVerdict({
+		attempts: detail?.attempts ?? [],
+		interrupted: cancelled || detail?.status === "interrupted",
+		listOnly,
+		runnerExitCode,
+	});
+	await saveExecutionVerdict(root, verdict);
+	return verdict;
 }
 
 function recordedExecutionArgs(options: StartExecutionOptions, root: string): string[] {

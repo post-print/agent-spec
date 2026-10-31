@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { verdictSentence } from "../sdk/verdict.js";
 import { ElapsedTime } from "./elapsed-time.js";
 import {
 	formatElapsed,
@@ -148,6 +149,12 @@ function RunningFor({ run, total }: { run: ExecutionSummary; total: number }) {
 
 /** Explains a run that has no test outcome yet, or never got one. */
 function RunNotice({ run }: { run: ExecutionSummary }) {
+	if (run.verdict && run.verdict.verdict !== "passed")
+		return <p {...stylex.props(styles.meta)}>{verdictSentence(run.verdict)}</p>;
+	return <RunStartNotice run={run} />;
+}
+
+function RunStartNotice({ run }: { run: ExecutionSummary }) {
 	const statuses = (run.testIds ?? []).map((testId) => testRunStatus(run, testId));
 	if (statuses.some((status) => STARTED_STATUSES.has(status))) return null;
 	const count = statuses.length;

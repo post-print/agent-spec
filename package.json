@@ -36,7 +36,7 @@
 		"audit:skills": "skeleton audit skills",
 		"audit:self": "skeleton audit self",
 		"prepare": "simple-git-hooks",
-		"test:sdk:contracts": "bun run build && node node_modules/@playwright/test/cli.js test -c packages/test/fixtures/sdk-v2/agent-test.config.ts"
+		"test:sdk:contracts": "bun run build && node node_modules/@playwright/test/cli.js test -c packages/test/fixtures/sdk-v2/agent-test.config.ts && bun test packages/test/fixtures/instrument/instrument.contract.test.ts"
 	},
 	"simple-git-hooks": {
 		"pre-commit": "bun run lint && bun run typecheck"

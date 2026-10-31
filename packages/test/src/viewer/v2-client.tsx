@@ -2660,7 +2660,11 @@ function TestVerdict({
 
 /** Conditions that limit what this result means, stated beside the verdict rather than behind a click. */
 function RunConditionLabels({ operations }: { operations: Attempt["operations"] }) {
-	const labels = runConditionLabels(operations);
+	const runs = operations.filter((operation) => operation.kind !== "evaluation").length;
+	const labels = [
+		...(runs ? [`Sample: ${runs} ${pluralize(runs, "run")}`] : []),
+		...runConditionLabels(operations),
+	];
 	if (!labels.length) return null;
 	return <p {...stylex.props(styles.verdictCount)}>{labels.join(" · ")}</p>;
 }
