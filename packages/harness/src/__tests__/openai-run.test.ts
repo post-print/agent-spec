@@ -35,7 +35,7 @@ it("buildOpenaiExecArgs › pins Codex to the sealed workspace with a permission
 		cwd: "/tmp/agent-harness-seal-test",
 		protectedPaths: ["/repo/checkout"],
 	});
-	expect(args.slice(0, 7)).toEqual([
+	expect(args.slice(0, 9)).toEqual([
 		"exec",
 		"--json",
 		"--cd",
