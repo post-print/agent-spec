@@ -156,3 +156,26 @@ describe("reduceVerdict with a baseline", () => {
 		expect(result).toMatchObject({ verdict: "measured", exitCode: 0 });
 	});
 });
+
+describe("reduceVerdict with repeats from the command line", () => {
+	const repeat = (status: VerdictAttempt["status"], testId: string) =>
+		attempt({
+			testId,
+			claim: "claim",
+			status,
+			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
+		});
+	const attempts = [repeat("passed", "a"), repeat("failed", "b")];
+	it("a failed repeat fails the run", () => {
+		expect(reduce(attempts, 1)).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
+	});
+	it("--measure reports the same repeats as a rate", () => {
+		expect(reduce(attempts, 1, { measureRepeats: true })).toMatchObject({
+			verdict: "measured",
+			exitCode: 0,
+		});
+	});
+	it("repeats that all pass exit 0", () => {
+		expect(reduce([repeat("passed", "a"), repeat("passed", "b")]).exitCode).toBe(0);
+	});
+});

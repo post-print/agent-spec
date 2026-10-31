@@ -46,6 +46,8 @@ export interface VerdictInput {
 	/** The test runner's own exit code, checked against what the attempts show. */
 	runnerExitCode: number;
 	baselines?: Record<string, BaselineRecord>;
+	/** Report repeats from the command line as rates. Otherwise a failed repeat fails the run. */
+	measureRepeats?: boolean;
 }
 export interface VerdictResult {
 	verdict: RunVerdict;
@@ -168,9 +170,12 @@ function sampledClaims(attempts: VerdictAttempt[]): Set<string> {
 	}
 	return sampled;
 }
-function claimVerdict(claim: ClaimResult): RunVerdict {
+/** Asking for repeats is not asking for a rate: a gate using --repeat-each must still go red. */
+function claimVerdict(claim: ClaimResult, measureRepeats: boolean): RunVerdict {
 	if (claim.comparisonRefused) return "conditions_unknown";
 	if (claim.decision === "no_verdict") return "infra_invalid";
+	if (!claim.declared && !measureRepeats && claim.arms.some(({ failed }) => failed > 0))
+		return "agent_failed";
 	if (claim.decision === "flagged") return "agent_failed";
 	if (claim.baseline.status === "same_conditions" && claim.baseline.regressed)
 		return "agent_failed";
@@ -195,7 +200,11 @@ export function reduceVerdict(input: VerdictInput): VerdictResult {
 		input.baselines,
 	);
 	const ran = Object.values(tests).filter((value) => value !== "skipped_only");
-	const present = new Set([...ran, ...Object.values(tests), ...claims.map(claimVerdict)]);
+	const present = new Set([
+		...ran,
+		...Object.values(tests),
+		...claims.map((claim) => claimVerdict(claim, input.measureRepeats === true)),
+	]);
 	// Failed samples make the runner exit non-zero; the claim, not one sample, is the verdict.
 	const tolerated = samples.some((attempt) => attempt.status === "failed");
 	const verdict = runVerdict(present, input, tolerated);

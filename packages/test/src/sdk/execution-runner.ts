@@ -27,6 +27,8 @@ export type StartExecutionOptions = {
 	args: string[];
 	reporter?: string;
 	onOutput?: (line: string) => void;
+	/** Report --repeat-each as rates instead of failing on a failed repeat. */
+	measureRepeats?: boolean;
 };
 
 /** Starts one recorded Playwright process. CLI and viewer share this boundary. */
@@ -63,6 +65,7 @@ export async function startRecordedExecution(
 				runnerExitCode: code ?? 1,
 				cancelled: cancelRequested,
 				listOnly: options.args.includes("--list"),
+				measureRepeats: options.measureRepeats === true,
 			}).then(resolveVerdict, reject);
 		});
 	});
@@ -89,6 +92,7 @@ async function concludeExecution(input: {
 	runnerExitCode: number;
 	cancelled: boolean;
 	listOnly: boolean;
+	measureRepeats: boolean;
 }): Promise<VerdictResult> {
 	const { config, root, runnerExitCode, cancelled, listOnly } = input;
 	await finishExecutionIfRunning(root, cancelled ? "interrupted" : "failed");
@@ -100,6 +104,7 @@ async function concludeExecution(input: {
 	const verdict = reduceVerdict({
 		attempts,
 		baselines: await readBaselines(config),
+		measureRepeats: input.measureRepeats,
 		interrupted: cancelled || detail?.status === "interrupted",
 		listOnly,
 		runnerExitCode,

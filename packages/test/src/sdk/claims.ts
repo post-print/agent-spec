@@ -47,6 +47,8 @@ export type BaselineComparison =
 export interface ClaimResult {
 	claim: string;
 	arms: ClaimArm[];
+	/** The test asked to be sampled, rather than being repeated from the command line. */
+	declared: boolean;
 	flagAt?: number;
 	/** The plan's decision: flagged, clear of the flag, or only measured. */
 	decision: "flagged" | "clear" | "measured" | "no_verdict";
@@ -158,6 +160,7 @@ function claimOf(
 	return {
 		claim,
 		arms,
+		declared: annotation !== undefined,
 		flagAt: annotation?.flagAt,
 		decision: decisionOf(arms, annotation?.flagAt),
 		fingerprint,

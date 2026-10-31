@@ -53,9 +53,12 @@ function runnerArguments(args: string[]) {
 	return { config, reporter, passThrough };
 }
 export async function runSdkCli(args: string[]): Promise<number> {
-	const { config, reporter: requestedReporter, passThrough } = runnerArguments(args);
+	const { config, reporter: requestedReporter, passThrough: parsed } = runnerArguments(args);
+	const measureRepeats = parsed.includes("--measure");
+	const passThrough = parsed.filter((argument) => argument !== "--measure");
 	const execution = await startRecordedExecution({
 		config,
+		measureRepeats,
 		args: passThrough,
 		reporter: requestedReporter,
 		onOutput: (line) => process.stdout.write(`${line}\n`),

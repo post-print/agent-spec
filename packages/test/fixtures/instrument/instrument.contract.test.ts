@@ -123,6 +123,12 @@ describe("the verdict for a scripted host through the real runner", () => {
 		expect(result.verdict.claims).toHaveLength(1);
 		expect(result.verdict.claims[0]?.arms[0]).toMatchObject({ passed: 3, total: 3 });
 	}, 60_000);
+	it("a failed repeat still fails the run, so a gate stays a gate", async () => {
+		const result = await runScenario("instrument assertion fails$", ["--repeat-each", "2"]);
+		expect(result.verdict.verdict).toBe("agent_failed");
+		expect(result.exitCode).toBe(1);
+		expect(result.verdict.claims[0]?.arms[0]).toMatchObject({ failed: 2, total: 2 });
+	}, 60_000);
 	it("listing tests is not a run and does not fail", async () => {
 		const result = await runScenario("good run$", ["--list"]);
 		expect(result.verdict.verdict).toBe("listed");

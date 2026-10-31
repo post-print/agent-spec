@@ -189,7 +189,7 @@ test("the wording matters", {
 });
 ```
 
-Failures from the host or runner count as no verdict and stay out of the rate. `--repeat-each` is reported the same way, per test.
+Failures from the host or runner count as no verdict and stay out of the rate. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
 
 `agent-test baseline` saves the newest run's single-arm claims to `agent-test-baselines/`; commit them. A later run under the same conditions is compared against the baseline and fails if it regressed. A changed host, model, suite, prompt, skill, or workspace starts over rather than reading as a regression.
 
