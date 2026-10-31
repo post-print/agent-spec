@@ -108,6 +108,8 @@ const test = describe("seeded tasks", ({ agent }) => ({
 
 Here, `writeFile` comes from `node:fs/promises` and `join` from `node:path`. Inside a test, `coder.setup(fn).run({ prompt })` adds preparation for that derived handle. Setup callbacks receive the task workspace, not the source directory; failed preparation fails the run and test teardown removes its workspace.
 
+Set `observeEnvironment: { paths: ["node_modules"] }` on an agent or run to answer cold-start and teardown questions. `run.environment` then lists processes the run left alive in its workspace, the ports they listen on, and a file count and size for each named path, including paths snapshots exclude. `processesKnown` is false when `ps` could not run, so an empty list proves nothing. The runtime stops observed survivors at teardown. `run.record` and `run.exposure` state the conditions of every run; see [what a run records](hosts.md#what-a-run-records).
+
 ## Explicit judge inputs
 
 A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ input })` supplies JSON data selected by the test. You may use the SDK's `z` export or import a compatible Zod v4 schema. Schemas must support conversion to JSON Schema; unsupported transforms fail explicitly.

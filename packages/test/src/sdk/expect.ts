@@ -2,6 +2,7 @@ import { basename, relative, resolve, sep } from "node:path";
 import { expect as base } from "@playwright/test";
 import { type ShellSegment, shellSegments } from "@post-print/agent-harness";
 import { consumeCriterionOperations } from "./criterion-provenance.js";
+import { offeredTool } from "./run-record.js";
 import type { Run } from "./types.js";
 
 const FILE_PROTOCOL = /^file:\/\//;
@@ -192,6 +193,12 @@ const extendedExpect = base.extend({
 		return outcome(
 			run.toolCalls.some((call) => accessesPath(run, call, path)),
 			`Expected possible access to ${path} (exact path, enclosing directory, matching glob, or an unscoped search)`,
+		);
+	},
+	toHaveBeenOffered(run: Run, tool: string) {
+		return outcome(
+			offeredTool(run.exposure, tool),
+			`Expected the agent to be offered ${tool}; offered (${run.exposure.source}): ${run.exposure.tools.map(({ name }) => name).join(", ")}`,
 		);
 	},
 	toHaveModifiedPath(run: Run, path: string) {

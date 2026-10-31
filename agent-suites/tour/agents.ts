@@ -3,10 +3,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openai } from "@post-print/agent-harness";
 import { runCommand } from "@post-print/agent-test";
+import { PINNED_MODELS } from "../models.js";
 
 /** The repository root; fixture paths below are relative to it. */
 export const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const reviewer = openai({
+	model: PINNED_MODELS.openai,
 	context: {
 		instructions: ["Support conclusions with concrete evidence."],
 		files: ["agent-suites/tour/review-standards.md"],

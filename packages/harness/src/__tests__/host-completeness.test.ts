@@ -167,3 +167,52 @@ describe("session failure messages", () => {
 		expect((failure as Error).message).toContain("error_max_turns");
 	});
 });
+
+describe("host report", () => {
+	it("reads what Claude says it started with from its init event", async () => {
+		const init = JSON.stringify({
+			type: "system",
+			subtype: "init",
+			tools: ["Bash", "mcp__tasks__get_task"],
+			mcp_servers: [{ name: "tasks", status: "connected" }],
+			model: "claude-test",
+			claude_code_version: "9.9.9",
+			skills: ["release-note"],
+		});
+		const bin = await fakeHost("claude-init", `echo '${init}'\necho '${TERMINAL_LINE.claude}'`);
+		const result = await runHost("claude", bin);
+		expect(result.trace.hostReport).toEqual({
+			tools: ["Bash", "mcp__tasks__get_task"],
+			mcpServers: [{ name: "tasks", status: "connected" }],
+			model: "claude-test",
+			version: "9.9.9",
+			skills: ["release-note"],
+		});
+	});
+	it("session conditions name the host, version and confinement", async () => {
+		const bin = await fakeHost("codex-versioned", `echo 'codex-cli 7.7.7'\nexit 0`);
+		const previous = process.env.CODEX_BIN;
+		process.env.CODEX_BIN = bin;
+		const controller = new AbortController();
+		try {
+			const session = await createAgentSession({
+				agent: openai(),
+				workspace: directory,
+				signal: controller.signal,
+			});
+			expect(await session.conditions).toMatchObject({
+				host: "openai",
+				binary: bin,
+				binaryVersion: "codex-cli 7.7.7",
+				confinement: "host-enforced",
+				network: "disabled",
+				overridingEnv: ["CODEX_BIN"],
+			});
+			await session.close();
+		} finally {
+			controller.abort();
+			if (previous === undefined) delete process.env.CODEX_BIN;
+			else process.env.CODEX_BIN = previous;
+		}
+	});
+});

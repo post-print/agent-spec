@@ -45,6 +45,7 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		judge: defaults.judgeDefinition,
 		workspace: defaults.workspaceSource,
 		signal: new AbortController().signal,
+		testFile: info.file,
 		remainingTestMs: () => (info.timeout === 0 ? undefined : startedAt + info.timeout - Date.now()),
 		onEvent: (event) => {
 			writes = writes.then(() => appendFile(path, `${JSON.stringify(event)}\n`));

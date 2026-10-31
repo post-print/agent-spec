@@ -22,6 +22,7 @@ bun run test:tour
 bun run test:capabilities
 bun run test:matrix
 bun run test:reliability
+bun run test:probe
 ```
 
 The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries. It now requires every repetition to pass. This replaces the old JSON-specific 19-of-20 classifier/category calculation; there is no second scoring pipeline. The separately configured reviewer also needs authentication.

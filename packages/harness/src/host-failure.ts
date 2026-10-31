@@ -6,7 +6,7 @@ export const CAPTURE_INCOMPLETE = "capture_incomplete";
 
 const STDERR_TAIL_CHARACTERS = 240;
 const AUTH_FAILURE =
-	/not logged in|please run \/login|invalid (x-)?api[- ]key|missing api key|api[- ]key requires|unauthorized|authentication[_ ](failed|error)|agent-test login|codex login/i;
+	/not logged in|please run \/login|invalid (x-)?api[- ]key|missing api key|api[- ]key requires|unauthorized|authentication[_ ](failed|error)|agent-test login|codex login|plan_required/i;
 
 export interface HostRunResult {
 	status: string;

@@ -57,7 +57,7 @@ Offline product tests:
 bun run test
 ```
 
-Manual host-agent proof after host login uses `bun run test:capabilities` or `bun run test:tour`. `bun run test:matrix` and `bun run test:reliability` are also manual. `bun run test:sdk:consumer` needs no host credentials. CI does not launch a provider-backed host.
+Manual host-agent proof after host login uses `bun run test:capabilities` or `bun run test:tour`. Run `bun run test:probe` after upgrading a host CLI. `bun run test:matrix` and `bun run test:reliability` are also manual. `bun run test:sdk:consumer` needs no host credentials. CI does not launch a provider-backed host.
 
 ## Validation split
 

@@ -188,3 +188,26 @@ export function formatElapsed(ms: number): string {
 	if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
 	return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
+
+type RecordedConditions = {
+	host?: string;
+	confinement?: string;
+	calibrated?: boolean;
+	modelPinned?: boolean;
+};
+/** Conditions a reader must know before trusting a pass. Empty when no run recorded them. */
+export function runConditionLabels(operations: { data: unknown[] }[]): string[] {
+	const records = operations.flatMap(({ data }) =>
+		data.flatMap((item) => {
+			const record = (item as { record?: RecordedConditions } | null)?.record;
+			return record ? [record] : [];
+		}),
+	);
+	const labels = new Set<string>();
+	for (const record of records) {
+		if (record.confinement === "detect-only") labels.add("Unconfined");
+		if (record.host !== "custom" && record.calibrated === false) labels.add("Uncalibrated");
+		if (record.host !== "custom" && record.modelPinned === false) labels.add("Model unpinned");
+	}
+	return [...labels];
+}

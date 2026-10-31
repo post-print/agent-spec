@@ -126,6 +126,7 @@ async function runBuiltin(input: InitializeInput, prompt: string): Promise<HostR
 				tools: agent.options.tools,
 				loadProjectContext: agent.options.loadProjectContext !== false,
 				allowUnixSockets: agent.options.allowUnixSockets === true,
+				networkAccess: !readOnly && agent.options.networkAccess === true,
 				readOnly,
 			});
 		case "openrouter":

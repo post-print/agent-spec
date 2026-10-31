@@ -30,6 +30,8 @@ export type ExecutionSummary = {
 	owner?: ProcessOwner;
 	testIds?: string[];
 	testStatuses?: Record<string, ExecutionTestStatus>;
+	/** The recorded conditions of each completed agent operation, by operation id. */
+	runRecords?: Record<string, unknown>;
 };
 export type ExecutionTestStatus =
 	| "queued"
@@ -122,7 +124,8 @@ export class ExecutionStore {
 		};
 		this.writes = this.writes.then(async () => {
 			await appendFile(executionPaths(this.root).journal, `${JSON.stringify(event)}\n`);
-			if (this.updateTestStatus(event)) await this.saveSummary();
+			const statusChanged = this.updateTestStatus(event);
+			if (this.updateRunRecord(event) || statusChanged) await this.saveSummary();
 		});
 		await this.writes;
 		return event;
@@ -131,6 +134,13 @@ export class ExecutionStore {
 		this.summary.testIds = testIds;
 		this.summary.testStatuses = Object.fromEntries(testIds.map((testId) => [testId, "queued"]));
 		await this.saveSummary();
+	}
+	private updateRunRecord(event: ExecutionEvent): boolean {
+		if (event.type !== "operation.complete" || !event.operationId) return false;
+		const record = asRecord(event.data).record;
+		if (record === undefined) return false;
+		this.summary.runRecords = { ...this.summary.runRecords, [event.operationId]: record };
+		return true;
 	}
 	private updateTestStatus(event: ExecutionEvent): boolean {
 		if (!event.attemptId) return false;

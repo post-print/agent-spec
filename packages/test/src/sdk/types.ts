@@ -5,11 +5,15 @@ import type {
 	AgentTrace,
 } from "@post-print/agent-harness";
 import type { z } from "zod";
+import type { EnvironmentObservation, ObserveEnvironment } from "./environment-observation.js";
+import type { RunExposure, RunRecord } from "./run-record.js";
 import type { StartingContext, Workspace, WorkspaceSnapshot } from "./workspace.js";
 export interface AgentSettings extends AgentOptions {
 	agent?: AgentDefinition;
 	description?: string;
 	workspace?: string;
+	/** Record processes, listening ports, and named paths left behind after each run. */
+	observeEnvironment?: ObserveEnvironment;
 }
 export interface RunOptions extends Omit<AgentSettings, "agent" | "description"> {
 	prompt: string;
@@ -48,6 +52,11 @@ export interface Run {
 	usage: RunUsage;
 	capabilities: AgentCapabilities;
 	startingContext: StartingContext;
+	/** The conditions this run happened under. */
+	record: RunRecord;
+	/** What the agent could see it was offered. */
+	exposure: RunExposure;
+	environment?: EnvironmentObservation;
 	artifact: string;
 	workspace: {
 		root: string;
