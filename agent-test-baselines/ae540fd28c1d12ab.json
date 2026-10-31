@@ -1,0 +1,7 @@
+{
+  "claim": "claude › reference/discovery.spec.ts › Reference: discovery › how often an agent finds the tool",
+  "fingerprint": "[\"claude\",\"2.1.300\",\"host-enforced\",\"disabled\",\"d1e82a21afcff48b0834b03f037ca0a89030dac962cb39d09d119b276d558494\",\"claude-sonnet-5-5\",\"claude-sonnet-5-5\",\"14c1172625fb3790a6206cb1bc3a805ae34f57f63c1fd4bfcc8cbacdca9e26b9\",\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"49249afc945aed584b74c0e5d76f566f39cb75cb04c9a467cffa994e7416af17\"]",
+  "passed": 10,
+  "total": 10,
+  "at": "2026-10-31T17:59:25.403Z"
+}

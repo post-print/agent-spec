@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readBaselines } from "./baselines.js";
 import {
 	ExecutionStore,
 	executionHistoryRoot,
@@ -11,7 +12,7 @@ import {
 	saveExecutionVerdict,
 } from "./execution-store.js";
 import { playwrightCli } from "./playwright-cli.js";
-import { reduceVerdict, type VerdictResult } from "./verdict.js";
+import { reduceVerdict, type VerdictAttempt, type VerdictResult } from "./verdict.js";
 
 export type StartedExecution = {
 	id: string;
@@ -57,6 +58,7 @@ export async function startRecordedExecution(
 		child.once("error", reject);
 		child.once("close", (code) => {
 			void concludeExecution({
+				config: options.config,
 				root,
 				runnerExitCode: code ?? 1,
 				cancelled: cancelRequested,
@@ -75,17 +77,29 @@ export async function startRecordedExecution(
 	};
 }
 
+/** One test's identity across samples and repeats: its project and titles, without the file line. */
+function claimKey(attempt: { project?: string; title: string[]; sample?: { title: string } }) {
+	const titles = attempt.title.filter(Boolean);
+	const path = attempt.sample ? [...titles.slice(0, -1), attempt.sample.title] : titles;
+	return path.join(" › ");
+}
 async function concludeExecution(input: {
+	config: string;
 	root: string;
 	runnerExitCode: number;
 	cancelled: boolean;
 	listOnly: boolean;
 }): Promise<VerdictResult> {
-	const { root, runnerExitCode, cancelled, listOnly } = input;
+	const { config, root, runnerExitCode, cancelled, listOnly } = input;
 	await finishExecutionIfRunning(root, cancelled ? "interrupted" : "failed");
 	const detail = await readExecutionDetail(root);
+	const attempts: VerdictAttempt[] = (detail?.attempts ?? []).map((attempt) => ({
+		...attempt,
+		claim: claimKey(attempt),
+	}));
 	const verdict = reduceVerdict({
-		attempts: detail?.attempts ?? [],
+		attempts,
+		baselines: await readBaselines(config),
 		interrupted: cancelled || detail?.status === "interrupted",
 		listOnly,
 		runnerExitCode,
