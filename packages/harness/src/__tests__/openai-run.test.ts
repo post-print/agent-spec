@@ -42,6 +42,8 @@ it("buildOpenaiExecArgs › pins Codex to the sealed workspace with a permission
 		"/tmp/agent-harness-seal-test",
 		"--ignore-user-config",
 		"-c",
+		"features.apps=false",
+		"-c",
 		"approval_policy=never",
 	]);
 	// Codex ignores default_permissions when a legacy --sandbox mode is also set.
@@ -128,4 +130,16 @@ it("buildOpenaiMcpOverride › quotes paths that contain spaces", () => {
 	).toBe(
 		'mcp_servers.echo={command="node",args=["/tmp/my reports/echo.mjs"],default_tools_approval_mode="approve"}',
 	);
+});
+
+it("a sealed run cannot reach the account's connected apps", async () => {
+	const { buildOpenaiExecArgs } = await import("../openai-run.js");
+	const sealed = buildOpenaiExecArgs({ prompt: "hi", cwd: "/tmp/workspace" });
+	expect(sealed.join(" ")).toContain("features.apps=false");
+	const global = buildOpenaiExecArgs({
+		prompt: "hi",
+		cwd: "/tmp/workspace",
+		includeGlobalSkills: true,
+	});
+	expect(global.join(" ")).not.toContain("features.apps=false");
 });

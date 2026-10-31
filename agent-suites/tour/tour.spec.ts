@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, statistics, z } from "@post-print/agent-test";
 import {
+	DIAGNOSIS_PROMPT,
 	RELEASE_SKILL_FIXTURE,
 	REPO_ROOT,
 	releaseSkills,
@@ -38,8 +39,7 @@ const test = describe("Agent test examples", ({ agent, judge }) => ({
 		workspace: RELEASE_SKILL_FIXTURE,
 	}),
 	diagnosisReview: judge({
-		prompt:
-			"Read the supplied source and the agent's explanation. Does the explanation identify the actual cause of the failing status test?",
+		prompt: DIAGNOSIS_PROMPT,
 		schema: z.object({
 			identifiesCause: z.boolean(),
 			reason: z.string(),
@@ -203,6 +203,9 @@ test("gets the current date from task details instead of an old search result", 
 		searchThenDetails.output,
 		"Search followed by details returns the current date.",
 	).toContain("2026-09-24");
+	expect(searchThenDetails.output, "It no longer gives the stale date.").not.toContain(
+		"2026-09-20",
+	);
 	expect(detailsOnly.output, "Task details return the current date.").toContain("2026-09-24");
 	expect(
 		detailsOnly.toolCalls.length,

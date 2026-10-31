@@ -68,6 +68,7 @@ export type ExecutionAttempt = {
 	retry: number;
 	status: "running" | "passed" | "failed" | "skipped" | "interrupted";
 	expectedFailure?: boolean;
+	survivedControl?: boolean;
 	startedAt?: string;
 	completedAt?: string;
 	durationMs?: number;
@@ -308,6 +309,7 @@ function applyAttemptFinish(attempt: ExecutionAttempt, event: ExecutionEvent): v
 	attempt.completedAt = event.at;
 	attempt.status = outcomeStatus(data.status);
 	attempt.expectedFailure = data.status === "failed" && data.expectedStatus === "failed";
+	attempt.survivedControl = data.status === "passed" && data.expectedStatus === "failed";
 	attempt.durationMs = typeof data.durationMs === "number" ? data.durationMs : undefined;
 	attempt.errors = Array.isArray(data.errors) ? data.errors : [];
 	attempt.criterionResults = parseCriterionResults(data.criterionResults);

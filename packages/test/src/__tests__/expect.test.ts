@@ -10,6 +10,27 @@ describe("agent test matchers", () => {
 		expect("READY", "The response contains READY.").toContain("READY");
 	});
 
+	it("counts a recursive shell search with no path as access", () => {
+		const searched = (command: string) =>
+			recordedRun({ name: "Shell", args: { command }, result: "", exitCode: 0, succeeded: true });
+		expect(searched("grep -r due")).toHaveAccessedPath("records/TASK-101.md");
+		expect(searched("rg due")).toHaveAccessedPath("records/TASK-101.md");
+		expect(searched("grep due PROJECT.md")).not.toHaveAccessedPath("records/TASK-101.md");
+		expect(searched("rg due src")).not.toHaveAccessedPath("records/TASK-101.md");
+	});
+
+	it("checks a tool call's arguments and outcome when asked", () => {
+		const run = recordedRun({ name: "get_task", args: { id: "104", limit: 1 }, succeeded: false });
+		expect(run).toHaveCalledTool("get_task");
+		expect(run).toHaveCalledTool("get_task", { args: { id: "104" } });
+		expect(run).not.toHaveCalledTool("get_task", { args: { id: "TASK-104" } });
+		expect(run).not.toHaveCalledTool("get_task", { succeeded: true });
+		const unknown = recordedRun({ name: "get_task" });
+		expect(() => expect(unknown).toHaveCalledTool("get_task", { succeeded: true })).toThrow(
+			"unavailable",
+		);
+	});
+
 	it("accepts a successful shell cat as file-read evidence", () => {
 		const run = recordedRun({
 			name: "Shell",

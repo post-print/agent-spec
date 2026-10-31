@@ -14,6 +14,10 @@ export const reviewer = openai({
 		files: ["agent-suites/tour/review-standards.md"],
 	},
 });
+export const DIAGNOSIS_PROMPT =
+	"Read the supplied source and the agent's explanation. Does the explanation identify the actual cause of the failing status test?";
+export const RELEASE_ADVICE_PROMPT =
+	"Does the answer explain the risk of releasing without a way to undo the change? Does it suggest a practical next step? Give a concise explanation for each finding.";
 // The skill lives outside every fixture, so its presence in a workspace proves attachment.
 export const releaseSkills = ["agent-suites/skills/release-note"];
 export const RELEASE_SKILL_FIXTURE = "agent-suites/fixtures/task-list-skill";

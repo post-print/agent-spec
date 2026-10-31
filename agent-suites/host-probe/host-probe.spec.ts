@@ -44,6 +44,7 @@ const test = describe(
 const NODE_COMMAND = /node -v/;
 const NPX_COMMAND = /npx --version/;
 const COMMIT_COMMAND = /commit --allow-empty/;
+const ACCOUNT_APP_TOOL = /^codex_apps:/;
 const HTTP_SUCCESS = /\b[23]\d\d\b/;
 const TOOLCHAIN_PROMPT = `This is a sandbox check. Run these three shell commands, each as its own separate tool call, with nothing chained to them:
 node -v
@@ -126,6 +127,10 @@ test(
 		});
 		expect(mcp, "The agent was offered the MCP tool.").toHaveBeenOffered("get_task");
 		expect(mcp.output, "The MCP tool answered.").toContain("Mina");
+		expect(
+			mcp.toolCalls.filter((call) => ACCOUNT_APP_TOOL.test(call.name)),
+			"The sealed agent cannot reach the account's connected apps.",
+		).toEqual([]);
 		await checkNetwork(agent, networked, info);
 		await checkHostDenial(agent, info);
 		await recordHostCalibration(dirname(info.config.configFile ?? ""), toolchain.record);

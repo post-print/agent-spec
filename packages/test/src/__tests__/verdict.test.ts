@@ -76,6 +76,29 @@ describe("reduceVerdict across attempts", () => {
 	});
 });
 
+describe("reduceVerdict controls", () => {
+	it("a control that passes is a failure, not a pass", () => {
+		const survived = attempt({ status: "passed", survivedControl: true });
+		expect(reduce([survived], 1)).toMatchObject({ verdict: "control_survived", exitCode: 1 });
+	});
+	it("a control that failed on a check counts as passing", () => {
+		const rejected = attempt({
+			status: "failed",
+			expectedFailure: true,
+			errors: [{ message: "Expected 1" }],
+		});
+		expect(reduce([rejected]).verdict).toBe("passed");
+	});
+	it("a control the host broke proves nothing", () => {
+		const broken = attempt({
+			status: "failed",
+			expectedFailure: true,
+			errors: [{ message: "AgentInfrastructureError: auth" }],
+		});
+		expect(reduce([broken]).verdict).toBe("infra_invalid");
+	});
+});
+
 describe("reduceVerdict special runs", () => {
 	it("interruption and listing say so", () => {
 		expect(reduce([attempt({})], 0, { interrupted: true })).toMatchObject({

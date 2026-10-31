@@ -7,6 +7,7 @@ const CONDITIONS_UNKNOWN = /ConditionsUnknownError/;
 export type RunVerdict =
 	| "passed"
 	| "agent_failed"
+	| "control_survived"
 	| "infra_invalid"
 	| "conditions_unknown"
 	| "vacuous"
@@ -21,6 +22,8 @@ export interface VerdictAttempt {
 	retry: number;
 	status: "running" | "passed" | "failed" | "skipped" | "interrupted";
 	expectedFailure?: boolean;
+	/** A control that must fail passed, so its test cannot tell good from bad. */
+	survivedControl?: boolean;
 	errors: unknown[];
 	operations: { data: unknown[] }[];
 }
@@ -43,6 +46,7 @@ const EXIT_CODES: Record<RunVerdict, number> = {
 	// Listing tests is not a test run, so nothing failed.
 	listed: 0,
 	agent_failed: 1,
+	control_survived: 1,
 	infra_invalid: 2,
 	conditions_unknown: 2,
 	vacuous: 2,
@@ -69,9 +73,13 @@ function failedAttemptVerdict(attempt: VerdictAttempt): RunVerdict {
 	if (INFRASTRUCTURE.test(text) || operationReportedInfrastructure(attempt)) return "infra_invalid";
 	return "agent_failed";
 }
+/** An expected failure only counts when a check failed, not when the host or runner did. */
 function passedAttempt(attempt: VerdictAttempt): boolean {
+	if (attempt.status === "passed") return true;
 	return (
-		attempt.status === "passed" || (attempt.status === "failed" && attempt.expectedFailure === true)
+		attempt.status === "failed" &&
+		attempt.expectedFailure === true &&
+		failedAttemptVerdict(attempt) === "agent_failed"
 	);
 }
 /** One test across all its retries. A pass after a failure stays visible as flaky. */
@@ -81,12 +89,14 @@ function testVerdict(attempts: VerdictAttempt[]): RunVerdict {
 	);
 	if (last.status === "skipped") return "skipped_only";
 	if (last.status === "interrupted" || last.status === "running") return "interrupted";
+	if (last.survivedControl) return "control_survived";
 	if (!passedAttempt(last)) return failedAttemptVerdict(last);
 	return attempts.every(passedAttempt) ? "passed" : "flaky";
 }
 /** The most serious first: a real agent failure outranks tests that have no verdict. */
 const PRECEDENCE: RunVerdict[] = [
 	"agent_failed",
+	"control_survived",
 	"interrupted",
 	"infra_invalid",
 	"conditions_unknown",
@@ -110,7 +120,7 @@ function runVerdict(input: VerdictInput, tests: Record<string, RunVerdict>): Run
 	const verdict = PRECEDENCE.find((candidate) => present.has(candidate)) ?? "skipped_only";
 	// The attempts and the runner must tell the same story, or neither can be believed.
 	if (verdict === "passed" && input.runnerExitCode !== 0) return "instrument_error";
-	if (verdict === "agent_failed" && input.runnerExitCode === 0) return "instrument_error";
+	if (EXIT_CODES[verdict] === 1 && input.runnerExitCode === 0) return "instrument_error";
 	return verdict;
 }
 /** The one place a run's meaning is decided. The CLI exit code and the viewer both read this. */
@@ -134,6 +144,8 @@ export function reduceVerdict(input: VerdictInput): VerdictResult {
 const SENTENCES: Record<RunVerdict, string> = {
 	passed: "Passed",
 	agent_failed: "Failed: the agent did not meet a check",
+	control_survived:
+		"Failed: a control that must fail passed, so its test cannot tell good from bad",
 	infra_invalid: "No verdict: the host or runner failed, so nothing is known about the agent",
 	conditions_unknown: "No verdict: this run cannot show what a test asked about",
 	vacuous: "No verdict: a test finished without earning its result",

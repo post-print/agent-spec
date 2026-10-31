@@ -142,7 +142,7 @@ const { escaped } = await expectWorkspaceEscape(agent.run({ prompt }));
 const { escaped, run } = await expectWorkspaceEscape(agent.run({ prompt }), { allowRefusal: true });
 ```
 
-Use normal assertions to compare outputs and to require that an intentionally incorrect control is incorrect. Runtime errors remain errors. There is no `compare`, variants runner, or expected-failure wrapper.
+Use normal assertions to compare outputs and to require that an intentionally incorrect control is incorrect; see [controls](reliability.md#controls). Runtime errors remain errors. There is no `compare`, variants runner, or expected-failure wrapper.
 
 ```ts
 import { statistics } from "@post-print/agent-test";

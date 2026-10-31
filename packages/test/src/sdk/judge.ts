@@ -63,6 +63,15 @@ async function evaluationPrompt<S extends z.ZodType>(
 		throw new Error("Judge context exceeds 200000 bytes; select less input");
 	return { prompt, input: JSON.parse(input), schema, context };
 }
+function reviewerSession<S extends z.ZodType>(request: EvaluationRequest<S>, workspace: string) {
+	return createAgentSession({
+		agent: request.definition,
+		workspace,
+		signal: request.signal,
+		readOnly: true,
+		protectedPaths: request.protectedPaths,
+	});
+}
 export async function evaluate<S extends z.ZodType>(
 	request: EvaluationRequest<S>,
 ): Promise<Evaluation<z.output<S>>> {
@@ -77,13 +86,7 @@ export async function evaluate<S extends z.ZodType>(
 	try {
 		const prepared = await evaluationPrompt(request, workspace);
 		await writeJson(join(directory, "request.json"), prepared);
-		session = await createAgentSession({
-			agent: request.definition,
-			workspace,
-			signal: request.signal,
-			readOnly: true,
-			protectedPaths: request.protectedPaths,
-		});
+		session = await reviewerSession(request, workspace);
 		request.onStart?.({
 			input: prepared.input,
 			evaluation: { prompt: request.settings.prompt, schema: prepared.schema },
@@ -101,6 +104,7 @@ export async function evaluate<S extends z.ZodType>(
 			output: parseEvaluation(response, request.settings.schema),
 			usage: runUsage(trace.usage),
 			artifact: directory,
+			model: { requested: request.definition.options.model, observed: trace.hostReport?.model },
 		};
 		await writeJson(join(directory, "evaluation.json"), result);
 		return result;

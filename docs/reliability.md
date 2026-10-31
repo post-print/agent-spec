@@ -19,6 +19,17 @@ A result earns trust by answering four questions, in order. Each is meaningless 
 
 Before adding a test, name the subject, the question, the evidence it reads, and the control that would make it fail.
 
+## Controls
+
+A control proves a test could have gone the other way. There are two shapes.
+
+| Control | What changes | Runs |
+| --- | --- | --- |
+| Behavior control | A scripted host does the wrong thing against the real suites. A correct script must pass and each bad one must fail on the named check. | Offline, in `bun run test:sdk:contracts`. Listed in `agent-suites/controls/manifest.ts`. |
+| Subject control | The subject is sabotaged and a real agent runs. | Live, in `bun run test:controls`. |
+
+Write a subject control as the same check under a broken subject, marked with `info.fail()`. If it passes, the run ends as `control_survived` and exits 1. If the host broke rather than a check, the run has no verdict. `agent-suites/reference/` holds one working example for each question type: discovery, clarity, cold start, teardown, and judges.
+
 ## Exit codes
 
 The CLI exit code comes from one verdict, stored in the execution summary and read by the viewer.
@@ -28,6 +39,7 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | 0 | `passed` | Every test that ran passed, on the first try, and the runner agrees. |
 | 0 | `listed` | `--list` only. No test ran. |
 | 1 | `agent_failed` | A test's checks failed. A real failure outranks any test with no verdict. |
+| 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |
 | 2 | `infra_invalid` | The host or runner failed, so nothing is known about the agent. |
 | 2 | `conditions_unknown` | The run cannot show what a test asked about. |
 | 2 | `vacuous` | A test finished without earning its result. |
@@ -57,6 +69,7 @@ bun run test:capabilities
 bun run test:matrix
 bun run test:reliability
 bun run test:probe
+bun run test:controls
 ```
 
 The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries. It now requires every repetition to pass. This replaces the old JSON-specific 19-of-20 classifier/category calculation; there is no second scoring pipeline. The separately configured reviewer also needs authentication.
