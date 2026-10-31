@@ -185,7 +185,7 @@ test("reads the attached skill and follows its release note format", {
 		"RELEASE: TASK-104 is ready.",
 	);
 	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
-	expect(run, "The release-note SKILL.md is read.").toHaveReadPath(skillFile);
+	expect(run, "The release-note skill is used.").toHaveUsedSkill("release-note");
 });
 test("asks a judge whether release advice explains the risk and a next step", {
 	description:

@@ -5,6 +5,29 @@ import type { Run } from "../sdk/types.js";
 
 const BUN_TEST = /\bbun test\b/;
 
+describe("skill use", () => {
+	it("accepts a skill loaded by the host's tool or read from its file, and nothing else", () => {
+		const skills = [{ source: "s", destination: ".claude/skills/release-note" }];
+		const withSkills = (call: Run["toolCalls"][number]) => ({
+			...recordedRun(call),
+			startingContext: { instructions: [], files: [], skills, includeGlobalSkills: false },
+		});
+		const tool = { name: "Skill", args: { skill: "release-note" }, succeeded: true };
+		expect(withSkills(tool)).toHaveUsedSkill("release-note");
+		const read = {
+			name: "Read",
+			args: { file_path: ".claude/skills/release-note/SKILL.md" },
+			result: "x",
+			succeeded: true,
+		};
+		expect(withSkills(read)).toHaveUsedSkill("release-note");
+		const other = { name: "Read", args: { file_path: "PROJECT.md" }, result: "x", succeeded: true };
+		expect(withSkills(other)).not.toHaveUsedSkill("release-note");
+		const failed = { ...tool, succeeded: false };
+		expect(withSkills(failed)).not.toHaveUsedSkill("release-note");
+	});
+});
+
 describe("agent test matchers", () => {
 	it("preserves Playwright's optional assertion message", () => {
 		expect("READY", "The response contains READY.").toContain("READY");
