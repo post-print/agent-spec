@@ -3,7 +3,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { claude, createAgentSession, openai } from "../../dist/index.js";
+import { claude, createAgentSession, customAgent, openai } from "../../dist/index.js";
 import { runClaudeAgent } from "../claude-run.js";
 import { runOpenaiAgent } from "../openai-run.js";
 
@@ -215,4 +215,21 @@ describe("host report", () => {
 			else process.env.CODEX_BIN = previous;
 		}
 	});
+});
+
+it("a worker that dies mid-run is worker_crash with a redacted tail", async () => {
+	const controller = new AbortController();
+	const adapter = new URL("./fixtures/crashing-adapter.mjs", import.meta.url).href;
+	const session = await createAgentSession({
+		agent: customAgent({ adapter, options: {} }),
+		workspace: directory,
+		signal: controller.signal,
+	});
+	const failure = await session.run("hi").then(
+		() => undefined,
+		(error: unknown) => error,
+	);
+	expect(failure).toMatchObject({ kind: "infrastructure", code: "worker_crash" });
+	expect(String((failure as Error).message)).not.toContain("hunter2");
+	controller.abort();
 });
