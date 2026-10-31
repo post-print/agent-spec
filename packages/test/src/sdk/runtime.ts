@@ -12,6 +12,7 @@ import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import { recordedFailure } from "./failure.js";
 import { evaluate } from "./judge.js";
+import { OperationLedger } from "./operation-ledger.js";
 import {
 	preserveSourceChanges,
 	releaseSnapshots,
@@ -46,6 +47,18 @@ export interface RuntimeOptions {
 	workspace: string;
 	signal: AbortSignal;
 	onEvent?: (event: { runId: string; type: string; value: unknown }) => void;
+	/** Time left before the test runner kills this test; undefined when it has no limit. */
+	remainingTestMs?: () => number | undefined;
+}
+const HOST_DEADLINE_GRACE_MS = 5_000;
+const MINIMUM_HOST_DEADLINE_MS = 1_000;
+/** A stalled host must hit its own deadline first, so it is recorded as infrastructure with its trace. */
+function withinTestDeadline(definition: AgentDefinition, remainingMs?: number): AgentDefinition {
+	const { timeoutMs } = definition.options;
+	if (timeoutMs === undefined || remainingMs === undefined) return definition;
+	const budget = Math.max(remainingMs - HOST_DEADLINE_GRACE_MS, MINIMUM_HOST_DEADLINE_MS);
+	if (timeoutMs <= budget) return definition;
+	return { ...definition, options: { ...definition.options, timeoutMs: budget } };
 }
 interface RunInput {
 	session: HarnessSession;
@@ -104,6 +117,7 @@ function finalAssistantMessage(trace: AgentTrace): string {
 export class TestRuntime {
 	private readonly resources: { session?: HarnessSession; cleanup(): Promise<void> }[] = [];
 	private readonly pending = new Set<Promise<unknown>>();
+	private readonly ledger = new OperationLedger();
 	private readonly controller = new AbortController();
 	private readonly snapshotStorage = snapshotBudget();
 	private readonly sourceEvidenceStorage = sourceEvidenceBudget();
@@ -127,7 +141,13 @@ export class TestRuntime {
 			() => this.pending.delete(promise),
 			() => this.pending.delete(promise),
 		);
-		return promise;
+		return this.ledger.record(promise);
+	}
+	assertResultEarned(options: { noAgent: boolean }): void {
+		this.ledger.assertResultEarned(options);
+	}
+	private forTest(definition: AgentDefinition): AgentDefinition {
+		return withinTestDeadline(definition, this.options.remainingTestMs?.());
 	}
 	agent(
 		name: string,
@@ -153,7 +173,7 @@ export class TestRuntime {
 			run: ({ input }) => {
 				const invocationIndex = this.nextInvocationIndex++;
 				return this.track(async () => {
-					const definition = configuredAgent(this.options.judge, agentSettings);
+					const definition = this.forTest(configuredAgent(this.options.judge, agentSettings));
 					const id = crypto.randomUUID();
 					let startedEvaluation: { prompt: string; schema: unknown } | undefined;
 					let result;
@@ -211,7 +231,7 @@ export class TestRuntime {
 		this.signal.throwIfAborted();
 		if (typeof prompt !== "string" || !prompt.trim())
 			throw new Error("agent.run requires a nonempty prompt");
-		const definition = configuredAgent(this.options.agent, settings);
+		const definition = this.forTest(configuredAgent(this.options.agent, settings));
 		validateSkills(definition.options.skills ?? [], this.options.baseDir);
 		const workspace = await prepareWorkspace(
 			this.options.baseDir,

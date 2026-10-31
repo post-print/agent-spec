@@ -4,7 +4,7 @@
 <!-- doc-meta: owner=eng -->
 <!-- review-deps: paths=package.json#scripts,agent-suites/**/*.ts,.github/workflows/test.yml -->
 
-Offline checks do not establish live provider reliability. Unit tests cover retained host capture/isolation and viewer behavior; SDK contracts use a fake adapter to prove resource ownership, parallel tasks, continuation, selected judge input, schema validation, and rejection of a run that leaves its workspace.
+Offline checks do not establish live provider reliability. Unit tests cover retained host capture/isolation and viewer behavior; SDK contracts use a fake adapter to prove resource ownership, parallel tasks, continuation, selected judge input, schema validation, rejection of a run that leaves its workspace, and rejection of a test that did not earn its result. Fake hosts prove that empty, garbage, truncated, killed, and unauthenticated runs are never recorded as completed. They do not prove what a real host emits.
 
 Offline tests prove the harness builds the right host arguments and rejects escapes. Only a live run proves the host enforces them. The capability suite's escape probe is that live gate: a canary in the checkout must never reach the agent's transcript or tool results, whether the agent refuses or tries. Run it after changing host isolation or upgrading a host CLI.
 

@@ -483,6 +483,8 @@ export interface TraceAccumulator {
 	toolCallIndexByCallId: Map<string, number>;
 	/** Sum of per-turn usage events from the stream. */
 	usage?: AgentUsage;
+	/** Nonblank host output lines that could not be parsed as events. */
+	droppedLines: number;
 }
 
 export function createTraceAccumulator(): TraceAccumulator {
@@ -496,7 +498,12 @@ export function createTraceAccumulator(): TraceAccumulator {
 		hasSeenTool: false,
 		nextSeq: 0,
 		toolCallIndexByCallId: new Map(),
+		droppedLines: 0,
 	};
+}
+
+export function recordUnparsedLine(acc: TraceAccumulator, line: string): void {
+	if (line.trim()) acc.droppedLines += 1;
 }
 
 export function mergeToolCall(previous: AgentToolCall, toolCall: AgentToolCall): AgentToolCall {
@@ -601,6 +608,7 @@ export function finalizeTraceAccumulator(
 	if (options?.gitDiffTruncated) {
 		artifacts.gitDiffTruncated = "true";
 	}
+	if (acc.droppedLines > 0) artifacts.droppedOutputLines = String(acc.droppedLines);
 
 	return {
 		messages: acc.agentMessages,

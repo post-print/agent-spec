@@ -37,6 +37,7 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 	await mkdir(outputDir, { recursive: true });
 	await appendFile(path, "");
 	let writes = Promise.resolve();
+	const startedAt = Date.now();
 	const runtime = new TestRuntime({
 		baseDir: dirname(info.config.configFile || join(process.cwd(), "agent-test.config.ts")),
 		outputDir,
@@ -44,6 +45,7 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		judge: defaults.judgeDefinition,
 		workspace: defaults.workspaceSource,
 		signal: new AbortController().signal,
+		remainingTestMs: () => (info.timeout === 0 ? undefined : startedAt + info.timeout - Date.now()),
 		onEvent: (event) => {
 			writes = writes.then(() => appendFile(path, `${JSON.stringify(event)}\n`));
 			if (process.env.AGENT_TEST_VIEWER_EVENTS === "1" || process.env.AGENT_TEST_RECORDER === "1")
@@ -78,6 +80,8 @@ export type TestDetails<R extends Resources = Resources> = {
 	description: string;
 	criteria?: readonly string[];
 	resources?: readonly Extract<keyof R, string>[];
+	/** This test checks the runner itself, so it may pass without a completed agent operation. */
+	noAgent?: boolean;
 };
 export interface SuiteTest<R extends Resources> {
 	(title: string, body: TestBody<R>): void;
@@ -132,6 +136,7 @@ export function describe<R extends Resources>(
 		runner.describe(name, () => {
 			runner(title, { annotation }, async ({ runtime }, info) => {
 				await callback(bind(resources, runtime), info);
+				runtime.assertResultEarned({ noAgent: details?.noAgent === true });
 			});
 		});
 	};

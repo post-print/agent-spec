@@ -20,6 +20,7 @@ export {
 	AgentInfrastructureCode,
 	AgentInfrastructureError,
 	AgentInfrastructureFailure,
+	isAgentInfrastructureCode,
 	WorkspaceEscapeError,
 } from "./agent-error.js";
 export { createAgentSession, HarnessSession } from "./agent-session.js";

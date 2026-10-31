@@ -6,7 +6,7 @@
 
 Every `agent.run` owns a sealed temporary Git workspace and host session. Independent runs may execute concurrently. Only `run.continue` shares the original task workspace and history.
 
-A test owns all its runs and evaluations. Teardown aborts pending operations, waits for them to settle, and closes sessions and workspaces. Built-in host deadlines cancel stalled operations while retaining streamed trace evidence; agent-test records the timeout as an infrastructure failure. POSIX workers terminate their process groups. Setup callbacks run before the host starts and remain test-owned code.
+A test owns all its runs and evaluations. Teardown aborts pending operations, waits for them to settle, and closes sessions and workspaces. Built-in host deadlines cancel stalled operations while retaining streamed trace evidence; agent-test records the timeout as an infrastructure failure. Catching a `WorkspaceEscapeError` does not erase it: the test still fails unless it used `expectWorkspaceEscape`. POSIX workers terminate their process groups. Setup callbacks run before the host starts and remain test-owned code.
 
 Workspace source paths resolve against the config directory. A fixture folder is copied; the default dot uses committed HEAD. Attached skills and context are supplied afterward. Global skills remain excluded unless explicitly enabled.
 

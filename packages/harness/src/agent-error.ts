@@ -1,12 +1,24 @@
 import type { AgentTrace } from "./types.js";
 
-export type AgentInfrastructureCode = "timeout";
+const AGENT_INFRASTRUCTURE_CODES = [
+	"timeout",
+	"auth",
+	"binary_missing",
+	"host_exit",
+	"worker_crash",
+	"capture_incomplete",
+] as const;
+export type AgentInfrastructureCode = (typeof AGENT_INFRASTRUCTURE_CODES)[number];
+
+export function isAgentInfrastructureCode(value: unknown): value is AgentInfrastructureCode {
+	return AGENT_INFRASTRUCTURE_CODES.includes(value as AgentInfrastructureCode);
+}
 
 export interface AgentInfrastructureFailure {
 	kind: "infrastructure";
 	code: AgentInfrastructureCode;
 	message: string;
-	timeoutMs: number;
+	timeoutMs?: number;
 }
 
 /** A host or transport failure rather than an assertion about agent behavior. */
@@ -15,7 +27,7 @@ export class AgentInfrastructureError extends Error {
 	constructor(
 		message: string,
 		readonly code: AgentInfrastructureCode,
-		readonly timeoutMs: number,
+		readonly timeoutMs?: number,
 	) {
 		super(message);
 		this.name = "AgentInfrastructureError";
@@ -26,7 +38,7 @@ export class AgentInfrastructureError extends Error {
 			kind: this.kind,
 			code: this.code,
 			message: this.message,
-			timeoutMs: this.timeoutMs,
+			...(this.timeoutMs === undefined ? {} : { timeoutMs: this.timeoutMs }),
 		};
 	}
 }

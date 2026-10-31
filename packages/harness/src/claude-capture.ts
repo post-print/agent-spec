@@ -50,6 +50,7 @@ export interface ClaudeTraceAccumulator extends TraceAccumulator {
 	resultError?: string;
 	/** Unnormalized CLI exit / result subtype. */
 	rawStatus?: string;
+	sawTerminalEvent?: boolean;
 }
 
 export function createClaudeTraceAccumulator(): ClaudeTraceAccumulator {
@@ -245,8 +246,10 @@ function resultError(event: ClaudeStreamEvent): string | undefined {
 	return undefined;
 }
 function accumulateResult(acc: ClaudeTraceAccumulator, event: ClaudeStreamEvent): void {
+	acc.sawTerminalEvent = true;
 	acc.rawStatus = event.subtype ?? (event.is_error ? "error" : "success");
-	acc.resultIsError = Boolean(event.is_error) || event.subtype === "error";
+	// Claude reports limits such as error_max_turns in the subtype, not always in is_error.
+	acc.resultIsError = Boolean(event.is_error) || Boolean(event.subtype?.startsWith("error"));
 	if (typeof event.result === "string" && event.result.length > 0) {
 		acc.resultText = event.result;
 		// Final assistant prose when stream omitted message events.

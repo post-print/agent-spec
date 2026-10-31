@@ -26,7 +26,20 @@ Omitted authentication means subscription. API-key auth names the environment va
 
 Cursor app login does not authenticate the SDK. Global skills default to excluded for all definitions. Attached project skills and explicit context are configured on the definition before a test runs.
 
-Every built-in run has a ten-minute deadline by default. Set `timeoutMs` to another finite positive number when a task needs a different bound. OpenAI, Claude, Cursor, and OpenRouter receive the same configured deadline. A timed-out run cancels its host operation, retains streamed trace evidence, and surfaces an `infrastructure` failure with code `timeout` instead of waiting for the outer Playwright deadline.
+Every built-in run has a ten-minute deadline by default. Set `timeoutMs` to another finite positive number when a task needs a different bound. OpenAI, Claude, Cursor, and OpenRouter receive the same configured deadline. A timed-out run cancels its host operation, retains streamed trace evidence, and surfaces an `infrastructure` failure with code `timeout` instead of waiting for the outer Playwright deadline. In a test, a longer deadline is shortened to end five seconds before the test's own timeout, so the host always reaches its deadline first.
+
+Agent-test separates a run that never produced evidence from an agent that behaved badly. Claude must emit its `result` event and Codex its `turn.completed` or `turn.failed` event. These `infrastructure` failure codes say nothing about the agent:
+
+| Code | Meaning |
+| --- | --- |
+| `timeout` | The run passed its deadline. |
+| `auth` | The host could not authenticate. |
+| `binary_missing` | The host binary was not found. |
+| `host_exit` | The host failed or was killed before its terminal event. The message ends with a redacted stderr tail. |
+| `capture_incomplete` | The host exited 0 without its terminal event, for example on empty or unparseable output. |
+| `worker_crash` | The agent worker process died. |
+
+A terminal failure the host reports itself, such as Claude's `error_max_turns`, is an ordinary run failure, including when `is_error` is false. Output lines that cannot be parsed do not fail a complete run; the trace counts them in `artifacts.droppedOutputLines`.
 
 Built-in conversation continuation is reconstructed. Native host discovery varies: Codex reads scoped AGENTS.md, Claude uses its project settings and CLAUDE.md (unless `loadProjectContext: false` runs it bare), and Cursor discovers supported project rules and skills. Captured evidence does not prove which undisclosed host instructions loaded.
 

@@ -36,6 +36,7 @@ export interface OpenaiThreadItem {
 
 export interface OpenaiTraceAccumulator extends TraceAccumulator {
 	rawStatus?: string;
+	sawTerminalEvent?: boolean;
 	resultError?: string;
 	shellCommands: string[];
 }
@@ -199,18 +200,24 @@ function openaiEventError(event: OpenaiJsonlEvent): string | undefined {
 	if (typeof event.error === "string") return event.error;
 	return event.error?.message || event.message || undefined;
 }
+/** Folds turn status and failure events; false means the event carries an item instead. */
+function accumulateStatusEvent(acc: OpenaiTraceAccumulator, event: OpenaiJsonlEvent): boolean {
+	const type = event.type ?? "";
+	if (type === "turn.completed") {
+		acc.sawTerminalEvent = true;
+		if (event.usage) acc.usage = mergeAgentUsage(acc.usage, normalizeOpenaiUsage(event.usage));
+		return true;
+	}
+	if (type !== "turn.failed" && type !== "error" && type !== "thread.error") return false;
+	if (type === "turn.failed") acc.sawTerminalEvent = true;
+	acc.rawStatus = type;
+	acc.resultError = openaiEventError(event) ?? acc.resultError;
+	return true;
+}
 /** Fold one Codex JSONL event into the accumulator. */
 export function accumulateOpenaiEvent(acc: OpenaiTraceAccumulator, event: OpenaiJsonlEvent): void {
+	if (accumulateStatusEvent(acc, event)) return;
 	const type = event.type ?? "";
-	if (type === "turn.completed" && event.usage) {
-		acc.usage = mergeAgentUsage(acc.usage, normalizeOpenaiUsage(event.usage));
-		return;
-	}
-	if (type === "turn.failed" || type === "error" || type === "thread.error") {
-		acc.rawStatus = type;
-		acc.resultError = openaiEventError(event) ?? acc.resultError;
-		return;
-	}
 	if (type !== "item.completed" && type !== "item.started" && !itemFromEvent(event)) {
 		return;
 	}

@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
+import { AgentInfrastructureError } from "./agent-error.js";
 import { resolveHostAuthMode } from "./auth-mode.js";
+import { recordUnparsedLine } from "./capture.js";
 import {
 	accumulateClaudeEvent,
 	type ClaudeTraceAccumulator,
@@ -12,6 +14,7 @@ import {
 	finalizeClaudeTraceAccumulator,
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
+import { CAPTURE_INCOMPLETE } from "./host-failure.js";
 import { claudeIsolationSettings, prepareClaudeEnvFile } from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
@@ -70,6 +73,8 @@ export interface ClaudeRunResult {
 	rawStatus?: string;
 	exitCode?: number | null;
 	stderr?: string;
+	resultError?: string;
+	sawTerminalEvent: boolean;
 }
 
 interface ClaudeChildProcess extends ChildProcess {
@@ -180,7 +185,10 @@ export async function resolveClaudeBin(override?: string): Promise<string> {
 	const candidate = override?.trim() || process.env.CLAUDE_CODE_BIN?.trim() || "claude";
 	if (candidate.includes("/") || candidate.includes("\\")) {
 		if (!(await pathExists(candidate))) {
-			throw new Error(`Claude Code binary not found at ${candidate}`);
+			throw new AgentInfrastructureError(
+				`Claude Code binary not found at ${candidate}`,
+				"binary_missing",
+			);
 		}
 	}
 	return candidate;
@@ -401,6 +409,7 @@ async function readClaudeOutput(stream: ClaudeStream): Promise<void> {
 			}
 			const event = parseClaudeNdjsonLine(line);
 			if (!event) {
+				recordUnparsedLine(acc, line);
 				continue;
 			}
 			accumulateClaudeEvent(acc, event);
@@ -475,29 +484,22 @@ async function finishClaudeRun(
 		onAgentEvent,
 	});
 	const trace = stashTrace(acc);
-	const rawStatus = acc.rawStatus ?? (exitCode === 0 && !acc.resultIsError ? "success" : "error");
+	const rawStatus = acc.rawStatus ?? (exitCode === 0 ? CAPTURE_INCOMPLETE : "error");
 	const failed =
 		acc.resultIsError ||
 		(exitCode !== null && exitCode !== 0) ||
 		rawStatus === "error" ||
+		rawStatus === CAPTURE_INCOMPLETE ||
 		Boolean(acc.resultError);
 
-	if (!failed) {
-		return {
-			status: "completed",
-			trace,
-			rawStatus,
-			exitCode,
-			stderr: stderr || undefined,
-		};
-	}
-
 	return {
-		status: "failed",
+		status: failed ? "failed" : "completed",
 		trace,
 		rawStatus,
 		exitCode,
 		stderr: stderr || undefined,
+		resultError: acc.resultError ?? (acc.resultIsError ? acc.resultText : undefined),
+		sawTerminalEvent: acc.sawTerminalEvent === true,
 	};
 }
 function throwClaudeRunError(error: unknown, acc: ClaudeTraceAccumulator, bin: string): never {
@@ -509,8 +511,9 @@ function throwClaudeRunError(error: unknown, acc: ClaudeTraceAccumulator, bin: s
 	if (error && typeof error === "object" && "code" in error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
-			throw new Error(
+			throw new AgentInfrastructureError(
 				`Claude Code binary not found (${bin}). Install Claude Code CLI or set CLAUDE_CODE_BIN.`,
+				"binary_missing",
 			);
 		}
 	}

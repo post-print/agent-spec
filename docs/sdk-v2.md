@@ -124,6 +124,22 @@ OpenAI uses a read-only permission profile that also denies the temp folder and 
 
 Use `Promise.all` for independent concurrent tasks or ordinary awaits for sequential execution. Each test owns all its pending runs and evaluations. Teardown cancels pending work, waits for it to settle, and closes sessions/workspaces even when one sibling fails. JavaScript `Promise.all` alone does not cancel siblings.
 
+A passing test body is not enough for a pass. The test also fails when:
+
+- no agent or judge operation completed, unless the test declares `noAgent: true` because it checks only the runner;
+- a run that was never awaited or handled failed or was still in progress when the body ended;
+- it caught a `WorkspaceEscapeError` without using `expectWorkspaceEscape`.
+
+```ts
+import { expectWorkspaceEscape } from "@post-print/agent-test";
+
+// The run must attempt the escape.
+const { escaped } = await expectWorkspaceEscape(agent.run({ prompt }));
+
+// The agent may refuse instead; any other error still fails the test.
+const { escaped, run } = await expectWorkspaceEscape(agent.run({ prompt }), { allowRefusal: true });
+```
+
 Use normal assertions to compare outputs and to require that an intentionally incorrect control is incorrect. Runtime errors remain errors. There is no `compare`, variants runner, or expected-failure wrapper.
 
 ```ts

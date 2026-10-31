@@ -2,6 +2,7 @@ export { WorkspaceEscapeError } from "@post-print/agent-harness";
 export { z } from "zod";
 export { expect } from "./sdk/expect.js";
 export { statistics } from "./sdk/metrics.js";
+export { expectWorkspaceEscape, type WorkspaceEscapeOutcome } from "./sdk/operation-ledger.js";
 export { type ExecutionProgress, reportProgress } from "./sdk/progress.js";
 export { type CommandResult, type RunCommandOptions, runCommand } from "./sdk/run-command.js";
 export {
