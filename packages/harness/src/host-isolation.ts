@@ -173,6 +173,15 @@ export function codexPermissionArgs(isolation: HostIsolation): string[] {
 	return args;
 }
 
+function claudeSandboxNetwork(isolation: HostIsolation) {
+	const network = {
+		...(isolation.allowUnixSockets === true ? { allowAllUnixSockets: true } : {}),
+		// The sandbox denies outbound hosts by default; a cold-start task may need to install packages.
+		...(isolation.networkAccess === true ? { allowedDomains: ["*"] } : {}),
+	};
+	return Object.keys(network).length > 0 ? { network } : {};
+}
+
 /**
  * `--settings` JSON for Claude Code. The Bash sandbox blocks shell reads; permission
  * rules block Read/Grep/Glob outside the working directory and inside protected paths.
@@ -186,7 +195,7 @@ export function claudeIsolationSettings(isolation: HostIsolation): string {
 			allowUnsandboxedCommands: false,
 			// On Linux the sandbox's seccomp filter blocks Unix socket creation, which kills
 			// Chrome at startup. Opting in drops only that filter; the filesystem limits stay.
-			...(isolation.allowUnixSockets === true ? { network: { allowAllUnixSockets: true } } : {}),
+			...claudeSandboxNetwork(isolation),
 			filesystem: {
 				denyRead: [...protectedPaths, ...uniquePaths([tmpdir()])],
 				allowRead: uniquePaths([isolation.cwd]),

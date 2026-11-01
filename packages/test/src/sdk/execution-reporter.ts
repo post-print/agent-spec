@@ -9,6 +9,7 @@ import type {
 } from "@playwright/test/reporter";
 import { stripAnsi } from "../viewer/presentation.js";
 import { type CriterionResult, ExecutionStore } from "./execution-store.js";
+import { SAMPLE_ANNOTATION } from "./sampling.js";
 import { storedValue } from "./stored-value.js";
 
 function executionInput() {
@@ -44,6 +45,10 @@ function declaredCriteria(test: TestCase): string[] {
 	} catch {
 		return [];
 	}
+}
+function sampleAnnotation(test: TestCase): unknown {
+	const raw = test.annotations.find((entry) => entry.type === SAMPLE_ANNOTATION)?.description;
+	return raw ? JSON.parse(raw) : undefined;
 }
 function expectationSteps(steps: TestStep[]): TestStep[] {
 	return steps.flatMap((step) => [
@@ -99,6 +104,7 @@ export default class ExecutionReporter implements Reporter {
 				testId: test.id,
 				title: test.titlePath(),
 				retry: result.retry,
+				sample: sampleAnnotation(test),
 				project: test.parent.project()?.name,
 			},
 		});

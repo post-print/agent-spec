@@ -3,15 +3,21 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openai } from "@post-print/agent-harness";
 import { runCommand } from "@post-print/agent-test";
+import { PINNED_MODELS } from "../models.js";
 
 /** The repository root; fixture paths below are relative to it. */
 export const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const reviewer = openai({
+	model: PINNED_MODELS.openai,
 	context: {
 		instructions: ["Support conclusions with concrete evidence."],
 		files: ["agent-suites/tour/review-standards.md"],
 	},
 });
+export const DIAGNOSIS_PROMPT =
+	"Read the supplied source and the agent's explanation. Does the explanation identify the actual cause of the failing status test?";
+export const RELEASE_ADVICE_PROMPT =
+	"Does the answer explain the risk of releasing without a way to undo the change? Does it suggest a practical next step? Give a concise explanation for each finding.";
 // The skill lives outside every fixture, so its presence in a workspace proves attachment.
 export const releaseSkills = ["agent-suites/skills/release-note"];
 export const RELEASE_SKILL_FIXTURE = "agent-suites/fixtures/task-list-skill";

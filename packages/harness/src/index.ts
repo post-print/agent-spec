@@ -20,11 +20,14 @@ export {
 	AgentInfrastructureCode,
 	AgentInfrastructureError,
 	AgentInfrastructureFailure,
+	isAgentInfrastructureCode,
 	WorkspaceEscapeError,
 } from "./agent-error.js";
 export { createAgentSession, HarnessSession } from "./agent-session.js";
 export { resolvedTotalTokens } from "./capture.js";
 export { loginCursorSdk } from "./cursor-auth.js";
+export { Confinement, HostConditions, NetworkState } from "./host-conditions.js";
+export { listMcpCatalog, McpCatalogEntry, McpCatalogTool } from "./mcp-catalog.js";
 export { resolveOpenaiBin } from "./openai-run.js";
 export { ownerIsActive, ProcessOwner, processOwner } from "./process-owner.js";
 export { recoverSealedWorkspaces } from "./sealed-storage.js";

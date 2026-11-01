@@ -68,7 +68,11 @@ it("user skills isolation › lets Claude api-key discover project context in ho
 });
 
 it("user skills isolation › keeps Codex on --ignore-user-config unless the run allows user skills", () => {
-	expect(openaiUserConfigArgs(false)).toEqual(["--ignore-user-config"]);
+	expect(openaiUserConfigArgs(false)).toEqual([
+		"--ignore-user-config",
+		"-c",
+		"features.apps=false",
+	]);
 	expect(openaiUserConfigArgs(true)).toEqual([]);
 });
 

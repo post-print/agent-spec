@@ -20,7 +20,7 @@ export default defineConfig({
 
 Definitions choose model, authentication, and reusable resources. They do not launch sessions. `openai()` runs Codex, `claude()` runs Claude Code, and `cursor()` runs the Cursor SDK. Authentication defaults to subscription; API-key auth names an environment variable with `{ type: "api-key", env: "OPENAI_API_KEY" }`. No billing fallback is performed.
 
-The default repository config selects OpenAI once. Cross-host execution is explicit in `agent-test.matrix.config.ts`. A project repeats independent tests; it does not compare their results.
+The default repository config selects OpenAI once. Cross-host execution is explicit in `agent-test.matrix.config.ts`. A project repeats independent tests. Results from different hosts are not ranked against each other.
 
 ## Return named resources from describe
 
@@ -108,6 +108,8 @@ const test = describe("seeded tasks", ({ agent }) => ({
 
 Here, `writeFile` comes from `node:fs/promises` and `join` from `node:path`. Inside a test, `coder.setup(fn).run({ prompt })` adds preparation for that derived handle. Setup callbacks receive the task workspace, not the source directory; failed preparation fails the run and test teardown removes its workspace.
 
+Set `observeEnvironment: { paths: ["node_modules"] }` on an agent or run to answer cold-start and teardown questions. `run.environment` then lists processes the run left alive in its workspace, the ports they listen on, and a file count and size for each named path, including paths snapshots exclude. `processesKnown` is false when `ps` could not run, so an empty list proves nothing. The runtime stops observed survivors at teardown. `run.record` and `run.exposure` state the conditions of every run; see [what a run records](hosts.md#what-a-run-records).
+
 ## Explicit judge inputs
 
 A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ input })` supplies JSON data selected by the test. You may use the SDK's `z` export or import a compatible Zod v4 schema. Schemas must support conversion to JSON Schema; unsupported transforms fail explicitly.
@@ -124,7 +126,23 @@ OpenAI uses a read-only permission profile that also denies the temp folder and 
 
 Use `Promise.all` for independent concurrent tasks or ordinary awaits for sequential execution. Each test owns all its pending runs and evaluations. Teardown cancels pending work, waits for it to settle, and closes sessions/workspaces even when one sibling fails. JavaScript `Promise.all` alone does not cancel siblings.
 
-Use normal assertions to compare outputs and to require that an intentionally incorrect control is incorrect. Runtime errors remain errors. There is no `compare`, variants runner, or expected-failure wrapper.
+A passing test body is not enough for a pass. The test also fails when:
+
+- no agent or judge operation completed, unless the test declares `noAgent: true` because it checks only the runner;
+- a run that was never awaited or handled failed or was still in progress when the body ended;
+- it caught a `WorkspaceEscapeError` without using `expectWorkspaceEscape`.
+
+```ts
+import { expectWorkspaceEscape } from "@post-print/agent-test";
+
+// The run must attempt the escape.
+const { escaped } = await expectWorkspaceEscape(agent.run({ prompt }));
+
+// The agent may refuse instead; any other error still fails the test.
+const { escaped, run } = await expectWorkspaceEscape(agent.run({ prompt }), { allowRefusal: true });
+```
+
+Use normal assertions to compare outputs and to require that an intentionally incorrect control is incorrect; see [controls](reliability.md#controls). Runtime errors remain errors. To ask how often something happens or whether one subject beats another, see [rates and comparisons](#rates-and-comparisons).
 
 ```ts
 import { statistics } from "@post-print/agent-test";
@@ -138,6 +156,42 @@ expect(tokens.mean).toBeLessThan(tokenBudget);
 ```
 
 `statistics` computes count/mean/min/max. Missing measurements expose `available: false` and throw when an aggregate is accessed. Judge usage is separate from task usage. Cross-provider tokens are not equivalent cost; small samples do not establish reliability.
+
+## Rates and comparisons
+
+One run says something can happen, not how often it does. `samples` runs a test n times and reports one claim: k of n, with an exact 95% interval.
+
+```ts
+test("how often an agent finds the tool", { description: "...", samples: 10 }, async ({ agent }) => {
+  // Ordinary assertions. A failed sample counts against the rate.
+});
+```
+
+With no threshold the verdict is `measured`: a rate, with nothing required of it. To decide, compute a plan first, which fixes the sample size and the flag before any run. The run stops as soon as the decision can no longer change, which leaves the plan's error rates intact.
+
+```ts
+import { samplingPlan } from "@post-print/agent-test";
+
+// { n: 27, flagAt: 4 }: tells 95% from 80%, with a 4.4% false alarm rate and 82% power.
+test("finds the tool", { description: "...", samples: samplingPlan({ target: 0.95, detect: 0.8 }) }, body);
+```
+
+`variants` runs the same task for each named arm in a shuffled order, and the body receives the arm's name. The result gives both rates and their difference with an interval. `subject` declares what differs on purpose: `prompt`, `skills`, `workspace`, `tools`, or `model`. If the recorded conditions differ in anything else, the comparison is refused and the run has no verdict.
+
+```ts
+test("the wording matters", {
+  description: "...",
+  samples: 20,
+  variants: ["clear", "misleading"],
+  subject: "tools",
+}, async (agents, _info, variant) => {
+  await callsCorrectly(variant === "clear" ? agents.clear : agents.misleading);
+});
+```
+
+Failures from the host or runner count as no verdict and stay out of the rate. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
+
+`agent-test baseline` saves the newest run's single-arm claims to `agent-test-baselines/`; commit them. A later run under the same conditions is compared against the baseline and fails if it regressed. A changed host, model, suite, prompt, skill, or workspace starts over rather than reading as a regression.
 
 ## Verify results in the test
 

@@ -1,11 +1,15 @@
 import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { AgentCapabilities, AgentDefinition, AgentEvent } from "./agent-definition.js";
-import { AgentInfrastructureError } from "./agent-error.js";
+import { AgentInfrastructureError, isAgentInfrastructureCode } from "./agent-error.js";
+import { type HostConditions, hostConditions } from "./host-conditions.js";
+import { redactedTail } from "./host-failure.js";
 import type { AgentTrace } from "./types.js";
 
 export interface HarnessSession {
 	capabilities: AgentCapabilities;
+	/** Settles independently of the session, so a slow host version query never delays a run. */
+	conditions: Promise<HostConditions>;
 	run(prompt: string, onEvent?: (event: AgentEvent) => void): Promise<AgentTrace>;
 	close(): Promise<void>;
 }
@@ -43,7 +47,12 @@ class SessionWorker {
 		this.child.on("error", (error) => this.fail(error));
 		this.child.on("exit", (code, signal) => {
 			this.closed = true;
-			this.fail(new Error(`Agent worker exited (${signal ?? code}): ${this.stderr}`));
+			this.fail(
+				new AgentInfrastructureError(
+					`Agent worker exited (${signal ?? code}): ${redactedTail(this.stderr)}`,
+					"worker_crash",
+				),
+			);
 		});
 		input.signal.addEventListener("abort", this.abort, { once: true });
 		if (input.signal.aborted) this.abort();
@@ -113,6 +122,7 @@ class SessionWorker {
 			})) as AgentCapabilities;
 			return {
 				capabilities,
+				conditions: hostConditions(agent, readOnly === true),
 				run: (prompt, onEvent) => this.run(prompt, onEvent),
 				close: () => this.close(),
 			};
@@ -168,12 +178,12 @@ function workerError(raw: unknown): Error {
 	if (!raw || typeof raw !== "object") return new Error("Agent worker failed");
 	const value = raw as Record<string, unknown>;
 	const message = typeof value.message === "string" ? value.message : "Agent worker failed";
-	if (
-		value.kind === "infrastructure" &&
-		value.code === "timeout" &&
-		typeof value.timeoutMs === "number"
-	)
-		return new AgentInfrastructureError(message, value.code, value.timeoutMs);
+	if (value.kind === "infrastructure" && isAgentInfrastructureCode(value.code))
+		return new AgentInfrastructureError(
+			message,
+			value.code,
+			typeof value.timeoutMs === "number" ? value.timeoutMs : undefined,
+		);
 	const error = new Error(message);
 	if (typeof value.name === "string") error.name = value.name;
 	return error;

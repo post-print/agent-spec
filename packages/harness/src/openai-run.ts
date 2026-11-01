@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
+import { AgentInfrastructureError } from "./agent-error.js";
 import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
+import { recordUnparsedLine } from "./capture.js";
+import { CAPTURE_INCOMPLETE } from "./host-failure.js";
 import {
 	codexPermissionArgs,
 	prepareSandboxPath,
@@ -83,6 +86,8 @@ export interface OpenaiRunResult {
 	rawStatus?: string;
 	exitCode?: number | null;
 	stderr?: string;
+	resultError?: string;
+	sawTerminalEvent: boolean;
 }
 
 interface OpenaiChildProcess extends ChildProcess {
@@ -220,7 +225,10 @@ export async function resolveOpenaiBin(override?: string): Promise<string> {
 	const candidate = override?.trim() || process.env.CODEX_BIN?.trim() || "codex";
 	if (candidate.includes("/") || candidate.includes("\\")) {
 		if (!(await pathExists(candidate))) {
-			throw new Error(`OpenAI Codex binary not found at ${candidate}`);
+			throw new AgentInfrastructureError(
+				`OpenAI Codex binary not found at ${candidate}`,
+				"binary_missing",
+			);
 		}
 	}
 	return candidate;
@@ -368,6 +376,7 @@ async function readOpenaiOutput(stream: OpenaiStream): Promise<void> {
 			}
 			const event = parseOpenaiJsonlLine(line);
 			if (!event) {
+				recordUnparsedLine(acc, line);
 				continue;
 			}
 			accumulateOpenaiEvent(acc, event);
@@ -442,15 +451,22 @@ async function finishOpenaiRun(
 		onAgentEvent,
 	});
 	const trace = stashTrace(acc);
-	const rawStatus = acc.rawStatus ?? (exitCode === 0 ? "success" : "error");
+	const sawTerminalEvent = acc.sawTerminalEvent === true;
+	const rawStatus =
+		acc.rawStatus ?? (exitCode !== 0 ? "error" : sawTerminalEvent ? "success" : CAPTURE_INCOMPLETE);
 	const failed =
-		(exitCode !== null && exitCode !== 0) || rawStatus === "error" || Boolean(acc.resultError);
+		(exitCode !== null && exitCode !== 0) ||
+		rawStatus === "error" ||
+		rawStatus === CAPTURE_INCOMPLETE ||
+		Boolean(acc.resultError);
 	return {
 		status: failed ? "failed" : "completed",
 		trace,
 		rawStatus,
 		exitCode,
 		stderr: stderr || undefined,
+		resultError: acc.resultError,
+		sawTerminalEvent,
 	};
 }
 function throwOpenaiRunError(error: unknown, acc: OpenaiTraceAccumulator, bin: string): never {
@@ -462,8 +478,9 @@ function throwOpenaiRunError(error: unknown, acc: OpenaiTraceAccumulator, bin: s
 	if (error && typeof error === "object" && "code" in error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
-			throw new Error(
+			throw new AgentInfrastructureError(
 				`OpenAI Codex binary not found (${bin}). Install the Codex CLI or set CODEX_BIN.`,
+				"binary_missing",
 			);
 		}
 	}

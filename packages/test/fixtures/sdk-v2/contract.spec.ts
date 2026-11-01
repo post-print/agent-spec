@@ -1,7 +1,14 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { customAgent } from "../../../harness/dist/index.js";
-import { describe, expect, statistics, WorkspaceEscapeError, z } from "../../dist/index.js";
+import { customAgent, openai } from "../../../harness/dist/index.js";
+import {
+	describe,
+	expect,
+	expectWorkspaceEscape,
+	statistics,
+	WorkspaceEscapeError,
+	z,
+} from "../../dist/index.js";
 import { TestRuntime } from "../../dist/sdk/runtime.js";
 
 const fake = (options = {}) =>
@@ -74,7 +81,10 @@ test("parallel named runs and selected-input judging", {
 	expect(request.prompt).not.toContain(baseline.workspace.root);
 	expect(request.prompt).not.toContain("toolCalls");
 });
-test("schema validation rejects malformed evaluations", async ({ invalid }) => {
+test("schema validation rejects malformed evaluations", {
+	description: "Only the rejection is under test.",
+	noAgent: true,
+}, async ({ invalid }) => {
 	await expect(invalid.run({ input: "answer" })).rejects.toThrow();
 });
 test("multiple evaluations remain independent", async ({ accuracy }) => {
@@ -178,9 +188,13 @@ test("test resources have fresh ownership", async ({ agent }) => {
 const invalidJsonTest = describe("evaluation failures", ({ judge }) => ({
 	malformed: judge({ agent: fake({ invalidJson: true }), prompt: "Check", schema }),
 }));
-invalidJsonTest("invalid JSON is an evaluation error", async ({ malformed }) => {
-	await expect(malformed.run({ input: "answer" })).rejects.toThrow();
-});
+invalidJsonTest(
+	"invalid JSON is an evaluation error",
+	{ description: "Only the rejection is under test.", noAgent: true },
+	async ({ malformed }) => {
+		await expect(malformed.run({ input: "answer" })).rejects.toThrow();
+	},
+);
 
 test("missing reviewer does not borrow the coding agent", async ({ agent }, info) => {
 	const runtime = new TestRuntime({
@@ -200,36 +214,149 @@ test("missing reviewer does not borrow the coding agent", async ({ agent }, info
 	}
 });
 
-test("failed setup still cleans the task workspace", async (_resources, info) => {
-	const runtime = new TestRuntime({
+test(
+	"failed setup still cleans the task workspace",
+	{ description: "The operation runs on its own runtime.", noAgent: true },
+	async (_resources, info) => {
+		const runtime = new TestRuntime({
+			baseDir: new URL(".", import.meta.url).pathname,
+			outputDir: info.outputPath("failed-setup"),
+			agent: fake(),
+			workspace: "./project",
+			signal: new AbortController().signal,
+		});
+		let workspacePath = "";
+		try {
+			await expect(
+				runtime
+					.agent("failing", {})
+					.setup(async (workspace) => {
+						workspacePath = workspace.path;
+						throw new Error("Setup failure");
+					})
+					.run({ prompt: "answer" }),
+			).rejects.toThrow("Setup failure");
+		} finally {
+			await runtime.close();
+		}
+		expect(workspacePath).not.toBe("");
+		await expect(access(workspacePath)).rejects.toThrow();
+	},
+);
+test("a run that names a path outside its workspace is rejected", async ({ agent }) => {
+	const { escaped } = await expectWorkspaceEscape(agent.run({ prompt: "ESCAPE" }));
+	expect(escaped).toBeInstanceOf(WorkspaceEscapeError);
+	expect(escaped?.paths).toEqual(["../owner.json"]);
+});
+
+const earned = { description: "The operations run on their own runtime.", noAgent: true };
+function ownRuntime(outputDir: string) {
+	return new TestRuntime({
 		baseDir: new URL(".", import.meta.url).pathname,
-		outputDir: info.outputPath("failed-setup"),
+		outputDir,
 		agent: fake(),
 		workspace: "./project",
 		signal: new AbortController().signal,
 	});
-	let workspacePath = "";
+}
+const NOT_EARNED = { noAgent: false };
+test("a test with no completed operation has not earned a result", earned, async (_r, info) => {
+	const runtime = ownRuntime(info.outputPath("no-operation"));
 	try {
-		await expect(
-			runtime
-				.agent("failing", {})
-				.setup(async (workspace) => {
-					workspacePath = workspace.path;
-					throw new Error("Setup failure");
-				})
-				.run({ prompt: "answer" }),
-		).rejects.toThrow("Setup failure");
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).toThrow("without a completed agent");
+		expect(() => runtime.assertResultEarned({ noAgent: true })).not.toThrow();
+		const failed = runtime.agent("failed", {}).run({ prompt: "FAIL_NOW" });
+		await expect(failed).rejects.toThrow("fake failure");
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).toThrow("without a completed agent");
+		await runtime.agent("complete", {}).run({ prompt: "answer" });
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).not.toThrow();
 	} finally {
 		await runtime.close();
 	}
-	expect(workspacePath).not.toBe("");
-	await expect(access(workspacePath)).rejects.toThrow();
 });
-test("a run that names a path outside its workspace is rejected", async ({ agent }) => {
-	const failure = await agent.run({ prompt: "ESCAPE" }).then(
-		() => undefined,
-		(error: unknown) => error,
+test("an unawaited failure fails the test even after later work", earned, async (_r, info) => {
+	const runtime = ownRuntime(info.outputPath("floating"));
+	try {
+		void runtime.agent("floating", {}).run({ prompt: "FAIL_NOW" });
+		await runtime.agent("complete", {}).run({ prompt: "answer" });
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).toThrow("not awaited");
+	} finally {
+		await runtime.close();
+	}
+});
+test("an unawaited run still in progress fails the test", earned, async (_r, info) => {
+	const runtime = ownRuntime(info.outputPath("pending"));
+	try {
+		void runtime.agent("pending", {}).run({ prompt: "WAIT_FOREVER" });
+		await runtime.agent("complete", {}).run({ prompt: "answer" });
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).toThrow("not awaited");
+	} finally {
+		await runtime.close();
+	}
+});
+test("a failure observed later is the test's to handle", earned, async (_r, info) => {
+	const runtime = ownRuntime(info.outputPath("late"));
+	try {
+		const failing = runtime.agent("failing", {}).run({ prompt: "FAIL_NOW" });
+		await runtime.agent("complete", {}).run({ prompt: "answer" });
+		await expect(failing).rejects.toThrow("fake failure");
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).not.toThrow();
+	} finally {
+		await runtime.close();
+	}
+});
+test("catching a workspace escape does not erase it", earned, async (_r, info) => {
+	const runtime = ownRuntime(info.outputPath("caught-escape"));
+	try {
+		await runtime
+			.agent("escaping", {})
+			.run({ prompt: "ESCAPE" })
+			.catch(() => undefined);
+		await runtime.agent("complete", {}).run({ prompt: "answer" });
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).toThrow(WorkspaceEscapeError);
+	} finally {
+		await runtime.close();
+	}
+});
+test("an expected escape counts as the agent acting", earned, async (_r, info) => {
+	const runtime = ownRuntime(info.outputPath("expected-escape"));
+	try {
+		await expectWorkspaceEscape(runtime.agent("escaping", {}).run({ prompt: "ESCAPE" }));
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).not.toThrow();
+	} finally {
+		await runtime.close();
+	}
+});
+test("expecting an escape rejects a run that made no attempt", async ({ agent }) => {
+	await expect(expectWorkspaceEscape(agent.run({ prompt: "answer" }))).rejects.toThrow(
+		"but it completed",
 	);
-	expect(failure).toBeInstanceOf(WorkspaceEscapeError);
-	expect(failure instanceof WorkspaceEscapeError ? failure.paths : []).toEqual(["../owner.json"]);
+	const { escaped, run } = await expectWorkspaceEscape(agent.run({ prompt: "answer" }), {
+		allowRefusal: true,
+	});
+	expect(escaped).toBeUndefined();
+	expect(run?.output).toContain("Mina");
+});
+test("a stalled host hits its deadline before the test runner does", earned, async (_r, info) => {
+	const runtime = new TestRuntime({
+		baseDir: new URL(".", import.meta.url).pathname,
+		outputDir: info.outputPath("deadline"),
+		agent: openai({ timeoutMs: 600_000 }),
+		workspace: "./project",
+		signal: new AbortController().signal,
+		remainingTestMs: () => 1_500,
+	});
+	const previousBin = process.env.CODEX_BIN;
+	process.env.CODEX_BIN = new URL("./fake-codex-stall.mjs", import.meta.url).pathname;
+	try {
+		await expect(runtime.agent("stalled", {}).run({ prompt: "answer" })).rejects.toMatchObject({
+			kind: "infrastructure",
+			code: "timeout",
+			timeoutMs: 1_000,
+		});
+	} finally {
+		if (previousBin === undefined) delete process.env.CODEX_BIN;
+		else process.env.CODEX_BIN = previousBin;
+		await runtime.close();
+	}
 });

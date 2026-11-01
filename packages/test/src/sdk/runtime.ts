@@ -6,12 +6,22 @@ import {
 	assertInsideWorkspace,
 	createAgentSession,
 	type HarnessSession,
+	listMcpCatalog,
+	type McpCatalogEntry,
 } from "@post-print/agent-harness";
 import { z } from "zod";
 import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
+import {
+	captureEnvironmentBaseline,
+	type EnvironmentObservation,
+	observeEnvironment,
+	stopSurvivors,
+} from "./environment-observation.js";
 import { recordedFailure } from "./failure.js";
 import { evaluate } from "./judge.js";
+import { OperationLedger } from "./operation-ledger.js";
+import { buildRunRecord, runExposure, runRecordBase } from "./run-record.js";
 import {
 	preserveSourceChanges,
 	releaseSnapshots,
@@ -46,6 +56,19 @@ export interface RuntimeOptions {
 	workspace: string;
 	signal: AbortSignal;
 	onEvent?: (event: { runId: string; type: string; value: unknown }) => void;
+	/** Time left before the test runner kills this test; undefined when it has no limit. */
+	remainingTestMs?: () => number | undefined;
+	testFile?: string;
+}
+const HOST_DEADLINE_GRACE_MS = 5_000;
+const MINIMUM_HOST_DEADLINE_MS = 1_000;
+/** A stalled host must hit its own deadline first, so it is recorded as infrastructure with its trace. */
+function withinTestDeadline(definition: AgentDefinition, remainingMs?: number): AgentDefinition {
+	const { timeoutMs } = definition.options;
+	if (timeoutMs === undefined || remainingMs === undefined) return definition;
+	const budget = Math.max(remainingMs - HOST_DEADLINE_GRACE_MS, MINIMUM_HOST_DEADLINE_MS);
+	if (timeoutMs <= budget) return definition;
+	return { ...definition, options: { ...definition.options, timeoutMs: budget } };
 }
 interface RunInput {
 	session: HarnessSession;
@@ -54,6 +77,9 @@ interface RunInput {
 	invocationIndex: number;
 	context: StartingContext;
 	history: AgentTrace;
+	settings: AgentSettings;
+	definition: AgentDefinition;
+	mcpCatalog: McpCatalogEntry[];
 }
 interface CaptureInput {
 	name: string;
@@ -68,6 +94,9 @@ interface CaptureInput {
 	workspace: Workspace;
 	initial: Awaited<ReturnType<typeof snapshot>>;
 	final: Awaited<ReturnType<typeof snapshot>>;
+	record: Run["record"];
+	mcpCatalog: McpCatalogEntry[];
+	environment?: EnvironmentObservation;
 }
 function captureRun(input: CaptureInput): Omit<Run, "continue"> {
 	const { id, prompt, trace, history, durationMs, context, session, workspace, initial, final } =
@@ -88,6 +117,9 @@ function captureRun(input: CaptureInput): Omit<Run, "continue"> {
 		usage: runUsage(trace.usage),
 		capabilities: session.capabilities,
 		startingContext: context,
+		record: input.record,
+		exposure: runExposure(trace.hostReport, input.mcpCatalog),
+		...(input.environment ? { environment: input.environment } : {}),
 		workspace: {
 			root: workspace.path,
 			initial,
@@ -104,9 +136,12 @@ function finalAssistantMessage(trace: AgentTrace): string {
 export class TestRuntime {
 	private readonly resources: { session?: HarnessSession; cleanup(): Promise<void> }[] = [];
 	private readonly pending = new Set<Promise<unknown>>();
+	private readonly ledger = new OperationLedger();
 	private readonly controller = new AbortController();
 	private readonly snapshotStorage = snapshotBudget();
 	private readonly sourceEvidenceStorage = sourceEvidenceBudget();
+	private readonly survivors: number[] = [];
+	private recordBase?: ReturnType<typeof runRecordBase>;
 	private protectedPaths?: Promise<string[]>;
 	private nextInvocationIndex = 0;
 	private closed = false;
@@ -127,7 +162,13 @@ export class TestRuntime {
 			() => this.pending.delete(promise),
 			() => this.pending.delete(promise),
 		);
-		return promise;
+		return this.ledger.record(promise);
+	}
+	assertResultEarned(options: { noAgent: boolean }): void {
+		this.ledger.assertResultEarned(options);
+	}
+	private forTest(definition: AgentDefinition): AgentDefinition {
+		return withinTestDeadline(definition, this.options.remainingTestMs?.());
 	}
 	agent(
 		name: string,
@@ -153,7 +194,7 @@ export class TestRuntime {
 			run: ({ input }) => {
 				const invocationIndex = this.nextInvocationIndex++;
 				return this.track(async () => {
-					const definition = configuredAgent(this.options.judge, agentSettings);
+					const definition = this.forTest(configuredAgent(this.options.judge, agentSettings));
 					const id = crypto.randomUUID();
 					let startedEvaluation: { prompt: string; schema: unknown } | undefined;
 					let result;
@@ -211,7 +252,7 @@ export class TestRuntime {
 		this.signal.throwIfAborted();
 		if (typeof prompt !== "string" || !prompt.trim())
 			throw new Error("agent.run requires a nonempty prompt");
-		const definition = configuredAgent(this.options.agent, settings);
+		const definition = this.forTest(configuredAgent(this.options.agent, settings));
 		validateSkills(definition.options.skills ?? [], this.options.baseDir);
 		const workspace = await prepareWorkspace(
 			this.options.baseDir,
@@ -233,6 +274,9 @@ export class TestRuntime {
 		});
 		const history: AgentTrace = { messages: [], toolCalls: [], shellCommands: [], artifacts: {} };
 		return this.conversation(name, {
+			settings,
+			definition,
+			mcpCatalog: await listMcpCatalog(definition.options.mcpServers, { cwd: workspace.path }),
 			session: resource.session,
 			workspace,
 			context,
@@ -273,24 +317,25 @@ export class TestRuntime {
 		);
 		const start = performance.now();
 		this.announceRun(id, name, input);
+		const observed = input.settings.observeEnvironment;
+		const baseline = observed ? await captureEnvironmentBaseline() : undefined;
 		try {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
 			);
 			assertInsideWorkspace(trace, workspace.path);
+			const environment =
+				observed && baseline
+					? await observeEnvironment({ baseline, workspace: workspace.path, observe: observed })
+					: undefined;
+			this.survivors.push(...(environment?.processes.map(({ pid }) => pid) ?? []));
 			const final = await snapshot(workspace.path, join(directory, "final"), this.snapshotStorage);
 			await this.preserveChanges({ initial, final, directory });
+			const record = await this.runRecord(input, trace, initial);
+			const durationMs = Math.round(performance.now() - start);
+			const captured = { ...input, environment, record, name, artifact: directory, id };
 			const result: Run = {
-				...captureRun({
-					...input,
-					name,
-					artifact: directory,
-					id,
-					trace,
-					initial,
-					final,
-					durationMs: Math.round(performance.now() - start),
-				}),
+				...captureRun({ ...captured, trace, initial, final, durationMs }),
 				continue: (options) => continuation(options.prompt),
 			};
 			await writeJson(join(directory, "run.json"), result);
@@ -303,6 +348,21 @@ export class TestRuntime {
 			await this.captureFailure({ workspace, directory, initial });
 			throw error;
 		}
+	}
+	private async runRecord(
+		input: RunInput,
+		trace: AgentTrace,
+		initial: Awaited<ReturnType<typeof snapshot>>,
+	): Promise<Run["record"]> {
+		this.recordBase ??= runRecordBase(this.options.baseDir, this.options.testFile);
+		return buildRunRecord(await this.recordBase, {
+			conditions: await input.session.conditions,
+			definition: input.definition,
+			hostReport: trace.hostReport,
+			prompt: input.prompt,
+			context: input.context,
+			initial,
+		});
 	}
 	private announceRun(id: string, name: string, input: RunInput): void {
 		this.options.onEvent?.({
@@ -336,6 +396,7 @@ export class TestRuntime {
 		this.closed = true;
 		this.controller.abort();
 		await Promise.allSettled([...this.pending]);
+		stopSurvivors(this.survivors);
 		const errors: unknown[] = [];
 		for (const resource of this.resources.splice(0).reverse()) {
 			try {

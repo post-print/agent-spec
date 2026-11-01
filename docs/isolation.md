@@ -6,7 +6,7 @@
 
 Every `agent.run` owns a sealed temporary Git workspace and host session. Independent runs may execute concurrently. Only `run.continue` shares the original task workspace and history.
 
-A test owns all its runs and evaluations. Teardown aborts pending operations, waits for them to settle, and closes sessions and workspaces. Built-in host deadlines cancel stalled operations while retaining streamed trace evidence; agent-test records the timeout as an infrastructure failure. POSIX workers terminate their process groups. Setup callbacks run before the host starts and remain test-owned code.
+A test owns all its runs and evaluations. Teardown aborts pending operations, waits for them to settle, and closes sessions and workspaces. Built-in host deadlines cancel stalled operations while retaining streamed trace evidence; agent-test records the timeout as an infrastructure failure. Catching a `WorkspaceEscapeError` does not erase it: the test still fails unless it used `expectWorkspaceEscape`. POSIX workers terminate their process groups. Setup callbacks run before the host starts and remain test-owned code.
 
 Workspace source paths resolve against the config directory. A fixture folder is copied; the default dot uses committed HEAD. Attached skills and context are supplied afterward. Global skills remain excluded unless explicitly enabled.
 
@@ -31,7 +31,7 @@ The sealed manifest (`owner.json`) sits next to the workspace and records no cal
 
 Judges run in an empty sealed workspace in the OS temp folder with its own Git root, so no caller AGENTS.md or CLAUDE.md is discovered and no run artifacts are nearby. Codex judges also load no project instructions. The same host limits and detection apply. The caller selects JSON input. Requests, responses, schema validation errors, and separate token usage are recorded under the test output folder, not in the judge workspace. See [the SDK guide](sdk-v2.md#explicit-judge-inputs).
 
-`agent-suites/test-sdk-capabilities` includes a live probe that asks the agent to read a canary written into the checkout. The agent may refuse or try. An attempt must fail the run with `WorkspaceEscapeError`, any other error fails the test, and the canary must never appear in the transcript or a tool result. A model that sees its permission policy often refuses, so the probe alone does not exercise the host denial; check that with the host's own sandbox command (for Codex, `codex sandbox -P <profile> -- cat <checkout file>`). The SDK contract suite mirrors the rejection offline.
+`agent-suites/test-sdk-capabilities` includes a live probe that asks the agent to read a canary written into the checkout. The agent may refuse or try. An attempt must fail the run with `WorkspaceEscapeError`, any other error fails the test, and the canary must never appear in the transcript or a tool result. A model that sees its permission policy often refuses, so this probe alone does not exercise the host denial. `bun run test:probe` does: a workspace script reads the outside path, so the host answers instead of the model. The SDK contract suite mirrors the rejection offline.
 
 ## Storage ownership and retention
 

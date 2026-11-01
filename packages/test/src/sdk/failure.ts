@@ -1,6 +1,7 @@
-import type {
-	AgentInfrastructureError,
-	AgentInfrastructureFailure,
+import {
+	type AgentInfrastructureError,
+	type AgentInfrastructureFailure,
+	isAgentInfrastructureCode,
 } from "@post-print/agent-harness";
 
 export type RecordedFailure = AgentInfrastructureFailure | { kind: "runtime"; message: string };
@@ -11,7 +12,7 @@ export function recordedFailure(error: unknown): RecordedFailure {
 			kind: "infrastructure",
 			code: error.code,
 			message: error.message,
-			timeoutMs: error.timeoutMs,
+			...(error.timeoutMs === undefined ? {} : { timeoutMs: error.timeoutMs }),
 		};
 	}
 	return {
@@ -25,8 +26,7 @@ function isInfrastructureFailure(error: unknown): error is AgentInfrastructureEr
 	const value = error as Partial<AgentInfrastructureError>;
 	return (
 		value.kind === "infrastructure" &&
-		value.code === "timeout" &&
-		typeof value.message === "string" &&
-		typeof value.timeoutMs === "number"
+		isAgentInfrastructureCode(value.code) &&
+		typeof value.message === "string"
 	);
 }

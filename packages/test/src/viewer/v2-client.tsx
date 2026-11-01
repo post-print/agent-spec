@@ -29,6 +29,7 @@ import {
 	formatRunDate,
 	median,
 	preferredTestExecutionId,
+	runConditionLabels,
 	stripAnsi,
 	type TestIntent,
 	type TestRunStatus,
@@ -2648,12 +2649,24 @@ function TestVerdict({
 					{checkSummary(presentations, attempt.status)}
 				</span>
 			</p>
+			<RunConditionLabels operations={operations} />
 			<VerdictMetrics operations={operations} reported={attempt.metrics} />
 			<VerdictChecks presentations={presentations} />
 			<UnassignedFailures errors={attempt.errors} presentations={presentations} />
 			<VerdictAttachments attachments={attempt.attachments} />
 		</section>
 	);
+}
+
+/** Conditions that limit what this result means, stated beside the verdict rather than behind a click. */
+function RunConditionLabels({ operations }: { operations: Attempt["operations"] }) {
+	const runs = operations.filter((operation) => operation.kind !== "evaluation").length;
+	const labels = [
+		...(runs ? [`Sample: ${runs} ${pluralize(runs, "run")}`] : []),
+		...runConditionLabels(operations),
+	];
+	if (!labels.length) return null;
+	return <p {...stylex.props(styles.verdictCount)}>{labels.join(" · ")}</p>;
 }
 
 const SHORT_CHECK_LIST = 3;

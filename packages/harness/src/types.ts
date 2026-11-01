@@ -73,7 +73,17 @@ export interface AgentUsage {
 	reasoningTokens?: number;
 }
 
+/** What the host itself said it started with. Absent when the host reports nothing. */
+export interface HostReport {
+	version?: string;
+	model?: string;
+	tools?: string[];
+	mcpServers?: { name: string; status?: string }[];
+	skills?: string[];
+}
+
 export interface AgentTrace {
+	hostReport?: HostReport;
 	messages: AgentMessage[];
 	toolCalls: AgentToolCall[];
 	shellCommands: string[];

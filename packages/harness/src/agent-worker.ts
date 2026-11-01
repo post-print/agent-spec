@@ -6,10 +6,18 @@ import type {
 	AgentDefinition,
 	AgentEvent,
 } from "./agent-definition.js";
-import { cancelActiveClaudeRun, runClaudeAgent } from "./claude-run.js";
+import { AgentInfrastructureError } from "./agent-error.js";
+import { cancelActiveClaudeRun, formatClaudeRunFailure, runClaudeAgent } from "./claude-run.js";
 import { historyTurn, reconstructedPrompt } from "./conversation-history.js";
-import { cancelActiveCursorRun, runCursorAgent } from "./cursor-run.js";
-import { cancelActiveOpenaiRun, runOpenaiAgent } from "./openai-run.js";
+import { cancelActiveCursorRun, formatCursorRunFailure, runCursorAgent } from "./cursor-run.js";
+import {
+	type HostRunResult,
+	hostRunError,
+	isAuthFailure,
+	redactedHostResult,
+	redactSecrets,
+} from "./host-failure.js";
+import { cancelActiveOpenaiRun, formatOpenaiRunFailure, runOpenaiAgent } from "./openai-run.js";
 import { cancelActiveOpenRouterRun, runOpenRouterAgent } from "./openrouter-run.js";
 import { AgentRunTimeoutError, getPartialTrace } from "./run-guards.js";
 import type { AgentTrace } from "./types.js";
@@ -87,7 +95,20 @@ function runCursorBuiltin(common: ReturnType<typeof builtinOptions>, model: unkn
 		model: typeof model === "string" && model ? { id: model } : undefined,
 	});
 }
-async function runBuiltin(input: InitializeInput, prompt: string) {
+function hostFailureMessage(host: AgentDefinition["host"], result: HostRunResult): string {
+	const redacted = redactedHostResult(result);
+	switch (host) {
+		case "claude":
+			return formatClaudeRunFailure(redacted);
+		case "openai":
+			return formatOpenaiRunFailure(redacted);
+		case "cursor":
+			return formatCursorRunFailure(redacted);
+		default:
+			return `Agent execution failed: ${redactSecrets(JSON.stringify(result.trace.artifacts))}`;
+	}
+}
+async function runBuiltin(input: InitializeInput, prompt: string): Promise<HostRunResult> {
 	const common = builtinOptions(input, prompt);
 	const { agent, readOnly } = input;
 	switch (agent.host) {
@@ -105,6 +126,7 @@ async function runBuiltin(input: InitializeInput, prompt: string) {
 				tools: agent.options.tools,
 				loadProjectContext: agent.options.loadProjectContext !== false,
 				allowUnixSockets: agent.options.allowUnixSockets === true,
+				networkAccess: !readOnly && agent.options.networkAccess === true,
 				readOnly,
 			});
 		case "openrouter":
@@ -135,7 +157,7 @@ function builtinSession(input: InitializeInput): AdapterSession {
 			}
 			if (result.status !== "completed") {
 				send("event", { type: "trace", trace: result.trace });
-				throw new Error(`Agent execution failed: ${JSON.stringify(result.trace.artifacts)}`);
+				throw hostRunError(hostFailureMessage(input.agent.host, result), result);
 			}
 			const answer = result.trace.messages
 				.filter((message) => message.role === "assistant")
@@ -187,6 +209,8 @@ function serializedError(error: unknown) {
 			message,
 			timeoutMs: error.timeoutMs,
 		};
+	if (error instanceof AgentInfrastructureError) return error.toJSON();
+	if (isAuthFailure(message)) return { kind: "infrastructure", code: "auth", message };
 	return { name: error instanceof Error ? error.name : "Error", message };
 }
 process.on("SIGTERM", () => {

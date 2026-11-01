@@ -31,11 +31,13 @@ export interface OpenaiThreadItem {
 	tool?: string;
 	arguments?: unknown;
 	result?: unknown;
+	error?: unknown;
 	status?: string;
 }
 
 export interface OpenaiTraceAccumulator extends TraceAccumulator {
 	rawStatus?: string;
+	sawTerminalEvent?: boolean;
 	resultError?: string;
 	shellCommands: string[];
 }
@@ -171,8 +173,22 @@ function applyMcpTool(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void
 		name,
 		args: (item.arguments as Record<string, unknown> | undefined) ?? {},
 		...toolResultFields(item.result),
+		...mcpToolOutcome(item),
 		seq: acc.nextSeq++,
 	});
+}
+/** Codex states an MCP call's outcome in `status` and `error`, and the tool's own in `is_error`. */
+function mcpToolOutcome(item: OpenaiThreadItem): { succeeded?: boolean } {
+	const toolError =
+		(item.result as { is_error?: unknown; isError?: unknown } | null | undefined) ?? {};
+	if (
+		item.error ||
+		toolError.is_error === true ||
+		toolError.isError === true ||
+		item.status === "failed"
+	)
+		return { succeeded: false };
+	return item.status === "completed" ? { succeeded: true } : {};
 }
 function applyItem(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 	const type = (item.type ?? "").toLowerCase();
@@ -199,18 +215,24 @@ function openaiEventError(event: OpenaiJsonlEvent): string | undefined {
 	if (typeof event.error === "string") return event.error;
 	return event.error?.message || event.message || undefined;
 }
+/** Folds turn status and failure events; false means the event carries an item instead. */
+function accumulateStatusEvent(acc: OpenaiTraceAccumulator, event: OpenaiJsonlEvent): boolean {
+	const type = event.type ?? "";
+	if (type === "turn.completed") {
+		acc.sawTerminalEvent = true;
+		if (event.usage) acc.usage = mergeAgentUsage(acc.usage, normalizeOpenaiUsage(event.usage));
+		return true;
+	}
+	if (type !== "turn.failed" && type !== "error" && type !== "thread.error") return false;
+	if (type === "turn.failed") acc.sawTerminalEvent = true;
+	acc.rawStatus = type;
+	acc.resultError = openaiEventError(event) ?? acc.resultError;
+	return true;
+}
 /** Fold one Codex JSONL event into the accumulator. */
 export function accumulateOpenaiEvent(acc: OpenaiTraceAccumulator, event: OpenaiJsonlEvent): void {
+	if (accumulateStatusEvent(acc, event)) return;
 	const type = event.type ?? "";
-	if (type === "turn.completed" && event.usage) {
-		acc.usage = mergeAgentUsage(acc.usage, normalizeOpenaiUsage(event.usage));
-		return;
-	}
-	if (type === "turn.failed" || type === "error" || type === "thread.error") {
-		acc.rawStatus = type;
-		acc.resultError = openaiEventError(event) ?? acc.resultError;
-		return;
-	}
 	if (type !== "item.completed" && type !== "item.started" && !itemFromEvent(event)) {
 		return;
 	}
