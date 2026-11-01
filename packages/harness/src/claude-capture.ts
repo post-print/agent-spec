@@ -220,7 +220,8 @@ function attachClaudeResult(
 	return {
 		...previous,
 		...result,
-		...(typeof block.is_error === "boolean" ? { succeeded: !block.is_error } : {}),
+		// Claude omits is_error on a successful MCP result; only true marks a failure.
+		succeeded: block.is_error !== true,
 	};
 }
 function isMessageEvent(event: ClaudeStreamEvent): boolean {

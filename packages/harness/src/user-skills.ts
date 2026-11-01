@@ -165,7 +165,10 @@ export function claudeSessionFlags(
 	return ["--strict-mcp-config", "--setting-sources", "project"];
 }
 
-/** Codex `--ignore-user-config` when user skills stay out. */
+/**
+ * Codex `--ignore-user-config` when user skills stay out. The login file still connects a run to
+ * the account's apps, such as Linear and Atlassian, so a sealed run turns those off as well.
+ */
 export function openaiUserConfigArgs(includeGlobalSkills: boolean): string[] {
-	return includeGlobalSkills ? [] : ["--ignore-user-config"];
+	return includeGlobalSkills ? [] : ["--ignore-user-config", "-c", "features.apps=false"];
 }

@@ -3,12 +3,13 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { isCliMain } from "./cli-entry.js";
 import { runHostLogin } from "./host-login.js";
-import { runSdkCli } from "./sdk/cli.js";
+import { runBaselineCli, runSdkCli } from "./sdk/cli.js";
 import { runSdkViewerCli } from "./sdk/viewer.js";
 
 export async function runCli(args: string[]): Promise<number> {
 	const [command, ...rest] = args;
 	if (command === "test") return runSdkCli(rest);
+	if (command === "baseline") return runBaselineCli(rest);
 	if (command === "viewer") return runSdkViewerCli(rest);
 	if (command === "login") {
 		const { values } = parseArgs({
@@ -19,7 +20,7 @@ export async function runCli(args: string[]): Promise<number> {
 	}
 	if (!command || command === "--help" || command === "-h") {
 		console.log(
-			"agent-test test [Playwright options]\nagent-test viewer [--config path] [--port number]\nagent-test login [--host cursor|openai|claude]\n\nConfigure agents in agent-test.config.ts. JSON suites and legacy scoring flags were removed.",
+			"agent-test test [Playwright options]\nagent-test baseline [--config path]\nagent-test viewer [--config path] [--port number]\nagent-test login [--host cursor|openai|claude]\n\nConfigure agents in agent-test.config.ts. JSON suites and legacy scoring flags were removed.",
 		);
 		return 0;
 	}

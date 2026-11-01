@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import type { VerdictResult } from "../sdk/verdict.js";
 import { viewerApi } from "./generated-api.js";
 import type { TestRunStatus } from "./presentation.js";
 import type { TestCatalog } from "./test-catalog.js";
 
 /** Run summary as the execution store and live socket publish it. */
 export type ExecutionSummary = {
+	verdict?: VerdictResult;
 	id: string;
 	startedAt: string;
 	finishedAt?: string;

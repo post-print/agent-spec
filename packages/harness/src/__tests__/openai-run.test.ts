@@ -35,12 +35,14 @@ it("buildOpenaiExecArgs › pins Codex to the sealed workspace with a permission
 		cwd: "/tmp/agent-harness-seal-test",
 		protectedPaths: ["/repo/checkout"],
 	});
-	expect(args.slice(0, 7)).toEqual([
+	expect(args.slice(0, 9)).toEqual([
 		"exec",
 		"--json",
 		"--cd",
 		"/tmp/agent-harness-seal-test",
 		"--ignore-user-config",
+		"-c",
+		"features.apps=false",
 		"-c",
 		"approval_policy=never",
 	]);
@@ -128,4 +130,16 @@ it("buildOpenaiMcpOverride › quotes paths that contain spaces", () => {
 	).toBe(
 		'mcp_servers.echo={command="node",args=["/tmp/my reports/echo.mjs"],default_tools_approval_mode="approve"}',
 	);
+});
+
+it("a sealed run cannot reach the account's connected apps", async () => {
+	const { buildOpenaiExecArgs } = await import("../openai-run.js");
+	const sealed = buildOpenaiExecArgs({ prompt: "hi", cwd: "/tmp/workspace" });
+	expect(sealed.join(" ")).toContain("features.apps=false");
+	const global = buildOpenaiExecArgs({
+		prompt: "hi",
+		cwd: "/tmp/workspace",
+		includeGlobalSkills: true,
+	});
+	expect(global.join(" ")).not.toContain("features.apps=false");
 });
