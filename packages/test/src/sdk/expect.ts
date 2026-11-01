@@ -9,6 +9,7 @@ const FILE_PROTOCOL = /^file:\/\//;
 const COMMAND_TOOL = /shell|bash|terminal|exec|command/i;
 const READ_TOOL = /read/i;
 const SEARCH_TOOL = /^(grep|glob)$/i;
+const SKILL_TOOL = /^skill$/i;
 const GLOB_CHARS = /[*?[]/;
 const PATH_ARG_KEYS = ["path", "file_path", "filePath", "target_file", "uri", "pattern"];
 const FILE_READING_COMMANDS = new Set([
@@ -212,6 +213,26 @@ const extendedExpect = base.extend({
 		if (!found && calls.some((call) => call.result === undefined || call.succeeded === undefined))
 			throw new Error(`Successful file-read evidence unavailable: ${path}`);
 		return outcome(found, `Expected successful read of ${path}`);
+	},
+	/** A host may load a skill through its own tool or by reading the file. Either is evidence. */
+	toHaveUsedSkill(run: Run, name: string) {
+		requireTools(run);
+		const skillFile = run.startingContext.skills
+			.map(({ destination }) => `${destination}/SKILL.md`)
+			.find((path) => path.includes(`/${name}/`));
+		const loaded = run.toolCalls.some(
+			(call) => SKILL_TOOL.test(call.name) && call.args?.skill === name && call.succeeded !== false,
+		);
+		const read = run.toolCalls.some(
+			(call) =>
+				call.succeeded === true &&
+				skillFile !== undefined &&
+				(Object.values(call.args ?? {}).some(
+					(value) => typeof value === "string" && samePath(run, value, skillFile),
+				) ||
+					shellReadsPath(run, commandText(call), skillFile)),
+		);
+		return outcome(loaded || read, `Expected the agent to use skill ${name}`);
 	},
 	toHaveAccessedPath(run: Run, path: string) {
 		requireTools(run);

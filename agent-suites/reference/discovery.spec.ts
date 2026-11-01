@@ -32,3 +32,10 @@ test("control: with the tool removed, the same test fails", async ({ withoutTool
 	info.fail();
 	await findsTheOwner(withoutTool);
 });
+test("how often an agent finds the tool", {
+	description:
+		"Discovery is a rate, not a pass: one run says only that it can happen. No threshold is set, so this reports k of n.",
+	samples: 10,
+}, async ({ withTool }) => {
+	await findsTheOwner(withTool);
+});

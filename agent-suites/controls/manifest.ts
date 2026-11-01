@@ -37,7 +37,7 @@ export const CONTROLS: ControlEntry[] = [
 	{
 		title: "reads the attached skill and follows its release note format",
 		good: "reads-the-skill",
-		controls: [{ behavior: "guesses-the-format", mustFail: "The release-note SKILL.md is read." }],
+		controls: [{ behavior: "guesses-the-format", mustFail: "The release-note skill is used." }],
 	},
 	{
 		title: "searches for a task before reading its details",

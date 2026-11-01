@@ -36,12 +36,13 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 
 | Exit | Verdict | Meaning |
 | --- | --- | --- |
-| 0 | `passed` | Every test that ran passed, on the first try, and the runner agrees. |
+| 0 | `passed` | Every test that ran passed, on the first try, every sampling plan cleared, and the runner agrees. |
+| 0 | `measured` | Rates were reported, with no threshold set: `samples` with no plan, or `--repeat-each` with `--measure`. |
 | 0 | `listed` | `--list` only. No test ran. |
-| 1 | `agent_failed` | A test's checks failed. A real failure outranks any test with no verdict. |
+| 1 | `agent_failed` | A test's checks failed, a repeat from `--repeat-each` failed, a sampling plan flagged, or a claim regressed from its baseline. A real failure outranks any test with no verdict. |
 | 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |
 | 2 | `infra_invalid` | The host or runner failed, so nothing is known about the agent. |
-| 2 | `conditions_unknown` | The run cannot show what a test asked about. |
+| 2 | `conditions_unknown` | The run cannot show what a test asked about, or a comparison's arms differ beyond its subject. |
 | 2 | `vacuous` | A test finished without earning its result. |
 | 2 | `flaky` | A test failed and then passed on retry. Every attempt is kept. |
 | 2 | `skipped_only` | No test ran. |
@@ -72,8 +73,8 @@ bun run test:probe
 bun run test:controls
 ```
 
-The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries. It now requires every repetition to pass. This replaces the old JSON-specific 19-of-20 classifier/category calculation; there is no second scoring pipeline. The separately configured reviewer also needs authentication.
+The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries, and reports each test's rate with its interval. It passes `--measure` to set no threshold, because requiring every repetition to pass would wrongly fail a 95% behavior 64% of the time. To decide on a rate, use a [sampling plan](sdk-v2.md#rates-and-comparisons). The separately configured reviewer also needs authentication.
 
-Missing usage never becomes zero or a partial average. Agent and judge usage are reported separately. Token differences across providers do not imply equivalent cost. A few repeated runs are not statistical qualification.
+Missing usage never becomes zero or a partial average. Agent and judge usage are reported separately. Token differences across providers do not imply equivalent cost. An interval assumes independent runs, and same-day provider state can correlate them, so it can be optimistic; spread a qualifying run across days when that matters. A rate does not carry over to other prompts, tasks, or models.
 
 The strict Biome policy is a required gate across the repository, including retained host and viewer code. Run `bun run lint` to check for zero errors and warnings. Passing runtime tests does not replace lint validation.

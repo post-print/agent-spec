@@ -121,3 +121,61 @@ describe("verdictSentence", () => {
 		);
 	});
 });
+
+describe("reduceVerdict with a baseline", () => {
+	const record = {
+		host: "claude",
+		binaryVersion: "1",
+		confinement: "host-enforced",
+		network: "disabled",
+		hashes: { suite: "s", prompt: "p", skills: "k", initialSnapshot: "w" },
+	};
+	const sampled = (status: VerdictAttempt["status"], index: number) =>
+		attempt({
+			testId: `t${index}`,
+			claim: "claim",
+			status,
+			sample: { title: "claim", n: 27 },
+			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
+			operations: [{ data: [{ record }] }],
+		});
+	const attempts = (passed: number, failed: number) => [
+		...Array.from({ length: passed }, (_, index) => sampled("passed", index)),
+		...Array.from({ length: failed }, (_, index) => sampled("failed", passed + index)),
+	];
+	const fingerprint = reduce(attempts(27, 0)).claims[0]?.fingerprint ?? "";
+	const baselines = {
+		claim: { claim: "claim", fingerprint, passed: 27, total: 27, at: "then" },
+	};
+	it("a claim that regressed from its baseline fails the run", () => {
+		const result = reduce(attempts(10, 17), 1, { baselines });
+		expect(result).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
+	});
+	it("a claim consistent with its baseline stays measured", () => {
+		const result = reduce(attempts(26, 1), 1, { baselines });
+		expect(result).toMatchObject({ verdict: "measured", exitCode: 0 });
+	});
+});
+
+describe("reduceVerdict with repeats from the command line", () => {
+	const repeat = (status: VerdictAttempt["status"], testId: string) =>
+		attempt({
+			testId,
+			claim: "claim",
+			status,
+			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
+		});
+	const attempts = [repeat("passed", "a"), repeat("failed", "b")];
+	it("a failed repeat fails the run", () => {
+		expect(reduce(attempts, 1)).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
+	});
+	it("--measure reports the same repeats as a rate", () => {
+		expect(reduce(attempts, 1, { measureRepeats: true })).toMatchObject({
+			verdict: "measured",
+			exitCode: 0,
+		});
+	});
+	it("repeats that all pass exit 0", () => {
+		expect(reduce([repeat("passed", "a"), repeat("passed", "b")]).exitCode).toBe(0);
+	});
+});

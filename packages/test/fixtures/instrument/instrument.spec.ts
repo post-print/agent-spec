@@ -51,3 +51,64 @@ test("passes on retry", async ({ agent }, info) => {
 		info.retry > 0 ? "done" : "first try fails",
 	);
 });
+const rates = describe("instrument rates", ({ agent }) => ({
+	agent: agent({ description: "A scripted host." }),
+}));
+rates("sampled pass", { description: "Five good runs.", samples: 5 }, async ({ agent }) => {
+	expect((await agent.run(scenario("GOOD"))).output).toBe("done");
+});
+rates(
+	"sampled with a failure",
+	{ description: "One run in three fails, with nothing required.", samples: 3 },
+	async ({ agent }, info) => {
+		expect(
+			info.title.includes("[2/3]") ? "wrong" : (await agent.run(scenario("GOOD"))).output,
+		).toBe("done");
+	},
+);
+rates(
+	"plan flags early",
+	{ description: "Every run fails, so the plan decides at two.", samples: { n: 5, flagAt: 2 } },
+	async ({ agent }) => {
+		expect((await agent.run(scenario("GOOD"))).output).toBe("wrong");
+	},
+);
+rates(
+	"plan clears early",
+	{ description: "Passes, so the flag soon cannot be reached.", samples: { n: 5, flagAt: 2 } },
+	async ({ agent }) => {
+		expect((await agent.run(scenario("GOOD"))).output).toBe("done");
+	},
+);
+rates(
+	"infrastructure is not a sample",
+	{ description: "The host fails, so no run has a verdict.", samples: 2 },
+	async ({ agent }) => {
+		await agent.run(scenario("EMPTY"));
+	},
+);
+rates(
+	"two arms differ",
+	{
+		description: "One arm passes and one fails.",
+		samples: 5,
+		variants: ["good", "bad"],
+		subject: "prompt",
+	},
+	async ({ agent }, _info, variant) => {
+		await agent.run(scenario("GOOD"));
+		expect(variant, "This arm passes.").toBe("good");
+	},
+);
+rates(
+	"arms differ beyond the subject",
+	{
+		description: "The prompt differs, but the declared subject is the workspace.",
+		samples: 1,
+		variants: ["one", "two"],
+		subject: "workspace",
+	},
+	async ({ agent }, _info, variant) => {
+		await agent.run({ prompt: `SCENARIO_GOOD ${variant}` });
+	},
+);

@@ -9,6 +9,7 @@ The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`
 | Command | Behavior |
 | --- | --- |
 | `agent-test test --list` | Discover tests without starting agents |
+| `agent-test baseline` | Save the newest run's sampled claims to `agent-test-baselines/` |
 | `agent-test test tour` | Execute the worked examples with the default agent |
 | `agent-test test --config path/to/config.ts` | Use another configuration |
 | `agent-test test --reporter=html` | Write a Playwright HTML report |

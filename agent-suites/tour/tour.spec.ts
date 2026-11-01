@@ -166,7 +166,7 @@ test("reads an attached skill and follows its release note format", {
 	expect(run.output, "The response follows the skill's format.").toBe(
 		"RELEASE: TASK-104 is ready.",
 	);
-	expect(run, "The release-note SKILL.md is read.").toHaveReadPath(skillFile);
+	expect(run, "The release-note SKILL.md is read.").toHaveUsedSkill("release-note");
 	expect(run, "PROJECT.md is read.").toHaveReadPath("PROJECT.md");
 });
 // Search returns an old date, September 20. The task details give the current date, September 24.

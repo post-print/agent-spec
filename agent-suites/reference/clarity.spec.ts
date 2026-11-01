@@ -47,3 +47,16 @@ test("control: a misleading description fails the same test", async ({
 	info.fail();
 	await callsCorrectly(agent);
 });
+test(
+	"the description changes how often agents get the arguments right",
+	{
+		description:
+			"The same task under a clear and a misleading description. Only the tool's description differs, so a difference in rates belongs to it.",
+		samples: 5,
+		variants: ["clear", "misleading"],
+		subject: "tools",
+	},
+	async (agents, _info, variant) => {
+		await callsCorrectly(variant === "clear" ? agents.clear : agents.misleading);
+	},
+);
