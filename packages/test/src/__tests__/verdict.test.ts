@@ -76,6 +76,29 @@ describe("reduceVerdict across attempts", () => {
 	});
 });
 
+describe("reduceVerdict controls", () => {
+	it("a control that passes is a failure, not a pass", () => {
+		const survived = attempt({ status: "passed", survivedControl: true });
+		expect(reduce([survived], 1)).toMatchObject({ verdict: "control_survived", exitCode: 1 });
+	});
+	it("a control that failed on a check counts as passing", () => {
+		const rejected = attempt({
+			status: "failed",
+			expectedFailure: true,
+			errors: [{ message: "Expected 1" }],
+		});
+		expect(reduce([rejected]).verdict).toBe("passed");
+	});
+	it("a control the host broke proves nothing", () => {
+		const broken = attempt({
+			status: "failed",
+			expectedFailure: true,
+			errors: [{ message: "AgentInfrastructureError: auth" }],
+		});
+		expect(reduce([broken]).verdict).toBe("infra_invalid");
+	});
+});
+
 describe("reduceVerdict special runs", () => {
 	it("interruption and listing say so", () => {
 		expect(reduce([attempt({})], 0, { interrupted: true })).toMatchObject({
@@ -96,5 +119,63 @@ describe("verdictSentence", () => {
 		expect(verdictSentence(reduce([failed("AgentInfrastructureError")], 1))).toContain(
 			"No verdict",
 		);
+	});
+});
+
+describe("reduceVerdict with a baseline", () => {
+	const record = {
+		host: "claude",
+		binaryVersion: "1",
+		confinement: "host-enforced",
+		network: "disabled",
+		hashes: { suite: "s", prompt: "p", skills: "k", initialSnapshot: "w" },
+	};
+	const sampled = (status: VerdictAttempt["status"], index: number) =>
+		attempt({
+			testId: `t${index}`,
+			claim: "claim",
+			status,
+			sample: { title: "claim", n: 27 },
+			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
+			operations: [{ data: [{ record }] }],
+		});
+	const attempts = (passed: number, failed: number) => [
+		...Array.from({ length: passed }, (_, index) => sampled("passed", index)),
+		...Array.from({ length: failed }, (_, index) => sampled("failed", passed + index)),
+	];
+	const fingerprint = reduce(attempts(27, 0)).claims[0]?.fingerprint ?? "";
+	const baselines = {
+		claim: { claim: "claim", fingerprint, passed: 27, total: 27, at: "then" },
+	};
+	it("a claim that regressed from its baseline fails the run", () => {
+		const result = reduce(attempts(10, 17), 1, { baselines });
+		expect(result).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
+	});
+	it("a claim consistent with its baseline stays measured", () => {
+		const result = reduce(attempts(26, 1), 1, { baselines });
+		expect(result).toMatchObject({ verdict: "measured", exitCode: 0 });
+	});
+});
+
+describe("reduceVerdict with repeats from the command line", () => {
+	const repeat = (status: VerdictAttempt["status"], testId: string) =>
+		attempt({
+			testId,
+			claim: "claim",
+			status,
+			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
+		});
+	const attempts = [repeat("passed", "a"), repeat("failed", "b")];
+	it("a failed repeat fails the run", () => {
+		expect(reduce(attempts, 1)).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
+	});
+	it("--measure reports the same repeats as a rate", () => {
+		expect(reduce(attempts, 1, { measureRepeats: true })).toMatchObject({
+			verdict: "measured",
+			exitCode: 0,
+		});
+	});
+	it("repeats that all pass exit 0", () => {
+		expect(reduce([repeat("passed", "a"), repeat("passed", "b")]).exitCode).toBe(0);
 	});
 });

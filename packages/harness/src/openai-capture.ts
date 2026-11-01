@@ -31,6 +31,7 @@ export interface OpenaiThreadItem {
 	tool?: string;
 	arguments?: unknown;
 	result?: unknown;
+	error?: unknown;
 	status?: string;
 }
 
@@ -172,8 +173,22 @@ function applyMcpTool(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void
 		name,
 		args: (item.arguments as Record<string, unknown> | undefined) ?? {},
 		...toolResultFields(item.result),
+		...mcpToolOutcome(item),
 		seq: acc.nextSeq++,
 	});
+}
+/** Codex states an MCP call's outcome in `status` and `error`, and the tool's own in `is_error`. */
+function mcpToolOutcome(item: OpenaiThreadItem): { succeeded?: boolean } {
+	const toolError =
+		(item.result as { is_error?: unknown; isError?: unknown } | null | undefined) ?? {};
+	if (
+		item.error ||
+		toolError.is_error === true ||
+		toolError.isError === true ||
+		item.status === "failed"
+	)
+		return { succeeded: false };
+	return item.status === "completed" ? { succeeded: true } : {};
 }
 function applyItem(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 	const type = (item.type ?? "").toLowerCase();

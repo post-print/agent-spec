@@ -5,6 +5,7 @@ export type { EnvironmentObservation, ObserveEnvironment } from "./sdk/environme
 export { expect } from "./sdk/expect.js";
 export { statistics } from "./sdk/metrics.js";
 export { expectWorkspaceEscape, type WorkspaceEscapeOutcome } from "./sdk/operation-ledger.js";
+export { differenceInterval, exactInterval, lowerBound, samplingPlan } from "./sdk/pass-rate.js";
 export { type ExecutionProgress, reportProgress } from "./sdk/progress.js";
 export { type CommandResult, type RunCommandOptions, runCommand } from "./sdk/run-command.js";
 export {

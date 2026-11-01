@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ownerIsActive, type ProcessOwner, processOwner } from "@post-print/agent-harness";
+import type { SampleAnnotation } from "./claims.js";
 import { type ExecutionProgress, readExecutionProgress } from "./progress.js";
 import { releaseSnapshots } from "./snapshot-storage.js";
 import type { VerdictResult } from "./verdict.js";
@@ -65,9 +66,11 @@ export type ExecutionAttempt = {
 	testId?: string;
 	title: string[];
 	project?: string;
+	sample?: SampleAnnotation;
 	retry: number;
 	status: "running" | "passed" | "failed" | "skipped" | "interrupted";
 	expectedFailure?: boolean;
+	survivedControl?: boolean;
 	startedAt?: string;
 	completedAt?: string;
 	durationMs?: number;
@@ -296,6 +299,7 @@ function applyAttemptStart(attempt: ExecutionAttempt, event: ExecutionEvent): vo
 	const data = asRecord(event.data);
 	attempt.startedAt = event.at;
 	attempt.testId = typeof data.testId === "string" ? data.testId : undefined;
+	attempt.sample = data.sample as SampleAnnotation | undefined;
 	attempt.title = Array.isArray(data.title)
 		? data.title.filter((part): part is string => typeof part === "string")
 		: [];
@@ -308,6 +312,7 @@ function applyAttemptFinish(attempt: ExecutionAttempt, event: ExecutionEvent): v
 	attempt.completedAt = event.at;
 	attempt.status = outcomeStatus(data.status);
 	attempt.expectedFailure = data.status === "failed" && data.expectedStatus === "failed";
+	attempt.survivedControl = data.status === "passed" && data.expectedStatus === "failed";
 	attempt.durationMs = typeof data.durationMs === "number" ? data.durationMs : undefined;
 	attempt.errors = Array.isArray(data.errors) ? data.errors : [];
 	attempt.criterionResults = parseCriterionResults(data.criterionResults);

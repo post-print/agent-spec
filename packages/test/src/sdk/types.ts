@@ -72,6 +72,8 @@ export interface Evaluation<T = unknown> {
 	output: T;
 	usage: RunUsage;
 	artifact: string;
+	/** Which model judged, because a verdict is only as stable as its model. */
+	model: { requested?: string; observed?: string };
 }
 export type WorkspaceSetup = (workspace: Workspace) => void | Promise<void>;
 export interface AgentFixture {
