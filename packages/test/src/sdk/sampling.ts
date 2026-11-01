@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TestInfo } from "@playwright/test";
 import type { ComparisonSubject, SampleAnnotation } from "./claims.js";
+import { isInfrastructureFailure } from "./failure.js";
 import { planIsDecided } from "./pass-rate.js";
 
 export const SAMPLE_ANNOTATION = "agent-test.sample";
@@ -48,7 +49,9 @@ function ledgerPath(info: TestInfo, annotation: SampleAnnotation): string {
 }
 async function ledgerEntries(path: string): Promise<boolean[]> {
 	const content = await readFile(path, "utf8").catch(() => "");
-	return content.split("\n").flatMap((line) => (line ? [line === "failed"] : []));
+	return content
+		.split("\n")
+		.flatMap((line) => (line === "failed" || line === "passed" ? [line === "failed"] : []));
 }
 /** True when the plan's decision is already fixed, so this sample would only spend tokens. */
 export async function sampleIsUnneeded(info: TestInfo, annotation: SampleAnnotation) {
@@ -61,9 +64,27 @@ export async function sampleIsUnneeded(info: TestInfo, annotation: SampleAnnotat
 		ran: entries.length,
 	});
 }
-export async function recordSample(info: TestInfo, annotation: SampleAnnotation, failed: boolean) {
+/** A sample with no verdict is not a run the plan can decide on, so it does not bring a stop closer. */
+async function recordSample(
+	info: TestInfo,
+	annotation: SampleAnnotation,
+	outcome: "passed" | "failed" | "no_verdict",
+) {
 	if (annotation.flagAt === undefined) return;
 	const path = ledgerPath(info, annotation);
 	await mkdir(join(path, ".."), { recursive: true });
-	await appendFile(path, `${failed ? "failed" : "passed"}\n`);
+	await appendFile(path, `${outcome}\n`);
+}
+export async function runRecordingSample(
+	info: TestInfo,
+	annotation: SampleAnnotation,
+	body: () => Promise<void>,
+) {
+	try {
+		await body();
+	} catch (error) {
+		await recordSample(info, annotation, isInfrastructureFailure(error) ? "no_verdict" : "failed");
+		throw error;
+	}
+	await recordSample(info, annotation, "passed");
 }

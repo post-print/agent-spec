@@ -13,7 +13,7 @@ import { type AgentResource, factories, type JudgeResource, type Resource } from
 import { TestRuntime } from "./runtime.js";
 import {
 	plannedSamples,
-	recordSample,
+	runRecordingSample,
 	SAMPLE_ANNOTATION,
 	type SamplingDetails,
 	sampleIsUnneeded,
@@ -161,14 +161,10 @@ export function describe<R extends Resources>(
 				runner(planned.title, { annotation: annotations }, async ({ runtime }, info) => {
 					const unneeded = await sampleIsUnneeded(info, planned.annotation);
 					info.skip(unneeded, "The sampling plan's decision is already fixed.");
-					let failed = true;
-					try {
+					await runRecordingSample(info, planned.annotation, async () => {
 						await callback(bind(resources, runtime), info, planned.annotation.variant ?? "");
 						runtime.assertResultEarned({ noAgent });
-						failed = false;
-					} finally {
-						await recordSample(info, planned.annotation, failed);
-					}
+					});
 				});
 			}
 		});

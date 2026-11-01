@@ -330,6 +330,7 @@ function subschemas(node: SchemaNode): SchemaNode[] {
 	];
 }
 function isStrictNode(node: SchemaNode): boolean {
+	if (typeof node !== "object") return false;
 	if (CODEX_REFUSED_KEYWORDS.some((keyword) => keyword in node)) return false;
 	return isClosedObject(node) && subschemas(node).every(isStrictNode);
 }

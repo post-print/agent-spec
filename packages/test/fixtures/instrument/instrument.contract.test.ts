@@ -81,6 +81,21 @@ describe("sampling plans through the real runner", () => {
 		expect(verdict.claims[0]).toMatchObject({ decision: "flagged", flagAt: 2 });
 		expect(verdict.claims[0]?.arms[0]).toMatchObject({ failed: 2, total: 2 });
 	}, 60_000);
+	it("a plan short of verdicts runs every sample and does not clear", async () => {
+		const { verdict, exitCode } = await rate("plan short of verdicts");
+		expect(verdict.verdict).toBe("infra_invalid");
+		expect(exitCode).toBe(2);
+		expect(verdict.claims[0]).toMatchObject({ decision: "no_verdict", flagAt: 2 });
+		expect(verdict.claims[0]?.arms[0]).toMatchObject({ passed: 2, failed: 0, noVerdict: 2 });
+	}, 120_000);
+	it("a repeat with no verdict keeps a gate from going green", async () => {
+		const { verdict, exitCode } = await runScenario("repeat short of verdicts", [
+			"--repeat-each",
+			"2",
+		]);
+		expect(verdict.verdict).toBe("infra_invalid");
+		expect(exitCode).toBe(2);
+	}, 120_000);
 	it("a plan stops once the flag cannot be reached", async () => {
 		const { verdict, exitCode } = await rate("plan clears early");
 		expect(verdict.verdict).toBe("passed");

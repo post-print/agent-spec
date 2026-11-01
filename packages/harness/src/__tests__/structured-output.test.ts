@@ -17,7 +17,8 @@ const OPTIONAL_REASON = { ...VERDICT_SCHEMA, required: ["correct"] };
 let directory = "";
 async function fakeHost(name: string, body: string): Promise<string> {
 	const path = join(directory, name);
-	await writeFile(path, `#!/bin/sh\n${body}\n`);
+	// The harness also asks the host for its version, which must not overwrite what a test records.
+	await writeFile(path, `#!/bin/sh\n[ "$1" = "--version" ] && { echo 1; exit 0; }\n${body}\n`);
 	await chmod(path, 0o755);
 	return path;
 }
@@ -196,6 +197,7 @@ describe("schemas Codex accepts", () => {
 		"an optional field inside a list": closed({ list: { type: "array", items: OPTIONAL_REASON } }),
 		"a string format": closed({ email: { type: "string", format: "email" } }),
 		"a tuple": closed({ pair: { type: "array", prefixItems: [{ type: "string" }] } }),
+		"a boolean subschema": closed({ anything: true }),
 	};
 	for (const [name, schema] of Object.entries(accepted))
 		it(`accepts ${name}`, () => expect(codexAcceptsSchema(schema)).toBe(true));

@@ -38,7 +38,7 @@ Agent-test separates a run that never produced evidence from an agent that behav
 | `host_exit` | The host failed or was killed before its terminal event. The message ends with a redacted stderr tail. |
 | `capture_incomplete` | The host exited 0 without its terminal event, for example on empty or unparseable output. |
 | `worker_crash` | The agent worker process died. |
-| `judge_failed` | A judge could not start, or its reply did not match the judge's schema. The judge gave no verdict, so the test has none. A judge whose host fails keeps that failure's own code. |
+| `judge_failed` | A judge's request could not be prepared, its host reported a failed turn, or its reply did not match the judge's schema. The judge gave no verdict, so the test has none. A crash, login failure, or timeout keeps its own code. |
 
 A terminal failure the host reports itself, such as Claude's `error_max_turns`, is an ordinary run failure, including when `is_error` is false. Output lines that cannot be parsed do not fail a complete run; the trace counts them in `artifacts.droppedOutputLines`.
 

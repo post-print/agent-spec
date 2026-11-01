@@ -84,8 +84,9 @@ test("passes on retry", async ({ agent }, info) => {
 		info.retry > 0 ? "done" : "first try fails",
 	);
 });
-const rates = describe("instrument rates", ({ agent }) => ({
+const rates = describe("instrument rates", ({ agent, judge }) => ({
 	agent: agent({ description: "A scripted host." }),
+	reviewer: judge({ prompt: "Is the input correct?", schema: z.object({ correct: z.boolean() }) }),
 }));
 rates("sampled pass", { description: "Five good runs.", samples: 5 }, async ({ agent }) => {
 	expect((await agent.run(scenario("GOOD"))).output).toBe("done");
@@ -113,6 +114,19 @@ rates(
 		expect((await agent.run(scenario("GOOD"))).output).toBe("done");
 	},
 );
+rates(
+	"plan short of verdicts",
+	{ description: "Half the judge replies are unusable.", samples: { n: 4, flagAt: 2 } },
+	async ({ reviewer }, info) => {
+		const unusable = info.title.includes("[1/4]") || info.title.includes("[2/4]");
+		const input = unusable ? "SCENARIO_JUDGE_PROSE" : "SCENARIO_JUDGE_ENFORCED";
+		expect((await reviewer.run({ input })).output.correct).toBe(true);
+	},
+);
+rates("repeat short of verdicts", async ({ reviewer }, info) => {
+	const input = info.repeatEachIndex === 0 ? "SCENARIO_JUDGE_PROSE" : "SCENARIO_JUDGE_ENFORCED";
+	expect((await reviewer.run({ input })).output.correct).toBe(true);
+});
 rates(
 	"infrastructure is not a sample",
 	{ description: "The host fails, so no run has a verdict.", samples: 2 },
