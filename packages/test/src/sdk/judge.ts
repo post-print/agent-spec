@@ -8,6 +8,7 @@ import {
 	createAgentSession,
 	createEmptySealedWorkspace,
 	type HarnessSession,
+	WorkspaceEscapeError,
 } from "@post-print/agent-harness";
 import { z } from "zod";
 import { validateSkills } from "./definitions.js";
@@ -75,8 +76,12 @@ function reviewerSession<S extends z.ZodType>(request: EvaluationRequest<S>, wor
 		outputSchema: z.toJSONSchema(request.settings.schema),
 	});
 }
-/** A judge that gave no verdict says nothing about the agent, so the run has no verdict either. */
-function judgeFailed(error: unknown): Error {
+/**
+ * A judge that gave no verdict says nothing about the agent, so the run has no verdict either.
+ * Cancellation is left as it is: the test already ended, and its own failure is the result.
+ */
+function judgeFailure(error: unknown, signal: AbortSignal): unknown {
+	if (signal.aborted || error instanceof WorkspaceEscapeError) return error;
 	if (isInfrastructureFailure(error)) return error;
 	const reason = error instanceof Error ? error.message : String(error);
 	return new AgentInfrastructureError(`Judge gave no usable verdict: ${reason}`, "judge_failed");
@@ -88,13 +93,9 @@ function assistantText(trace: AgentTrace): string {
 		.join("\n");
 }
 function verdictFrom<S extends z.ZodType>(trace: AgentTrace, schema: S): z.output<S> {
-	try {
-		return trace.structuredOutput === undefined
-			? parseEvaluation(assistantText(trace), schema)
-			: schema.parse(trace.structuredOutput);
-	} catch (error) {
-		throw judgeFailed(error);
-	}
+	return trace.structuredOutput === undefined
+		? parseEvaluation(assistantText(trace), schema)
+		: schema.parse(trace.structuredOutput);
 }
 export async function evaluate<S extends z.ZodType>(
 	request: EvaluationRequest<S>,
@@ -115,9 +116,7 @@ export async function evaluate<S extends z.ZodType>(
 			input: prepared.input,
 			evaluation: { prompt: request.settings.prompt, schema: prepared.schema },
 		});
-		const trace = await session.run(prepared.prompt).catch((error) => {
-			throw judgeFailed(error);
-		});
+		const trace = await session.run(prepared.prompt);
 		assertInsideWorkspace(trace, workspace);
 		await writeJson(join(directory, "response.json"), { response: assistantText(trace), trace });
 		const result = {
@@ -131,8 +130,9 @@ export async function evaluate<S extends z.ZodType>(
 		await writeJson(join(directory, "evaluation.json"), result);
 		return result;
 	} catch (error) {
-		await writeJson(join(directory, "error.json"), recordedFailure(error));
-		throw error;
+		const failure = judgeFailure(error, request.signal);
+		await writeJson(join(directory, "error.json"), recordedFailure(failure));
+		throw failure;
 	} finally {
 		try {
 			await session?.close();

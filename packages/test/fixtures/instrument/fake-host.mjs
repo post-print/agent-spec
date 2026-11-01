@@ -43,6 +43,7 @@ if (prompt.includes("SCENARIO_JUDGE_ENFORCED")) {
 	});
 	process.exit(0);
 }
+if (prompt.includes("SCENARIO_JUDGE_SLOW")) await new Promise((done) => setTimeout(done, 30_000));
 if (prompt.includes("SCENARIO_JUDGE_ECHOES_SCHEMA")) {
 	const reply = '{"type":"object","properties":{"correct":{"type":"boolean"}}}';
 	message(reply);
