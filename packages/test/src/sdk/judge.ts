@@ -2,6 +2,8 @@ import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type AgentDefinition,
+	AgentInfrastructureError,
+	type AgentTrace,
 	assertInsideWorkspace,
 	createAgentSession,
 	createEmptySealedWorkspace,
@@ -9,7 +11,7 @@ import {
 } from "@post-print/agent-harness";
 import { z } from "zod";
 import { validateSkills } from "./definitions.js";
-import { recordedFailure } from "./failure.js";
+import { isInfrastructureFailure, recordedFailure } from "./failure.js";
 import type { Evaluation, JsonValue, JudgeSettings } from "./types.js";
 import { runUsage } from "./usage.js";
 import { prepareAgent, withContext, writeJson } from "./workspace.js";
@@ -70,7 +72,29 @@ function reviewerSession<S extends z.ZodType>(request: EvaluationRequest<S>, wor
 		signal: request.signal,
 		readOnly: true,
 		protectedPaths: request.protectedPaths,
+		outputSchema: z.toJSONSchema(request.settings.schema),
 	});
+}
+/** A judge that gave no verdict says nothing about the agent, so the run has no verdict either. */
+function judgeFailed(error: unknown): Error {
+	if (isInfrastructureFailure(error)) return error;
+	const reason = error instanceof Error ? error.message : String(error);
+	return new AgentInfrastructureError(`Judge gave no usable verdict: ${reason}`, "judge_failed");
+}
+function assistantText(trace: AgentTrace): string {
+	return trace.messages
+		.filter((message) => message.role === "assistant")
+		.map((message) => message.content)
+		.join("\n");
+}
+function verdictFrom<S extends z.ZodType>(trace: AgentTrace, schema: S): z.output<S> {
+	try {
+		return trace.structuredOutput === undefined
+			? parseEvaluation(assistantText(trace), schema)
+			: schema.parse(trace.structuredOutput);
+	} catch (error) {
+		throw judgeFailed(error);
+	}
 }
 export async function evaluate<S extends z.ZodType>(
 	request: EvaluationRequest<S>,
@@ -91,17 +115,15 @@ export async function evaluate<S extends z.ZodType>(
 			input: prepared.input,
 			evaluation: { prompt: request.settings.prompt, schema: prepared.schema },
 		});
-		const trace = await session.run(prepared.prompt);
+		const trace = await session.run(prepared.prompt).catch((error) => {
+			throw judgeFailed(error);
+		});
 		assertInsideWorkspace(trace, workspace);
-		const response = trace.messages
-			.filter((message) => message.role === "assistant")
-			.map((message) => message.content)
-			.join("\n");
-		await writeJson(join(directory, "response.json"), { response, trace });
+		await writeJson(join(directory, "response.json"), { response: assistantText(trace), trace });
 		const result = {
 			id,
 			name: request.name,
-			output: parseEvaluation(response, request.settings.schema),
+			output: verdictFrom(trace, request.settings.schema),
 			usage: runUsage(trace.usage),
 			artifact: directory,
 			model: { requested: request.definition.options.model, observed: trace.hostReport?.model },

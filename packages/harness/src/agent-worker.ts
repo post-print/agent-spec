@@ -33,6 +33,7 @@ interface InitializeInput {
 	workspace: string;
 	readOnly: boolean;
 	protectedPaths: readonly string[];
+	outputSchema?: object;
 }
 async function initialize(input: InitializeInput): Promise<AgentCapabilities> {
 	const { agent, readOnly } = input;
@@ -118,6 +119,7 @@ async function runBuiltin(input: InitializeInput, prompt: string): Promise<HostR
 				model: agent.options.model,
 				sandbox: readOnly ? "read-only" : "workspace-write",
 				networkAccess: agent.options.networkAccess,
+				outputSchema: input.outputSchema,
 			});
 		case "claude":
 			return runClaudeAgent({
@@ -128,6 +130,7 @@ async function runBuiltin(input: InitializeInput, prompt: string): Promise<HostR
 				allowUnixSockets: agent.options.allowUnixSockets === true,
 				networkAccess: !readOnly && agent.options.networkAccess === true,
 				readOnly,
+				outputSchema: input.outputSchema,
 			});
 		case "openrouter":
 			return runOpenRouterAgent({

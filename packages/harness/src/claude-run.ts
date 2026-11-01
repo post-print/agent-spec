@@ -66,6 +66,8 @@ export interface ClaudeRunOptions {
 	/** Let sandboxed commands create Unix sockets (headless Chrome on Linux). Default false. */
 	allowUnixSockets?: boolean;
 	networkAccess?: boolean;
+	/** JSON Schema the reply must match (`--json-schema`). */
+	outputSchema?: object;
 }
 
 export interface ClaudeRunResult {
@@ -328,6 +330,12 @@ export function resolveClaudeAuthMode(
 	});
 }
 
+/** Claude refuses a schema whose `$schema` names a draft it has not loaded, as Zod's output does. */
+function claudeJsonSchema(schema: object): string {
+	const { $schema: _draft, ...rest } = schema as Record<string, unknown>;
+	return JSON.stringify(rest);
+}
+
 export function buildClaudeArgs(options: {
 	prompt: string;
 	cwd: string;
@@ -342,6 +350,7 @@ export function buildClaudeArgs(options: {
 	loadProjectContext?: boolean;
 	allowUnixSockets?: boolean;
 	networkAccess?: boolean;
+	outputSchema?: object;
 }): string[] {
 	const args = [
 		"-p",
@@ -378,6 +387,7 @@ export function buildClaudeArgs(options: {
 	if (options.mcpConfigPath) {
 		args.push("--mcp-config", options.mcpConfigPath);
 	}
+	if (options.outputSchema) args.push("--json-schema", claudeJsonSchema(options.outputSchema));
 	return args;
 }
 
@@ -627,6 +637,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			loadProjectContext: options.loadProjectContext === true,
 			allowUnixSockets: options.allowUnixSockets === true,
 			networkAccess: options.networkAccess === true,
+			outputSchema: options.outputSchema,
 		});
 
 		return await runClaudeWithDeadline(options, { bin, args, authMode, deadline, apiKey });

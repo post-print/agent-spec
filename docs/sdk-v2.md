@@ -112,7 +112,7 @@ Set `observeEnvironment: { paths: ["node_modules"] }` on an agent or run to answ
 
 ## Explicit judge inputs
 
-A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ input })` supplies JSON data selected by the test. You may use the SDK's `z` export or import a compatible Zod v4 schema. Schemas must support conversion to JSON Schema; unsupported transforms fail explicitly.
+A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ input })` supplies JSON data selected by the test. You may use the SDK's `z` export or import a compatible Zod v4 schema. Schemas must support conversion to JSON Schema; unsupported transforms fail explicitly. The host holds the reply to the schema where it can; see [hosts](hosts.md). On OpenAI, give every field a value, using `.nullable()` rather than `.optional()`, or the schema is sent only in the prompt. A reply that still does not match, or a judge host that fails, rejects `judge.run` with `AgentInfrastructureError` code `judge_failed`. Unless the test handles that rejection, the test has no verdict: it is not counted as a failure of the agent, and the run exits 2.
 
 There is no automatic transcript, workspace, tool, or token inclusion. Passing `run.output` supplies only text. To evaluate a patch, read the selected snapshot files yourself and pass their contents. A whole run object is not JSON input because it contains execution methods. Judge definitions may explicitly attach their own context and skills; those are also supplied.
 

@@ -21,7 +21,7 @@ export function recordedFailure(error: unknown): RecordedFailure {
 	};
 }
 
-function isInfrastructureFailure(error: unknown): error is AgentInfrastructureError {
+export function isInfrastructureFailure(error: unknown): error is AgentInfrastructureError {
 	if (!error || typeof error !== "object") return false;
 	const value = error as Partial<AgentInfrastructureError>;
 	return (

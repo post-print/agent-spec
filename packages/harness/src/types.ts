@@ -98,6 +98,8 @@ export interface AgentTrace {
 		invariantApplied?: string[];
 		escalations?: string[];
 	};
+	/** The reply the host constrained to a requested output schema, apart from any prose. */
+	structuredOutput?: unknown;
 	/** Assistant prose before the first tool call when the host surfaces chronological events. */
 	assistantTextBeforeTools?: string;
 	/** Cumulative token usage when the host reported it. */

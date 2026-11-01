@@ -1,9 +1,28 @@
-import { describe, expect, type Run } from "../../dist/index.js";
+import { describe, expect, type Run, z } from "../../dist/index.js";
 
-const test = describe("instrument", ({ agent }) => ({
+const test = describe("instrument", ({ agent, judge }) => ({
 	agent: agent({ description: "A scripted host." }),
+	reviewer: judge({ prompt: "Is the input correct?", schema: z.object({ correct: z.boolean() }) }),
 }));
 const scenario = (name: string) => ({ prompt: `SCENARIO_${name}` });
+
+test("judge verdict comes from enforced output", async ({ reviewer }) => {
+	const { output } = await reviewer.run({ input: "SCENARIO_JUDGE_ENFORCED" });
+	expect(output.correct).toBe(true);
+});
+test("judge answers with the schema", async ({ reviewer }) => {
+	await reviewer.run({ input: "SCENARIO_JUDGE_ECHOES_SCHEMA" });
+});
+test("judge answers in prose", async ({ reviewer }) => {
+	await reviewer.run({ input: "SCENARIO_JUDGE_PROSE" });
+});
+test("judge host reports a failure", async ({ reviewer }) => {
+	await reviewer.run({ input: "SCENARIO_JUDGE_REFUSED" });
+});
+test("judge rejects the answer", async ({ reviewer }) => {
+	const { output } = await reviewer.run({ input: "SCENARIO_JUDGE_ENFORCED" });
+	expect(output.correct, "The judge accepted it.").toBe(false);
+});
 
 test("good run", async ({ agent }) => {
 	expect((await agent.run(scenario("GOOD"))).output).toBe("done");

@@ -28,6 +28,29 @@ afterAll(async () => {
 });
 
 const rate = (title: string) => runScenario(`instrument rates ${title} \\[`);
+
+describe("judges through the real runner", () => {
+	it("takes the verdict from the host's enforced output, not its prose", async () => {
+		const { verdict, exitCode } = await runScenario("judge verdict comes from enforced output");
+		expect(verdict.verdict).toBe("passed");
+		expect(exitCode).toBe(0);
+	}, 60_000);
+	for (const title of [
+		"judge answers with the schema",
+		"judge answers in prose",
+		"judge host reports a failure",
+	])
+		it(`${title}: no verdict, not an agent failure`, async () => {
+			const { verdict, exitCode } = await runScenario(title);
+			expect(verdict.verdict).toBe("infra_invalid");
+			expect(exitCode).toBe(2);
+		}, 60_000);
+	it("a judge that rejects the answer is still a failure", async () => {
+		const { verdict, exitCode } = await runScenario("judge rejects the answer");
+		expect(verdict.verdict).toBe("agent_failed");
+		expect(exitCode).toBe(1);
+	}, 60_000);
+});
 describe("rates through the real runner", () => {
 	it("samples: 5 produces one claim with its count and interval", async () => {
 		const { verdict, exitCode } = await rate("sampled pass");
