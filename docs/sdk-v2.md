@@ -189,7 +189,7 @@ test("the wording matters", {
 });
 ```
 
-Failures from the host or runner count as no verdict and stay out of the rate. They do not bring a plan's stop closer, and a plan clears only on enough passes: one left short of them has no verdict and exits 2. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run and a repeat with no verdict exits 2, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
+Failures from the host or runner count as no verdict and stay out of the rate. They do not bring a plan's stop closer, and a plan clears only on enough passes: one left short of them has no verdict and exits 2, unless it regressed from its baseline. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run and a repeat with no verdict exits 2, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
 
 `agent-test baseline` saves the newest run's single-arm claims to `agent-test-baselines/`; commit them. A later run under the same conditions is compared against the baseline and fails if it regressed. A changed host, model, suite, prompt, skill, or workspace starts over rather than reading as a regression.
 

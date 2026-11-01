@@ -177,12 +177,12 @@ function failedRepeatVerdict({ arms }: ClaimResult): RunVerdict | undefined {
 /** Asking for repeats is not asking for a rate: a gate using --repeat-each must still go red. */
 function claimVerdict(claim: ClaimResult, measureRepeats: boolean): RunVerdict {
 	if (claim.comparisonRefused) return "conditions_unknown";
+	if (claim.baseline.status === "same_conditions" && claim.baseline.regressed)
+		return "agent_failed";
 	if (claim.decision === "no_verdict") return "infra_invalid";
 	const repeat = claim.declared || measureRepeats ? undefined : failedRepeatVerdict(claim);
 	if (repeat) return repeat;
 	if (claim.decision === "flagged") return "agent_failed";
-	if (claim.baseline.status === "same_conditions" && claim.baseline.regressed)
-		return "agent_failed";
 	return claim.decision === "clear" ? "passed" : "measured";
 }
 /** The one place a run's meaning is decided. The CLI exit code and the viewer both read this. */

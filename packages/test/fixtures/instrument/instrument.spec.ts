@@ -123,6 +123,14 @@ rates(
 		expect((await reviewer.run({ input })).output.correct).toBe(true);
 	},
 );
+rates(
+	"plan of controls",
+	{ description: "Every sample fails as it must.", samples: { n: 4, flagAt: 2 } },
+	async ({ agent }, info) => {
+		info.fail();
+		expect((await agent.run(scenario("GOOD"))).output).toBe("wrong");
+	},
+);
 rates("repeat short of verdicts", async ({ reviewer }, info) => {
 	const input = info.repeatEachIndex === 0 ? "SCENARIO_JUDGE_PROSE" : "SCENARIO_JUDGE_ENFORCED";
 	expect((await reviewer.run({ input })).output.correct).toBe(true);

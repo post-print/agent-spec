@@ -151,6 +151,13 @@ describe("reduceVerdict with a baseline", () => {
 		const result = reduce(attempts(10, 17), 1, { baselines });
 		expect(result).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
 	});
+	it("a plan short of verdicts that regressed still fails the run", () => {
+		const sample = { title: "claim", n: 27, flagAt: 20 };
+		const planned = attempts(3, 10).map((run) => ({ ...run, sample }));
+		const result = reduce(planned, 1, { baselines });
+		expect(result.claims[0]?.decision).toBe("no_verdict");
+		expect(result).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
+	});
 	it("a claim consistent with its baseline stays measured", () => {
 		const result = reduce(attempts(26, 1), 1, { baselines });
 		expect(result).toMatchObject({ verdict: "measured", exitCode: 0 });

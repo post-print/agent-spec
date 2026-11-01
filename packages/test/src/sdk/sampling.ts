@@ -75,6 +75,11 @@ async function recordSample(
 	await mkdir(join(path, ".."), { recursive: true });
 	await appendFile(path, `${outcome}\n`);
 }
+/** Matches how the verdict reads the attempt, so the plan's stop and its decision cannot disagree. */
+function failureOutcome(error: unknown, info: TestInfo) {
+	if (isInfrastructureFailure(error)) return "no_verdict";
+	return info.expectedStatus === "failed" ? "passed" : "failed";
+}
 export async function runRecordingSample(
 	info: TestInfo,
 	annotation: SampleAnnotation,
@@ -83,7 +88,7 @@ export async function runRecordingSample(
 	try {
 		await body();
 	} catch (error) {
-		await recordSample(info, annotation, isInfrastructureFailure(error) ? "no_verdict" : "failed");
+		await recordSample(info, annotation, failureOutcome(error, info));
 		throw error;
 	}
 	await recordSample(info, annotation, "passed");
