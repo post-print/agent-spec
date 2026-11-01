@@ -7,7 +7,7 @@ import {
 	type TraceAccumulator,
 	toolResultFields,
 } from "./capture.js";
-import type { AgentToolCall, AgentTrace, AgentUsage } from "./types.js";
+import type { AgentToolCall, AgentTrace, AgentUsage, HostReport } from "./types.js";
 
 /** One NDJSON line from `claude -p --output-format stream-json`. */
 const SHELL_TOOL = /^(bash|shell)$/i;
@@ -28,6 +28,11 @@ export interface ClaudeStreamEvent {
 	usage?: unknown;
 	error?: string;
 	errors?: string[];
+	tools?: string[];
+	mcp_servers?: { name: string; status?: string }[];
+	model?: string;
+	claude_code_version?: string;
+	skills?: string[];
 }
 
 export interface ClaudeContentBlock {
@@ -51,6 +56,7 @@ export interface ClaudeTraceAccumulator extends TraceAccumulator {
 	/** Unnormalized CLI exit / result subtype. */
 	rawStatus?: string;
 	sawTerminalEvent?: boolean;
+	hostReport?: HostReport;
 }
 
 export function createClaudeTraceAccumulator(): ClaudeTraceAccumulator {
@@ -214,7 +220,8 @@ function attachClaudeResult(
 	return {
 		...previous,
 		...result,
-		...(typeof block.is_error === "boolean" ? { succeeded: !block.is_error } : {}),
+		// Claude omits is_error on a successful MCP result; only true marks a failure.
+		succeeded: block.is_error !== true,
 	};
 }
 function isMessageEvent(event: ClaudeStreamEvent): boolean {
@@ -225,6 +232,16 @@ function isMessageEvent(event: ClaudeStreamEvent): boolean {
 }
 /** Fold one Claude stream-json event into trace fields. */
 export function accumulateClaudeEvent(acc: ClaudeTraceAccumulator, event: ClaudeStreamEvent): void {
+	if (event.type === "system" && event.subtype === "init") {
+		acc.hostReport = {
+			version: event.claude_code_version,
+			model: event.model,
+			tools: event.tools,
+			mcpServers: event.mcp_servers,
+			skills: event.skills,
+		};
+		return;
+	}
 	if (event.type === "stream_event") {
 		const delta = event.event?.delta;
 		if (delta?.type === "text_delta" && typeof delta.text === "string") {
@@ -282,6 +299,7 @@ export function finalizeClaudeTraceAccumulator(
 	return {
 		...trace,
 		artifacts,
+		...(acc.hostReport ? { hostReport: acc.hostReport } : {}),
 	};
 }
 

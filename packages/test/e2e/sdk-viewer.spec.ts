@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { loadSdkCatalog } from "../dist/sdk/viewer.js";
-import { ExecutionStore, executionHistoryRoot } from "../src/sdk/execution-store.js";
+import {
+	ExecutionStore,
+	executionHistoryRoot,
+	saveExecutionVerdict,
+} from "../src/sdk/execution-store.js";
+import type { VerdictResult } from "../src/sdk/verdict.js";
 import { listenViewer } from "../src/viewer/server.js";
 import { createTestCatalog } from "../src/viewer/test-catalog.js";
 
@@ -1572,4 +1577,111 @@ async function reportedMetricsFixture() {
 	);
 	await store.finish("passed");
 	return { directory, config, executionId, testId, catalog };
+}
+
+test("a run states its conditions and rates, and never calls a pass reliable", async ({ page }) => {
+	const fixture = await conditionsFixture();
+	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
+	try {
+		await page.goto(viewer.url);
+		const main = page.getByRole("main");
+		await expect(main).toContainText("Measured: rates are reported below");
+		await expect(main).toContainText("7 of 10 (95% interval 35% to 93%)");
+		await page.goto(
+			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
+		);
+		const verdict = page.getByRole("region", { name: "Test verdict" });
+		await expect(verdict).toContainText("Sample: 1 run");
+		await expect(verdict).toContainText("Unconfined");
+		await expect(verdict).toContainText("Uncalibrated");
+		await expect(verdict).toContainText("Model unpinned");
+		await expect(verdict).not.toContainText(RELIABILITY_CLAIM);
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});
+
+const RELIABILITY_CLAIM = /reliable/i;
+
+async function conditionsFixture() {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-conditions-"));
+	const config = join(directory, "agent-test.config.ts");
+	const executionId = "feed0000-0000-4000-8000-00000000000a";
+	const testId = "viewer-conditions";
+	const catalog = createTestCatalog(config, [
+		{
+			id: testId,
+			file: join(directory, "c.spec.ts"),
+			title: "viewer › conditions",
+			project: "default",
+		},
+	]);
+	const root = join(executionHistoryRoot(config), executionId);
+	const store = await ExecutionStore.create({ root, id: executionId, config });
+	await store.setTests([testId]);
+	await recordConditionsAttempt(store, testId);
+	await store.finish("passed");
+	await saveExecutionVerdict(root, conditionsVerdict());
+	return { directory, config, catalog, executionId, testId };
+}
+
+async function recordConditionsAttempt(store: ExecutionStore, testId: string) {
+	const attemptId = "attempt-1";
+	await store.record({
+		type: "attempt.started",
+		level: "info",
+		attemptId,
+		data: { testId, title: ["viewer", "conditions"], project: "default", retry: 0 },
+	});
+	await store.record({
+		type: "operation.start",
+		level: "debug",
+		attemptId,
+		operationId: "run-1",
+		data: { prompt: "answer", name: "agent", invocationIndex: 0 },
+	});
+	await store.record({
+		type: "operation.complete",
+		level: "debug",
+		attemptId,
+		operationId: "run-1",
+		data: {
+			output: "done",
+			name: "agent",
+			record: { host: "cursor", confinement: "detect-only", calibrated: false, modelPinned: false },
+		},
+	});
+	await store.record({
+		type: "attempt.finished",
+		level: "info",
+		attemptId,
+		data: { status: "passed", expectedStatus: "passed", durationMs: 10, errors: [] },
+	});
+}
+
+function conditionsVerdict(): VerdictResult {
+	return {
+		verdict: "measured",
+		exitCode: 0,
+		tests: {},
+		counts: { passed: 0, total: 0 },
+		claims: [
+			{
+				claim: "viewer › a sampled claim",
+				decision: "measured",
+				baseline: { status: "none" },
+				arms: [
+					{
+						passed: 7,
+						failed: 3,
+						noVerdict: 0,
+						total: 10,
+						interval: { low: 0.348, high: 0.933 },
+						lowerBound: 0.393,
+					},
+				],
+			},
+		],
+	};
 }

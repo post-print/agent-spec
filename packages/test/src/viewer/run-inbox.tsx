@@ -2,6 +2,8 @@ import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { claimLines } from "../sdk/claims.js";
+import { verdictSentence } from "../sdk/verdict.js";
 import { ElapsedTime } from "./elapsed-time.js";
 import {
 	formatElapsed,
@@ -148,6 +150,21 @@ function RunningFor({ run, total }: { run: ExecutionSummary; total: number }) {
 
 /** Explains a run that has no test outcome yet, or never got one. */
 function RunNotice({ run }: { run: ExecutionSummary }) {
+	if (!run.verdict || (run.verdict.verdict === "passed" && !run.verdict.claims?.length))
+		return <RunStartNotice run={run} />;
+	return (
+		<>
+			<p {...stylex.props(styles.meta)}>{verdictSentence(run.verdict)}</p>
+			{run.verdict.claims?.map((claim) => (
+				<p key={claim.claim} {...stylex.props(styles.meta)}>
+					{claimLines(claim).join(" · ")}
+				</p>
+			))}
+		</>
+	);
+}
+
+function RunStartNotice({ run }: { run: ExecutionSummary }) {
 	const statuses = (run.testIds ?? []).map((testId) => testRunStatus(run, testId));
 	if (statuses.some((status) => STARTED_STATUSES.has(status))) return null;
 	const count = statuses.length;

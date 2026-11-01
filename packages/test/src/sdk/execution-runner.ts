@@ -2,18 +2,24 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readBaselines } from "./baselines.js";
 import {
 	ExecutionStore,
 	executionHistoryRoot,
 	finishExecutionIfRunning,
+	readExecutionDetail,
 	recoverExecutionHistory,
+	saveExecutionVerdict,
 } from "./execution-store.js";
 import { playwrightCli } from "./playwright-cli.js";
+import { reduceVerdict, type VerdictAttempt, type VerdictResult } from "./verdict.js";
 
 export type StartedExecution = {
 	id: string;
 	cancel: () => void;
+	/** The exit code for this run, from its verdict. */
 	completed: Promise<number>;
+	verdict: Promise<VerdictResult>;
 };
 
 export type StartExecutionOptions = {
@@ -21,6 +27,8 @@ export type StartExecutionOptions = {
 	args: string[];
 	reporter?: string;
 	onOutput?: (line: string) => void;
+	/** Report --repeat-each as rates instead of failing on a failed repeat. */
+	measureRepeats?: boolean;
 };
 
 /** Starts one recorded Playwright process. CLI and viewer share this boundary. */
@@ -48,22 +56,61 @@ export async function startRecordedExecution(
 	});
 	pipeOutput(child.stdout, options.onOutput);
 	let cancelRequested = false;
+	const verdict = new Promise<VerdictResult>((resolveVerdict, reject) => {
+		child.once("error", reject);
+		child.once("close", (code) => {
+			void concludeExecution({
+				config: options.config,
+				root,
+				runnerExitCode: code ?? 1,
+				cancelled: cancelRequested,
+				listOnly: options.args.includes("--list"),
+				measureRepeats: options.measureRepeats === true,
+			}).then(resolveVerdict, reject);
+		});
+	});
 	return {
 		id,
 		cancel: () => {
 			cancelRequested = true;
 			child.kill("SIGTERM");
 		},
-		completed: new Promise((resolveCode, reject) => {
-			child.once("error", reject);
-			child.once("close", (code) => {
-				void finishExecutionIfRunning(root, cancelRequested ? "interrupted" : "failed").then(
-					() => resolveCode(code ?? 1),
-					reject,
-				);
-			});
-		}),
+		verdict,
+		completed: verdict.then(({ exitCode }) => exitCode),
 	};
+}
+
+/** One test's identity across samples and repeats: its project and titles, without the file line. */
+function claimKey(attempt: { project?: string; title: string[]; sample?: { title: string } }) {
+	const titles = attempt.title.filter(Boolean);
+	const path = attempt.sample ? [...titles.slice(0, -1), attempt.sample.title] : titles;
+	return path.join(" › ");
+}
+async function concludeExecution(input: {
+	config: string;
+	root: string;
+	runnerExitCode: number;
+	cancelled: boolean;
+	listOnly: boolean;
+	measureRepeats: boolean;
+}): Promise<VerdictResult> {
+	const { config, root, runnerExitCode, cancelled, listOnly } = input;
+	await finishExecutionIfRunning(root, cancelled ? "interrupted" : "failed");
+	const detail = await readExecutionDetail(root);
+	const attempts: VerdictAttempt[] = (detail?.attempts ?? []).map((attempt) => ({
+		...attempt,
+		claim: claimKey(attempt),
+	}));
+	const verdict = reduceVerdict({
+		attempts,
+		baselines: await readBaselines(config),
+		measureRepeats: input.measureRepeats,
+		interrupted: cancelled || detail?.status === "interrupted",
+		listOnly,
+		runnerExitCode,
+	});
+	await saveExecutionVerdict(root, verdict);
+	return verdict;
 }
 
 function recordedExecutionArgs(options: StartExecutionOptions, root: string): string[] {

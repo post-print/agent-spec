@@ -1,8 +1,10 @@
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ownerIsActive, type ProcessOwner, processOwner } from "@post-print/agent-harness";
+import type { SampleAnnotation } from "./claims.js";
 import { type ExecutionProgress, readExecutionProgress } from "./progress.js";
 import { releaseSnapshots } from "./snapshot-storage.js";
+import type { VerdictResult } from "./verdict.js";
 
 export const EXECUTION_FORMAT = 1;
 
@@ -30,6 +32,10 @@ export type ExecutionSummary = {
 	owner?: ProcessOwner;
 	testIds?: string[];
 	testStatuses?: Record<string, ExecutionTestStatus>;
+	/** The recorded conditions of each completed agent operation, by operation id. */
+	runRecords?: Record<string, unknown>;
+	/** What this run means. The CLI exit code and the viewer both read this. */
+	verdict?: VerdictResult;
 };
 export type ExecutionTestStatus =
 	| "queued"
@@ -60,8 +66,11 @@ export type ExecutionAttempt = {
 	testId?: string;
 	title: string[];
 	project?: string;
+	sample?: SampleAnnotation;
 	retry: number;
 	status: "running" | "passed" | "failed" | "skipped" | "interrupted";
+	expectedFailure?: boolean;
+	survivedControl?: boolean;
 	startedAt?: string;
 	completedAt?: string;
 	durationMs?: number;
@@ -122,7 +131,8 @@ export class ExecutionStore {
 		};
 		this.writes = this.writes.then(async () => {
 			await appendFile(executionPaths(this.root).journal, `${JSON.stringify(event)}\n`);
-			if (this.updateTestStatus(event)) await this.saveSummary();
+			const statusChanged = this.updateTestStatus(event);
+			if (this.updateRunRecord(event) || statusChanged) await this.saveSummary();
 		});
 		await this.writes;
 		return event;
@@ -131,6 +141,13 @@ export class ExecutionStore {
 		this.summary.testIds = testIds;
 		this.summary.testStatuses = Object.fromEntries(testIds.map((testId) => [testId, "queued"]));
 		await this.saveSummary();
+	}
+	private updateRunRecord(event: ExecutionEvent): boolean {
+		if (event.type !== "operation.complete" || !event.operationId) return false;
+		const record = asRecord(event.data).record;
+		if (record === undefined) return false;
+		this.summary.runRecords = { ...this.summary.runRecords, [event.operationId]: record };
+		return true;
 	}
 	private updateTestStatus(event: ExecutionEvent): boolean {
 		if (!event.attemptId) return false;
@@ -282,6 +299,7 @@ function applyAttemptStart(attempt: ExecutionAttempt, event: ExecutionEvent): vo
 	const data = asRecord(event.data);
 	attempt.startedAt = event.at;
 	attempt.testId = typeof data.testId === "string" ? data.testId : undefined;
+	attempt.sample = data.sample as SampleAnnotation | undefined;
 	attempt.title = Array.isArray(data.title)
 		? data.title.filter((part): part is string => typeof part === "string")
 		: [];
@@ -293,6 +311,8 @@ function applyAttemptFinish(attempt: ExecutionAttempt, event: ExecutionEvent): v
 	const data = asRecord(event.data);
 	attempt.completedAt = event.at;
 	attempt.status = outcomeStatus(data.status);
+	attempt.expectedFailure = data.status === "failed" && data.expectedStatus === "failed";
+	attempt.survivedControl = data.status === "passed" && data.expectedStatus === "failed";
 	attempt.durationMs = typeof data.durationMs === "number" ? data.durationMs : undefined;
 	attempt.errors = Array.isArray(data.errors) ? data.errors : [];
 	attempt.criterionResults = parseCriterionResults(data.criterionResults);
@@ -519,4 +539,13 @@ async function retainExecutionHistory(root: string, maximum = 50): Promise<void>
 	for (const summary of finished.slice(maximum)) {
 		await rm(join(root, summary.id), { recursive: true, force: true });
 	}
+}
+
+/** Writes the verdict after the run's final status, so a recovered run never appears to have one. */
+export async function saveExecutionVerdict(root: string, verdict: VerdictResult): Promise<void> {
+	const summary = await readExecutionSummary(root);
+	if (!summary) return;
+	const target = executionPaths(root).summary;
+	await writeFile(`${target}.tmp`, `${JSON.stringify({ ...summary, verdict }, null, 2)}\n`);
+	await rename(`${target}.tmp`, target);
 }

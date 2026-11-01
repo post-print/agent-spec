@@ -2,12 +2,14 @@ import { basename, relative, resolve, sep } from "node:path";
 import { expect as base } from "@playwright/test";
 import { type ShellSegment, shellSegments } from "@post-print/agent-harness";
 import { consumeCriterionOperations } from "./criterion-provenance.js";
+import { offeredTool } from "./run-record.js";
 import type { Run } from "./types.js";
 
 const FILE_PROTOCOL = /^file:\/\//;
 const COMMAND_TOOL = /shell|bash|terminal|exec|command/i;
 const READ_TOOL = /read/i;
 const SEARCH_TOOL = /^(grep|glob)$/i;
+const SKILL_TOOL = /^skill$/i;
 const GLOB_CHARS = /[*?[]/;
 const PATH_ARG_KEYS = ["path", "file_path", "filePath", "target_file", "uri", "pattern"];
 const FILE_READING_COMMANDS = new Set([
@@ -102,6 +104,15 @@ function commandMatches(call: ToolCall, expected: string | RegExp): CommandMatch
 	if (index >= 0) return { call, ownsExitCode: ownsExitCode(segments, index) };
 	return matches(raw, expected) ? { call, ownsExitCode: segments.length <= 1 } : undefined;
 }
+const RECURSIVE_FLAG = /^-[a-zA-Z]*[rR][a-zA-Z]*$|^--recursive$/;
+/** `grep -r x` and `rg x` read everything under the working directory. */
+function isUnscopedShellSearch(tokens: string[]): boolean {
+	const executable = basename(tokens[0] ?? "");
+	const args = tokens.slice(1);
+	const recursive =
+		executable === "rg" || (executable === "grep" && args.some((arg) => RECURSIVE_FLAG.test(arg)));
+	return recursive && args.filter((arg) => !arg.startsWith("-")).length <= 1;
+}
 function accessesPath(run: Run, call: ToolCall, path: string): boolean {
 	const args = call.args ?? {};
 	const named = PATH_ARG_KEYS.map((key) => args[key]).filter(
@@ -110,8 +121,10 @@ function accessesPath(run: Run, call: ToolCall, path: string): boolean {
 	if (SEARCH_TOOL.test(call.name) && !args.path) return true;
 	if (named.some((value) => mayExpose(run, value, path))) return true;
 	if (!COMMAND_TOOL.test(call.name)) return false;
-	return shellSegments(commandText(call)).some(({ tokens }) =>
-		tokens.slice(1).some((token) => !token.startsWith("-") && mayExpose(run, token, path)),
+	return shellSegments(commandText(call)).some(
+		({ tokens }) =>
+			isUnscopedShellSearch(tokens) ||
+			tokens.slice(1).some((token) => !token.startsWith("-") && mayExpose(run, token, path)),
 	);
 }
 const outcome = (pass: boolean, description: string) => ({ pass, message: () => description });
@@ -129,6 +142,17 @@ function executedCommandMessage(
 		? `\n${unattributed} matching command(s) ran in a pipeline, after ||, or before another command, so the recorded exit code is not theirs.`
 		: "";
 	return `Expected command ${String(expected.command)}${exit}${note}\nObserved: ${JSON.stringify(calls)}`;
+}
+interface ExpectedToolCall {
+	/** Each named argument must equal this value. Other arguments are ignored. */
+	args?: Record<string, unknown>;
+	succeeded?: boolean;
+}
+function matchesToolCall(call: ToolCall, { args, succeeded }: ExpectedToolCall): boolean {
+	if (succeeded !== undefined && call.succeeded !== succeeded) return false;
+	return Object.entries(args ?? {}).every(
+		([key, value]) => JSON.stringify(call.args?.[key]) === JSON.stringify(value),
+	);
 }
 const extendedExpect = base.extend({
 	toHaveExecutedCommand(run: Run, expected: ExpectedCommand) {
@@ -151,11 +175,14 @@ const extendedExpect = base.extend({
 			executedCommandMessage(expected, calls, matching.length - attributable.length),
 		);
 	},
-	toHaveCalledTool(run: Run, expected: string | RegExp) {
+	toHaveCalledTool(run: Run, expected: string | RegExp, details: ExpectedToolCall = {}) {
 		requireTools(run);
+		const named = run.toolCalls.filter((call) => matches(call.name, expected));
+		if (details.succeeded !== undefined && named.some((call) => call.succeeded === undefined))
+			throw new Error(`Tool success evidence unavailable for ${String(expected)}`);
 		return outcome(
-			run.toolCalls.some((call) => matches(call.name, expected)),
-			`Expected tool ${String(expected)}; observed ${run.toolCalls.map((call) => call.name).join(", ")}`,
+			named.some((call) => matchesToolCall(call, details)),
+			`Expected tool ${String(expected)}${details.args || details.succeeded !== undefined ? ` with ${JSON.stringify(details)}` : ""}; observed ${JSON.stringify(run.toolCalls.map(({ name, args, succeeded }) => ({ name, args, succeeded })))}`,
 		);
 	},
 	toHaveCalledToolsInOrder(run: Run, expected: (string | RegExp)[]) {
@@ -187,11 +214,37 @@ const extendedExpect = base.extend({
 			throw new Error(`Successful file-read evidence unavailable: ${path}`);
 		return outcome(found, `Expected successful read of ${path}`);
 	},
+	/** A host may load a skill through its own tool or by reading the file. Either is evidence. */
+	toHaveUsedSkill(run: Run, name: string) {
+		requireTools(run);
+		const skillFile = run.startingContext.skills
+			.map(({ destination }) => `${destination}/SKILL.md`)
+			.find((path) => path.includes(`/${name}/`));
+		const loaded = run.toolCalls.some(
+			(call) => SKILL_TOOL.test(call.name) && call.args?.skill === name && call.succeeded !== false,
+		);
+		const read = run.toolCalls.some(
+			(call) =>
+				call.succeeded === true &&
+				skillFile !== undefined &&
+				(Object.values(call.args ?? {}).some(
+					(value) => typeof value === "string" && samePath(run, value, skillFile),
+				) ||
+					shellReadsPath(run, commandText(call), skillFile)),
+		);
+		return outcome(loaded || read, `Expected the agent to use skill ${name}`);
+	},
 	toHaveAccessedPath(run: Run, path: string) {
 		requireTools(run);
 		return outcome(
 			run.toolCalls.some((call) => accessesPath(run, call, path)),
 			`Expected possible access to ${path} (exact path, enclosing directory, matching glob, or an unscoped search)`,
+		);
+	},
+	toHaveBeenOffered(run: Run, tool: string) {
+		return outcome(
+			offeredTool(run.exposure, tool),
+			`Expected the agent to be offered ${tool}; offered (${run.exposure.source}): ${run.exposure.tools.map(({ name }) => name).join(", ")}`,
 		);
 	},
 	toHaveModifiedPath(run: Run, path: string) {

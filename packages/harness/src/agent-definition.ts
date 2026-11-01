@@ -116,7 +116,7 @@ function definition(value: AgentDefinition): AgentDefinition {
 	return freeze(copy);
 }
 function builtin(host: BuiltinAgentHost, options: AgentOptions = {}): AgentDefinition {
-	if (options.networkAccess && host !== "openai")
+	if (options.networkAccess && host !== "openai" && host !== "claude")
 		throw new Error(`networkAccess is not supported by ${host}`);
 	if (host !== "claude" && options.tools !== undefined)
 		throw new Error(`tools is not supported by ${host}`);

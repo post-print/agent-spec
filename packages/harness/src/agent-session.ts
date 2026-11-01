@@ -2,11 +2,14 @@ import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { AgentCapabilities, AgentDefinition, AgentEvent } from "./agent-definition.js";
 import { AgentInfrastructureError, isAgentInfrastructureCode } from "./agent-error.js";
+import { type HostConditions, hostConditions } from "./host-conditions.js";
 import { redactedTail } from "./host-failure.js";
 import type { AgentTrace } from "./types.js";
 
 export interface HarnessSession {
 	capabilities: AgentCapabilities;
+	/** Settles independently of the session, so a slow host version query never delays a run. */
+	conditions: Promise<HostConditions>;
 	run(prompt: string, onEvent?: (event: AgentEvent) => void): Promise<AgentTrace>;
 	close(): Promise<void>;
 }
@@ -119,6 +122,7 @@ class SessionWorker {
 			})) as AgentCapabilities;
 			return {
 				capabilities,
+				conditions: hostConditions(agent, readOnly === true),
 				run: (prompt, onEvent) => this.run(prompt, onEvent),
 				close: () => this.close(),
 			};

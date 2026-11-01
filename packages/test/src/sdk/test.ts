@@ -11,6 +11,13 @@ import type { z } from "zod";
 import { derivedExpectCriteria } from "./criteria.js";
 import { type AgentResource, factories, type JudgeResource, type Resource } from "./definitions.js";
 import { TestRuntime } from "./runtime.js";
+import {
+	plannedSamples,
+	recordSample,
+	SAMPLE_ANNOTATION,
+	type SamplingDetails,
+	sampleIsUnneeded,
+} from "./sampling.js";
 import type { AgentFixture, JudgeFixture } from "./types.js";
 
 interface Defaults {
@@ -45,6 +52,7 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		judge: defaults.judgeDefinition,
 		workspace: defaults.workspaceSource,
 		signal: new AbortController().signal,
+		testFile: info.file,
 		remainingTestMs: () => (info.timeout === 0 ? undefined : startedAt + info.timeout - Date.now()),
 		onEvent: (event) => {
 			writes = writes.then(() => appendFile(path, `${JSON.stringify(event)}\n`));
@@ -75,8 +83,10 @@ export type Fixtures<R extends Resources> = {
 type TestBody<R extends Resources> = (
 	fixtures: Fixtures<R>,
 	info: TestInfo,
+	/** The arm of a comparison this run belongs to. */
+	variant: string,
 ) => Promise<void> | void;
-export type TestDetails<R extends Resources = Resources> = {
+export type TestDetails<R extends Resources = Resources> = SamplingDetails & {
 	description: string;
 	criteria?: readonly string[];
 	resources?: readonly Extract<keyof R, string>[];
@@ -133,11 +143,34 @@ export function describe<R extends Resources>(
 			...testAnnotations(resources, callback, details),
 			...suiteAnnotations(suite),
 		];
+		const noAgent = details?.noAgent === true;
+		const sampled = details?.samples !== undefined || details?.variants !== undefined;
 		runner.describe(name, () => {
-			runner(title, { annotation }, async ({ runtime }, info) => {
-				await callback(bind(resources, runtime), info);
-				runtime.assertResultEarned({ noAgent: details?.noAgent === true });
-			});
+			if (!sampled) {
+				runner(title, { annotation }, async ({ runtime }, info) => {
+					await callback(bind(resources, runtime), info, "");
+					runtime.assertResultEarned({ noAgent });
+				});
+				return;
+			}
+			for (const planned of plannedSamples(title, details ?? {})) {
+				const annotations = [
+					...annotation,
+					{ type: SAMPLE_ANNOTATION, description: JSON.stringify(planned.annotation) },
+				];
+				runner(planned.title, { annotation: annotations }, async ({ runtime }, info) => {
+					const unneeded = await sampleIsUnneeded(info, planned.annotation);
+					info.skip(unneeded, "The sampling plan's decision is already fixed.");
+					let failed = true;
+					try {
+						await callback(bind(resources, runtime), info, planned.annotation.variant ?? "");
+						runtime.assertResultEarned({ noAgent });
+						failed = false;
+					} finally {
+						await recordSample(info, planned.annotation, failed);
+					}
+				});
+			}
 		});
 	};
 }

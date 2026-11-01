@@ -26,7 +26,9 @@ The default test config selects OpenAI; the separate matrix config has OpenAI, C
 | `bun run test:tour` | Run the worked examples with OpenAI |
 | `bun run test:capabilities` | Eleven manual default-agent capability tests |
 | `bun run test:matrix` | Capabilities across all three host projects |
-| `bun run test:reliability` | Twenty capability repetitions with no retries |
+| `bun run test:reliability` | Twenty capability repetitions with no retries, reported as measured rates |
+| `bun run test:probe` | Check the sealed environment on each host; run after upgrading a host CLI |
+| `bun run test:controls` | Reference suites and their subject controls on OpenAI and Claude |
 
 Use Node 22+ for the published packages; Bun 1.4.0 is the repository toolchain. The CLI does not load `.env`. See [hosts](docs/hosts.md), [isolation](docs/isolation.md), and [reliability](docs/reliability.md).
 

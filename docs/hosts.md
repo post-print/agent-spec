@@ -43,8 +43,28 @@ A terminal failure the host reports itself, such as Claude's `error_max_turns`, 
 
 Built-in conversation continuation is reconstructed. Native host discovery varies: Codex reads scoped AGENTS.md, Claude uses its project settings and CLAUDE.md (unless `loadProjectContext: false` runs it bare), and Cursor discovers supported project rules and skills. Captured evidence does not prove which undisclosed host instructions loaded.
 
-Config selects a default judge agent; named judge resources may override it. OpenAI judges use a read-only permission profile; Claude judging restricts tools to Read/Glob/Grep. Coding agents and judges on OpenAI and Claude run under host-enforced filesystem limits that deny the caller checkout and the shared temp folder; see [isolation](isolation.md#isolation-boundary). Cursor judging is rejected until enforced read-only support exists. `networkAccess: true` is supported only for the OpenAI coding agent, not its judge.
+Config selects a default judge agent; named judge resources may override it. OpenAI judges use a read-only permission profile; Claude judging restricts tools to Read/Glob/Grep. Coding agents and judges on OpenAI and Claude run under host-enforced filesystem limits that deny the caller checkout and the shared temp folder; see [isolation](isolation.md#isolation-boundary). Cursor judging is rejected until enforced read-only support exists. `networkAccess: true` is supported on OpenAI and Claude coding agents, not on their judges.
 
 By default the Claude coding agent may use Bash, Read, Edit, Write, Glob, Grep, Agent and Skill; Skill is how Claude Code invokes the project skills it discovers, including skills attached to the definition. `claude({ tools })` sets the built-in tools the Claude coding agent can see (`--tools`) and may use. `tools: []` leaves only the suite's MCP tools, for an agent that must act only through them. `claude({ loadProjectContext: false })` with API-key auth runs Claude Code as `--bare`, which skips CLAUDE.md, rules, skills, and settings discovery. Subscription auth cannot run bare, so project settings and CLAUDE.md still load from the workspace; keep that workspace free of them. `claude({ allowUnixSockets: true })` lets the agent's sandboxed commands create Unix sockets. On Linux, Claude Code's sandbox blocks them with a seccomp filter, and headless Chrome dies at startup without them, so an agent that screenshots pages needs it. The filesystem limits are unchanged. All three options are Claude-only and throw on other hosts.
 
 Custom integrations use `defineAgent()` and `customAgent()` with explicit capabilities. See [the adapter example](sdk-v2.md#custom-agents). The old host registry and classifier adapters are removed.
+
+## What a run records
+
+Every completed run carries `run.record`, also stored by operation in the execution summary: host, binary and version, requested and observed model, whether the model is pinned, auth mode, confinement, network state, setting sources, the names of overriding environment variables, package version, git SHA and dirty flag, and hashes of the suite, prompt, skills, and initial workspace.
+
+| Host | Confinement | Reports its tools and model | Network |
+| --- | --- | --- | --- |
+| Claude Code | `host-enforced` | Yes, in its `init` event | Denied unless `networkAccess: true` |
+| Codex | `host-enforced` | No | Denied unless `networkAccess: true` |
+| Cursor and custom adapters | `detect-only` | No | Not established |
+
+`run.exposure` states what the agent was offered. Its `source` is `host` when the host listed every tool, `mcp-query` when the harness asked each MCP server for its tools and so built-in tools are not known, and `unknown` when neither worked. `expect(run).toHaveBeenOffered("tool")` throws `ConditionsUnknownError` on an unknown catalog in either direction, so a discovery test cannot pass or fail on a run that cannot show what was offered.
+
+The viewer marks a result `Unconfined` when the host only detects escapes, `Model unpinned` when no definition names a model, and `Uncalibrated` when this host version has no passing host probe in `.agent-test/calibration`.
+
+Sealed Codex runs set `features.apps=false`, because a login otherwise connects the run to the account's apps: an unconfigured sealed agent called Linear and Atlassian tools while looking for a task. Enable `includeGlobalSkills` only when a run may use them.
+
+Two limits were observed on Codex CLI 0.154.0. It can run a command without emitting a tool event, so `not.toHaveAccessedPath` and "used no tools" assertions can pass when the agent did act; assert on files the work must produce when that matters. And attached skills depend on the model: the same skill test failed on `gpt-5.6-sol` and passed on `gpt-5.6-terra` and `gpt-6-astra`. Claude Code loads a skill through its `Skill` tool rather than always reading the file, so assert with `toHaveUsedSkill`. It reports whether a command succeeded but not its exit code, so `toHaveExecutedCommand({ exitCode })` throws there instead of guessing.
+
+Run `bun run test:probe` after upgrading a host. A sealed agent runs Node, npx, and `git commit`, uses an attached skill and an MCP tool, checks the network both ways, and runs a script that reads outside its workspace, with the host's answer read from a file rather than from tool events or the model's words. A pass calibrates that host version.

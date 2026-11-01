@@ -1,7 +1,18 @@
 import { relative, resolve } from "node:path";
+import { baselineDirectory, saveBaselines } from "./baselines.js";
+import { claimLines } from "./claims.js";
 import { startRecordedExecution } from "./execution-runner.js";
+import { executionHistoryRoot, listExecutionHistory } from "./execution-store.js";
+import { verdictSentence } from "./verdict.js";
 
 export { playwrightCli } from "./playwright-cli.js";
+
+async function saveLatestBaselines(config: string): Promise<string[]> {
+	const root = executionHistoryRoot(config);
+	const summaries = await listExecutionHistory(root);
+	const latest = summaries.find((summary) => summary.verdict?.claims.length);
+	return latest?.verdict ? saveBaselines(config, latest.verdict.claims) : [];
+}
 
 type RunnerArgument =
 	| { kind: "config"; value: string; next: number }
@@ -42,9 +53,12 @@ function runnerArguments(args: string[]) {
 	return { config, reporter, passThrough };
 }
 export async function runSdkCli(args: string[]): Promise<number> {
-	const { config, reporter: requestedReporter, passThrough } = runnerArguments(args);
+	const { config, reporter: requestedReporter, passThrough: parsed } = runnerArguments(args);
+	const measureRepeats = parsed.includes("--measure");
+	const passThrough = parsed.filter((argument) => argument !== "--measure");
 	const execution = await startRecordedExecution({
 		config,
+		measureRepeats,
 		args: passThrough,
 		reporter: requestedReporter,
 		onOutput: (line) => process.stdout.write(`${line}\n`),
@@ -53,6 +67,11 @@ export async function runSdkCli(args: string[]): Promise<number> {
 	process.once("SIGINT", cancel);
 	try {
 		const code = await execution.completed;
+		const result = await execution.verdict;
+		if (!passThrough.includes("--list"))
+			process.stdout.write(
+				`${[verdictSentence(result), ...result.claims.flatMap(claimLines)].join("\n")}\n`,
+			);
 		if (!passThrough.includes("--list"))
 			for (const line of viewerHint({
 				config,
@@ -89,4 +108,16 @@ export function viewerHint(input: {
 			"Agent: ask the user whether to open the results viewer; start it only if they agree.",
 		);
 	return lines;
+}
+
+/** Saves the newest run's sampled claims as the baselines later runs compare against. */
+export async function runBaselineCli(args: string[]): Promise<number> {
+	const { config } = runnerArguments(args);
+	const saved = await saveLatestBaselines(config);
+	process.stdout.write(
+		saved.length
+			? `Saved ${saved.length} baselines to ${relative(process.cwd(), baselineDirectory(config))}. Commit them.\n`
+			: "The newest run has no sampled claims to save.\n",
+	);
+	return 0;
 }
