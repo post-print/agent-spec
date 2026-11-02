@@ -119,12 +119,16 @@ import {defineConfig} from "@post-print/agent-test";
 export default defineConfig({testDir: "./dist", testMatch: "src.js"});
 `,
 );
+// A custom adapter cannot be calibrated and only detects escapes, so its run is indicative. This
+// check is about installation, so it accepts that, and the CLI must say why it exited 0.
 const { stdout } = await exec(
 	process.execPath,
-	[join(consumer, "node_modules/@post-print/agent-test/dist/cli.js"), "test"],
+	[join(consumer, "node_modules/@post-print/agent-test/dist/cli.js"), "test", "--allow-indicative"],
 	{ cwd: consumer },
 );
 console.log(stdout);
+if (!stdout.includes("Exit 0 only because --allow-indicative was given"))
+	throw new Error("The installed CLI did not say why an indicative run exited 0");
 const after = await Promise.all(trackedManifests.map((path) => readFile(path, "utf8")));
 if (before.some((value, index) => value !== after[index]))
 	throw new Error("Consumer check changed a tracked manifest");
