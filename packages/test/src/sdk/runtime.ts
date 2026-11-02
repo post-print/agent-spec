@@ -77,6 +77,30 @@ function withinTestDeadline(definition: AgentDefinition, remainingMs?: number): 
 	if (timeoutMs <= budget) return definition;
 	return { ...definition, options: { ...definition.options, timeoutMs: budget } };
 }
+/** Set by `agent-test test --verdict-grade`: every run must be one a pass can stand on. */
+const VERDICT_GRADE_ENV = "AGENT_TEST_VERDICT_GRADE";
+/**
+ * What keeps a definition from a verdict-grade run: it must keep the host's own configuration out
+ * and be able to seal the real home, which only API-key Claude (bare) and Codex runs can.
+ */
+function verdictGradeRefusal({ host, options }: AgentDefinition): string | undefined {
+	if (host !== "claude" && host !== "openai")
+		return `${host ?? "a custom adapter"} cannot seal its runs`;
+	if (options.auth?.type !== "api-key") return "it uses subscription auth";
+	if (options.includeGlobalSkills === true) return "it includes global skills";
+	if (host === "claude" && options.loadProjectContext !== false)
+		return "Claude loads project context, so it cannot run --bare";
+	return undefined;
+}
+function verdictGrade(definition: AgentDefinition): AgentDefinition {
+	if (process.env[VERDICT_GRADE_ENV] !== "1") return definition;
+	const refusal = verdictGradeRefusal(definition);
+	if (refusal)
+		throw new Error(
+			`--verdict-grade refuses this agent definition: ${refusal}. Use API-key auth, and on Claude set loadProjectContext: false.`,
+		);
+	return { ...definition, options: { ...definition.options, sealHome: true } };
+}
 interface RunInput {
 	session: HarnessSession;
 	workspace: Workspace;
@@ -228,7 +252,7 @@ export class TestRuntime {
 		return this.ledger.reportedInfrastructureFailure();
 	}
 	private forTest(definition: AgentDefinition): AgentDefinition {
-		return withinTestDeadline(definition, this.options.remainingTestMs?.());
+		return withinTestDeadline(verdictGrade(definition), this.options.remainingTestMs?.());
 	}
 	agent(
 		name: string,

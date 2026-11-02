@@ -30,11 +30,22 @@ export interface AgentOptions {
 	 * Chrome, which the sandbox's seccomp filter otherwise kills at startup. Defaults to false.
 	 */
 	allowUnixSockets?: boolean;
+	/**
+	 * Claude and Codex only: deny the agent reads of the real home directory, and give Claude a
+	 * fresh HOME inside the workspace's `.git`. agent-test sets it under `--verdict-grade`.
+	 */
+	sealHome?: boolean;
 }
 export interface OpenRouterAgentOptions
 	extends Omit<
 		AgentOptions,
-		"auth" | "mcpServers" | "networkAccess" | "tools" | "loadProjectContext" | "allowUnixSockets"
+		| "auth"
+		| "mcpServers"
+		| "networkAccess"
+		| "tools"
+		| "loadProjectContext"
+		| "allowUnixSockets"
+		| "sealHome"
 	> {
 	baseUrl?: string;
 	httpReferer?: string;

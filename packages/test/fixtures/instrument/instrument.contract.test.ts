@@ -10,13 +10,14 @@ const config = fileURLToPath(new URL("./agent-test.config.ts", import.meta.url))
 const fakeHost = fileURLToPath(new URL("./fake-host.mjs", import.meta.url));
 const roots: string[] = [];
 
-async function runScenario(grep: string, extra: string[] = [], allowIndicative = false) {
+type RunFlags = { allowIndicative?: boolean; verdictGrade?: boolean };
+async function runScenario(grep: string, extra: string[] = [], flags: RunFlags = {}) {
 	const previous = process.env.CLAUDE_CODE_BIN;
 	process.env.CLAUDE_CODE_BIN = fakeHost;
 	const execution = await startRecordedExecution({
 		config,
 		args: ["--grep", grep, "--workers", "1", ...extra],
-		allowIndicative,
+		...flags,
 	});
 	if (previous === undefined) delete process.env.CLAUDE_CODE_BIN;
 	else process.env.CLAUDE_CODE_BIN = previous;
@@ -86,7 +87,9 @@ describe("rates through the real runner", () => {
 		expect(verdict.claims[0]?.arms[0]).toMatchObject({ passed: 2, failed: 1, total: 3 });
 	}, 60_000);
 	it("--allow-indicative exits 0 on a rate and stores that it did", async () => {
-		const { verdict, exitCode } = await runScenario("instrument rates sampled pass \\[", [], true);
+		const { verdict, exitCode } = await runScenario("instrument rates sampled pass \\[", [], {
+			allowIndicative: true,
+		});
 		expect(verdict).toMatchObject({ verdict: "indicative", indicativeAllowed: true });
 		expect(exitCode).toBe(0);
 	}, 60_000);
@@ -335,5 +338,21 @@ describe("conditions a pass needs through the real runner", () => {
 		} finally {
 			await recordHostCalibration(fileURLToPath(new URL(".", import.meta.url)), FAKE_HOST);
 		}
+	}, 60_000);
+});
+function recordsOf({ data }: { data: unknown[] }): unknown[] {
+	return data.filter((item) => (item as { record?: object } | null)?.record !== undefined);
+}
+describe("verdict-grade runs through the real runner", () => {
+	it("a verdict-grade run seals the real home and can still pass", async () => {
+		const { verdict, exitCode, summary } = await runScenario("instrument good run$", [], {
+			verdictGrade: true,
+		});
+		expect(verdict.verdict).toBe("passed");
+		expect(exitCode).toBe(0);
+		const records = (summary?.attempts ?? []).flatMap(({ operations }) =>
+			operations.flatMap(recordsOf),
+		);
+		expect(records[0]).toMatchObject({ record: { home: "sealed", userConfig: "excluded" } });
 	}, 60_000);
 });

@@ -6,7 +6,7 @@ import {
 	realpathSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
 /**
@@ -124,6 +124,29 @@ export function prepareClaudeEnvFile(cwd: string, path = process.env.PATH ?? "")
 	const envFile = join(cwd, ".git", "agent-harness", "claude-env.sh");
 	writeFileSync(envFile, `export PATH=${shellQuote(shimDir)}:"$PATH"\n`);
 	return envFile;
+}
+
+/**
+ * A HOME for a sealed run: inside the workspace's `.git`, which the sandbox allows and snapshots
+ * leave out, with only the git identity a commit needs. The real home stays unread.
+ */
+export function prepareSealedHome(cwd: string): string {
+	const home = join(cwd, ".git", "agent-harness", "home");
+	mkdirSync(home, { recursive: true });
+	writeFileSync(
+		join(home, ".gitconfig"),
+		"[user]\n\tname = agent-test\n\temail = agent-test@localhost\n",
+	);
+	return home;
+}
+/** The real home joins the paths an agent may not read, unless the workspace lies inside it. */
+export function sealedProtectedPaths(cwd: string, protectedPaths: readonly string[]): string[] {
+	const home = homedir();
+	if (cwd === home || cwd.startsWith(`${home}/`))
+		throw new Error(
+			`A sealed home needs a workspace outside ${home}; set TMPDIR to a folder outside it`,
+		);
+	return [...protectedPaths, home];
 }
 
 /** Codex permission profile name installed for every harness run. */

@@ -154,7 +154,11 @@ const blamesOnlyOnEvidence: Property = (run, { exitCode }) =>
 	run.attempts.some((attempt) => attempt.survivedControl || chargeableToAgent(attempt));
 const passesOnlyUnderStrongConditions: Property = (run, { verdict }) =>
 	verdict !== "passed" ||
-	run.attempts.flatMap(attemptRecords).every((record) => recordWeaknesses(record).length === 0);
+	run.attempts
+		// A skipped test contributes nothing to a pass, so its conditions cannot weaken one.
+		.filter(({ status }) => status !== "skipped")
+		.flatMap(attemptRecords)
+		.every((record) => recordWeaknesses(record).length === 0);
 const orderFree: Property = (run, { verdict }) =>
 	reduceVerdict({ ...run, attempts: [...run.attempts].reverse() }).verdict === verdict;
 const unplannedRateNeverPasses: Property = (run, { claimVerdicts = {} }) =>

@@ -4,7 +4,7 @@
 <!-- doc-meta: owner=eng -->
 <!-- review-deps: paths=packages/test/src/cli.ts,packages/test/src/sdk/cli.ts,packages/test/src/sdk/viewer.ts,packages/test/src/sdk/execution-runner.ts,packages/test/src/sdk/execution-store.ts,packages/test/package.json#bin,packages/test/package.json#dependencies -->
 
-The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`. It ends with one verdict sentence and exits 0 when the tests passed, 1 when a check failed, 2 when the run has no verdict, and 3 when it is only indicative, such as a rate with no plan. `--allow-indicative` turns exit 3 into 0 and says so. See [exit codes](reliability.md#exit-codes).
+The CLI runs the TypeScript SDK through Playwright Test. It does not load `.env`. It ends with one verdict sentence and exits 0 when the tests passed, 1 when a check failed, 2 when the run has no verdict, and 3 when it is only indicative, such as a rate with no plan. `--allow-indicative` turns exit 3 into 0 and says so. `--verdict-grade` refuses agents a pass could not stand on and seals the real home from the rest; see [verdict-grade runs](isolation.md#verdict-grade-runs). See [exit codes](reliability.md#exit-codes).
 
 | Command | Behavior |
 | --- | --- |

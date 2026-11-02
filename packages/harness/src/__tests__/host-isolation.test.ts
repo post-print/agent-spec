@@ -9,14 +9,16 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	claudeIsolationSettings,
 	codexPermissionArgs,
 	prepareClaudeEnvFile,
 	prepareSandboxPath,
+	prepareSealedHome,
 	sandboxNodeOptions,
+	sealedProtectedPaths,
 } from "../host-isolation.js";
 
 it("claudeIsolationSettings › sandboxes Bash and blocks file tools outside the workspace", () => {
@@ -145,5 +147,29 @@ describe("prepareSandboxPath", () => {
 		);
 		rmSync(join(bin, "npx"));
 		expect(prepareClaudeEnvFile(join(workspace, "missing"), bin)).toBeNull();
+	});
+});
+
+describe("a sealed home", () => {
+	it("denies the real home to the agent and gives it a fresh one with a git identity", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "sealed-home-"));
+		try {
+			const denied = sealedProtectedPaths(cwd, ["/checkout"]);
+			expect(denied).toEqual(["/checkout", homedir()]);
+			const settings = JSON.parse(
+				claudeIsolationSettings({ cwd, readOnly: false, protectedPaths: denied }),
+			);
+			expect(settings.sandbox.filesystem.denyRead).toContain(homedir());
+			const home = prepareSealedHome(cwd);
+			expect(home).toBe(join(cwd, ".git", "agent-harness", "home"));
+			expect(readFileSync(join(home, ".gitconfig"), "utf8")).toContain(
+				"email = agent-test@localhost",
+			);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+	it("refuses a workspace inside the home it would deny", () => {
+		expect(() => sealedProtectedPaths(join(homedir(), "work"), [])).toThrow("outside");
 	});
 });

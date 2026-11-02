@@ -23,6 +23,8 @@ export type NetworkState = "enabled" | "disabled" | "unknown";
  * CLAUDE.md, hooks, plugins, or global skills. "may-load" means nothing shuts it out.
  */
 export type UserConfig = "excluded" | "may-load" | "unknown";
+/** Whether the agent can read the real home: "sealed" only when the host denies it. */
+export type HomeAccess = "sealed" | "readable" | "unknown";
 /** What a session was launched under, as far as the harness can state it. */
 export interface HostConditions {
 	host: string;
@@ -33,6 +35,7 @@ export interface HostConditions {
 	network: NetworkState;
 	settingSources?: string[];
 	userConfig: UserConfig;
+	home: HomeAccess;
 	/** Names only: values can hold secrets or local paths. */
 	overridingEnv: string[];
 }
@@ -84,6 +87,10 @@ function userConfig(agent: AgentDefinition): UserConfig {
 	if (agent.host === "openai") return includeGlobal ? "may-load" : "excluded";
 	return "unknown";
 }
+function homeAccess(agent: AgentDefinition): HomeAccess {
+	if (agent.host !== "claude" && agent.host !== "openai") return "unknown";
+	return agent.options.sealHome === true ? "sealed" : "readable";
+}
 export async function hostConditions(
 	agent: AgentDefinition,
 	readOnly: boolean,
@@ -99,6 +106,7 @@ export async function hostConditions(
 		network: networkState(agent, readOnly),
 		settingSources: settingSources(agent),
 		userConfig: userConfig(agent),
+		home: homeAccess(agent),
 		overridingEnv: OVERRIDING_ENV.filter((name) => process.env[name] !== undefined),
 	};
 }

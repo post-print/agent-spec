@@ -32,6 +32,8 @@ export type StartExecutionOptions = {
 	measureRepeats?: boolean;
 	/** Exit 0 on an indicative run. The stored verdict records that it did. */
 	allowIndicative?: boolean;
+	/** Refuse any run a pass could not stand on, and seal the real home from every agent. */
+	verdictGrade?: boolean;
 };
 
 /** Starts one recorded Playwright process. CLI and viewer share this boundary. */
@@ -52,6 +54,7 @@ export async function startRecordedExecution(
 		env: {
 			...process.env,
 			AGENT_TEST_RECORDER: "1",
+			...(options.verdictGrade ? { AGENT_TEST_VERDICT_GRADE: "1" } : {}),
 			AGENT_TEST_EXECUTION_ID: id,
 			AGENT_TEST_EXECUTION_ROOT: root,
 			AGENT_TEST_EXECUTION_CONFIG: options.config,
