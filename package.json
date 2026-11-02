@@ -20,6 +20,7 @@
 		"test:sdk:consumer": "bun run build && node scripts/test-sdk-consumer.mjs",
 		"test:sdk:hosts": "bun run build && node packages/test/dist/cli.js test tour --config agent-test.matrix.config.ts --grep \"reads the project owner from a file\"",
 		"test:probe": "bun run build && node packages/test/dist/cli.js test --config agent-test.probe.config.ts",
+		"test:mutation": "stryker run",
 		"test:controls:offline": "bun run build && bun scripts/control-gate.ts",
 		"test:nightly": "bun run build && node packages/test/dist/cli.js test --config agent-test.nightly.config.ts --verdict-grade",
 		"test:controls": "bun run build && node packages/test/dist/cli.js test reference --config agent-test.matrix.config.ts --project openai --project claude",
@@ -47,11 +48,12 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.5.14",
 		"@csark0812/skeleton": "10.2.1",
+		"@post-print/agent-harness": "workspace:*",
+		"@post-print/agent-test": "workspace:*",
+		"@stryker-mutator/core": "10.1.1",
 		"@types/node": "^26.1.1",
 		"simple-git-hooks": "^2.13.0",
-		"typescript": "~7.0.2",
-		"@post-print/agent-harness": "workspace:*",
-		"@post-print/agent-test": "workspace:*"
+		"typescript": "~7.0.2"
 	},
 	"overrides": {
 		"undici": "6.28.1",

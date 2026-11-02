@@ -9,3 +9,5 @@ _agent/
 .skeleton/catalog.md
 playwright-report/
 test-results/
+.stryker-tmp/
+reports/mutation/

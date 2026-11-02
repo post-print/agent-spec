@@ -16,6 +16,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Needs no provider: mutates the verdict code and reports which changes the tests miss.
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile
+      - name: Mutation audit of the verdict code
+        run: bun run test:mutation 2>&1 | tee mutation.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-audit
+          path: |
+            mutation.log
+            reports/mutation
+          if-no-files-found: ignore
+
   live:
     runs-on: ubuntu-latest
     timeout-minutes: 90
