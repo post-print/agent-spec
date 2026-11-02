@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ownerIsActive, type ProcessOwner, processOwner } from "./process-owner.js";
 
-const MANIFEST = "owner.json";
+/** The file that marks a temp folder as one the harness owns. */
+export const OWNER_MANIFEST = "owner.json";
 const DEFAULT_MINIMUM_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** A family of temp directories the harness creates and can later prove it created. */
@@ -25,7 +26,7 @@ export async function writeOwnerManifest(root: string, rootKind: OwnedRootKind):
 		createdAt: new Date().toISOString(),
 		owner: await processOwner(),
 	};
-	await writeFile(join(root, MANIFEST), JSON.stringify(manifest));
+	await writeFile(join(root, OWNER_MANIFEST), JSON.stringify(manifest));
 }
 
 /** Removes roots of this kind whose owner is gone. A root without a valid manifest is preserved. */
@@ -86,7 +87,7 @@ async function readManifest(
 	rootKind: OwnedRootKind,
 ): Promise<OwnerManifest | undefined> {
 	try {
-		const value = JSON.parse(await readFile(join(root, MANIFEST), "utf8")) as OwnerManifest;
+		const value = JSON.parse(await readFile(join(root, OWNER_MANIFEST), "utf8")) as OwnerManifest;
 		if (value.version !== 1 || value.kind !== rootKind.kind) return;
 		if (!Number.isInteger(value.owner?.pid) || value.owner.pid <= 0) return;
 		if (!Number.isFinite(Date.parse(value.createdAt))) return;

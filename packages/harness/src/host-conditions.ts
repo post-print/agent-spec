@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import type { AgentDefinition } from "./agent-definition.js";
 import { resolveClaudeBin } from "./claude-run.js";
 import { resolveOpenaiBin } from "./openai-run.js";
+import { claudeSessionFlags } from "./user-skills.js";
 
 const run = promisify(execFile);
 const VERSION_TIMEOUT_MS = 2_000;
@@ -38,6 +39,8 @@ export interface HostConditions {
 	home: HomeAccess;
 	/** Folders outside the workspace the test let its agent read. */
 	allowedRoots: string[];
+	/** The permission rules an unconfined Claude may use without asking. */
+	allowedTools: string[];
 	/** Names only: values can hold secrets or local paths. */
 	overridingEnv: string[];
 }
@@ -61,33 +64,53 @@ async function resolvedBinary(agent: AgentDefinition): Promise<string | undefine
 	return undefined;
 }
 function networkState(agent: AgentDefinition, readOnly: boolean): NetworkState {
+	// Only Claude's sandbox limits the network, so an unconfined agent reaches every host.
+	if (confinement(agent, readOnly) === "detect-only" && agent.host === "claude") return "enabled";
 	if (agent.host === "openai" || agent.host === "claude")
 		return !readOnly && agent.options.networkAccess === true ? "enabled" : "disabled";
 	return "unknown";
 }
+/** The session flags the Claude host passes, as `claudeSessionFlags` builds them for the worker. */
+function claudeFlags(agent: AgentDefinition): string[] {
+	return claudeSessionFlags(
+		agent.options.auth?.type ?? "subscription",
+		agent.options.includeGlobalSkills === true,
+		agent.options.loadProjectContext !== false,
+	);
+}
 function settingSources(agent: AgentDefinition): string[] | undefined {
 	const includeGlobal = agent.options.includeGlobalSkills === true;
 	if (agent.host === "claude") {
-		if (includeGlobal) return ["user", "project"];
-		// See claudeSessionFlags: API-key auth with no project context runs `--bare`.
-		const bare =
-			agent.options.auth?.type === "api-key" && agent.options.loadProjectContext === false;
-		return bare ? [] : ["project"];
+		const flags = claudeFlags(agent);
+		const sources = flags[flags.indexOf("--setting-sources") + 1];
+		// `--bare` loads no setting source at all.
+		return flags.includes("--bare") ? [] : (sources?.split(",") ?? []);
 	}
 	if (agent.host === "openai") return includeGlobal ? ["user"] : [];
 	return undefined;
 }
 /**
- * Claude keeps the user's own configuration out only under `--bare`, which needs API-key auth and
- * no project context. Codex runs with `--ignore-user-config` and a temporary home unless global
- * skills are asked for. Nothing has shown what Cursor or a custom adapter loads.
+ * Claude keeps the user's own configuration (user CLAUDE.md, settings, hooks, plugins, skills)
+ * out under `--bare`, or when it loads no "user" setting source and only the suite's MCP servers
+ * (`--strict-mcp-config`). Codex runs with `--ignore-user-config` and a temporary home unless
+ * global skills are asked for. Nothing has shown what Cursor or a custom adapter loads.
  */
 function userConfig(agent: AgentDefinition): UserConfig {
-	const includeGlobal = agent.options.includeGlobalSkills === true;
-	if (agent.host === "claude")
-		return !includeGlobal && settingSources(agent)?.length === 0 ? "excluded" : "may-load";
-	if (agent.host === "openai") return includeGlobal ? "may-load" : "excluded";
+	if (agent.host === "claude") {
+		const flags = claudeFlags(agent);
+		const userSettingsOut =
+			flags.includes("--strict-mcp-config") && !settingSources(agent)?.includes("user");
+		return flags.includes("--bare") || userSettingsOut ? "excluded" : "may-load";
+	}
+	if (agent.host === "openai")
+		return agent.options.includeGlobalSkills === true ? "may-load" : "excluded";
 	return "unknown";
+}
+/** An unconfined Claude agent runs unsandboxed; a read-only reviewer stays sandboxed. */
+function confinement(agent: AgentDefinition, readOnly: boolean): Confinement {
+	if (agent.host === "claude")
+		return agent.options.confinement === "none" && !readOnly ? "detect-only" : "host-enforced";
+	return agent.host === "openai" ? "host-enforced" : "detect-only";
 }
 function homeAccess(agent: AgentDefinition): HomeAccess {
 	if (agent.host !== "claude" && agent.host !== "openai") return "unknown";
@@ -103,13 +126,13 @@ export async function hostConditions(
 		binary,
 		binaryVersion: await binaryVersion(binary),
 		authMode: agent.host ? (agent.options.auth?.type ?? "subscription") : undefined,
-		confinement:
-			agent.host === "claude" || agent.host === "openai" ? "host-enforced" : "detect-only",
+		confinement: confinement(agent, readOnly),
 		network: networkState(agent, readOnly),
 		settingSources: settingSources(agent),
 		userConfig: userConfig(agent),
 		home: homeAccess(agent),
 		allowedRoots: [...(agent.options.allowedRoots ?? [])],
+		allowedTools: [...(agent.options.allowedTools ?? [])],
 		overridingEnv: OVERRIDING_ENV.filter((name) => process.env[name] !== undefined),
 	};
 }

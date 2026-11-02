@@ -4,10 +4,12 @@ import {
 	mkdirSync,
 	readFileSync,
 	realpathSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+import { OWNER_MANIFEST } from "./owned-temp-root.js";
 
 /**
  * Host-enforced filesystem limits for one agent or reviewer session. The workspace stays
@@ -81,17 +83,31 @@ function symlinkedNodeEntry(candidate: string): string | null {
 }
 
 /**
+ * Where a run's own files go (shims, env file, sealed home), out of snapshots and diffs: the
+ * workspace's `.git` folder, which the sandbox lets commands read. A worktree's `.git` is a file,
+ * so its files go in the owned temp root around it instead, which only an unsandboxed run reads.
+ * Null when the workspace has no `.git`, or its `.git` is a file outside an owned root.
+ */
+export function harnessFilesDir(cwd: string): string | null {
+	const git = join(cwd, ".git");
+	if (!existsSync(git)) return null;
+	if (statSync(git).isDirectory()) return join(git, "agent-harness");
+	const ownedRoot = dirname(cwd);
+	return existsSync(join(ownedRoot, OWNER_MANIFEST)) ? join(ownedRoot, "agent-harness") : null;
+}
+
+/**
  * Write shims that start each symlinked package-manager CLI from its real path, and return
- * their folder. The shims live in the workspace's own `.git`, the one folder the sandbox lets
- * commands read that snapshots and diffs skip. Null when there is nothing to shim: no `.git`,
- * no `node` on `PATH`, or no symlinked CLI.
+ * their folder, in the run's own files. Null when there is nothing to shim: nowhere to put
+ * them, no `node` on `PATH`, or no symlinked CLI.
  */
 function writeNodeCliShims(cwd: string, path: string): string | null {
 	const dirs = path.split(delimiter).filter(Boolean);
 	const nodeBin = onPath("node", dirs);
-	if (!(existsSync(join(cwd, ".git")) && nodeBin)) return null;
+	const filesDir = harnessFilesDir(cwd);
+	if (!(filesDir && nodeBin)) return null;
 	const node = realpathSync(nodeBin);
-	const shimDir = join(cwd, ".git", "agent-harness", "bin");
+	const shimDir = join(filesDir, "bin");
 	let written = 0;
 	for (const name of SYMLINKED_NODE_CLIS) {
 		const candidate = onPath(name, dirs);
@@ -123,17 +139,17 @@ export function prepareSandboxPath(cwd: string, path = process.env.PATH ?? ""): 
 export function prepareClaudeEnvFile(cwd: string, path = process.env.PATH ?? ""): string | null {
 	const shimDir = writeNodeCliShims(cwd, path);
 	if (!shimDir) return null;
-	const envFile = join(cwd, ".git", "agent-harness", "claude-env.sh");
+	const envFile = join(dirname(shimDir), "claude-env.sh");
 	writeFileSync(envFile, `export PATH=${shellQuote(shimDir)}:"$PATH"\n`);
 	return envFile;
 }
 
 /**
- * A HOME for a sealed run: inside the workspace's `.git`, which the sandbox allows and snapshots
+ * A HOME for a sealed run: in the run's own files, which the sandbox allows and snapshots
  * leave out, with only the git identity a commit needs. The real home stays unread.
  */
 export function prepareSealedHome(cwd: string): string {
-	const home = join(cwd, ".git", "agent-harness", "home");
+	const home = join(harnessFilesDir(cwd) ?? join(cwd, ".git", "agent-harness"), "home");
 	mkdirSync(home, { recursive: true });
 	writeFileSync(
 		join(home, ".gitconfig"),
@@ -206,6 +222,25 @@ function claudeSandboxNetwork(isolation: HostIsolation) {
 		...(isolation.networkAccess === true ? { allowedDomains: ["*"] } : {}),
 	};
 	return Object.keys(network).length > 0 ? { network } : {};
+}
+
+/**
+ * `--settings` JSON for an unconfined Claude Code run: no sandbox, so commands reach the real
+ * machine. Permission rules still keep the Read, Grep and Glob tools to the working directory and
+ * the allowed roots, and out of protected paths.
+ */
+export function claudeUnconfinedSettings(isolation: HostIsolation): string {
+	const protectedPaths = uniquePaths(isolation.protectedPaths);
+	return JSON.stringify({
+		sandbox: { enabled: false },
+		permissions: {
+			blockReadsOutsideWorkingDirectories: true,
+			...(isolation.allowedRoots?.length
+				? { additionalDirectories: uniquePaths(isolation.allowedRoots) }
+				: {}),
+			deny: protectedPaths.map((path) => `Read(/${path}/**)`),
+		},
+	});
 }
 
 /**

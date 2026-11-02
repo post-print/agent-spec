@@ -14,12 +14,14 @@ import { join } from "node:path";
 import {
 	claudeIsolationSettings,
 	codexPermissionArgs,
+	harnessFilesDir,
 	prepareClaudeEnvFile,
 	prepareSandboxPath,
 	prepareSealedHome,
 	sandboxNodeOptions,
 	sealedProtectedPaths,
 } from "../host-isolation.js";
+import { OWNER_MANIFEST } from "../owned-temp-root.js";
 
 it("claudeIsolationSettings › sandboxes Bash and blocks file tools outside the workspace", () => {
 	const settings = JSON.parse(
@@ -147,6 +149,21 @@ describe("prepareSandboxPath", () => {
 		);
 		rmSync(join(bin, "npx"));
 		expect(prepareClaudeEnvFile(join(workspace, "missing"), bin)).toBeNull();
+	});
+
+	it("keeps a worktree's run files in the owned root around it, never beside a foreign one", () => {
+		const { workspace, bin } = setupToolchain();
+		rmSync(join(workspace, ".git"), { recursive: true });
+		writeFileSync(join(workspace, ".git"), "gitdir: /repo/.git/worktrees/run\n");
+		expect(harnessFilesDir(workspace)).toBeNull();
+		expect(prepareClaudeEnvFile(workspace, bin)).toBeNull();
+		const root = join(workspace, "..");
+		writeFileSync(join(root, OWNER_MANIFEST), "{}");
+		const files = join(root, "agent-harness");
+		expect(harnessFilesDir(workspace)).toBe(files);
+		expect(prepareClaudeEnvFile(workspace, bin)).toBe(join(files, "claude-env.sh"));
+		expect(existsSync(join(files, "bin", "npx"))).toBe(true);
+		expect(prepareSealedHome(workspace)).toBe(join(files, "home"));
 	});
 });
 

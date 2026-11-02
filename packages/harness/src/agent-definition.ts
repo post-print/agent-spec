@@ -41,6 +41,19 @@ export interface AgentOptions {
 	 * not be, or contain, the temp folder or the home folder, and may not overlap the caller checkout.
 	 */
 	allowedRoots?: readonly string[];
+	/**
+	 * Claude only: `"none"` runs the agent without Claude's sandbox, for a task that needs the real
+	 * machine, such as containers or a dev stack. Escapes are then only detected, so the run records
+	 * `confinement: "detect-only"`. It needs `allowedTools`, never bypasses permissions, and may run
+	 * in a worktree workspace. `--verdict-grade` refuses it. Defaults to `"sandbox"`.
+	 */
+	confinement?: "sandbox" | "none";
+	/**
+	 * Claude only: the permission rules the agent may use without asking, passed as
+	 * `--allowedTools`, such as `"Read"` or `"Bash(bun run dev:status)"`. Any other tool call is
+	 * denied. Required when `confinement` is `"none"`.
+	 */
+	allowedTools?: readonly string[];
 }
 export interface OpenRouterAgentOptions
 	extends Omit<
@@ -53,6 +66,8 @@ export interface OpenRouterAgentOptions
 		| "allowUnixSockets"
 		| "sealHome"
 		| "allowedRoots"
+		| "confinement"
+		| "allowedTools"
 	> {
 	baseUrl?: string;
 	httpReferer?: string;
@@ -138,15 +153,29 @@ function definition(value: AgentDefinition): AgentDefinition {
 	}
 	return freeze(copy);
 }
+const CLAUDE_ONLY_OPTIONS = [
+	"tools",
+	"loadProjectContext",
+	"allowUnixSockets",
+	"confinement",
+	"allowedTools",
+] as const;
+/** An unsandboxed Claude may run only the tools its definition names. */
+function refuseUnboundedConfinement(options: AgentOptions): void {
+	if (options.allowedTools?.some((rule) => !rule.trim()))
+		throw new Error("allowedTools may not contain an empty rule");
+	if (options.confinement === "none" && !options.allowedTools?.length)
+		throw new Error(
+			'confinement: "none" requires allowedTools: an unsandboxed agent may run only the tools it names',
+		);
+}
 function builtin(host: BuiltinAgentHost, options: AgentOptions = {}): AgentDefinition {
 	if (options.networkAccess && host !== "openai" && host !== "claude")
 		throw new Error(`networkAccess is not supported by ${host}`);
-	if (host !== "claude" && options.tools !== undefined)
-		throw new Error(`tools is not supported by ${host}`);
-	if (host !== "claude" && options.loadProjectContext !== undefined)
-		throw new Error(`loadProjectContext is not supported by ${host}`);
-	if (host !== "claude" && options.allowUnixSockets !== undefined)
-		throw new Error(`allowUnixSockets is not supported by ${host}`);
+	const unsupported = CLAUDE_ONLY_OPTIONS.find((name) => options[name] !== undefined);
+	if (host !== "claude" && unsupported)
+		throw new Error(`${unsupported} is not supported by ${host}`);
+	refuseUnboundedConfinement(options);
 	return definition({
 		host,
 		options: { auth: { type: "subscription" }, ...options },
