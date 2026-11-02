@@ -1,0 +1,31 @@
+{
+	"_comment": "Mutation audit of the verdict code: a mutant the tests miss is a way agent-test could report a result it did not earn. Nightly and by hand, never a merge gate. Stryker runs through bunx at a pinned version, so its dependencies stay out of the lockfile and bun audit.",
+	"testRunner": "command",
+	"commandRunner": {
+		"command": "bun test packages/test/src/__tests__/verdict.test.ts packages/test/src/__tests__/verdict-decisions.test.ts packages/test/src/__tests__/verdict-properties.test.ts packages/test/src/__tests__/claims.test.ts packages/test/src/__tests__/claims-decisions.test.ts packages/test/src/__tests__/baselines.test.ts"
+	},
+	"mutate": [
+		"packages/test/src/sdk/verdict.ts",
+		"packages/test/src/sdk/claims.ts",
+		"packages/test/src/sdk/claim-strength.ts"
+	],
+	"_tsconfig": "TypeScript 7 has no JavaScript API for Stryker's tsconfig rewrite, and bun test runs the sources directly, so it is skipped.",
+	"tsconfigFile": "stryker-skips-tsconfig.json",
+	"coverageAnalysis": "off",
+	"concurrency": 4,
+	"timeoutMS": 60000,
+	"reporters": ["clear-text", "progress", "html", "json"],
+	"htmlReporter": { "fileName": "reports/mutation/index.html" },
+	"jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+	"thresholds": { "high": 90, "low": 80, "break": null },
+	"ignorePatterns": [
+		"/*",
+		"!/packages",
+		"!/package.json",
+		"!/bun.lock",
+		"!/tsconfig.json",
+		"packages/**/test-results",
+		"packages/**/dist",
+		"packages/**/.agent-test"
+	]
+}

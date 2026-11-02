@@ -1,0 +1,117 @@
+name: nightly live proof
+
+# Advisory: it never gates a merge. It calibrates each host, runs the escape battery and the live
+# subject controls, and opens an issue when an enforced vector or a control fails.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: nightly-live-proof
+  cancel-in-progress: false
+
+jobs:
+  # Needs no provider: mutates the verdict code and reports which changes the tests miss.
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile
+      - name: Mutation audit of the verdict code
+        run: bun run test:mutation 2>&1 | tee mutation.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-audit
+          path: |
+            mutation.log
+            reports/mutation
+          if-no-files-found: ignore
+
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check credentials
+        id: credentials
+        run: |
+          if [ -z "$OPENAI_API_KEY" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "OPENAI_API_KEY and ANTHROPIC_API_KEY secrets are needed; skipping the live proof."
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.credentials.outputs.missing != 'true'
+        run: bun install --frozen-lockfile && bun run build
+
+      # Claude Code's Linux sandbox needs bubblewrap and socat.
+      - if: steps.credentials.outputs.missing != 'true'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat && npm install -g @openai/codex @anthropic-ai/claude-code
+
+      - name: Probe and escape battery (enforced vectors)
+        id: calibrate
+        if: steps.credentials.outputs.missing != 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node packages/test/dist/cli.js test host-probe escape --grep-invert "finding:" \
+            --config agent-test.nightly.config.ts --verdict-grade 2>&1 | tee calibrate.log
+
+      - name: Escape battery findings (known gaps, reported only)
+        if: steps.credentials.outputs.missing != 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node packages/test/dist/cli.js test escape --grep "finding:" \
+            --config agent-test.nightly.config.ts --verdict-grade 2>&1 | tee findings.log
+
+      - name: Live subject controls
+        id: controls
+        if: steps.credentials.outputs.missing != 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node packages/test/dist/cli.js test reference \
+            --config agent-test.nightly.config.ts --verdict-grade 2>&1 | tee controls.log
+
+      - if: always() && steps.credentials.outputs.missing != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-live-proof
+          path: |
+            calibrate.log
+            findings.log
+            controls.log
+            .agent-test/calibration
+          if-no-files-found: ignore
+
+      - name: Open an issue
+        if: steps.calibrate.outcome == 'failure' || steps.controls.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Nightly live proof failed ($(date -u +%F))" \
+            --body "Calibration and escape battery: ${{ steps.calibrate.outcome }}. Live subject controls: ${{ steps.controls.outcome }}. Logs and calibration: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

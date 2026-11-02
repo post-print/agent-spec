@@ -9,7 +9,7 @@ import {
 	readExecutionEvents,
 	recoverExecutionHistory,
 } from "../sdk/execution-store.js";
-import type { VerdictResult } from "../sdk/verdict.js";
+import type { RunVerdict, VerdictResult } from "../sdk/verdict.js";
 import { RUN_VERDICTS, type TestRunStatus } from "./presentation.js";
 
 /**
@@ -75,10 +75,35 @@ function readableTestStatuses(value: unknown): Record<string, TestRunStatus> {
 	);
 	return Object.fromEntries(known);
 }
+/** Verdicts that older runs stored under another name. Before v5 a rate with no plan was "measured". */
+const RENAMED_VERDICTS: Record<string, RunVerdict> = { measured: "indicative" };
+function currentName(verdict: unknown): unknown {
+	return typeof verdict === "string" ? (RENAMED_VERDICTS[verdict] ?? verdict) : verdict;
+}
+function currentNames(verdicts: unknown): unknown {
+	if (typeof verdicts !== "object" || verdicts === null) return verdicts;
+	return Object.fromEntries(
+		Object.entries(verdicts).map(([key, value]) => [key, currentName(value)]),
+	);
+}
+/** The stored verdict in today's names. Its exit code stays as that run reported it. */
+function renamedVerdict(value: unknown): unknown {
+	if (typeof value !== "object" || value === null) return value;
+	const stored = value as Record<string, unknown>;
+	return {
+		...stored,
+		verdict: currentName(stored.verdict),
+		tests: currentNames(stored.tests),
+		...(stored.claimVerdicts === undefined
+			? {}
+			: { claimVerdicts: currentNames(stored.claimVerdicts) }),
+	};
+}
 function readableVerdict(value: unknown): Pick<ViewerSummary, "verdict" | "verdictUnreadable"> {
 	if (value === undefined) return {};
-	const verdict = storedVerdict.safeParse(value);
-	return verdict.success ? { verdict: value as VerdictResult } : { verdictUnreadable: true };
+	const renamed = renamedVerdict(value);
+	const verdict = storedVerdict.safeParse(renamed);
+	return verdict.success ? { verdict: renamed as VerdictResult } : { verdictUnreadable: true };
 }
 
 /** A record for this run id with every field the page reads, unknown where the file gave nothing. */

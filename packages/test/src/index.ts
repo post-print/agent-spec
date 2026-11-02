@@ -10,10 +10,13 @@ export { type ExecutionProgress, reportProgress } from "./sdk/progress.js";
 export { type CommandResult, type RunCommandOptions, runCommand } from "./sdk/run-command.js";
 export {
 	ConditionsUnknownError,
+	type EscapeVector,
 	type OfferedTool,
 	type RunExposure,
 	type RunRecord,
+	recordEscapeVector,
 	recordHostCalibration,
+	recordJudgeCalibration,
 } from "./sdk/run-record.js";
 export {
 	type AgentTestConfig,

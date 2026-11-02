@@ -73,6 +73,10 @@ export type ExecutionAttempt = {
 	survivedControl?: boolean;
 	/** An assertion failed, as opposed to the test throwing for some other reason. */
 	checkFailed?: boolean;
+	/** For a control that names its check: whether that check is the one that failed. */
+	namedCheckFailed?: boolean;
+	/** Every failed check read its evidence only from a judge nobody calibrated. */
+	judgeBlamed?: boolean;
 	/** The runner stopped the test at its deadline. */
 	timedOut?: boolean;
 	startedAt?: string;
@@ -336,6 +340,9 @@ function applyAttemptFinish(attempt: ExecutionAttempt, event: ExecutionEvent): v
 	attempt.expectedFailure = data.status === "failed" && data.expectedStatus === "failed";
 	attempt.survivedControl = data.status === "passed" && data.expectedStatus === "failed";
 	attempt.checkFailed = data.checkFailed === true;
+	attempt.judgeBlamed = data.judgeBlamed === true;
+	attempt.namedCheckFailed =
+		typeof data.namedCheckFailed === "boolean" ? data.namedCheckFailed : undefined;
 	attempt.timedOut = data.status === "timedOut";
 	attempt.durationMs = typeof data.durationMs === "number" ? data.durationMs : undefined;
 	attempt.errors = Array.isArray(data.errors) ? data.errors : [];

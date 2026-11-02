@@ -11,6 +11,7 @@ import {
 	type McpCatalogEntry,
 } from "@post-print/agent-harness";
 import { z } from "zod";
+import { noteUncalibratedJudge } from "./check-outcomes.js";
 import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import {
@@ -26,6 +27,8 @@ import { OperationLedger, UnearnedResultError } from "./operation-ledger.js";
 import {
 	buildRunRecord,
 	ConditionsUnknownError,
+	judgeCalibrated,
+	judgeKey,
 	runExposure,
 	runRecordBase,
 } from "./run-record.js";
@@ -76,6 +79,30 @@ function withinTestDeadline(definition: AgentDefinition, remainingMs?: number): 
 	const budget = Math.max(remainingMs - HOST_DEADLINE_GRACE_MS, MINIMUM_HOST_DEADLINE_MS);
 	if (timeoutMs <= budget) return definition;
 	return { ...definition, options: { ...definition.options, timeoutMs: budget } };
+}
+/** Set by `agent-test test --verdict-grade`: every run must be one a pass can stand on. */
+const VERDICT_GRADE_ENV = "AGENT_TEST_VERDICT_GRADE";
+/**
+ * What keeps a definition from a verdict-grade run: it must keep the host's own configuration out
+ * and be able to seal the real home, which only API-key Claude (bare) and Codex runs can.
+ */
+function verdictGradeRefusal({ host, options }: AgentDefinition): string | undefined {
+	if (host !== "claude" && host !== "openai")
+		return `${host ?? "a custom adapter"} cannot seal its runs`;
+	if (options.auth?.type !== "api-key") return "it uses subscription auth";
+	if (options.includeGlobalSkills === true) return "it includes global skills";
+	if (host === "claude" && options.loadProjectContext !== false)
+		return "Claude loads project context, so it cannot run --bare";
+	return undefined;
+}
+function verdictGrade(definition: AgentDefinition): AgentDefinition {
+	if (process.env[VERDICT_GRADE_ENV] !== "1") return definition;
+	const refusal = verdictGradeRefusal(definition);
+	if (refusal)
+		throw new Error(
+			`--verdict-grade refuses this agent definition: ${refusal}. Use API-key auth, and on Claude set loadProjectContext: false.`,
+		);
+	return { ...definition, options: { ...definition.options, sealHome: true } };
 }
 interface RunInput {
 	session: HarnessSession;
@@ -228,7 +255,7 @@ export class TestRuntime {
 		return this.ledger.reportedInfrastructureFailure();
 	}
 	private forTest(definition: AgentDefinition): AgentDefinition {
-		return withinTestDeadline(definition, this.options.remainingTestMs?.());
+		return withinTestDeadline(verdictGrade(definition), this.options.remainingTestMs?.());
 	}
 	agent(
 		name: string,
@@ -282,6 +309,10 @@ export class TestRuntime {
 						this.options.onEvent?.({ runId: id, type: "error", value: recordedFailure(error) });
 						throw error;
 					}
+					result = {
+						...result,
+						judge: await this.judgeIdentity(result.id, definition, { prompt, schema }),
+					};
 					this.options.onEvent?.({
 						runId: result.id,
 						type: "evaluation",
@@ -289,16 +320,32 @@ export class TestRuntime {
 							...result,
 							invocationIndex,
 							input,
-							evaluation: startedEvaluation ?? {
-								prompt,
-								schema: z.toJSONSchema(schema),
-							},
+							evaluation: startedEvaluation ?? { prompt, schema: z.toJSONSchema(schema) },
 						},
 					});
 					return trackOperationOutput(result);
 				});
 			},
 		};
+	}
+	/**
+	 * The judge's identity, and whether its calibration fixtures agreed with it lately. An
+	 * evaluation by an uncalibrated judge is noted, so a "no" it gives is not charged to the agent.
+	 */
+	private async judgeIdentity(
+		evaluationId: string,
+		definition: AgentDefinition,
+		judged: { prompt: string; schema: z.ZodType },
+	) {
+		const key = judgeKey({
+			prompt: judged.prompt,
+			schema: z.toJSONSchema(judged.schema),
+			host: definition.host,
+			model: definition.options.model,
+		});
+		const calibrated = await judgeCalibrated(this.options.baseDir, key);
+		if (!calibrated) noteUncalibratedJudge(evaluationId);
+		return { key, calibrated };
 	}
 	private judgeDefinition(settings: AgentSettings): Promise<AgentDefinition> {
 		return preparing(async () => this.forTest(configuredAgent(this.options.judge, settings)));

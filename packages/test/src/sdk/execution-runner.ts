@@ -30,6 +30,10 @@ export type StartExecutionOptions = {
 	onOutput?: (line: string) => void;
 	/** Report --repeat-each as rates instead of failing on a failed repeat. */
 	measureRepeats?: boolean;
+	/** Exit 0 on an indicative run. The stored verdict records that it did. */
+	allowIndicative?: boolean;
+	/** Refuse any run a pass could not stand on, and seal the real home from every agent. */
+	verdictGrade?: boolean;
 };
 
 /** Starts one recorded Playwright process. CLI and viewer share this boundary. */
@@ -50,6 +54,7 @@ export async function startRecordedExecution(
 		env: {
 			...process.env,
 			AGENT_TEST_RECORDER: "1",
+			...(options.verdictGrade ? { AGENT_TEST_VERDICT_GRADE: "1" } : {}),
 			AGENT_TEST_EXECUTION_ID: id,
 			AGENT_TEST_EXECUTION_ROOT: root,
 			AGENT_TEST_EXECUTION_CONFIG: options.config,
@@ -67,6 +72,7 @@ export async function startRecordedExecution(
 				cancelled: cancelRequested,
 				listOnly: options.args.includes("--list"),
 				measureRepeats: options.measureRepeats === true,
+				allowIndicative: options.allowIndicative === true,
 			}).then(resolveVerdict, reject);
 		});
 	});
@@ -88,6 +94,7 @@ async function concludeExecution(input: {
 	cancelled: boolean;
 	listOnly: boolean;
 	measureRepeats: boolean;
+	allowIndicative: boolean;
 }): Promise<VerdictResult> {
 	const { config, root, runnerExitCode, cancelled, listOnly } = input;
 	await finishExecutionIfRunning(root, cancelled ? "interrupted" : "failed");
@@ -106,6 +113,7 @@ async function concludeExecution(input: {
 		plannedTests: detail?.testIds,
 		runnerReportedError: Boolean(detail?.runErrors.length),
 		measureRepeats: input.measureRepeats,
+		allowIndicative: input.allowIndicative,
 		interrupted: cancelled || detail?.status === "interrupted",
 		listOnly,
 		runnerExitCode,

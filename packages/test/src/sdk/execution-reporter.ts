@@ -10,8 +10,14 @@ import type {
 } from "@playwright/test/reporter";
 import { redactSecrets } from "@post-print/agent-harness";
 import { stripAnsi } from "../viewer/presentation.js";
+import {
+	CHECK_OUTCOME_PREFIX,
+	type CheckOutcome,
+	failedOnlyOnUncalibratedJudges,
+	namedCheckFailed,
+} from "./check-outcomes.js";
 import { type CriterionResult, ExecutionStore } from "./execution-store.js";
-import { NO_AGENT_ANNOTATION, SAMPLE_ANNOTATION } from "./sampling.js";
+import { CONTROL_ANNOTATION, NO_AGENT_ANNOTATION, SAMPLE_ANNOTATION } from "./sampling.js";
 import { storedValue } from "./stored-value.js";
 
 function executionInput() {
@@ -61,22 +67,34 @@ function expectationSteps(steps: TestStep[]): TestStep[] {
 		...expectationSteps(step.steps),
 	]);
 }
-function criterionData(test: TestCase, result: TestResult): CriterionResult[] {
+/** A criterion derived from an assertion with no label; only its position can find its step. */
+const UNLABELLED = /^expect\b/;
+function outcomeOf(criterion: string, checks: CheckOutcome[]): CriterionResult | undefined {
+	const recorded = checks.filter((check) => check.criterion === criterion);
+	if (recorded.length === 0) return undefined;
+	return { criterion, status: recorded.every(({ passed }) => passed) ? "passed" : "failed" };
+}
+/**
+ * Each criterion takes the outcome its own check reported. A labelled criterion whose check never ran
+ * is not recorded, however the test ended. A labelled check from a helper is shown as well.
+ */
+function criterionData(
+	test: TestCase,
+	result: TestResult,
+	checks: CheckOutcome[],
+): CriterionResult[] {
 	const assertions = expectationSteps(result.steps);
-	const criteria = declaredCriteria(test);
-	return criteria.map((criterion, index) => {
-		const assertion = assertions[index];
-		if (!assertion)
-			return {
-				criterion,
-				status: result.status === "passed" ? "passed" : "not-recorded",
-			};
-		return {
-			criterion,
-			status: assertion?.error ? "failed" : "passed",
-			assertion: assertion?.title,
-		};
+	const declared = declaredCriteria(test);
+	const results = declared.map((criterion, index): CriterionResult => {
+		const reported = outcomeOf(criterion, checks);
+		if (reported) return reported;
+		const assertion = UNLABELLED.test(criterion) ? assertions[index] : undefined;
+		if (!assertion) return { criterion, status: "not-recorded" };
+		return { criterion, status: assertion.error ? "failed" : "passed", assertion: assertion.title };
 	});
+	const labels = checks.flatMap(({ criterion }) => (criterion === undefined ? [] : [criterion]));
+	const undeclared = [...new Set(labels)].filter((criterion) => !declared.includes(criterion));
+	return [...results, ...undeclared.flatMap((criterion) => outcomeOf(criterion, checks) ?? [])];
 }
 /**
  * A control earns its result on a check that failed the test after an agent started: a check the
@@ -91,6 +109,10 @@ function failedCheckAfterAgent(result: TestResult, agentStartedAt: number | unde
 			reported.has(step.error.message) &&
 			step.startTime.getTime() >= agentStartedAt,
 	);
+}
+/** The check a control names, or undefined for a control that names none. */
+function controlCheck(test: TestCase): string | undefined {
+	return test.annotations.find(({ type }) => type === CONTROL_ANNOTATION)?.description;
 }
 function declaresNoAgent(test: TestCase): boolean {
 	return test.annotations.some(({ type }) => type === NO_AGENT_ANNOTATION);
@@ -108,6 +130,10 @@ export default class ExecutionReporter implements Reporter {
 	private readonly buffers = new Map<string, string>();
 	/** When the first agent or judge operation of each attempt started, by the worker's clock. */
 	private readonly agentStartedAt = new Map<string, number>();
+	/** What each check reported, by attempt. */
+	private readonly checks = new Map<string, CheckOutcome[]>();
+	/** Evaluations whose judge had no calibration from the last week, by operation id. */
+	private readonly uncalibratedJudges = new Set<string>();
 	private writes = Promise.resolve();
 	private record(event: Parameters<ExecutionStore["record"]>[0]) {
 		this.writes = this.writes.then(async () => {
@@ -150,17 +176,43 @@ export default class ExecutionReporter implements Reporter {
 		if (attempt && at !== undefined && !this.agentStartedAt.has(attempt))
 			this.agentStartedAt.set(attempt, at);
 	}
+	private namedCheck(test: TestCase, result: TestResult) {
+		const mustFail = controlCheck(test);
+		if (mustFail === undefined) return {};
+		const checks = this.checks.get(attemptId(test, result)) ?? [];
+		return { namedCheckFailed: namedCheckFailed(mustFail, checks) };
+	}
+	private noteJudge(event: { runId: string; type: string; value: unknown }) {
+		const judge = (event.value as { judge?: { calibrated?: boolean } } | null)?.judge;
+		if (event.type === "evaluation" && judge && judge.calibrated !== true)
+			this.uncalibratedJudges.add(event.runId);
+	}
+	private noteCheck(attempt: string, json: string) {
+		try {
+			const outcome = JSON.parse(json) as CheckOutcome;
+			this.checks.set(attempt, [...(this.checks.get(attempt) ?? []), outcome]);
+		} catch {
+			this.record({ type: "recorder.parse_failed", level: "warn", attemptId: attempt, data: {} });
+		}
+	}
+	private recordOutput(stream: CapturedOutput["stream"], line: string, attempt?: string) {
+		if (!line.trim()) return;
+		this.record({
+			type: `test.${stream}`,
+			level: stream === "stderr" ? "warn" : "info",
+			attemptId: attempt,
+			data: { text: redactSecrets(line) },
+		});
+	}
 	private captureLine(output: CapturedOutput) {
 		const { stream, chunk: line, test, result } = output;
 		const attempt = test && result ? attemptId(test, result) : undefined;
+		if (attempt && line.startsWith(CHECK_OUTCOME_PREFIX)) {
+			this.noteCheck(attempt, line.slice(CHECK_OUTCOME_PREFIX.length));
+			return;
+		}
 		if (!line.startsWith("@@agent-test:")) {
-			if (line.trim())
-				this.record({
-					type: `test.${stream}`,
-					level: stream === "stderr" ? "warn" : "info",
-					attemptId: attempt,
-					data: { text: redactSecrets(line) },
-				});
+			this.recordOutput(stream, line, attempt);
 			return;
 		}
 		try {
@@ -171,6 +223,7 @@ export default class ExecutionReporter implements Reporter {
 				at?: number;
 			};
 			this.noteAgentStarted(attempt, event.at);
+			this.noteJudge(event);
 			this.record({
 				type: `operation.${event.type}`,
 				level: "debug",
@@ -199,9 +252,18 @@ export default class ExecutionReporter implements Reporter {
 					result,
 					declaresNoAgent(test) ? 0 : this.agentStartedAt.get(attemptId(test, result)),
 				),
+				...this.namedCheck(test, result),
+				judgeBlamed: failedOnlyOnUncalibratedJudges(
+					this.checks.get(attemptId(test, result)) ?? [],
+					this.uncalibratedJudges,
+				),
 				durationMs: result.duration,
 				errors: errorData(result),
-				criterionResults: criterionData(test, result),
+				criterionResults: criterionData(
+					test,
+					result,
+					this.checks.get(attemptId(test, result)) ?? [],
+				),
 				attachments: attachmentData(result),
 			},
 		});

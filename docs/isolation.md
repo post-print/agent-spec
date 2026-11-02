@@ -16,12 +16,48 @@ Two layers keep an agent inside its workspace. The host enforces filesystem limi
 
 | Host | Enforced by the host | Outside the boundary |
 | --- | --- | --- |
-| OpenAI (Codex) | A permission profile replaces `--sandbox`. The workspace is writable, including its `.git`, so agents can commit in their own repository (read-only for judges). The OS temp folder, which holds sibling sealed workspaces, `/tmp`, and the caller checkout are denied for reads and writes. Network is off unless `networkAccess` is set. | Other paths on disk remain readable. Detection still applies. |
-| Claude Code | `--settings` enables the Bash sandbox with reads of the checkout and the temp folder denied (the workspace is re-allowed) and no unsandboxed fallback. Its `env` sets the sandbox `NODE_OPTIONS` described below. Permission rules block Read, Grep, and Glob outside the workspace. `claude({ tools })` narrows the built-in tools further; `tools: []` leaves only MCP tools. On Linux the sandbox also blocks Unix socket creation; `claude({ allowUnixSockets: true })` lifts that one filter for tools such as headless Chrome. | Other paths remain readable by Bash. Detection still applies. |
+| OpenAI (Codex) | A permission profile replaces `--sandbox`. The workspace is writable, including its `.git`, so agents can commit in their own repository (read-only for judges). The OS temp folder, which holds sibling sealed workspaces, `/tmp`, and the caller checkout are denied for reads and writes. Network is off unless `networkAccess` is set. | Other paths on disk remain readable, except the real home under `--verdict-grade`. Detection still applies. |
+| Claude Code | `--settings` enables the Bash sandbox with reads of the checkout and the temp folder denied (the workspace is re-allowed) and no unsandboxed fallback. Its `env` sets the sandbox `NODE_OPTIONS` described below. Permission rules block Read, Grep, and Glob outside the workspace. `claude({ tools })` narrows the built-in tools further; `tools: []` leaves only MCP tools. On Linux the sandbox also blocks Unix socket creation; `claude({ allowUnixSockets: true })` lifts that one filter for tools such as headless Chrome. Network is off unless `networkAccess` is set, which allows every outbound host. | Other paths remain readable by Bash, except the real home under `--verdict-grade`. Detection still applies. |
 | Cursor | Nothing. | Detection only. |
 | Custom adapters | Whatever the adapter declares. | Detection only. |
 
 The caller checkout is the Git top level of the config directory, or the config directory itself outside Git. It holds the suites and their expected answers.
+
+### What an agent can reach
+
+The two layers give different answers for the same path. The host decides whether an action works; detection decides whether a run that names the path can pass. This table is for Codex and Claude Code coding agents. Judges are read-only and never get network.
+
+| Location | Host read | Host write | Naming it in a tool call |
+| --- | --- | --- | --- |
+| Sealed workspace, including `.git` | Allowed | Allowed | Allowed |
+| Caller checkout | Denied | Denied | `WorkspaceEscapeError` |
+| OS temp folder (sibling workspaces); `/tmp` on Codex | Denied | Denied | `WorkspaceEscapeError` |
+| Claude Code scratch folder `/tmp/claude-<uid>` | Allowed | Allowed | Allowed |
+| User home, including `~/.config` and package-manager stores | Allowed; denied under `--verdict-grade` | Denied | `WorkspaceEscapeError` for `~`, `$HOME`, or an absolute home path |
+| Read-only system roots and the Playwright browser cache | Allowed | Denied | Allowed |
+| Network | Off unless `networkAccess: true` | — | — |
+
+A tool that writes its cache or config under home or the temp folder fails inside the sandbox, even if the agent never names that path. Point it at the workspace instead, through the tool's own flag or environment variable, in setup or in the task prompt. Setup callbacks run before the host starts, as test-owned code outside these limits. They can install dependencies into the workspace, because the default workspace is committed HEAD and has no `node_modules`.
+
+### Verdict-grade runs
+
+`agent-test test --verdict-grade` runs only agents whose results a pass can stand on, and seals each one:
+
+- It refuses, before any host starts, a definition that uses subscription auth or global skills, a Claude definition that loads project context (so cannot run `--bare`), and Cursor or a custom adapter. The test has no verdict and the message names the reason.
+- It adds the real home to the paths the host denies, on Claude Code and Codex, and gives Claude a fresh `HOME` at `.git/agent-harness/home` in the workspace, with only a git identity in it. Codex already runs with a temporary home.
+- The run record says `home: "sealed"`. Default runs say `readable`.
+
+A tool installed under the real home, such as Node through `nvm`, cannot run inside a sealed run. A workspace inside the real home is refused; set `TMPDIR` to a folder outside it.
+
+### Testing against a running stack
+
+For a task that needs a dev server or other services, prepare them outside the agent and give the agent only what the task measures:
+
+1. Install dependencies and write config in `agent().setup()`.
+2. Set `networkAccess: true` when the agent itself must download packages or call remote hosts.
+3. Set `observeEnvironment` to list the processes and ports the run left alive. The runtime stops observed survivors at teardown. A process that setup starts belongs to the test, which must stop it.
+
+No live suite in this repository proves that sandboxed commands can listen on or connect to localhost ports. Run a probe on each host before a test relies on it.
 
 Detection runs after every agent and judge turn and fails the operation with `WorkspaceEscapeError`, which carries the escaped `paths` and the `trace`. It checks direct path arguments (`path`, `file_path`, `uri`, `cwd`, an absolute Glob `pattern`) and shell commands. A shell command is unwrapped from `sh -c`/`zsh -lc`, split into simple commands at operators and newlines, and tokenized; heredoc bodies are file content, not paths, and are skipped, and a backslash left on a token by an escaped quote is dropped. Absolute paths whose top-level directory exists, `~`, `$HOME`, and any token with a `..` segment count as paths. Relative paths resolve against the tool `cwd` and follow `cd`, including a `cd` made in an earlier call of the same persistent shell; an explicit per-call `cwd` applies to that call only. `$PWD` and `${PWD}` resolve to the shell's current directory. Read-only system roots (`/bin`, `/usr`, `/sbin`, `/System`, `/Library`, `/opt`, `/dev`, `/Applications`) are allowed, as are locations a host hands its own agent: Claude Code's per-user scratch folder (`/tmp/claude-<uid>`) and the Playwright browser cache. Codex's per-call `workdir` is treated like `cwd`. Codex does not always record it, so a `../`-relative path that leaves the workspace from the root still counts as inside when, with its leading `../` removed, it names an existing file under the workspace root or one of its folders. The user's home, global skills and the caller checkout remain escapes. Detection is evidence of an attempt; host enforcement is what keeps the content out of the transcript.
 

@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 
-import { type AgentInfrastructureCode, AgentInfrastructureError } from "./agent-error.js";
+import {
+	type AgentInfrastructureCode,
+	AgentInfrastructureError,
+	AgentOutcomeError,
+} from "./agent-error.js";
 import type { AgentTrace } from "./types.js";
 
 /** Raw status of a host that exited 0 without its terminal event: the run cannot be trusted. */
@@ -146,7 +150,7 @@ export function redactedHostResult(result: HostRunResult): HostRunResult {
 
 export function hostRunError(message: string, result: HostRunResult): Error {
 	const code = infrastructureCode(result);
-	return code ? new AgentInfrastructureError(message, code) : new Error(message);
+	return code ? new AgentInfrastructureError(message, code) : new AgentOutcomeError(message);
 }
 
 function errnoCode(error: unknown): string | undefined {

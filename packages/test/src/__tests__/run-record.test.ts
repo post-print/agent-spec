@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,9 @@ import { expect as agentExpect } from "../sdk/expect.js";
 import {
 	buildRunRecord,
 	ConditionsUnknownError,
+	ENFORCED_VECTORS,
 	offeredTool,
+	recordEscapeVector,
 	recordHostCalibration,
 	runExposure,
 } from "../sdk/run-record.js";
@@ -23,6 +25,8 @@ const CONDITIONS = {
 	binaryVersion: "1.0.0 (Claude Code)",
 	confinement: "host-enforced" as const,
 	network: "unknown" as const,
+	authMode: "subscription",
+	userConfig: "may-load" as const,
 	overridingEnv: [],
 };
 const CONTEXT = { instructions: [], files: [], skills: [], includeGlobalSkills: false };
@@ -127,14 +131,67 @@ describe("run record", () => {
 		const record = await buildRunRecord(BASE, { ...input, definition: { options: {} } });
 		expect(record.modelPinned).toBe(false);
 	});
-	it("reads as calibrated only after a probe passed for that host version", async () => {
+});
+
+describe("host calibration", () => {
+	const input = {
+		conditions: CONDITIONS,
+		definition: { options: { model: "m1" } },
+		hostReport: { model: "m1-observed", version: "1.0.1" },
+		prompt: "hello",
+		context: CONTEXT,
+		initial: SNAPSHOT,
+	};
+	it("reads as calibrated only after a probe passed for that host version and auth mode", async () => {
 		const baseDir = await mkdtemp(join(tmpdir(), "calibration-"));
 		try {
-			await recordHostCalibration(baseDir, { host: "claude", binaryVersion: "1.0.1" });
+			const key = { host: "claude", binaryVersion: "1.0.1", authMode: "subscription" };
+			await recordHostCalibration(baseDir, key);
 			const base = { ...BASE, baseDir };
 			expect((await buildRunRecord(base, input)).calibrated).toBe(true);
 			const upgraded = { ...input, hostReport: { version: "1.0.2" } };
 			expect((await buildRunRecord(base, upgraded)).calibrated).toBe(false);
+			const apiKey = { ...input, conditions: { ...CONDITIONS, authMode: "api-key" } };
+			expect((await buildRunRecord(base, apiKey)).calibrated).toBe(false);
+		} finally {
+			await rm(baseDir, { recursive: true, force: true });
+		}
+	});
+	it("a calibration older than a week no longer counts", async () => {
+		const baseDir = await mkdtemp(join(tmpdir(), "calibration-"));
+		try {
+			const key = { host: "claude", binaryVersion: "1.0.1", authMode: "subscription" };
+			await recordHostCalibration(baseDir, key);
+			const [file = ""] = await readdir(join(baseDir, ".agent-test", "calibration"));
+			const path = join(baseDir, ".agent-test", "calibration", file);
+			const stale = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+			await writeFile(path, JSON.stringify({ ...key, at: stale }));
+			expect((await buildRunRecord({ ...BASE, baseDir }, input)).calibrated).toBe(false);
+		} finally {
+			await rm(baseDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("escape battery calibration", () => {
+	const input = {
+		conditions: CONDITIONS,
+		definition: { options: { model: "m1" } },
+		hostReport: { model: "m1-observed", version: "1.0.1" },
+		prompt: "hello",
+		context: CONTEXT,
+		initial: SNAPSHOT,
+	};
+	it("proves confinement only when every enforced escape vector held", async () => {
+		const baseDir = await mkdtemp(join(tmpdir(), "calibration-"));
+		try {
+			const key = { host: "claude", binaryVersion: "1.0.1", authMode: "subscription" };
+			for (const vector of ENFORCED_VECTORS)
+				await recordEscapeVector(baseDir, key, { vector, held: true });
+			const base = { ...BASE, baseDir };
+			expect((await buildRunRecord(base, input)).confinementProven).toBe(true);
+			await recordEscapeVector(baseDir, key, { vector: "symlink-out", held: false });
+			expect((await buildRunRecord(base, input)).confinementProven).toBe(false);
 		} finally {
 			await rm(baseDir, { recursive: true, force: true });
 		}
@@ -157,6 +214,10 @@ describe("viewer condition labels", () => {
 				{ data: [{}, null] },
 			]),
 		).toEqual([]);
+	});
+	it("names a run the host's own user config may reach", () => {
+		const record = { host: "claude", calibrated: true, modelPinned: true, userConfig: "may-load" };
+		expect(runConditionLabels([op(record)])).toEqual(["User config may load"]);
 	});
 });
 

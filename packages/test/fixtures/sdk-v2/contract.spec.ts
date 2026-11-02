@@ -170,6 +170,7 @@ test("test teardown cancels pending siblings and cleans completed workspaces", a
 });
 test("continuation rejects overlapping conversation turns", async ({ agent }) => {
 	const run = await agent.run({ prompt: "answer" });
+	expect(run.output).toContain("turn 1");
 	const waiting = run.continue({ prompt: "WAIT_FOREVER" });
 	// The owning test cancels this pending continuation during teardown.
 	void waiting.catch(() => undefined);
@@ -178,6 +179,7 @@ test("continuation rejects overlapping conversation turns", async ({ agent }) =>
 let previous: string | undefined;
 test("records the first test workspace", async ({ agent }) => {
 	previous = (await agent.run({ prompt: "answer" })).workspace.root;
+	expect(previous, "The run has its own workspace.").toBeTruthy();
 });
 test("test resources have fresh ownership", async ({ agent }) => {
 	const run = await agent.run({ prompt: "answer" });
@@ -268,7 +270,9 @@ test("a test with no completed operation has not earned a result", earned, async
 		const failed = runtime.agent("failed", {}).run({ prompt: "FAIL_NOW" });
 		await expect(failed).rejects.toThrow("fake failure");
 		expect(() => runtime.assertResultEarned(NOT_EARNED)).toThrow("without a completed agent");
-		await runtime.agent("complete", {}).run({ prompt: "answer" });
+		const complete = await runtime.agent("complete", {}).run({ prompt: "answer" });
+		expect(() => runtime.assertResultEarned(NOT_EARNED)).toThrow("without a check");
+		expect(complete.output).toContain("turn 1");
 		expect(() => runtime.assertResultEarned(NOT_EARNED)).not.toThrow();
 	} finally {
 		await runtime.close();
@@ -298,7 +302,7 @@ test("a failure observed later is the test's to handle", earned, async (_r, info
 	const runtime = ownRuntime(info.outputPath("late"));
 	try {
 		const failing = runtime.agent("failing", {}).run({ prompt: "FAIL_NOW" });
-		await runtime.agent("complete", {}).run({ prompt: "answer" });
+		expect((await runtime.agent("complete", {}).run({ prompt: "answer" })).output).toBeTruthy();
 		await expect(failing).rejects.toThrow("fake failure");
 		expect(() => runtime.assertResultEarned(NOT_EARNED)).not.toThrow();
 	} finally {

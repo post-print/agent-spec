@@ -219,11 +219,11 @@ it("viewer presentation › reads a sampled test from the verdict stored for its
 				status: "failed",
 				testStatuses: { repeat: "failed" },
 				testClaims: { repeat: claim },
-				verdict: { verdict: "measured", exitCode: 0, tests: {}, claims: [], claimVerdicts },
+				verdict: { verdict: "indicative", exitCode: 3, tests: {}, claims: [], claimVerdicts },
 			} as never,
 			"repeat",
 		);
-	expect(statusOf({ [claim]: "measured" })).toBe("measured");
+	expect(statusOf({ [claim]: "indicative" })).toBe("indicative");
 	expect(statusOf({ [claim]: "passed" })).toBe("passed");
 	expect(statusOf({ [claim]: "agent_failed" })).toBe("failed");
 	expect(statusOf({ [claim]: "control_survived" })).toBe("failed");

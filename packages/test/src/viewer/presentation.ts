@@ -49,7 +49,7 @@ export type TestRunStatus =
 	| "interrupted"
 	| "flaky"
 	| "no verdict"
-	| "measured"
+	| "indicative"
 	| "unknown";
 /** What the stored verdict says, and what a test alone cannot show: the test's claim. */
 export type RunSummary = {
@@ -71,9 +71,9 @@ export const TEST_RUN_STATUS_ORDER: TestRunStatus[] = [
 	"no verdict",
 	"unknown",
 	"flaky",
+	"indicative",
 	"running",
 	"queued",
-	"measured",
 	"passed",
 	"skipped",
 ];
@@ -81,7 +81,7 @@ export const TEST_RUN_STATUS_ORDER: TestRunStatus[] = [
 /** Every verdict the CLI can reach, in the viewer's words. A new verdict will not compile until named. */
 const VERDICT_STATUS: Record<RunVerdict, TestRunStatus> = {
 	passed: "passed",
-	measured: "measured",
+	indicative: "indicative",
 	agent_failed: "failed",
 	control_survived: "failed",
 	infra_invalid: "no verdict",
@@ -91,6 +91,7 @@ const VERDICT_STATUS: Record<RunVerdict, TestRunStatus> = {
 	skipped_only: "skipped",
 	interrupted: "interrupted",
 	listed: "skipped",
+	author_error: "no verdict",
 	instrument_error: "no verdict",
 };
 /** The names a stored verdict may use. Any other name is a verdict this viewer cannot read. */
@@ -151,7 +152,9 @@ export function attemptRunStatus(
 
 /** A status that is neither a pass nor a failure and still asks the reader to look. */
 export function statusNeedsReview(status: string): boolean {
-	return status === "flaky" || status === "no verdict" || status === "unknown";
+	return (
+		status === "flaky" || status === "no verdict" || status === "indicative" || status === "unknown"
+	);
 }
 
 /** Prefer the run where this test is active, then the newest run that actually ran it. */
@@ -284,6 +287,7 @@ type RecordedConditions = {
 	confinement?: string;
 	calibrated?: boolean;
 	modelPinned?: boolean;
+	userConfig?: string;
 };
 /** Conditions a reader must know before trusting a pass. Empty when no run recorded them. */
 export function runConditionLabels(operations: { data: unknown[] }[]): string[] {
@@ -293,11 +297,14 @@ export function runConditionLabels(operations: { data: unknown[] }[]): string[] 
 			return record ? [record] : [];
 		}),
 	);
-	const labels = new Set<string>();
-	for (const record of records) {
-		if (record.confinement === "detect-only") labels.add("Unconfined");
-		if (record.host !== "custom" && record.calibrated === false) labels.add("Uncalibrated");
-		if (record.host !== "custom" && record.modelPinned === false) labels.add("Model unpinned");
-	}
-	return [...labels];
+	return [...new Set(records.flatMap(conditionLabels))];
+}
+function conditionLabels(record: RecordedConditions): string[] {
+	const hosted = record.host !== "custom";
+	return [
+		...(record.confinement === "detect-only" ? ["Unconfined"] : []),
+		...(hosted && record.calibrated === false ? ["Uncalibrated"] : []),
+		...(hosted && record.modelPinned === false ? ["Model unpinned"] : []),
+		...(record.userConfig === "may-load" ? ["User config may load"] : []),
+	];
 }

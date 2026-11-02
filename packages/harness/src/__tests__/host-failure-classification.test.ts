@@ -3,7 +3,13 @@ import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { claude, createAgentSession, customAgent, openai } from "../../dist/index.js";
+import {
+	AgentOutcomeError,
+	claude,
+	createAgentSession,
+	customAgent,
+	openai,
+} from "../../dist/index.js";
 
 const CODEX_MESSAGE = '{"type":"item.completed","item":{"type":"agent_message","text":"Working."}}';
 const CODEX_DONE = '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}';
@@ -52,9 +58,9 @@ async function runHost(host: HostName, bin: string, prompt = "hi") {
 async function failureOf(host: HostName, body: string) {
 	return (await runHost(host, await fakeHost(body))).failure as Error & { code?: string };
 }
-/** A failure the agent is charged with: an error carrying no infrastructure kind. */
+/** The host reported the agent's own terminal failure, typed so it is charged to the agent. */
 function isRunFailure(failure: Error & { kind?: string }): boolean {
-	return failure instanceof Error && failure.kind === undefined;
+	return failure instanceof AgentOutcomeError;
 }
 async function runCustomAdapter(fixture: string, options: Record<string, unknown>) {
 	const controller = new AbortController();
@@ -161,7 +167,7 @@ describe("agent text and incidental stderr never classify auth", () => {
 			expect(isRunFailure(await failureOf(host, body))).toBe(true);
 		});
 	}
-	it("a plain adapter error stays a run failure whatever it says", async () => {
+	it("a plain adapter error stays untyped whatever it says", async () => {
 		const failure = await runCustomAdapter("throwing-adapter.mjs", { message: "unauthorized" });
 		expect(failure?.message).toBe("unauthorized");
 		expect(failure?.kind).toBeUndefined();

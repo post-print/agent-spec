@@ -18,7 +18,7 @@ const CANDIDATE = /^candidate$/;
 const NAMED_OPERATIONS = /named operations/;
 const SETUP_VIEW = /view=setup/;
 const EXECUTION_LABEL = /^Execution /;
-const PASSED_LABEL = /^passed$/;
+const INDICATIVE_LABEL = /^indicative$/;
 const TOKEN_METRIC = /^Tokens\d+$/;
 
 const ELAPSED_SECONDS = /^\d+s$/;
@@ -52,9 +52,10 @@ test("TypeScript tests run from the catalog and retain named operations after re
 		await expect(page.getByLabel("Compare with")).toHaveCount(0);
 		await page.getByRole("button", { name: "Run this test" }).click();
 		await expect.poll(() => new URL(page.url()).searchParams.get("execution")).toBeTruthy();
-		await waitForPassed(page, 15000);
-		await checkSidebarStatus(page, title, "passed");
-		await checkMobileSidebarStatus(page, title, "passed");
+		// A custom adapter cannot be calibrated and only detects escapes, so its run is indicative.
+		await waitForStatus(page, INDICATIVE_LABEL, 15000);
+		await checkSidebarStatus(page, title, "indicative");
+		await checkMobileSidebarStatus(page, title, "indicative");
 		await checkOperationLabels(page);
 		await checkRunPresentation(page);
 		await checkExecutionSelection(page, title);
@@ -1259,9 +1260,9 @@ async function finishRunningJudge(fixture: Awaited<ReturnType<typeof runningJudg
 	await finishRunningExecution(fixture);
 }
 
-async function waitForPassed(page: Page, timeout?: number) {
+async function waitForStatus(page: Page, label: RegExp, timeout?: number) {
 	const current = page.getByRole("tabpanel", { name: "Current run" });
-	await expect(current.locator("span").filter({ hasText: PASSED_LABEL })).toBeVisible({ timeout });
+	await expect(current.locator("span").filter({ hasText: label })).toBeVisible({ timeout });
 }
 
 async function checkOperationLabels(page: Page) {
@@ -1424,13 +1425,13 @@ async function checkExecutionSelection(page: Page, title: string) {
 	await expect
 		.poll(() => new URL(page.url()).searchParams.get("execution"))
 		.not.toBe(firstExecution);
-	await waitForPassed(page);
+	await waitForStatus(page, INDICATIVE_LABEL);
 	await page.getByRole("tab", { name: "Run history" }).click();
 	await page
 		.getByRole("button", { name: new RegExp(`execution ${firstExecution?.slice(0, 8)}`) })
 		.click();
 	await page.reload();
-	await waitForPassed(page);
+	await waitForStatus(page, INDICATIVE_LABEL);
 	await expect(page.getByRole("tab", { name: "Current run" })).toHaveAttribute(
 		"aria-selected",
 		"true",
@@ -1586,7 +1587,9 @@ test("a run states its conditions and rates, and never calls a pass reliable", a
 	try {
 		await page.goto(viewer.url);
 		const main = page.getByRole("main");
-		await expect(main).toContainText("Measured: rates are reported below");
+		await expect(main).toContainText(
+			"Indicative: nothing failed, but the evidence cannot carry a pass",
+		);
 		await expect(main).toContainText("7 of 10 (95% interval 35% to 93%)");
 		await page.goto(
 			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
@@ -1663,11 +1666,11 @@ async function recordConditionsAttempt(store: ExecutionStore, testId: string) {
 
 function conditionsVerdict(): VerdictResult {
 	return {
-		verdict: "measured",
-		exitCode: 0,
+		verdict: "indicative",
+		exitCode: 3,
 		tests: {},
 		counts: { passed: 0, total: 0 },
-		claimVerdicts: { "viewer › a sampled claim": "measured" },
+		claimVerdicts: { "viewer › a sampled claim": "indicative" },
 		claims: [
 			{
 				claim: "viewer › a sampled claim",

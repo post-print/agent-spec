@@ -3,6 +3,11 @@ import { describe, expect, type Run, z } from "../../dist/index.js";
 const test = describe("instrument", ({ agent, judge }) => ({
 	agent: agent({ description: "A scripted host." }),
 	reviewer: judge({ prompt: "Is the input correct?", schema: z.object({ correct: z.boolean() }) }),
+	// Never calibrated: a different prompt is a different judge.
+	unvetted: judge({
+		prompt: "Is the input acceptable?",
+		schema: z.object({ correct: z.boolean() }),
+	}),
 	unconvertible: judge({
 		prompt: "Is the input correct?",
 		schema: z.object({ correct: z.boolean() }).transform(({ correct }) => correct),
@@ -34,6 +39,10 @@ test("judge rejects the answer while another judge is running", async ({ reviewe
 	expect(output.correct, "The judge accepted it.").toBe(false);
 	await running;
 });
+test("uncalibrated judge rejects the answer", async ({ unvetted }) => {
+	const { output } = await unvetted.run({ input: "SCENARIO_JUDGE_ENFORCED" });
+	expect(output.correct, "The judge accepted it.").toBe(false);
+});
 test("judge cannot start", async ({ unconvertible }) => {
 	await unconvertible.run({ input: "answer" });
 });
@@ -43,6 +52,37 @@ test("good run", async ({ agent }) => {
 });
 test("assertion fails", async ({ agent }) => {
 	expect((await agent.run(scenario("GOOD"))).output).toBe("something else");
+});
+test("test code breaks after the agent ran", async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	const parsed = JSON.parse("{}") as { answer?: { text: string } };
+	expect(run.output.length + (parsed.answer as { text: string }).text.length).toBeGreaterThan(0);
+});
+test("agent runs and nothing checks it", async ({ agent }) => {
+	await agent.run(scenario("GOOD"));
+});
+test("only the prompt is checked", async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	expect(run.prompt).toContain("SCENARIO");
+});
+test("a soft check on the run earns the pass", async ({ agent }) => {
+	expect.soft((await agent.run(scenario("GOOD"))).output).toBe("done");
+});
+test("a check on the final workspace earns the pass", async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	expect(run.workspace.changedPaths).toEqual([]);
+});
+const WRONG = {
+	description: "A control that names its check.",
+	control: { mustFail: "The output is wrong." },
+};
+test("named control fails on the check it names", WRONG, async ({ agent }) => {
+	expect((await agent.run(scenario("GOOD"))).output, "The output is wrong.").toBe("wrong");
+});
+test("named control fails on a precondition instead", WRONG, async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	expect(run.output, "A precondition holds.").toBe("precondition");
+	expect(run.output, "The output is wrong.").toBe("wrong");
 });
 test("host reports hitting its limit", async ({ agent }) => {
 	await agent.run(scenario("MAX_TURNS"));
@@ -168,7 +208,7 @@ rates(
 		subject: "prompt",
 	},
 	async ({ agent }, _info, variant) => {
-		await agent.run(scenario("GOOD"));
+		expect((await agent.run(scenario("GOOD"))).output).toBe("done");
 		expect(variant, "This arm passes.").toBe("good");
 	},
 );
@@ -181,7 +221,7 @@ rates(
 		subject: "workspace",
 	},
 	async ({ agent }, _info, variant) => {
-		await agent.run({ prompt: `SCENARIO_GOOD ${variant}` });
+		expect((await agent.run({ prompt: `SCENARIO_GOOD ${variant}` })).output).toBe("done");
 	},
 );
 test("control survives", async ({ agent }, info) => {
@@ -259,7 +299,7 @@ rates(
 		subject: "prompt",
 	},
 	async ({ agent }, _info, variant) => {
-		await agent.run(scenario(variant === "a" ? "GOOD" : "EMPTY"));
+		expect((await agent.run(scenario(variant === "a" ? "GOOD" : "EMPTY"))).output).toBe("done");
 	},
 );
 const missingWorkspace = describe("instrument setup", ({ agent }) => ({

@@ -21,7 +21,11 @@ import {
 	hostProcessFailure,
 	spawnHostProcess,
 } from "./host-failure.js";
-import { claudeIsolationSettings, prepareClaudeEnvFile } from "./host-isolation.js";
+import {
+	claudeIsolationSettings,
+	prepareClaudeEnvFile,
+	prepareSealedHome,
+} from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -69,6 +73,8 @@ export interface ClaudeRunOptions {
 	loadProjectContext?: boolean;
 	/** Absolute paths the agent may not read (the caller checkout). */
 	protectedPaths?: readonly string[];
+	/** Give the agent a fresh HOME inside the workspace's `.git`, so its own config stays out. */
+	sealHome?: boolean;
 	/** Let sandboxed commands create Unix sockets (headless Chrome on Linux). Default false. */
 	allowUnixSockets?: boolean;
 	networkAccess?: boolean;
@@ -569,6 +575,7 @@ async function executeClaudeRun(
 	const acc = createClaudeTraceAccumulator();
 	const abort = new AbortController();
 	const env = buildClaudeEnv(authMode, apiKey);
+	if (options.sealHome) env.HOME = prepareSealedHome(options.cwd);
 	const envFile = prepareClaudeEnvFile(options.cwd, env.PATH);
 	if (envFile) env.CLAUDE_ENV_FILE = envFile;
 	const child = spawnHostProcess("Claude Code", [bin, args], {

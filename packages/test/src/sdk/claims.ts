@@ -46,7 +46,13 @@ export interface BaselineRecord {
 }
 export type BaselineComparison =
 	| { status: "none" }
-	| { status: "new_conditions" }
+	| {
+			status: "new_conditions";
+			/** The rate the baseline held, so a drift stays visible though nothing compares it. */
+			previous?: { passed: number; total: number };
+			/** The recorded conditions that differ from the baseline's, when both can be read. */
+			changed?: string[];
+	  }
 	| { status: "same_conditions"; regressed: boolean; passed: number; total: number };
 export interface ClaimResult {
 	claim: string;
@@ -62,6 +68,8 @@ export interface ClaimResult {
 	fingerprint?: string;
 	comparison?: RateDifference & { first: string; second: string };
 	comparisonRefused?: string;
+	/** The samples disagree on their plan, so no one plan can decide them. */
+	planConflict?: boolean;
 	baseline: BaselineComparison;
 }
 
@@ -72,6 +80,8 @@ const SHARED_CONDITIONS = [
 	"confinement",
 	"network",
 	"settingSources",
+	"userConfig",
+	"home",
 	"overridingEnv",
 	"hashes.settings",
 ];
@@ -160,6 +170,22 @@ function compared(arms: ClaimArm[], samples: ClaimSample[], subject?: Comparison
 		},
 	};
 }
+/** Which recorded conditions differ between two fingerprints of the same fields. */
+function changedConditions(before: string, after: string | undefined): string[] | undefined {
+	if (!after) return undefined;
+	const fields = fieldsFor();
+	const parse = (value: string) => {
+		try {
+			const parsed: unknown = JSON.parse(value);
+			return Array.isArray(parsed) && parsed.length === fields.length ? parsed : undefined;
+		} catch {
+			return undefined;
+		}
+	};
+	const [old, current] = [parse(before), parse(after)];
+	if (!(old && current)) return undefined;
+	return fields.filter((_, index) => JSON.stringify(old[index]) !== JSON.stringify(current[index]));
+}
 function baselineComparison(
 	arms: ClaimArm[],
 	fingerprint: string | undefined,
@@ -167,13 +193,25 @@ function baselineComparison(
 ): BaselineComparison {
 	const [arm] = arms;
 	if (!baseline || !arm || arms.length !== 1) return { status: "none" };
-	if (baseline.fingerprint !== fingerprint) return { status: "new_conditions" };
+	if (baseline.fingerprint !== fingerprint)
+		return {
+			status: "new_conditions",
+			previous: { passed: baseline.passed, total: baseline.total },
+			changed: changedConditions(baseline.fingerprint, fingerprint),
+		};
 	return {
 		status: "same_conditions",
 		regressed: regressedFrom(baseline, arm),
 		passed: baseline.passed,
 		total: baseline.total,
 	};
+}
+/** Every sample of one claim must carry the same plan, or which one decides depends on order. */
+function plansDisagree(samples: ClaimSample[]): boolean {
+	const plans = samples.map(({ sample }) =>
+		JSON.stringify(sample && [sample.n, sample.flagAt, sample.subject, sample.arms]),
+	);
+	return new Set(plans).size > 1;
 }
 function claimOf(
 	claim: string,
@@ -198,6 +236,7 @@ function claimOf(
 		controlsSurvived: samples.filter(({ survivedControl }) => survivedControl).length,
 		fingerprint,
 		...compared(arms, samples, annotation?.subject),
+		...(plansDisagree(samples) ? { planConflict: true } : {}),
 		baseline: baselineComparison(arms, fingerprint, baselines[claim]),
 	};
 }
@@ -235,8 +274,13 @@ function comparisonLine(claim: ClaimResult): string[] {
 	];
 }
 function baselineLine({ baseline }: ClaimResult): string[] {
-	if (baseline.status === "new_conditions")
-		return ["conditions changed or are unknown, so no baseline applies"];
+	if (baseline.status === "new_conditions") {
+		const what = baseline.changed?.length ? `: ${baseline.changed.join(", ")}` : "";
+		const was = baseline.previous
+			? `; the baseline was ${baseline.previous.passed} of ${baseline.previous.total}`
+			: "";
+		return [`conditions changed or are unknown${what}, so no baseline applies${was}`];
+	}
 	if (baseline.status !== "same_conditions") return [];
 	const against = `baseline ${baseline.passed} of ${baseline.total}`;
 	return [baseline.regressed ? `regressed from ${against}` : `consistent with ${against}`];

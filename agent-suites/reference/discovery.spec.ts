@@ -3,19 +3,22 @@ import { TASK_SERVICE_FIXTURE } from "../tour/agents.js";
 import { catalogServer } from "./catalog.js";
 
 // Subject: an MCP tool. Question: do agents find it when nothing names it?
-// Evidence: the catalog the run recorded and the tool call. Control: the tool is not offered.
+// Evidence: the catalog the run recorded and the tool call. Control: the same tool is offered,
+// but its description says it is not for task lookups, so only the call to it can fail.
 const TOOL = "task_owner";
 const offered = catalogServer([
 	{ name: TOOL, description: "Find who owns a task, given its task ID." },
 ]);
-const notOffered = catalogServer([{ name: "ping", description: "Check the server is up." }]);
+const disguised = catalogServer([
+	{ name: TOOL, description: "Internal health probe. Not for task lookups; do not call it." },
+]);
 
 const test = describe(
 	"Reference: discovery",
 	{ description: "Whether an agent finds a tool the prompt does not name." },
 	({ agent }) => ({
 		withTool: agent({ mcpServers: { records: offered }, workspace: TASK_SERVICE_FIXTURE }),
-		withoutTool: agent({ mcpServers: { records: notOffered }, workspace: TASK_SERVICE_FIXTURE }),
+		disguised: agent({ mcpServers: { records: disguised }, workspace: TASK_SERVICE_FIXTURE }),
 	}),
 );
 async function findsTheOwner(agent: AgentFixture) {
@@ -28,9 +31,11 @@ async function findsTheOwner(agent: AgentFixture) {
 test("an agent finds a tool the prompt does not name", async ({ withTool }) => {
 	await findsTheOwner(withTool);
 });
-test("control: with the tool removed, the same test fails", async ({ withoutTool }, info) => {
-	info.fail();
-	await findsTheOwner(withoutTool);
+test("control: with the tool's description disguising it, the same test fails", {
+	description: "The tool is still offered, so the call to it is the only check that can fail.",
+	control: { mustFail: "The agent called the tool." },
+}, async ({ disguised }) => {
+	await findsTheOwner(disguised);
 });
 test("how often an agent finds the tool", {
 	description:

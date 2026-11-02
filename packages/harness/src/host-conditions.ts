@@ -18,6 +18,13 @@ const OVERRIDING_ENV = [
 
 export type Confinement = "host-enforced" | "detect-only";
 export type NetworkState = "enabled" | "disabled" | "unknown";
+/**
+ * Whether the host's own user configuration can reach the run: instructions such as a user
+ * CLAUDE.md, hooks, plugins, or global skills. "may-load" means nothing shuts it out.
+ */
+export type UserConfig = "excluded" | "may-load" | "unknown";
+/** Whether the agent can read the real home: "sealed" only when the host denies it. */
+export type HomeAccess = "sealed" | "readable" | "unknown";
 /** What a session was launched under, as far as the harness can state it. */
 export interface HostConditions {
 	host: string;
@@ -27,6 +34,8 @@ export interface HostConditions {
 	confinement: Confinement;
 	network: NetworkState;
 	settingSources?: string[];
+	userConfig: UserConfig;
+	home: HomeAccess;
 	/** Names only: values can hold secrets or local paths. */
 	overridingEnv: string[];
 }
@@ -66,6 +75,22 @@ function settingSources(agent: AgentDefinition): string[] | undefined {
 	if (agent.host === "openai") return includeGlobal ? ["user"] : [];
 	return undefined;
 }
+/**
+ * Claude keeps the user's own configuration out only under `--bare`, which needs API-key auth and
+ * no project context. Codex runs with `--ignore-user-config` and a temporary home unless global
+ * skills are asked for. Nothing has shown what Cursor or a custom adapter loads.
+ */
+function userConfig(agent: AgentDefinition): UserConfig {
+	const includeGlobal = agent.options.includeGlobalSkills === true;
+	if (agent.host === "claude")
+		return !includeGlobal && settingSources(agent)?.length === 0 ? "excluded" : "may-load";
+	if (agent.host === "openai") return includeGlobal ? "may-load" : "excluded";
+	return "unknown";
+}
+function homeAccess(agent: AgentDefinition): HomeAccess {
+	if (agent.host !== "claude" && agent.host !== "openai") return "unknown";
+	return agent.options.sealHome === true ? "sealed" : "readable";
+}
 export async function hostConditions(
 	agent: AgentDefinition,
 	readOnly: boolean,
@@ -80,6 +105,8 @@ export async function hostConditions(
 			agent.host === "claude" || agent.host === "openai" ? "host-enforced" : "detect-only",
 		network: networkState(agent, readOnly),
 		settingSources: settingSources(agent),
+		userConfig: userConfig(agent),
+		home: homeAccess(agent),
 		overridingEnv: OVERRIDING_ENV.filter((name) => process.env[name] !== undefined),
 	};
 }

@@ -13,6 +13,7 @@ import { type AgentResource, factories, type JudgeResource, type Resource } from
 import { UnearnedResultError } from "./operation-ledger.js";
 import { TestRuntime } from "./runtime.js";
 import {
+	CONTROL_ANNOTATION,
 	NO_AGENT_ANNOTATION,
 	plannedSamples,
 	runRecordingSample,
@@ -58,7 +59,9 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		testFile: info.file,
 		remainingTestMs: () => (info.timeout === 0 ? undefined : startedAt + info.timeout - Date.now()),
 		onEvent: (event) => {
-			writes = writes.then(() => appendFile(path, `${JSON.stringify(withoutSecrets(event))}\n`));
+			// Serialized now: the event as it happened, read before the test can see the run.
+			const line = `${JSON.stringify(withoutSecrets(event))}\n`;
+			writes = writes.then(() => appendFile(path, line));
 			if (process.env.AGENT_TEST_VIEWER_EVENTS === "1" || process.env.AGENT_TEST_RECORDER === "1")
 				process.stdout.write(`@@agent-test:${JSON.stringify({ ...event, at: Date.now() })}\n`);
 		},
@@ -76,10 +79,18 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 	};
 }
 /** Runs a test body and holds it to earning its result, however it ends. */
+interface Earning {
+	runtime: TestRuntime;
+	info: TestInfo;
+	noAgent: boolean;
+	/** A control must fail, which the runner then expects of this test. */
+	control: boolean;
+}
 async function runEarnedBody(
-	{ runtime, info, noAgent }: { runtime: TestRuntime; info: TestInfo; noAgent: boolean },
+	{ runtime, info, noAgent, control }: Earning,
 	body: () => Promise<void> | void,
 ) {
+	if (control) info.fail();
 	try {
 		await body();
 	} catch (error) {
@@ -111,6 +122,11 @@ export type TestDetails<R extends Resources = Resources> = SamplingDetails & {
 	resources?: readonly Extract<keyof R, string>[];
 	/** This test checks the runner itself, so it may pass without a completed agent operation. */
 	noAgent?: boolean;
+	/**
+	 * This test is a control: it must fail, and only on the check with this label. Failing on any
+	 * other check, such as a precondition, shows nothing about what the test measures.
+	 */
+	control?: { mustFail: string };
 };
 export interface SuiteTest<R extends Resources> {
 	(title: string, body: TestBody<R>): void;
@@ -162,12 +178,12 @@ export function describe<R extends Resources>(
 			...testAnnotations(resources, callback, details),
 			...suiteAnnotations(suite),
 		];
-		const noAgent = details?.noAgent === true;
+		const earning = { noAgent: details?.noAgent === true, control: Boolean(details?.control) };
 		const sampled = details?.samples !== undefined || details?.variants !== undefined;
 		runner.describe(name, () => {
 			if (!sampled) {
 				runner(title, { annotation }, async ({ runtime }, info) => {
-					await runEarnedBody({ runtime, info, noAgent }, () =>
+					await runEarnedBody({ runtime, info, ...earning }, () =>
 						callback(bind(resources, runtime), info, ""),
 					);
 				});
@@ -184,7 +200,7 @@ export function describe<R extends Resources>(
 					const body = () =>
 						callback(bind(resources, runtime), info, planned.annotation.variant ?? "");
 					await runRecordingSample({ info, annotation: planned.annotation, runtime }, () =>
-						runEarnedBody({ runtime, info, noAgent }, body),
+						runEarnedBody({ runtime, info, ...earning }, body),
 					);
 				});
 			}
@@ -213,6 +229,9 @@ function testAnnotations<R extends Resources>(
 		},
 		...(details?.description ? [{ type: "description", description: details.description }] : []),
 		...(details?.noAgent ? [{ type: NO_AGENT_ANNOTATION, description: "" }] : []),
+		...(details?.control
+			? [{ type: CONTROL_ANNOTATION, description: details.control.mustFail }]
+			: []),
 		...(criteria.length
 			? [{ type: "agent-test.criteria", description: JSON.stringify(criteria) }]
 			: []),

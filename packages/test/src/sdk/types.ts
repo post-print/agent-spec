@@ -74,6 +74,11 @@ export interface Evaluation<T = unknown> {
 	artifact: string;
 	/** Which model judged, because a verdict is only as stable as its model. */
 	model: { requested?: string; observed?: string };
+	/**
+	 * Which judge this was, by its prompt, schema, host and model, and whether labelled fixtures
+	 * agreed with it in the last week. A pass resting on an uncalibrated judge is only indicative.
+	 */
+	judge: { key: string; calibrated: boolean };
 }
 export type WorkspaceSetup = (workspace: Workspace) => void | Promise<void>;
 export interface AgentFixture {

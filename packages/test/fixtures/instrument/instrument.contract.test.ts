@@ -1,20 +1,30 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "../../dist/index.js";
 import { startRecordedExecution } from "../../dist/sdk/execution-runner.js";
 import { executionHistoryRoot, readExecutionDetail } from "../../dist/sdk/execution-store.js";
+import {
+	ENFORCED_VECTORS,
+	judgeKey,
+	recordEscapeVector,
+	recordHostCalibration,
+	recordJudgeCalibration,
+} from "../../dist/sdk/run-record.js";
 
 const config = fileURLToPath(new URL("./agent-test.config.ts", import.meta.url));
 const fakeHost = fileURLToPath(new URL("./fake-host.mjs", import.meta.url));
 const roots: string[] = [];
 
-async function runScenario(grep: string, extra: string[] = []) {
+type RunFlags = { allowIndicative?: boolean; verdictGrade?: boolean };
+async function runScenario(grep: string, extra: string[] = [], flags: RunFlags = {}) {
 	const previous = process.env.CLAUDE_CODE_BIN;
 	process.env.CLAUDE_CODE_BIN = fakeHost;
 	const execution = await startRecordedExecution({
 		config,
 		args: ["--grep", grep, "--workers", "1", ...extra],
+		...flags,
 	});
 	if (previous === undefined) delete process.env.CLAUDE_CODE_BIN;
 	else process.env.CLAUDE_CODE_BIN = previous;
@@ -23,6 +33,38 @@ async function runScenario(grep: string, extra: string[] = []) {
 	const exitCode = await execution.completed;
 	return { exitCode, verdict: await execution.verdict, summary: await readExecutionDetail(root) };
 }
+/** The fake host's probe: this version under API-key auth, so a run of it can carry a pass. */
+const FAKE_HOST = { host: "claude", binaryVersion: "1", authMode: "api-key" };
+const calibration = join(
+	fileURLToPath(new URL(".", import.meta.url)),
+	".agent-test",
+	"calibration",
+);
+beforeAll(async () => {
+	process.env.AGENT_TEST_FIXTURE_KEY = "fixture-key-not-real";
+	await calibrateFakeHost();
+});
+/** The scripted host's probe and escape battery, both held, as a calibrated real host's would be. */
+async function calibrateFakeHost() {
+	const configDir = fileURLToPath(new URL(".", import.meta.url));
+	await recordHostCalibration(configDir, FAKE_HOST);
+	for (const vector of ENFORCED_VECTORS)
+		await recordEscapeVector(configDir, FAKE_HOST, { vector, held: true });
+	await recordJudgeCalibration(
+		configDir,
+		{ name: "reviewer", judge: { key: REVIEWER } },
+		{
+			fixtures: 0,
+		},
+	);
+}
+/** The scripted reviewer in instrument.spec.ts: its "no" counts against the agent once calibrated. */
+const REVIEWER = judgeKey({
+	prompt: "Is the input correct?",
+	schema: z.toJSONSchema(z.object({ correct: z.boolean() })),
+	host: "claude",
+	model: "fake",
+});
 afterAll(async () => {
 	await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -30,6 +72,11 @@ afterAll(async () => {
 const rate = (title: string) => runScenario(`instrument rates ${title} \\[`);
 
 describe("judges through the real runner", () => {
+	it("an uncalibrated judge's no is not charged to the agent", async () => {
+		const { verdict, exitCode } = await runScenario("uncalibrated judge rejects the answer");
+		expect(verdict.verdict).toBe("infra_invalid");
+		expect(exitCode).toBe(2);
+	}, 60_000);
 	it("takes the verdict from the host's enforced output, not its prose", async () => {
 		const { verdict, exitCode } = await runScenario("judge verdict comes from enforced output");
 		expect(verdict.verdict).toBe("passed");
@@ -57,10 +104,10 @@ describe("judges through the real runner", () => {
 		}, 60_000);
 });
 describe("rates through the real runner", () => {
-	it("samples: 5 produces one claim with its count and interval", async () => {
+	it("samples: 5 with no plan is one indicative claim with its count and interval", async () => {
 		const { verdict, exitCode } = await rate("sampled pass");
-		expect(verdict.verdict).toBe("measured");
-		expect(exitCode).toBe(0);
+		expect(verdict.verdict).toBe("indicative");
+		expect(exitCode).toBe(3);
 		expect(verdict.claims).toHaveLength(1);
 		const arm = verdict.claims[0]?.arms[0];
 		expect(arm).toMatchObject({ passed: 5, failed: 0, total: 5 });
@@ -68,9 +115,16 @@ describe("rates through the real runner", () => {
 	}, 60_000);
 	it("a failed sample is part of a rate, not a failed run", async () => {
 		const { verdict, exitCode } = await rate("sampled with a failure");
-		expect(verdict.verdict).toBe("measured");
-		expect(exitCode).toBe(0);
+		expect(verdict.verdict).toBe("indicative");
+		expect(exitCode).toBe(3);
 		expect(verdict.claims[0]?.arms[0]).toMatchObject({ passed: 2, failed: 1, total: 3 });
+	}, 60_000);
+	it("--allow-indicative exits 0 on a rate and stores that it did", async () => {
+		const { verdict, exitCode } = await runScenario("instrument rates sampled pass \\[", [], {
+			allowIndicative: true,
+		});
+		expect(verdict).toMatchObject({ verdict: "indicative", indicativeAllowed: true });
+		expect(exitCode).toBe(0);
 	}, 60_000);
 });
 describe("sampling plans through the real runner", () => {
@@ -150,6 +204,13 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["good run", "passed", 0],
 	["assertion fails", "agent_failed", 1],
 	["host reports hitting its limit", "agent_failed", 1],
+	["test code breaks after the agent ran", "author_error", 2],
+	["agent runs and nothing checks it", "vacuous", 2],
+	["named control fails on the check it names", "passed", 0],
+	["named control fails on a precondition instead", "vacuous", 2],
+	["only the prompt is checked", "vacuous", 2],
+	["a soft check on the run earns the pass", "passed", 0],
+	["a check on the final workspace earns the pass", "passed", 0],
 	["host emits nothing", "infra_invalid", 2],
 	["host emits garbage", "infra_invalid", 2],
 	["host is killed", "infra_invalid", 2],
@@ -200,9 +261,10 @@ describe("the verdict for a scripted host through the real runner", () => {
 		expect(result.verdict.verdict).toBe("skipped_only");
 		expect(result.exitCode).toBe(2);
 	}, 60_000);
-	it("repeats of one test become one claim", async () => {
+	it("repeats of one test become one claim, which passes only when every repeat did", async () => {
 		const result = await runScenario("instrument good run$", ["--repeat-each", "3"]);
-		expect(result.verdict.verdict).toBe("measured");
+		expect(result.verdict.verdict).toBe("passed");
+		expect(result.exitCode).toBe(0);
 		expect(result.verdict.claims).toHaveLength(1);
 		expect(result.verdict.claims[0]?.arms[0]).toMatchObject({ passed: 3, total: 3 });
 	}, 60_000);
@@ -227,7 +289,7 @@ describe("results that have not been earned through the real runner", () => {
 		expect(result.verdict.verdict).toBe("control_survived");
 		expect(result.exitCode).toBe(1);
 	}, 60_000);
-	it("a surviving control fails a rate, which would otherwise only be measured", async () => {
+	it("a surviving control fails a rate, which would otherwise only be indicative", async () => {
 		const { verdict, exitCode } = await rate("sampled control survives");
 		expect(verdict.verdict).toBe("control_survived");
 		expect(exitCode).toBe(1);
@@ -296,5 +358,34 @@ describe("failures that say nothing about the agent, or say it plainly", () => {
 		const stored = JSON.stringify(summary?.attempts[0]?.errors);
 		expect(stored).toContain("[redacted]");
 		expect(stored).not.toContain(["sk", "abcdefghijklmnopqrst"].join("-"));
+	}, 60_000);
+});
+describe("conditions a pass needs through the real runner", () => {
+	it("an uncalibrated host gives an indicative run that names why", async () => {
+		await rm(calibration, { recursive: true, force: true });
+		try {
+			const { verdict, exitCode } = await runScenario("instrument good run$");
+			expect(verdict.verdict).toBe("indicative");
+			expect(exitCode).toBe(3);
+			expect(verdict.weakConditions?.[0]).toContain("no passing host probe");
+		} finally {
+			await calibrateFakeHost();
+		}
+	}, 60_000);
+});
+function recordsOf({ data }: { data: unknown[] }): unknown[] {
+	return data.filter((item) => (item as { record?: object } | null)?.record !== undefined);
+}
+describe("verdict-grade runs through the real runner", () => {
+	it("a verdict-grade run seals the real home and can still pass", async () => {
+		const { verdict, exitCode, summary } = await runScenario("instrument good run$", [], {
+			verdictGrade: true,
+		});
+		expect(verdict.verdict).toBe("passed");
+		expect(exitCode).toBe(0);
+		const records = (summary?.attempts ?? []).flatMap(({ operations }) =>
+			operations.flatMap(recordsOf),
+		);
+		expect(records[0]).toMatchObject({ record: { home: "sealed", userConfig: "excluded" } });
 	}, 60_000);
 });

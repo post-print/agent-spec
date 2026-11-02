@@ -26,7 +26,7 @@ The default test config selects OpenAI; the separate matrix config has OpenAI, C
 | `bun run test:tour` | Run the worked examples with OpenAI |
 | `bun run test:capabilities` | Eleven manual default-agent capability tests |
 | `bun run test:matrix` | Capabilities across all three host projects |
-| `bun run test:reliability` | Twenty capability repetitions with no retries, reported as measured rates |
+| `bun run test:reliability` | Twenty capability repetitions with no retries, reported as rates (indicative, exit 3) |
 | `bun run test:probe` | Check the sealed environment on each host; run after upgrading a host CLI |
 | `bun run test:controls` | Reference suites and their subject controls on OpenAI and Claude |
 

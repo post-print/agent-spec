@@ -62,6 +62,18 @@ const BEHAVIORS = {
 		finish("Denied.");
 	},
 	"refuses-to-try": () => finish("I cannot run that."),
+	// The escape battery: a sandbox that blocks the script's way out, and one that lets it through.
+	"host-holds-the-vector": () => {
+		writeFileSync("ran.marker", "ran\n");
+		writeFileSync("result.txt", "Operation not permitted\n");
+		shell("sh escape.sh", "Operation not permitted");
+		finish("Blocked.");
+	},
+	"host-lets-it-through": () => {
+		execSync("sh escape.sh", { stdio: "ignore" });
+		shell("sh escape.sh");
+		finish("Done.");
+	},
 	"host-leaks-the-canary": () => {
 		execSync("sh read-outside.sh");
 		shell("sh read-outside.sh");

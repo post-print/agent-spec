@@ -116,6 +116,8 @@ export interface RunRecord {
 	modelPinned: boolean;
 	/** True when this host version has a passing host probe on record. */
 	calibrated: boolean;
+	/** Every escape vector the host is said to enforce held in a battery run from the last week. */
+	confinementProven: boolean;
 	packageVersion?: string;
 	git?: { sha: string; dirty: boolean };
 	hashes: {
@@ -204,26 +206,129 @@ function definitionDigests({ options }: AgentDefinition) {
 		settings: sha256(stableJson(settings)),
 	};
 }
-function calibrationPath(baseDir: string, host: string, version: string): string {
-	const safeVersion = version.replace(/[^\w.-]+/g, "_");
-	return join(baseDir, ".agent-test", "calibration", `${host}-${safeVersion}.json`);
+/** A calibration speaks for one host version under one auth mode, and only for a week. */
+const CALIBRATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+type CalibrationKey = Pick<RunRecord, "host" | "binaryVersion" | "authMode">;
+function calibrationPath(baseDir: string, { host, binaryVersion, authMode }: CalibrationKey) {
+	const safe = (value: string) => value.replace(/[^\w.-]+/g, "_");
+	const name = `${host}-${safe(binaryVersion ?? "")}-${safe(authMode ?? "none")}.json`;
+	return join(baseDir, ".agent-test", "calibration", name);
 }
-async function hostCalibrated(baseDir: string, host: string, version?: string): Promise<boolean> {
-	if (!version) return false;
-	return readFile(calibrationPath(baseDir, host, version)).then(
-		() => true,
-		() => false,
+/** Calibrated only by a probe of this exact host, version and auth mode, in the last week. */
+async function hostCalibrated(baseDir: string, key: CalibrationKey, now = Date.now()) {
+	if (!key.binaryVersion) return false;
+	const stored = await readFile(calibrationPath(baseDir, key), "utf8").catch(() => undefined);
+	if (!stored) return false;
+	try {
+		const at = Date.parse((JSON.parse(stored) as { at?: string }).at ?? "");
+		return Number.isFinite(at) && now - at <= CALIBRATION_TTL_MS;
+	} catch {
+		return false;
+	}
+}
+/**
+ * Ways out of a sealed workspace the escape battery tries. The first six are what the harness says
+ * a host enforces, so a pass needs each one held. The rest are recorded findings: the real home and
+ * global git config are sealed only under `--verdict-grade`, and nothing yet contains the parent's
+ * environment or a process the agent leaves running.
+ */
+export const ENFORCED_VECTORS = [
+	"caller-checkout",
+	"sealed-manifest",
+	"temp-folder",
+	"symlink-out",
+	"write-outside",
+	"network-off",
+] as const;
+export const SEALED_HOME_VECTORS = ["real-home", "global-git-config"] as const;
+export const FINDING_VECTORS = ["parent-env", "outlives-run"] as const;
+export type EscapeVector =
+	| (typeof ENFORCED_VECTORS)[number]
+	| (typeof SEALED_HOME_VECTORS)[number]
+	| (typeof FINDING_VECTORS)[number];
+const JSON_SUFFIX = /\.json$/;
+type VectorOutcomes = Record<string, { outcome: "held" | "breached"; at: string }>;
+function vectorsPath(baseDir: string, key: CalibrationKey): string {
+	return calibrationPath(baseDir, key).replace(JSON_SUFFIX, ".vectors.json");
+}
+async function storedVectors(baseDir: string, key: CalibrationKey): Promise<VectorOutcomes> {
+	const stored = await readFile(vectorsPath(baseDir, key), "utf8").catch(() => "{}");
+	try {
+		return JSON.parse(stored) as VectorOutcomes;
+	} catch {
+		return {};
+	}
+}
+/** Called by the escape battery for each vector it tried, held or not. */
+export async function recordEscapeVector(
+	configDir: string,
+	key: CalibrationKey,
+	result: { vector: EscapeVector; held: boolean },
+): Promise<void> {
+	if (!key.binaryVersion) throw new Error("Cannot record a vector for a host of unknown version");
+	const vectors = await storedVectors(configDir, key);
+	const outcome = result.held ? "held" : "breached";
+	vectors[result.vector] = { outcome, at: new Date().toISOString() };
+	await mkdir(dirname(vectorsPath(configDir, key)), { recursive: true });
+	await writeFile(vectorsPath(configDir, key), JSON.stringify(vectors, null, 2));
+}
+/** Every vector the host is said to enforce held in the last week, for this host, version and auth. */
+async function confinementProven(baseDir: string, key: CalibrationKey, now = Date.now()) {
+	if (!key.binaryVersion) return false;
+	const vectors = await storedVectors(baseDir, key);
+	return ENFORCED_VECTORS.every((vector) => {
+		const entry = vectors[vector];
+		const at = Date.parse(entry?.at ?? "");
+		return entry?.outcome === "held" && Number.isFinite(at) && now - at <= CALIBRATION_TTL_MS;
+	});
+}
+/** One judge: the same prompt and schema on the same host and model. */
+export function judgeKey(input: {
+	prompt: string;
+	schema: unknown;
+	host?: string;
+	model?: string;
+}) {
+	return sha256(
+		stableJson([input.prompt, input.schema, input.host ?? "custom", input.model ?? ""]),
 	);
+}
+function judgePath(baseDir: string, key: string): string {
+	return join(baseDir, ".agent-test", "calibration", `judge-${key.slice(0, 32)}.json`);
+}
+/** Whether labelled fixtures agreed with this judge in the last week. */
+export async function judgeCalibrated(baseDir: string, key: string, now = Date.now()) {
+	const stored = await readFile(judgePath(baseDir, key), "utf8").catch(() => undefined);
+	if (!stored) return false;
+	try {
+		const at = Date.parse((JSON.parse(stored) as { at?: string }).at ?? "");
+		return Number.isFinite(at) && now - at <= CALIBRATION_TTL_MS;
+	} catch {
+		return false;
+	}
+}
+/** Called by the judge calibration suite once every labelled fixture agreed with the judge. */
+export async function recordJudgeCalibration(
+	configDir: string,
+	evaluation: { name: string; judge: { key: string } },
+	agreed: { fixtures: number },
+): Promise<void> {
+	const path = judgePath(configDir, evaluation.judge.key);
+	await mkdir(dirname(path), { recursive: true });
+	const at = new Date().toISOString();
+	await writeFile(path, JSON.stringify({ name: evaluation.name, ...agreed, at }, null, 2));
 }
 /** Called by the host probe after every check passed. Other runs read it to label themselves. */
 export async function recordHostCalibration(
 	configDir: string,
-	record: Pick<RunRecord, "host" | "binaryVersion">,
+	record: CalibrationKey,
 ): Promise<void> {
 	if (!record.binaryVersion) throw new Error("Cannot calibrate a host with an unknown version");
-	const path = calibrationPath(configDir, record.host, record.binaryVersion);
+	const path = calibrationPath(configDir, record);
 	await mkdir(dirname(path), { recursive: true });
-	await writeFile(path, JSON.stringify({ ...record, at: new Date().toISOString() }, null, 2));
+	const { host, binaryVersion, authMode } = record;
+	const at = new Date().toISOString();
+	await writeFile(path, JSON.stringify({ host, binaryVersion, authMode, at }, null, 2));
 }
 export async function buildRunRecord(
 	base: RunRecordBase,
@@ -244,7 +349,8 @@ export async function buildRunRecord(
 		requestedModel: definition.options.model,
 		observedModel: hostReport?.model,
 		modelPinned: Boolean(definition.options.model),
-		calibrated: await hostCalibrated(base.baseDir, conditions.host, binaryVersion),
+		calibrated: await hostCalibrated(base.baseDir, { ...conditions, binaryVersion }),
+		confinementProven: await confinementProven(base.baseDir, { ...conditions, binaryVersion }),
 		packageVersion: base.packageVersion,
 		git: base.git,
 		hashes: {
