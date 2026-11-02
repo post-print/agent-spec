@@ -42,6 +42,10 @@ The two layers give different answers for the same path. The host decides whethe
 
 A tool that writes its cache or config under home or the temp folder fails inside the sandbox, even if the agent never names that path. Point it at the workspace instead, through the tool's own flag or environment variable, in setup or in the task prompt. Setup callbacks run before the host starts, as test-owned code outside these limits. They can install dependencies into the workspace, because the default workspace is committed HEAD and has no `node_modules`.
 
+### Worktree workspaces
+
+`workspace: { worktree: "../repo", ref: "main" }`, on the config or an agent, runs the agent in a real `git worktree` of that repository, checked out detached at `ref` (default `HEAD`) in an owned temp root, instead of a sealed copy. A worktree shares its repository's object store, so the agent can reach every branch there. That is why the suite's config must accept `confinement`. It runs only with a custom adapter for now: built-in Claude and Codex keep their shims and sealed home in a `.git` folder, which a worktree does not have. `--verdict-grade` refuses it. Cleanup removes the worktree from the repository. A worktree a crashed run left behind is pruned the next time one is made. The run record says `workspace: { kind: "worktree", repo, ref, sha }`, and its kind is part of a claim's fingerprint.
+
 ### Verdict-grade runs
 
 `agent-test test --verdict-grade` runs only agents whose results a pass can stand on, and seals each one:

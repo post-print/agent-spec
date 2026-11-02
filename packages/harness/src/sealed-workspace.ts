@@ -172,6 +172,43 @@ export async function createSealedWorkspace(
 	}
 }
 
+/** A git worktree of a real repository, in place of a sealed copy. */
+export interface WorktreeSource {
+	/** The repository to check out, relative to the caller's directory or absolute. */
+	worktree: string;
+	/** What to check out, detached. Defaults to HEAD. */
+	ref?: string;
+}
+/**
+ * A detached `git worktree` of a real repository, in an owned temp root. Unlike a sealed copy it
+ * shares the repository's object store, so it reaches every branch there. Cleanup removes the
+ * worktree from the repository and deletes the root; a crashed run's leftover is pruned the next
+ * time a worktree is made.
+ */
+export async function createWorktreeWorkspace(
+	source: WorktreeSource & { callerCwd: string },
+): Promise<SealedWorkspace> {
+	const repo = resolve(source.callerCwd, source.worktree);
+	const git = (...args: string[]) => execFileAsync("git", ["-C", repo, ...args]);
+	await git("worktree", "prune");
+	const sealed = await allocateSealedWorkspace();
+	try {
+		await rm(sealed.path, { recursive: true, force: true });
+		await git("worktree", "add", "--detach", sealed.path, source.ref ?? "HEAD");
+	} catch (error) {
+		await sealed.cleanup();
+		throw error;
+	}
+	return {
+		path: sealed.path,
+		cleanup: async () => {
+			await git("worktree", "remove", "--force", sealed.path).catch(() => undefined);
+			await sealed.cleanup();
+			await git("worktree", "prune").catch(() => undefined);
+		},
+	};
+}
+
 /**
  * An empty sealed workspace for read-only reviewers. It lives in the OS temp folder with
  * its own Git root, so hosts discover no caller AGENTS.md/CLAUDE.md and no run evidence.

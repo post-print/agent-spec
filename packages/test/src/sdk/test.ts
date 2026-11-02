@@ -23,12 +23,12 @@ import {
 	sampleIsUnneeded,
 } from "./sampling.js";
 import { withoutSecrets } from "./stored-value.js";
-import type { AgentFixture, JudgeFixture } from "./types.js";
+import type { AgentFixture, JudgeFixture, WorkspaceSource } from "./types.js";
 
 interface Defaults {
 	agentDefinition?: AgentDefinition;
 	judgeDefinition?: AgentDefinition;
-	workspaceSource: string;
+	workspaceSource: WorkspaceSource;
 	acceptedConditions?: AcceptedConditions;
 }
 const runner = base.extend<Defaults & { runtime: TestRuntime }>({
@@ -249,7 +249,7 @@ function testAnnotations<R extends Resources>(
 interface Configuration {
 	agent?: AgentDefinition;
 	judge?: AgentDefinition;
-	workspace?: string;
+	workspace?: WorkspaceSource;
 	/**
 	 * Conditions this suite accepts going without, with why. A run weak only on these ends as
 	 * `accepted`, exit 0, never `passed`. It is recorded on every run and `--verdict-grade` refuses it.
@@ -294,6 +294,11 @@ export function defineConfig(config: AgentTestConfig): PlaywrightTestConfig<Defa
 	});
 }
 
+/** How the viewer names a workspace: the folder, or the worktree and what it checks out. */
+function workspaceLabel(source?: WorkspaceSource): string | undefined {
+	if (source === undefined || typeof source === "string") return source;
+	return `worktree of ${source.worktree} at ${source.ref ?? "HEAD"}`;
+}
 function resourceMetadata<R extends Resources>(
 	resources: R,
 	selected?: readonly Extract<keyof R, string>[],
@@ -315,7 +320,7 @@ function resourceMetadataEntry(name: string, resource: Resource) {
 		model: settings.model ?? settings.agent?.options.model,
 		skills: [...(settings.agent?.options.skills ?? []), ...(settings.skills ?? [])],
 		mcpServers: Object.keys({ ...settings.agent?.options.mcpServers, ...settings.mcpServers }),
-		workspace: resource.kind === "agent" ? resource.settings.workspace : undefined,
+		workspace: resource.kind === "agent" ? workspaceLabel(resource.settings.workspace) : undefined,
 		prompt: resource.kind === "judge" ? resource.settings.prompt : undefined,
 	};
 }

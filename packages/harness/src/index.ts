@@ -44,9 +44,11 @@ export {
 	assertInsideWorkspace,
 	createEmptySealedWorkspace,
 	createSealedWorkspace,
+	createWorktreeWorkspace,
 	SealedWorkspace,
 	toolPathsOutsideWorkspace,
 	WorkspaceBoundary,
+	WorktreeSource,
 } from "./sealed-workspace.js";
 export { ShellSegment, shellPayload, shellSegments, shellTokens } from "./shell-paths.js";
 export { parseClaudeStream, parseCodexStream } from "./stream-parsers.js";

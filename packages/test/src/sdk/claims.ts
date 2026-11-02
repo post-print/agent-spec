@@ -84,6 +84,7 @@ const SHARED_CONDITIONS = [
 	"home",
 	"allowedRoots",
 	"accepted",
+	"workspace.kind",
 	"overridingEnv",
 	"hashes.settings",
 ];
