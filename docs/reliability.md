@@ -27,7 +27,7 @@ A control proves a test could have gone the other way. There are two shapes.
 
 | Control | What changes | Runs |
 | --- | --- | --- |
-| Behavior control | A scripted host does the wrong thing against the real suites. A correct script must pass and each bad one must fail on the named check. | Offline, in `bun run test:sdk:contracts`. Listed in `agent-suites/controls/manifest.ts`. |
+| Behavior control | A scripted host does the wrong thing against the real suites. Each control runs through agent-test itself: a correct script must end `passed` with exit 0, and each bad one `agent_failed` with exit 1 on the named check. | Offline, in `bun run test:sdk:contracts`. Listed in `agent-suites/controls/manifest.ts`. |
 | Subject control | The subject is sabotaged and a real agent runs. | Live, in `bun run test:controls`. |
 
 Write a subject control as the same check under a broken subject, marked with `info.fail()`. A control earns its result only when an `expect` fails the test after an agent operation started. A check the test caught does not count. If it passes on any attempt or in any sample, the run ends as `control_survived` and exits 1, even for a rate with no plan. If the host broke, or the test threw for another reason such as a setup error, the run has no verdict. `agent-suites/reference/` holds one working example for each question type: discovery, clarity, cold start, teardown, and judges.

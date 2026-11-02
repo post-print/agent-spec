@@ -3,19 +3,30 @@ import { baselineDirectory, type SavedBaselines, saveBaselines } from "./baselin
 import { claimLines } from "./claims.js";
 import { startRecordedExecution } from "./execution-runner.js";
 import { executionHistoryRoot, listExecutionHistory } from "./execution-store.js";
-import { verdictNotes, verdictSentence } from "./verdict.js";
+import { type RunVerdict, verdictNotes, verdictSentence } from "./verdict.js";
 
 export { playwrightCli } from "./playwright-cli.js";
 
-/** A run that was stopped or that the runner contradicts has no rates worth keeping. */
-const UNFIT_FOR_BASELINES = new Set(["interrupted", "instrument_error"]);
+/**
+ * Only a rate that stood can become the bar later runs are held to. A failed, flagged or regressed
+ * claim would lower it, and a run with no verdict says nothing it could be held to.
+ */
+const FIT_FOR_BASELINES = new Set<RunVerdict>(["passed", "indicative"]);
 async function saveLatestBaselines(config: string): Promise<SavedBaselines> {
 	const root = executionHistoryRoot(config);
 	const summaries = await listExecutionHistory(root);
 	const latest = summaries.find((summary) => summary.verdict?.claims.length)?.verdict;
-	if (latest && UNFIT_FOR_BASELINES.has(latest.verdict))
+	if (!latest) return { saved: [], skipped: [] };
+	if (!FIT_FOR_BASELINES.has(latest.verdict))
 		return { saved: [], skipped: [{ claim: "the newest run", reason: latest.verdict }] };
-	return latest ? saveBaselines(config, latest.claims) : { saved: [], skipped: [] };
+	const standing = latest.claims.filter((claim) =>
+		FIT_FOR_BASELINES.has(latest.claimVerdicts?.[claim.claim] ?? "instrument_error"),
+	);
+	const refused = latest.claims
+		.filter((claim) => !standing.includes(claim))
+		.map(({ claim }) => ({ claim, reason: latest.claimVerdicts?.[claim] ?? "no verdict" }));
+	const result = await saveBaselines(config, standing);
+	return { ...result, skipped: [...refused, ...result.skipped] };
 }
 
 type RunnerArgument =

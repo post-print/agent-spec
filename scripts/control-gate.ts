@@ -1,70 +1,74 @@
-// Runs every behavior control. A control that survives means its test cannot tell good from bad.
-import { spawnSync } from "node:child_process";
+// Runs every behavior control through agent-test itself, so the verdict and exit code it would
+// give are what the gate checks. A control that survives means its test cannot tell good from bad.
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONTROLS } from "../agent-suites/controls/manifest.ts";
+import { startRecordedExecution } from "../packages/test/dist/sdk/execution-runner.js";
+import {
+	executionHistoryRoot,
+	readExecutionDetail,
+} from "../packages/test/dist/sdk/execution-store.js";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
 const host = fileURLToPath(new URL("../agent-suites/controls/control-host.mjs", import.meta.url));
-const playwright = "node_modules/@playwright/test/cli.js";
-const config = "agent-test.controls.config.ts";
+const config = fileURLToPath(new URL("../agent-test.controls.config.ts", import.meta.url));
 
-type Spec = { tests: { results: { status: string; errors: { message?: string }[] }[] }[] };
-type Suite = { specs?: Spec[]; suites?: Suite[] };
-function specs(suite: Suite): Spec[] {
-	return [...(suite.specs ?? []), ...(suite.suites ?? []).flatMap(specs)];
-}
-function runControl(title: string, behavior: string, judge = "accept") {
-	const { stdout } = spawnSync(
-		"node",
-		[playwright, "test", "-c", config, "--reporter=json", "--grep", `${title}$`],
-		{
-			cwd: root,
-			encoding: "utf8",
-			maxBuffer: 64 * 1024 * 1024,
-			env: {
-				...process.env,
-				CLAUDE_CODE_BIN: host,
-				AGENT_TEST_CONTROL: behavior,
-				AGENT_TEST_JUDGE: judge,
-			},
-		},
-	);
-	const found = specs(JSON.parse(stdout) as Suite);
-	const result = found[0]?.tests[0]?.results[0];
-	if (found.length !== 1 || !result) throw new Error(`Expected one test titled: ${title}`);
-	return {
-		status: result.status,
-		errors: result.errors.map(({ message }) => message ?? "").join("\n"),
-	};
+type Outcome = { verdict: string; exitCode: number; errors: string };
+async function runControl(title: string, behavior: string, judge = "accept"): Promise<Outcome> {
+	Object.assign(process.env, {
+		CLAUDE_CODE_BIN: host,
+		AGENT_TEST_CONTROL: behavior,
+		AGENT_TEST_JUDGE: judge,
+	});
+	const execution = await startRecordedExecution({
+		config,
+		args: ["--grep", `${title}$`, "--workers", "1"],
+	});
+	const root = join(executionHistoryRoot(config), execution.id);
+	try {
+		const exitCode = await execution.completed;
+		const result = await execution.verdict;
+		const tests = Object.keys(result.tests).length;
+		if (tests !== 1) throw new Error(`Expected one test titled: ${title}, found ${tests}`);
+		const detail = await readExecutionDetail(root);
+		const errors = (detail?.attempts ?? []).flatMap((attempt) =>
+			attempt.errors.map((error) => (error as { message?: string }).message ?? ""),
+		);
+		return { verdict: result.verdict, exitCode, errors: errors.join("\n") };
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 }
 const problems: string[] = [];
-function expectPass(title: string, behavior: string) {
-	const { status, errors } = runControl(title, behavior);
-	if (status !== "passed")
-		problems.push(`${title}\n  ${behavior} must pass\n  ${errors.slice(0, 400)}`);
-	console.log(`${status === "passed" ? "ok  " : "FAIL"} pass  ${behavior}`);
+async function expectPass(title: string, behavior: string) {
+	const { verdict, exitCode, errors } = await runControl(title, behavior);
+	const passed = verdict === "passed" && exitCode === 0;
+	if (!passed)
+		problems.push(
+			`${title}\n  ${behavior} must pass with exit 0, but was ${verdict} (exit ${exitCode})\n  ${errors.slice(0, 400)}`,
+		);
+	console.log(`${passed ? "ok  " : "FAIL"} pass  ${behavior}`);
 }
 type Rejection = { title: string; label: string; mustFail: string };
-function expectRejected(
-	{ title, label, mustFail }: Rejection,
-	outcome: ReturnType<typeof runControl>,
-) {
-	const rejected = outcome.status !== "passed" && outcome.errors.includes(mustFail);
+/** Rejected means charged to the agent, exit 1, on the named check: no other failure will do. */
+function expectRejected({ title, label, mustFail }: Rejection, outcome: Outcome) {
+	const charged = outcome.verdict === "agent_failed" && outcome.exitCode === 1;
+	const rejected = charged && outcome.errors.includes(mustFail);
 	if (!rejected)
 		problems.push(
-			`${title}\n  ${label} must fail on "${mustFail}", but it ${outcome.status === "passed" ? "survived" : `failed on: ${outcome.errors.slice(0, 300)}`}`,
+			`${title}\n  ${label} must fail as agent_failed (exit 1) on "${mustFail}", but was ${outcome.verdict} (exit ${outcome.exitCode}): ${outcome.errors.slice(0, 300)}`,
 		);
 	console.log(`${rejected ? "ok  " : "FAIL"} fail  ${label}`);
 }
 for (const { title, good, controls, judgeRejects } of CONTROLS) {
 	console.log(title);
-	expectPass(title, good);
+	await expectPass(title, good);
 	for (const { behavior, mustFail } of controls)
-		expectRejected({ title, label: behavior, mustFail }, runControl(title, behavior));
+		expectRejected({ title, label: behavior, mustFail }, await runControl(title, behavior));
 	if (judgeRejects)
 		expectRejected(
 			{ title, label: "judge rejects", mustFail: judgeRejects.mustFail },
-			runControl(title, good, "reject"),
+			await runControl(title, good, "reject"),
 		);
 }
 if (problems.length) {
