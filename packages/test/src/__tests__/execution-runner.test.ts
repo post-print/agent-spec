@@ -71,9 +71,25 @@ it("records completed criterion assertions before later assertions are skipped",
 	await execution.completed;
 	const detail = await readExecutionDetail(root);
 	expect(detail?.attempts[0]?.criterionResults).toEqual([
-		{ criterion: "The value matches.", status: "failed", assertion: 'Expect "toBe"' },
+		{ criterion: "The value matches.", status: "failed" },
 		{ criterion: "The file is read.", status: "not-recorded" },
 		{ criterion: "The tool runs.", status: "not-recorded" },
+	]);
+});
+
+it("maps criteria to the checks that reported them, never passing one that did not run", async () => {
+	const execution = await startRecordedExecution({
+		config,
+		args: ["--grep", "maps criteria to the checks", "--workers", "1"],
+	});
+	const root = join(executionHistoryRoot(config), execution.id);
+	roots.push(root);
+	await execution.completed;
+	const detail = await readExecutionDetail(root);
+	expect(detail?.attempts[0]?.criterionResults).toEqual([
+		{ criterion: "The answer is right.", status: "failed" },
+		{ criterion: "A check that never runs.", status: "not-recorded" },
+		{ criterion: "A helper's check is shown.", status: "passed" },
 	]);
 });
 

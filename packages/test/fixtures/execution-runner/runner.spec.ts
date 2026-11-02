@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { expect, test } from "@playwright/test";
-import { reportProgress } from "../../src/index.js";
+import { test } from "@playwright/test";
+import { expect, reportProgress } from "../../src/index.js";
 
 test("pending work can be cancelled", async () => {
 	await new Promise(() => undefined);
@@ -25,9 +25,22 @@ test("records the failed criterion before later criteria are skipped", {
 		description: JSON.stringify(["The value matches.", "The file is read.", "The tool runs."]),
 	},
 }, () => {
-	expect("received").toBe("expected");
-	expect(true).toBe(true);
-	expect(true).toBe(true);
+	expect("received", "The value matches.").toBe("expected");
+	expect(true, "The file is read.").toBe(true);
+	expect(true, "The tool runs.").toBe(true);
+});
+
+function checksInAHelper() {
+	expect(1, "A helper's check is shown.").toBe(1);
+}
+test("maps criteria to the checks that reported them", {
+	annotation: {
+		type: "agent-test.criteria",
+		description: JSON.stringify(["The answer is right.", "A check that never runs."]),
+	},
+}, () => {
+	checksInAHelper();
+	expect.soft("wrong", "The answer is right.").toBe("right");
 });
 
 test("keeps an attachment while another execution starts", async ({
