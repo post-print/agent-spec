@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from "node:child_process";
+import { tmpdir } from "node:os";
 
 // A scripted Claude Code. The prompt names a scenario, so the real runner and capture code run.
 const prompt = process.argv.join(" ");
@@ -66,6 +67,24 @@ if (prompt.includes("SCENARIO_JUDGE_REFUSED")) {
 if (prompt.includes("SCENARIO_MAX_TURNS")) {
 	say({ type: "result", subtype: "error_max_turns", is_error: false });
 	process.exit(0);
+}
+if (prompt.includes("SCENARIO_READ_ALLOWED_ROOT")) {
+	// Names a file in a folder outside the workspace, as an agent reading runtime state would.
+	const path = `${tmpdir()}/agent-test-allowed-root/state.json`;
+	say({
+		type: "assistant",
+		message: {
+			role: "assistant",
+			content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: `cat ${path}` } }],
+		},
+	});
+	say({
+		type: "user",
+		message: {
+			role: "user",
+			content: [{ type: "tool_result", tool_use_id: "t1", content: "{}", is_error: false }],
+		},
+	});
 }
 message("done");
 finish();

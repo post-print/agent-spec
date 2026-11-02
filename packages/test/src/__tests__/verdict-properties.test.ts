@@ -21,6 +21,8 @@ const MESSAGES = [
 	"TypeError: Cannot read properties of undefined",
 	"AgentOutcomeError: error_max_turns",
 ];
+/** A suite that accepts going without a host probe, and nothing else. */
+const ACCEPTS_CALIBRATION = { conditions: ["calibration"], reason: "a scripted host" };
 const STRONG_RECORD = {
 	host: "claude",
 	calibrated: true,
@@ -46,6 +48,8 @@ const operation = fc.record({
 			{ record: STRONG_RECORD },
 			{ record: { ...STRONG_RECORD, calibrated: false } },
 			{ record: { ...STRONG_RECORD, userConfig: "may-load" } },
+			{ record: { ...STRONG_RECORD, calibrated: false, accepted: ACCEPTS_CALIBRATION } },
+			{ record: { ...STRONG_RECORD, userConfig: "may-load", accepted: ACCEPTS_CALIBRATION } },
 		),
 		{ maxLength: 2 },
 	),
@@ -142,7 +146,20 @@ function unplanned({ sample }: VerdictAttempt): boolean {
 	return sample !== undefined && sample.flagAt === undefined;
 }
 const exitsZeroOnlyAsPassOrListing: Property = (_, { verdict, exitCode }) =>
-	exitCode !== 0 || verdict === "passed" || verdict === "listed";
+	exitCode !== 0 || verdict === "passed" || verdict === "listed" || verdict === "accepted";
+/** Every weakness of every attempt that ran is one its own record's suite accepts. */
+function everyWeaknessAccepted(attempts: VerdictAttempt[]): boolean {
+	return attempts
+		.filter(({ status }) => status !== "skipped")
+		.flatMap(attemptRecords)
+		.every((record) =>
+			recordWeaknesses(record).every(({ condition }) =>
+				(record.accepted as { conditions: string[] } | undefined)?.conditions.includes(condition),
+			),
+		);
+}
+const acceptsOnlyWhatTheSuiteAccepts: Property = (run, { verdict }) =>
+	verdict !== "accepted" || everyWeaknessAccepted(run.attempts);
 const passesOnlyComplete: Property = (run, { verdict }) => {
 	const started = new Set(run.attempts.map(({ testId }) => testId));
 	const complete = (run.plannedTests ?? []).every((testId) => started.has(testId));
@@ -187,6 +204,8 @@ describe("reduceVerdict properties", () => {
 		expect(counterexample(blamesOnlyOnEvidence)).toBeUndefined());
 	it("passes only when every run's recorded conditions can carry a pass", () =>
 		expect(counterexample(passesOnlyUnderStrongConditions)).toBeUndefined());
+	it("is accepted only when the suite accepts every condition the runs fell short on", () =>
+		expect(counterexample(acceptsOnlyWhatTheSuiteAccepts)).toBeUndefined());
 	it("does not depend on the order the attempts arrive in", () =>
 		expect(counterexample(orderFree)).toBeUndefined());
 	it("a rate with no plan never passes, however it went", () =>

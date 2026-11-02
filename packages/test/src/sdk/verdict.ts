@@ -1,4 +1,4 @@
-import { weaknesses } from "./claim-strength.js";
+import { weighConditions } from "./claim-strength.js";
 import {
 	type BaselineRecord,
 	buildClaims,
@@ -19,6 +19,7 @@ const WORKER_CRASH = /^Error: worker process exited unexpectedly \(/;
 
 export type RunVerdict =
 	| "passed"
+	| "accepted"
 	| "indicative"
 	| "agent_failed"
 	| "control_survived"
@@ -87,12 +88,16 @@ export interface VerdictResult {
 	indicativeAllowed?: boolean;
 	/** Why the tests and claims that are indicative could not pass, in a reader's words. */
 	weakConditions?: string[];
+	/** What an accepted run passed without, and the suite's reasons for accepting it. */
+	acceptedConditions?: { conditions: string[]; reasons: string[] };
 }
 
 /** The only verdicts that may exit 0. Each must show its evidence in EXIT_ZERO_PATHS. */
-type ExitZeroVerdict = "passed" | "listed";
+type ExitZeroVerdict = "passed" | "accepted" | "listed";
 const EXIT_CODES: { [V in RunVerdict]: V extends ExitZeroVerdict ? 0 : 1 | 2 | 3 } = {
 	passed: 0,
+	// Passed, but only under conditions the suite declared it accepts. Never read as a pass.
+	accepted: 0,
 	// Listing tests is not a test run, so nothing failed.
 	listed: 0,
 	// Something ran and nothing failed, but the evidence cannot carry a pass.
@@ -207,6 +212,7 @@ const PRECEDENCE: RunVerdict[] = [
 	"vacuous",
 	"flaky",
 	"indicative",
+	"accepted",
 	"passed",
 	"skipped_only",
 ];
@@ -324,35 +330,43 @@ interface Judged {
 	verdicts: Record<string, RunVerdict>;
 	/** Why each test or claim that would have passed is only indicative. */
 	weak: string[];
+	/** The conditions a test or claim passed without, because its suite accepts them. */
+	accepted: string[];
+	/** Why the suite accepts them, in its own words. */
+	reasons: string[];
 }
-/** A pass whose runs fall short of the conditions a pass needs is only indicative. */
-function weighed(verdict: RunVerdict, weak: string[], into: string[]): RunVerdict {
-	if (verdict !== "passed" || weak.length === 0) return verdict;
-	into.push(...weak);
-	return "indicative";
+/**
+ * A pass whose runs fall short of the conditions a pass needs is only indicative, unless the suite
+ * accepts every one it falls short on: then it is accepted, which exits 0 but never reads as a pass.
+ */
+function weighed(verdict: RunVerdict, own: VerdictAttempt[], into: Judged): RunVerdict {
+	if (verdict !== "passed") return verdict;
+	const { weak, accepted, reasons } = weighConditions(own);
+	if (weak.length > 0) {
+		into.weak.push(...weak);
+		return "indicative";
+	}
+	if (accepted.length === 0) return verdict;
+	into.accepted.push(...accepted);
+	into.reasons.push(...reasons);
+	return "accepted";
 }
 function judgedTests(attempts: VerdictAttempt[]): Judged {
-	const weak: string[] = [];
-	const verdicts = Object.fromEntries(
-		[...attemptsByTest(attempts)].map(([testId, own]) => [
-			testId,
-			weighed(testVerdict(own), weaknesses(own), weak),
-		]),
-	);
-	return { verdicts, weak };
+	const judged: Judged = { verdicts: {}, weak: [], accepted: [], reasons: [] };
+	for (const [testId, own] of attemptsByTest(attempts))
+		judged.verdicts[testId] = weighed(testVerdict(own), own, judged);
+	return judged;
 }
 function judgedClaims(claims: ClaimResult[], samples: VerdictAttempt[], measure: boolean): Judged {
-	const weak: string[] = [];
-	const verdicts = Object.fromEntries(
-		claims.map((claim) => {
-			const own = samples.filter((attempt) => attempt.claim === claim.claim);
-			const verdict = weighed(claimVerdict(claim, measure), weaknesses(own), weak);
-			if (verdict === "indicative" && claim.decision === "measured")
-				weak.push(`${claim.claim} is a rate with no plan to decide it`);
-			return [claim.claim, verdict];
-		}),
-	);
-	return { verdicts, weak };
+	const judged: Judged = { verdicts: {}, weak: [], accepted: [], reasons: [] };
+	for (const claim of claims) {
+		const own = samples.filter((attempt) => attempt.claim === claim.claim);
+		const verdict = weighed(claimVerdict(claim, measure), own, judged);
+		if (verdict === "indicative" && claim.decision === "measured")
+			judged.weak.push(`${claim.claim} is a rate with no plan to decide it`);
+		judged.verdicts[claim.claim] = verdict;
+	}
+	return judged;
 }
 interface ExitZeroEvidence {
 	input: VerdictInput;
@@ -360,22 +374,33 @@ interface ExitZeroEvidence {
 	claims: ClaimResult[];
 	claimVerdicts: Record<string, RunVerdict>;
 }
-/** A run passes on positive evidence: tests and plans that passed, not only an absence of failures. */
-function everythingRanPassed({ input, tests, claims, claimVerdicts }: ExitZeroEvidence): boolean {
+/**
+ * A run passes on positive evidence: tests and plans that passed, not only an absence of failures.
+ * `standing` names the verdicts that may stand beside the one that must be there.
+ */
+function everythingRan(evidence: ExitZeroEvidence, must: RunVerdict, standing: RunVerdict[]) {
+	const { input, tests, claims, claimVerdicts } = evidence;
 	const verdicts = [...Object.values(tests), ...Object.values(claimVerdicts)];
 	const cleared = claims.every(
 		(claim) =>
-			claimVerdicts[claim.claim] !== "passed" ||
+			!standing.includes(claimVerdicts[claim.claim] ?? "skipped_only") ||
 			claim.decision === "clear" ||
 			(isRepeatGate(claim, input.measureRepeats === true) && everyRepeatPassed(claim)),
 	);
 	return (
 		!input.interrupted &&
 		testsNeverStarted(input) === 0 &&
-		verdicts.includes("passed") &&
-		verdicts.every((verdict) => verdict === "passed" || verdict === "skipped_only") &&
+		verdicts.includes(must) &&
+		verdicts.every((verdict) => verdict === "skipped_only" || standing.includes(verdict)) &&
 		cleared
 	);
+}
+function everythingRanPassed(evidence: ExitZeroEvidence): boolean {
+	return everythingRan(evidence, "passed", ["passed"]);
+}
+/** Everything ran to a pass, and at least one did so only under conditions its suite accepts. */
+function everythingRanAccepted(evidence: ExitZeroEvidence): boolean {
+	return everythingRan(evidence, "accepted", ["passed", "accepted"]);
 }
 /**
  * Every way a run may exit 0, each with the evidence it needs. A verdict that reaches exit 0
@@ -384,6 +409,7 @@ function everythingRanPassed({ input, tests, claims, claimVerdicts }: ExitZeroEv
 export const EXIT_ZERO_PATHS: Record<ExitZeroVerdict, (evidence: ExitZeroEvidence) => boolean> = {
 	listed: ({ input }) => input.listOnly,
 	passed: everythingRanPassed,
+	accepted: everythingRanAccepted,
 };
 function isExitZero(verdict: RunVerdict): verdict is ExitZeroVerdict {
 	return Object.hasOwn(EXIT_ZERO_PATHS, verdict);
@@ -432,10 +458,19 @@ export function reduceVerdict(input: VerdictInput): VerdictResult {
 		...(verdict === "indicative" && input.allowIndicative ? { indicativeAllowed: true } : {}),
 		// Reasons belong to a run that is indicative; a worse verdict already says what went wrong.
 		weakConditions: verdict === "indicative" ? [...new Set([...judged.weak, ...decided.weak])] : [],
+		...(verdict === "accepted"
+			? {
+					acceptedConditions: {
+						conditions: [...new Set([...judged.accepted, ...decided.accepted])],
+						reasons: [...new Set([...judged.reasons, ...decided.reasons])],
+					},
+				}
+			: {}),
 	};
 }
 const SENTENCES: Record<RunVerdict, string> = {
 	passed: "Passed",
+	accepted: "Accepted: passed under conditions the suite accepts, so this is not a sealed pass",
 	indicative: "Indicative: nothing failed, but the evidence cannot carry a pass",
 	agent_failed: "Failed: the agent did not meet a check",
 	control_survived:
@@ -457,7 +492,12 @@ export function verdictSentence({ verdict, counts, claims }: VerdictResult): str
 		return `Passed, ${counts.passed} of ${counts.total} single-run tests and ${claims.length} sampled tests below`;
 	if (verdict === "passed")
 		return `Passed, ${counts.passed} of ${counts.total} tests, one run each`;
-	if (verdict === "listed" || verdict === "skipped_only" || verdict === "indicative")
+	if (
+		verdict === "listed" ||
+		verdict === "skipped_only" ||
+		verdict === "indicative" ||
+		verdict === "accepted"
+	)
 		return SENTENCES[verdict];
 	return `${SENTENCES[verdict]} (${counts.passed} of ${counts.total} tests passed)`;
 }
@@ -467,9 +507,12 @@ export function verdictNotes({
 	unreadableBaselines = [],
 	indicativeAllowed,
 	weakConditions = [],
+	acceptedConditions,
 }: VerdictResult): string[] {
 	return [
 		...weakConditions.map((condition) => `Not a pass: ${condition}`),
+		...(acceptedConditions?.conditions ?? []).map((condition) => `Accepted: ${condition}`),
+		...(acceptedConditions?.reasons ?? []).map((reason) => `Accepted because: ${reason}`),
 		...(indicativeAllowed ? ["Exit 0 only because --allow-indicative was given"] : []),
 		...(notRun > 0 ? [`${notRun} tests never started`] : []),
 		...(unreadableBaselines.length

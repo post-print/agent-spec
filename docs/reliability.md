@@ -42,6 +42,7 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | --- | --- | --- |
 | 0 | `passed` | Every test that ran passed, on the first try, every sampling plan cleared or every `--repeat-each` repeat passed, and the runner agrees. |
 | 0 | `listed` | `--list` only. No test ran. |
+| 0 | `accepted` | Everything that ran passed, but at least one test or claim did so under weak conditions that its suite's config declares it accepts (`accept`). It is never shown as `passed`. The CLI names each condition and the suite's reason, and `--verdict-grade` refuses such a suite. |
 | 3 | `indicative` | Nothing failed, but the evidence cannot carry a pass. Either a rate has no plan to decide it (`samples` with no `flagAt`, or `--repeat-each` with `--measure`), or a run that would have passed recorded weak conditions: a host with no passing probe for its version and auth mode in the last week, an unpinned model, user configuration that may reach the run, or a host that only detects escapes. The CLI names each reason. |
 | 1 | `agent_failed` | A check failed after the agent started, the host reported the agent's own terminal failure, the agent left its workspace, a repeat from `--repeat-each` failed, a sampling plan flagged, or a claim regressed from its baseline. A real failure outranks any test with no verdict. |
 | 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |

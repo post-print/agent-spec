@@ -85,6 +85,8 @@ export interface OpenaiRunOptions {
 	networkAccess?: boolean;
 	/** Absolute paths the agent may neither read nor write (the caller checkout). */
 	protectedPaths?: readonly string[];
+	/** Folders outside the workspace the agent may read. */
+	allowedRoots?: readonly string[];
 	/** JSON Schema the reply must match (`--output-schema`), when Codex accepts the schema. */
 	outputSchema?: object;
 }
@@ -369,6 +371,8 @@ export function buildOpenaiExecArgs(options: {
 	includeGlobalSkills?: boolean;
 	networkAccess?: boolean;
 	protectedPaths?: readonly string[];
+	/** Folders outside the workspace the agent may read. */
+	allowedRoots?: readonly string[];
 	outputSchemaPath?: string;
 }): string[] {
 	const readOnly = options.sandbox === "read-only";
@@ -388,6 +392,7 @@ export function buildOpenaiExecArgs(options: {
 			cwd: options.cwd,
 			readOnly,
 			protectedPaths: options.protectedPaths ?? [],
+			allowedRoots: options.allowedRoots ?? [],
 			networkAccess: options.networkAccess,
 		}),
 	];
@@ -647,6 +652,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		includeGlobalSkills: options.includeGlobalSkills === true,
 		networkAccess: options.networkAccess === true,
 		protectedPaths: options.protectedPaths,
+		allowedRoots: options.allowedRoots,
 		outputSchemaPath: schemaFile?.path,
 	});
 	const runHome = options.includeGlobalSkills === true ? undefined : await createOpenaiRunHome();

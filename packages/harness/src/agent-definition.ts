@@ -35,6 +35,12 @@ export interface AgentOptions {
 	 * fresh HOME inside the workspace's `.git`. agent-test sets it under `--verdict-grade`.
 	 */
 	sealHome?: boolean;
+	/**
+	 * Folders outside the workspace the agent may read, such as `$TMPDIR/postprint` or
+	 * `~/postprint`. Naming them is no escape, and Claude and Codex allow reads there. A root may
+	 * not be, or contain, the temp folder or the home folder, and may not overlap the caller checkout.
+	 */
+	allowedRoots?: readonly string[];
 }
 export interface OpenRouterAgentOptions
 	extends Omit<
@@ -46,6 +52,7 @@ export interface OpenRouterAgentOptions
 		| "loadProjectContext"
 		| "allowUnixSockets"
 		| "sealHome"
+		| "allowedRoots"
 	> {
 	baseUrl?: string;
 	httpReferer?: string;

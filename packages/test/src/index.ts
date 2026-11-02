@@ -1,6 +1,7 @@
 export type { TestInfo } from "@playwright/test";
 export { WorkspaceEscapeError } from "@post-print/agent-harness";
 export { z } from "zod";
+export type { AcceptedCondition, AcceptedConditions } from "./sdk/claim-strength.js";
 export type { EnvironmentObservation, ObserveEnvironment } from "./sdk/environment-observation.js";
 export { expect } from "./sdk/expect.js";
 export { statistics } from "./sdk/metrics.js";

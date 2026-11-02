@@ -1,12 +1,13 @@
 import { expect, it } from "bun:test";
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
 	createSealedWorkspace,
+	createWorktreeWorkspace,
 	defaultSealedOverlayPaths,
 	parseScenarioWorkspace,
 	toolPathsOutsideWorkspace,
@@ -115,6 +116,24 @@ it("createSealedWorkspace › copies a workspace folder without parent HEAD file
 			cwd: sealed.path,
 		});
 		expect(realpathSync(stdout.trim())).toBe(realpathSync(sealed.path));
+	} finally {
+		await sealed.cleanup();
+	}
+});
+
+it("createSealedWorkspace › keeps a folder's relative links relative, never pointing back at the caller", async () => {
+	const repo = await initRepo();
+	await mkdir(join(repo, "fixture/rules"), { recursive: true });
+	await writeFile(join(repo, "fixture/code.ts"), "code\n", "utf8");
+	await symlink("../code.ts", join(repo, "fixture/rules/code.md"));
+	const sealed = await createSealedWorkspace({
+		callerCwd: repo,
+		workspace: "fixture",
+		overlayPaths: [],
+	});
+	try {
+		expect(await readlink(join(sealed.path, "rules/code.md"))).toBe("../code.ts");
+		expect(await readFile(join(sealed.path, "rules/code.md"), "utf8")).toBe("code\n");
 	} finally {
 		await sealed.cleanup();
 	}
@@ -387,4 +406,31 @@ it("toolPathsOutsideWorkspace › reads a path inside escaped quotes without the
 	await writeFile(join(workspace, "src", "export.mjs"), "");
 	const command = `/bin/zsh -lc "node -e \\"import(\\\\\\"../src/export.mjs\\\\\\")\\""`;
 	expect(toolPathsOutsideWorkspace(shellTrace(command), workspace)).toEqual([]);
+});
+
+async function worktrees(repo: string): Promise<string[]> {
+	const { stdout } = await execFileAsync("git", ["-C", repo, "worktree", "list", "--porcelain"]);
+	return stdout.split("\n").filter((line) => line.startsWith("worktree "));
+}
+it("createWorktreeWorkspace › checks out a real worktree and leaves none behind", async () => {
+	const repo = await initRepo();
+	const workspace = await createWorktreeWorkspace({ callerCwd: repo, worktree: "." });
+	try {
+		expect(await readFile(join(workspace.path, "AGENTS.md"), "utf8")).toBe("# committed\n");
+		expect(await worktrees(repo)).toHaveLength(2);
+	} finally {
+		await workspace.cleanup();
+	}
+	expect(await worktrees(repo)).toHaveLength(1);
+});
+it("createWorktreeWorkspace › prunes a worktree a crashed run left behind", async () => {
+	const repo = await initRepo();
+	const crashed = await createWorktreeWorkspace({ callerCwd: repo, worktree: "." });
+	await rm(dirname(crashed.path), { recursive: true, force: true });
+	const next = await createWorktreeWorkspace({ callerCwd: repo, worktree: "." });
+	try {
+		expect(await worktrees(repo)).toHaveLength(2);
+	} finally {
+		await next.cleanup();
+	}
 });

@@ -9,9 +9,11 @@ import {
 	type HarnessSession,
 	listMcpCatalog,
 	type McpCatalogEntry,
+	resolveAllowedRoots,
 } from "@post-print/agent-harness";
 import { z } from "zod";
 import { noteUncalibratedJudge } from "./check-outcomes.js";
+import type { AcceptedConditions } from "./claim-strength.js";
 import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import {
@@ -45,6 +47,7 @@ import type {
 	JudgeSettings,
 	Run,
 	WorkspaceSetup,
+	WorkspaceSource,
 } from "./types.js";
 import { runUsage } from "./usage.js";
 import {
@@ -56,6 +59,7 @@ import {
 	snapshot,
 	type Workspace,
 	withContext,
+	worktreeOrigin,
 	writeJson,
 } from "./workspace.js";
 export interface RuntimeOptions {
@@ -63,7 +67,9 @@ export interface RuntimeOptions {
 	outputDir: string;
 	agent?: AgentDefinition;
 	judge?: AgentDefinition;
-	workspace: string;
+	workspace: WorkspaceSource;
+	/** Conditions the suite accepts going without, recorded on every run. */
+	accepted?: AcceptedConditions;
 	signal: AbortSignal;
 	onEvent?: (event: { runId: string; type: string; value: unknown }) => void;
 	/** Time left before the test runner kills this test; undefined when it has no limit. */
@@ -255,6 +261,10 @@ export class TestRuntime {
 		return this.ledger.reportedInfrastructureFailure();
 	}
 	private forTest(definition: AgentDefinition): AgentDefinition {
+		if (process.env[VERDICT_GRADE_ENV] === "1" && this.options.accepted)
+			throw new Error(
+				"--verdict-grade refuses a suite that accepts weaker conditions; remove accept from its config.",
+			);
 		return withinTestDeadline(verdictGrade(definition), this.options.remainingTestMs?.());
 	}
 	agent(
@@ -347,8 +357,38 @@ export class TestRuntime {
 		if (!calibrated) noteUncalibratedJudge(evaluationId);
 		return { key, calibrated };
 	}
+	/**
+	 * A real worktree shares its repository's object store, so the agent can reach every branch in
+	 * it. Only a suite that accepts `confinement` may use one, only with a custom adapter (built-in
+	 * hosts keep their shims in a `.git` a worktree does not have), and never under --verdict-grade.
+	 */
+	private refuseUnsealedWorkspace(source: WorkspaceSource, definition: AgentDefinition): void {
+		if (typeof source === "string") return;
+		if (process.env[VERDICT_GRADE_ENV] === "1")
+			throw new Error("--verdict-grade refuses a worktree workspace; use a sealed copy.");
+		if (!this.options.accepted?.conditions.includes("confinement"))
+			throw new Error(
+				"A worktree workspace reaches its repository's history, so the suite's config must accept confinement.",
+			);
+		if (definition.host)
+			throw new Error(
+				`A worktree workspace runs only with a custom adapter for now, not the built-in ${definition.host} host.`,
+			);
+	}
+	/** The definition with its allowed roots expanded and checked, before any host starts. */
+	private async withAllowedRoots(definition: AgentDefinition): Promise<AgentDefinition> {
+		const roots = definition.options.allowedRoots;
+		if (!roots?.length) return definition;
+		const allowedRoots = resolveAllowedRoots(roots, {
+			protectedPaths: await this.checkoutPaths(),
+			sealHome: definition.options.sealHome === true,
+		});
+		return { ...definition, options: { ...definition.options, allowedRoots } };
+	}
 	private judgeDefinition(settings: AgentSettings): Promise<AgentDefinition> {
-		return preparing(async () => this.forTest(configuredAgent(this.options.judge, settings)));
+		return preparing(async () =>
+			this.withAllowedRoots(this.forTest(configuredAgent(this.options.judge, settings))),
+		);
 	}
 	private async start(task: AgentTask, settings: AgentSettings): Promise<Run> {
 		const input = await preparing(() => this.prepareTask(task, settings));
@@ -359,12 +399,13 @@ export class TestRuntime {
 		this.signal.throwIfAborted();
 		if (typeof prompt !== "string" || !prompt.trim())
 			throw new Error("agent.run requires a nonempty prompt");
-		const definition = this.forTest(configuredAgent(this.options.agent, settings));
-		validateSkills(definition.options.skills ?? [], this.options.baseDir);
-		const workspace = await prepareWorkspace(
-			this.options.baseDir,
-			settings.workspace ?? this.options.workspace,
+		const definition = await this.withAllowedRoots(
+			this.forTest(configuredAgent(this.options.agent, settings)),
 		);
+		validateSkills(definition.options.skills ?? [], this.options.baseDir);
+		const source = settings.workspace ?? this.options.workspace;
+		this.refuseUnsealedWorkspace(source, definition);
+		const workspace = await prepareWorkspace(this.options.baseDir, source);
 		const resource = {
 			session: undefined as HarnessSession | undefined,
 			cleanup: workspace.cleanup,
@@ -430,7 +471,9 @@ export class TestRuntime {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
 			);
-			assertInsideWorkspace(trace, workspace.path);
+			assertInsideWorkspace(trace, workspace.path, {
+				allowedRoots: input.definition.options.allowedRoots,
+			});
 			const result = await recordingRun(() =>
 				this.recordFinishedTurn({
 					id,
@@ -480,7 +523,7 @@ export class TestRuntime {
 		initial: Awaited<ReturnType<typeof snapshot>>,
 	): Promise<Run["record"]> {
 		this.recordBase ??= runRecordBase(this.options.baseDir, this.options.testFile);
-		return buildRunRecord(await this.recordBase, {
+		const record = await buildRunRecord(await this.recordBase, {
 			conditions: await input.session.conditions,
 			definition: input.definition,
 			hostReport: trace.hostReport,
@@ -488,6 +531,14 @@ export class TestRuntime {
 			context: input.context,
 			initial,
 		});
+		const source = input.settings.workspace ?? this.options.workspace;
+		return {
+			...record,
+			...(this.options.accepted ? { accepted: this.options.accepted } : {}),
+			...(typeof source === "string"
+				? {}
+				: { workspace: await worktreeOrigin(source, input.workspace.path) }),
+		};
 	}
 	private announceRun(id: string, name: string, input: RunInput): void {
 		this.options.onEvent?.({

@@ -1,5 +1,14 @@
 import { expect, it } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	readlink,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExecutionStore, recoverExecutionHistory } from "../sdk/execution-store.js";
@@ -8,7 +17,7 @@ import {
 	releaseSnapshots,
 	snapshotBudget,
 } from "../sdk/snapshot-storage.js";
-import { snapshot } from "../sdk/workspace.js";
+import { changedPaths, snapshot } from "../sdk/workspace.js";
 
 async function fixture() {
 	const root = await mkdtemp(join(tmpdir(), "snapshot-storage-"));
@@ -50,12 +59,9 @@ it("snapshot excludes known caches and explicit generated output, but preserves 
 		await f.dispose();
 	}
 });
-it("snapshot rejects symlinks and low free space without leaving partial data", async () => {
+it("snapshot rejects low free space without leaving partial data", async () => {
 	const f = await fixture();
 	try {
-		await symlink(join(f.source, "code.ts"), join(f.source, "link"));
-		await expect(snapshot(f.source, join(f.root, "initial"))).rejects.toThrow("symlinks");
-		await rm(join(f.source, "link"));
 		const budget = { ...snapshotBudget(), minimumFreeBytes: Number.MAX_SAFE_INTEGER };
 		await expect(snapshot(f.source, join(f.root, "final"), budget)).rejects.toThrow("free space");
 		await expect(readdir(join(f.root, "final"))).rejects.toThrow();
@@ -162,6 +168,53 @@ it("snapshot refuses an existing destination without deleting its contents", asy
 		await writeFile(join(target, "keep.txt"), "existing evidence");
 		await expect(snapshot(f.source, target)).rejects.toThrow();
 		expect(await readFile(join(target, "keep.txt"), "utf8")).toBe("existing evidence");
+	} finally {
+		await f.dispose();
+	}
+});
+
+it("snapshot records a link inside the workspace as a link, and copies it as one", async () => {
+	const f = await fixture();
+	try {
+		await mkdir(join(f.source, "rules"));
+		await symlink("../code.ts", join(f.source, "rules", "code.md"));
+		const initial = await snapshot(f.source, join(f.root, "initial"));
+		expect(initial.files["rules/code.md"]).toMatchObject({ link: "../code.ts", bytes: 0 });
+		expect(initial.files["rules/code.md"]?.outside).toBeUndefined();
+		expect(await readlink(join(f.root, "initial", "rules", "code.md"))).toBe("../code.ts");
+	} finally {
+		await f.dispose();
+	}
+});
+it("snapshot marks a link that leaves the workspace and never reads its target", async () => {
+	const f = await fixture();
+	try {
+		const secret = join(f.root, "secret.txt");
+		await writeFile(secret, "do not read");
+		await symlink(secret, join(f.source, "escape"));
+		await symlink("../secret.txt", join(f.source, "relative-escape"));
+		const initial = await snapshot(f.source, join(f.root, "initial"));
+		expect(initial.files.escape).toMatchObject({ link: secret, outside: true, bytes: 0 });
+		expect(initial.files["relative-escape"]).toMatchObject({ outside: true });
+	} finally {
+		await f.dispose();
+	}
+});
+it("a changed link target is a change, preserved as its target, not its content", async () => {
+	const f = await fixture();
+	try {
+		await writeFile(join(f.source, "other.ts"), "other");
+		await symlink("code.ts", join(f.source, "current"));
+		const initial = await snapshot(f.source, join(f.root, "initial"));
+		await rm(join(f.source, "current"));
+		await symlink("other.ts", join(f.source, "current"));
+		const final = await snapshot(f.source, join(f.root, "final"));
+		expect(changedPaths(initial, final)).toEqual(["current"]);
+		const directory = join(f.root, "evidence");
+		await mkdir(directory);
+		await preserveSourceChanges({ initial, final, directory, budget: snapshotBudget() });
+		const changes = JSON.parse(await readFile(join(directory, "changes.json"), "utf8"));
+		expect(changes).toMatchObject({ changes: { current: "link" }, links: { current: "other.ts" } });
 	} finally {
 		await f.dispose();
 	}

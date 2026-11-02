@@ -3,15 +3,21 @@ import type {
 	AgentDefinition,
 	AgentOptions,
 	AgentTrace,
+	WorktreeSource,
 } from "@post-print/agent-harness";
 import type { z } from "zod";
 import type { EnvironmentObservation, ObserveEnvironment } from "./environment-observation.js";
 import type { RunExposure, RunRecord } from "./run-record.js";
 import type { StartingContext, Workspace, WorkspaceSnapshot } from "./workspace.js";
+/**
+ * Where a run's workspace comes from: a folder of the caller checkout, sealed into a copy, or
+ * `{ worktree }`, a real git worktree of a repository, for a suite that accepts `confinement`.
+ */
+export type WorkspaceSource = string | WorktreeSource;
 export interface AgentSettings extends AgentOptions {
 	agent?: AgentDefinition;
 	description?: string;
-	workspace?: string;
+	workspace?: WorkspaceSource;
 	/** Record processes, listening ports, and named paths left behind after each run. */
 	observeEnvironment?: ObserveEnvironment;
 }

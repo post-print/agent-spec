@@ -50,6 +50,7 @@ export type TestRunStatus =
 	| "flaky"
 	| "no verdict"
 	| "indicative"
+	| "accepted"
 	| "unknown";
 /** What the stored verdict says, and what a test alone cannot show: the test's claim. */
 export type RunSummary = {
@@ -72,6 +73,7 @@ export const TEST_RUN_STATUS_ORDER: TestRunStatus[] = [
 	"unknown",
 	"flaky",
 	"indicative",
+	"accepted",
 	"running",
 	"queued",
 	"passed",
@@ -82,6 +84,7 @@ export const TEST_RUN_STATUS_ORDER: TestRunStatus[] = [
 const VERDICT_STATUS: Record<RunVerdict, TestRunStatus> = {
 	passed: "passed",
 	indicative: "indicative",
+	accepted: "accepted",
 	agent_failed: "failed",
 	control_survived: "failed",
 	infra_invalid: "no verdict",
@@ -288,6 +291,8 @@ type RecordedConditions = {
 	calibrated?: boolean;
 	modelPinned?: boolean;
 	userConfig?: string;
+	allowedRoots?: string[];
+	accepted?: { conditions?: string[] };
 };
 /** Conditions a reader must know before trusting a pass. Empty when no run recorded them. */
 export function runConditionLabels(operations: { data: unknown[] }[]): string[] {
@@ -306,5 +311,7 @@ function conditionLabels(record: RecordedConditions): string[] {
 		...(hosted && record.calibrated === false ? ["Uncalibrated"] : []),
 		...(hosted && record.modelPinned === false ? ["Model unpinned"] : []),
 		...(record.userConfig === "may-load" ? ["User config may load"] : []),
+		...(record.allowedRoots?.length ? ["Allowed roots"] : []),
+		...(record.accepted?.conditions?.length ? ["Accepted conditions"] : []),
 	];
 }

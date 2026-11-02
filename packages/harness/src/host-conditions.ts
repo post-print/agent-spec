@@ -36,6 +36,8 @@ export interface HostConditions {
 	settingSources?: string[];
 	userConfig: UserConfig;
 	home: HomeAccess;
+	/** Folders outside the workspace the test let its agent read. */
+	allowedRoots: string[];
 	/** Names only: values can hold secrets or local paths. */
 	overridingEnv: string[];
 }
@@ -107,6 +109,7 @@ export async function hostConditions(
 		settingSources: settingSources(agent),
 		userConfig: userConfig(agent),
 		home: homeAccess(agent),
+		allowedRoots: [...(agent.options.allowedRoots ?? [])],
 		overridingEnv: OVERRIDING_ENV.filter((name) => process.env[name] !== undefined),
 	};
 }

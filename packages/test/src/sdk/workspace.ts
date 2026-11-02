@@ -4,7 +4,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import {
 	type AgentDefinition,
 	createSealedWorkspace,
+	createWorktreeWorkspace,
 	type SealedWorkspace,
+	type WorktreeSource,
 } from "@post-print/agent-harness";
 import { captureSnapshot, type SnapshotBudget, snapshotBudget } from "./snapshot-storage.js";
 import { withoutSecrets } from "./stored-value.js";
@@ -50,13 +52,12 @@ export function changedPaths(before: WorkspaceSnapshot, after: WorkspaceSnapshot
 }
 export async function prepareWorkspace(
 	baseDir: string,
-	source: string,
+	source: string | WorktreeSource,
 ): Promise<SealedWorkspace & Workspace> {
-	const sealed = await createSealedWorkspace({
-		callerCwd: baseDir,
-		workspace: source,
-		overlayPaths: [],
-	});
+	const sealed =
+		typeof source === "string"
+			? await createSealedWorkspace({ callerCwd: baseDir, workspace: source, overlayPaths: [] })
+			: await createWorktreeWorkspace({ ...source, callerCwd: baseDir });
 	return {
 		...sealed,
 		path: await realpath(sealed.path),
@@ -65,6 +66,15 @@ export async function prepareWorkspace(
 			return readFile(under(await realpath(sealed.path), actual), "utf8");
 		},
 	};
+}
+/** Where a worktree workspace came from, so the run record says it was no sealed copy. */
+export async function worktreeOrigin(source: WorktreeSource, path: string) {
+	const sha = await new Promise<string | undefined>((done) => {
+		execFile("git", ["rev-parse", "HEAD"], { cwd: path }, (error, stdout) => {
+			done(error ? undefined : stdout.trim());
+		});
+	});
+	return { kind: "worktree" as const, repo: source.worktree, ref: source.ref ?? "HEAD", sha };
 }
 /**
  * The checkout that owns the suite: the Git top level above the config directory, or the

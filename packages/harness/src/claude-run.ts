@@ -73,6 +73,8 @@ export interface ClaudeRunOptions {
 	loadProjectContext?: boolean;
 	/** Absolute paths the agent may not read (the caller checkout). */
 	protectedPaths?: readonly string[];
+	/** Folders outside the workspace the agent may read. */
+	allowedRoots?: readonly string[];
 	/** Give the agent a fresh HOME inside the workspace's `.git`, so its own config stays out. */
 	sealHome?: boolean;
 	/** Let sandboxed commands create Unix sockets (headless Chrome on Linux). Default false. */
@@ -354,6 +356,7 @@ export function buildClaudeArgs(options: {
 	prompt: string;
 	cwd: string;
 	protectedPaths?: readonly string[];
+	allowedRoots?: readonly string[];
 	model?: string;
 	allowedTools: string;
 	tools?: readonly string[];
@@ -390,6 +393,7 @@ export function buildClaudeArgs(options: {
 			cwd: options.cwd,
 			readOnly: options.readOnly === true,
 			protectedPaths: options.protectedPaths ?? [],
+			allowedRoots: options.allowedRoots ?? [],
 			allowUnixSockets: options.allowUnixSockets === true,
 			networkAccess: options.networkAccess === true,
 		}),
@@ -662,6 +666,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			prompt: options.prompt,
 			cwd: options.cwd,
 			protectedPaths: options.protectedPaths,
+			allowedRoots: options.allowedRoots,
 			model: options.model,
 			readOnly: options.readOnly,
 			allowedTools,

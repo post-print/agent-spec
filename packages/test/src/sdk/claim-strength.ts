@@ -10,19 +10,57 @@ function hostName(record: RecordLike): string {
 	const auth = typeof record.authMode === "string" ? ` under ${record.authMode} auth` : "";
 	return `${String(record.host ?? "the host")}${version}${auth}`;
 }
-/** Each condition a record falls short on, in words a reader can act on. */
-export function recordWeaknesses(record: RecordLike): string[] {
+/** A condition a pass needs, which a suite may declare it accepts going without. */
+export type AcceptedCondition =
+	| "calibration"
+	| "escape-battery"
+	| "confinement"
+	| "user-config"
+	| "model";
+export const ACCEPTABLE_CONDITIONS: readonly AcceptedCondition[] = [
+	"calibration",
+	"escape-battery",
+	"confinement",
+	"user-config",
+	"model",
+];
+/**
+ * What a suite owner declares it accepts, with why. Set in the config, never by an adapter, recorded
+ * on every run, and refused by `--verdict-grade`. A run weak only on these ends as `accepted`.
+ */
+export interface AcceptedConditions {
+	conditions: readonly AcceptedCondition[];
+	reason: string;
+}
+export interface Weakness {
+	condition: AcceptedCondition;
+	/** In words a reader can act on. */
+	reason: string;
+}
+/** Each condition a record falls short on. */
+export function recordWeaknesses(record: RecordLike): Weakness[] {
 	const host = hostName(record);
+	const weak = (condition: AcceptedCondition, reason: string, holds: boolean): Weakness[] =>
+		holds ? [] : [{ condition, reason }];
+	const enforced = record.confinement === "host-enforced";
 	return [
-		...(record.calibrated === true ? [] : [`${host} has no passing host probe from the last week`]),
-		...(record.modelPinned === true ? [] : ["the model is not pinned"]),
-		...(record.userConfig === "excluded"
-			? []
-			: [`${host} may load the host's own user configuration`]),
-		...(record.confinement === "host-enforced" ? [] : [`${host} only detects escapes`]),
-		...(record.confinement === "host-enforced" && record.confinementProven !== true
-			? [`${host} has no escape battery from the last week in which every enforced vector held`]
-			: []),
+		...weak(
+			"calibration",
+			`${host} has no passing host probe from the last week`,
+			record.calibrated === true,
+		),
+		...weak("model", "the model is not pinned", record.modelPinned === true),
+		...weak(
+			"user-config",
+			`${host} may load the host's own user configuration`,
+			record.userConfig === "excluded",
+		),
+		...weak("confinement", `${host} only detects escapes`, enforced),
+		...weak(
+			"escape-battery",
+			`${host} has no escape battery from the last week in which every enforced vector held`,
+			!enforced || record.confinementProven === true,
+		),
 	];
 }
 interface RecordedAttempt {
@@ -37,7 +75,27 @@ export function attemptRecords(attempt: RecordedAttempt): RecordLike[] {
 		}),
 	);
 }
-/** What keeps these attempts from carrying a pass. Empty when every record is strong. */
-export function weaknesses(attempts: RecordedAttempt[]): string[] {
-	return [...new Set(attempts.flatMap(attemptRecords).flatMap(recordWeaknesses))];
+function acceptedBy(record: RecordLike): AcceptedConditions | undefined {
+	const accepted = record.accepted as AcceptedConditions | undefined;
+	return accepted && Array.isArray(accepted.conditions) ? accepted : undefined;
+}
+/**
+ * What keeps these attempts from carrying a pass: the weaknesses their suite did not accept, and
+ * apart from them the ones it did, with its reasons. Both are empty when every record is strong.
+ */
+export function weighConditions(attempts: RecordedAttempt[]) {
+	const weak = new Set<string>();
+	const accepted = new Set<string>();
+	const reasons = new Set<string>();
+	for (const record of attempts.flatMap(attemptRecords)) {
+		const declared = acceptedBy(record);
+		for (const { condition, reason } of recordWeaknesses(record)) {
+			if (!declared?.conditions.includes(condition)) weak.add(reason);
+			else {
+				accepted.add(reason);
+				reasons.add(declared.reason);
+			}
+		}
+	}
+	return { weak: [...weak], accepted: [...accepted], reasons: [...reasons] };
 }

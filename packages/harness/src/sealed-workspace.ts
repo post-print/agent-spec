@@ -103,7 +103,9 @@ async function materializeWorkspaceFolder(
 		throw new Error(`workspace must stay under the caller cwd: ${workspaceRel}`);
 	}
 	await rm(dest, { recursive: true, force: true });
-	await cp(from, dest, { recursive: true, filter: skipNestedGit });
+	// Links stay as written. Node otherwise rewrites a relative link to an absolute path in the
+	// caller checkout, which would point the sealed copy back at the denied source.
+	await cp(from, dest, { recursive: true, filter: skipNestedGit, verbatimSymlinks: true });
 }
 
 async function overlayPath(callerCwd: string, dest: string, rel: string): Promise<void> {
@@ -168,6 +170,43 @@ export async function createSealedWorkspace(
 		await sealed.cleanup();
 		throw error;
 	}
+}
+
+/** A git worktree of a real repository, in place of a sealed copy. */
+export interface WorktreeSource {
+	/** The repository to check out, relative to the caller's directory or absolute. */
+	worktree: string;
+	/** What to check out, detached. Defaults to HEAD. */
+	ref?: string;
+}
+/**
+ * A detached `git worktree` of a real repository, in an owned temp root. Unlike a sealed copy it
+ * shares the repository's object store, so it reaches every branch there. Cleanup removes the
+ * worktree from the repository and deletes the root; a crashed run's leftover is pruned the next
+ * time a worktree is made.
+ */
+export async function createWorktreeWorkspace(
+	source: WorktreeSource & { callerCwd: string },
+): Promise<SealedWorkspace> {
+	const repo = resolve(source.callerCwd, source.worktree);
+	const git = (...args: string[]) => execFileAsync("git", ["-C", repo, ...args]);
+	await git("worktree", "prune");
+	const sealed = await allocateSealedWorkspace();
+	try {
+		await rm(sealed.path, { recursive: true, force: true });
+		await git("worktree", "add", "--detach", sealed.path, source.ref ?? "HEAD");
+	} catch (error) {
+		await sealed.cleanup();
+		throw error;
+	}
+	return {
+		path: sealed.path,
+		cleanup: async () => {
+			await git("worktree", "remove", "--force", sealed.path).catch(() => undefined);
+			await sealed.cleanup();
+			await git("worktree", "prune").catch(() => undefined);
+		},
+	};
 }
 
 /**
@@ -300,9 +339,15 @@ function toolCallPaths(
 	return { paths, shellCwd: callDir === undefined ? shell.cwd : shellCwd };
 }
 
-function escapesWorkspace(path: NamedPath, root: string): boolean {
+/** What a test lets its agent name besides the workspace: folders it allowed, already checked. */
+export interface WorkspaceBoundary {
+	allowedRoots?: readonly string[];
+}
+function escapesWorkspace(path: NamedPath, root: string, boundary: WorkspaceBoundary): boolean {
 	if (isCursorToolOutput(path.absolute.replaceAll("\\", "/"))) return false;
 	if (isPathUnderRoot(path.absolute, root) || isSystemPath(path.absolute)) return false;
+	if (boundary.allowedRoots?.some((allowed) => isPathUnderRoot(path.absolute, allowed)))
+		return false;
 	return !existsInsideFromSubfolder(path.raw, root);
 }
 
@@ -345,7 +390,11 @@ function existsInsideFromSubfolder(raw: string, root: string): boolean {
  * and scanned for absolute, home-relative, and parent-relative tokens; only read-only
  * system toolchain roots are allowed.
  */
-export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: string): string[] {
+export function toolPathsOutsideWorkspace(
+	trace: AgentTrace,
+	workspaceRoot: string,
+	boundary: WorkspaceBoundary = {},
+): string[] {
 	const root = resolve(workspaceRoot);
 	const escaped: string[] = [];
 	let shellCwd = root;
@@ -353,14 +402,20 @@ export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: stri
 		const named = toolCallPaths(call.args, root, shellCwd);
 		shellCwd = named.shellCwd;
 		escaped.push(
-			...named.paths.filter((path) => escapesWorkspace(path, root)).map((path) => path.raw),
+			...named.paths
+				.filter((path) => escapesWorkspace(path, root, boundary))
+				.map((path) => path.raw),
 		);
 	}
 	return [...new Set(escaped)];
 }
 
 /** Reject a trace whose tool calls named paths outside the sealed workspace. */
-export function assertInsideWorkspace(trace: AgentTrace, workspaceRoot: string): void {
-	const escaped = toolPathsOutsideWorkspace(trace, workspaceRoot);
+export function assertInsideWorkspace(
+	trace: AgentTrace,
+	workspaceRoot: string,
+	boundary: WorkspaceBoundary = {},
+): void {
+	const escaped = toolPathsOutsideWorkspace(trace, workspaceRoot, boundary);
 	if (escaped.length) throw new WorkspaceEscapeError(escaped, trace);
 }

@@ -17,18 +17,19 @@ const config = fileURLToPath(new URL("./agent-test.config.ts", import.meta.url))
 const fakeHost = fileURLToPath(new URL("./fake-host.mjs", import.meta.url));
 const roots: string[] = [];
 
-type RunFlags = { allowIndicative?: boolean; verdictGrade?: boolean };
+type RunFlags = { allowIndicative?: boolean; verdictGrade?: boolean; config?: string };
 async function runScenario(grep: string, extra: string[] = [], flags: RunFlags = {}) {
 	const previous = process.env.CLAUDE_CODE_BIN;
 	process.env.CLAUDE_CODE_BIN = fakeHost;
+	const { config: chosen = config, ...rest } = flags;
 	const execution = await startRecordedExecution({
-		config,
+		config: chosen,
 		args: ["--grep", grep, "--workers", "1", ...extra],
-		...flags,
+		...rest,
 	});
 	if (previous === undefined) delete process.env.CLAUDE_CODE_BIN;
 	else process.env.CLAUDE_CODE_BIN = previous;
-	const root = join(executionHistoryRoot(config), execution.id);
+	const root = join(executionHistoryRoot(chosen), execution.id);
 	roots.push(root);
 	const exitCode = await execution.completed;
 	return { exitCode, verdict: await execution.verdict, summary: await readExecutionDetail(root) };
@@ -206,6 +207,8 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["host reports hitting its limit", "agent_failed", 1],
 	["test code breaks after the agent ran", "author_error", 2],
 	["agent runs and nothing checks it", "vacuous", 2],
+	["reading an allowed root is no escape", "passed", 0],
+	["reading the same folder without allowing it is an escape", "agent_failed", 1],
 	["named control fails on the check it names", "passed", 0],
 	["named control fails on a precondition instead", "vacuous", 2],
 	["only the prompt is checked", "vacuous", 2],
@@ -387,5 +390,23 @@ describe("verdict-grade runs through the real runner", () => {
 			operations.flatMap(recordsOf),
 		);
 		expect(records[0]).toMatchObject({ record: { home: "sealed", userConfig: "excluded" } });
+	}, 60_000);
+});
+describe("a suite that accepts weaker conditions, through the real runner", () => {
+	const accepting = fileURLToPath(new URL("./agent-test.accepted.config.ts", import.meta.url));
+	it("ends a pass with an unpinned model as accepted, exit 0, never passed", async () => {
+		const { verdict, exitCode } = await runScenario("instrument good run$", [], {
+			config: accepting,
+		});
+		expect(verdict.verdict).toBe("accepted");
+		expect(exitCode).toBe(0);
+		expect(verdict.acceptedConditions?.reasons).toEqual(["The scripted host has no model to pin."]);
+	}, 60_000);
+	it("refuses the accepting suite under --verdict-grade", async () => {
+		const { verdict } = await runScenario("instrument good run$", [], {
+			config: accepting,
+			verdictGrade: true,
+		});
+		expect(verdict.verdict).toBe("vacuous");
 	}, 60_000);
 });

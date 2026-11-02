@@ -117,7 +117,9 @@ export async function evaluate<S extends z.ZodType>(
 			evaluation: { prompt: request.settings.prompt, schema: prepared.schema },
 		});
 		const trace = await session.run(prepared.prompt);
-		assertInsideWorkspace(trace, workspace);
+		assertInsideWorkspace(trace, workspace, {
+			allowedRoots: request.definition.options.allowedRoots,
+		});
 		await writeJson(join(directory, "response.json"), { response: assistantText(trace), trace });
 		const result = {
 			id,
