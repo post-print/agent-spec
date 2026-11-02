@@ -57,7 +57,7 @@ Offline product tests:
 bun run test
 ```
 
-Manual host-agent proof after host login uses `bun run test:capabilities` or `bun run test:tour`. Run `bun run test:probe` after upgrading a host CLI. `bun run test:matrix` and `bun run test:reliability` are also manual. `bun run test:sdk:consumer` needs no host credentials. CI does not launch a provider-backed host.
+Manual host-agent proof after host login uses `bun run test:capabilities` or `bun run test:tour`. Run `bun run test:probe` after upgrading a host CLI; it also runs the escape battery, and together they calibrate the host for a week. `bun run test:matrix` and `bun run test:reliability` are also manual. `bun run test:sdk:consumer` and `bun run test:mutation` need no host credentials. Pull-request CI does not launch a provider-backed host. The advisory `nightly live proof` workflow (`bun run test:nightly`) does, when its API-key secrets are set, and never gates a merge.
 
 ## Validation split
 
