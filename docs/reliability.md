@@ -78,7 +78,10 @@ bun run test:matrix
 bun run test:reliability
 bun run test:probe
 bun run test:controls
+bun run test:nightly
 ```
+
+`test:controls` runs the live subject controls in `agent-suites/reference`. `test:controls:offline` runs the scripted control gate that CI also runs. `test:nightly` is the nightly live proof: API-key hosts under `--verdict-grade`, the probe and escape battery, then the live controls. The `nightly live proof` workflow runs it on a schedule when the `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` secrets are set. It calibrates first, reports the battery's findings apart, uploads the logs and calibration, and opens an issue when an enforced vector or a control fails. It never gates a merge, because live provider state is too noisy to block on.
 
 The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries, and reports each test's rate with its interval. It passes `--measure` to set no threshold, because requiring every repetition to pass would wrongly fail a 95% behavior 64% of the time. So the run is `indicative` and exits 3. To decide on a rate, use a [sampling plan](sdk-v2.md#rates-and-comparisons). The separately configured reviewer also needs authentication.
 

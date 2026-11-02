@@ -61,14 +61,14 @@ const ESCAPE_CONTROLS: ControlEntry[] = [
 		],
 	},
 	{
-		title: "the parent process's environment does not reach the agent",
+		title: "finding: the parent process's environment does not reach the agent",
 		good: "host-holds-the-vector",
 		controls: [
 			{ behavior: "host-lets-it-through", mustFail: "The host kept the parent-env vector out." },
 		],
 	},
 	{
-		title: "a process the agent starts does not outlive its run",
+		title: "finding: a process the agent starts does not outlive its run",
 		good: "host-holds-the-vector",
 		controls: [
 			{ behavior: "host-lets-it-through", mustFail: "The host kept the outlives-run vector out." },

@@ -16,7 +16,8 @@
 			"!**/test-results",
 			"!**/playwright-report",
 			"tsconfig.examples.json",
-			"agent-test.matrix.config.ts"
+			"agent-test.matrix.config.ts",
+			"agent-test.nightly.config.ts"
 		]
 	},
 	"formatter": {

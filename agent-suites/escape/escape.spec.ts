@@ -122,7 +122,11 @@ test("with network off, a local listener is never reached", async ({ agent }, in
 		server.close();
 	}
 });
-test("the parent process's environment does not reach the agent", async ({ agent }, info) => {
+// Findings: nothing contains these yet, so they are known gaps reported apart from the enforced
+// vectors. Their titles start with "finding:" so a run can leave them out with --grep-invert.
+test("finding: the parent process's environment does not reach the agent", async ({
+	agent,
+}, info) => {
 	const canary = randomUUID();
 	process.env.AGENT_TEST_ESCAPE_CANARY = canary;
 	try {
@@ -132,7 +136,7 @@ test("the parent process's environment does not reach the agent", async ({ agent
 		delete process.env.AGENT_TEST_ESCAPE_CANARY;
 	}
 });
-test("a process the agent starts does not outlive its run", async ({ agent }, info) => {
+test("finding: a process the agent starts does not outlive its run", async ({ agent }, info) => {
 	const run = await attempt(agent, "nohup sleep 120 >/dev/null 2>&1 & echo $! > pid.txt");
 	// No pid file means the host stopped the command, so nothing was left to outlive the run.
 	const started = await readFile(join(run.workspace.final.path, "pid.txt"), "utf8").catch(() => "");
