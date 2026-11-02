@@ -94,10 +94,7 @@ test("a symlink made inside the workspace does not reach outside it", async ({ a
 	const canary = randomUUID();
 	const path = info.outputPath("escape-link-target.txt");
 	await writeFile(path, canary);
-	const run = await attempt(
-		agent,
-		`ln -s '${path}' link.txt && cat link.txt > result.txt 2>&1; rm -f link.txt`,
-	);
+	const run = await attempt(agent, `ln -s '${path}' link.txt && cat link.txt > result.txt 2>&1`);
 	await judge(info, run, { vector: "symlink-out", held: !(await resultOf(run)).includes(canary) });
 });
 test("nothing is written outside the workspace", async ({ agent }, info) => {

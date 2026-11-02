@@ -5,13 +5,15 @@ import {
 	mkdir,
 	readdir,
 	readFile,
+	readlink,
 	rename,
 	rm,
 	stat,
 	statfs,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -45,7 +47,12 @@ function storageLimit(name: string, fallback: number): number {
 		throw new Error(`${name} must be a nonnegative safe integer`);
 	return value;
 }
-export type SnapshotFiles = Record<string, { sha256: string; bytes: number }>;
+/**
+ * A file's content hash and size. A symlink is recorded as itself, never followed: its target is
+ * the content, and `outside` says the target leaves the workspace, so nothing there is read.
+ */
+export type SnapshotEntry = { sha256: string; bytes: number; link?: string; outside?: boolean };
+export type SnapshotFiles = Record<string, SnapshotEntry>;
 interface SnapshotManifest {
 	version: 1;
 	kind: "agent-test-snapshot";
@@ -68,7 +75,14 @@ export async function captureSnapshot(input: {
 	};
 	try {
 		await saveManifest(`${target}.snapshot.json`, manifest);
-		await copySnapshotDirectory({ source, target, root: target, budget, files: manifest.files });
+		await copySnapshotDirectory({
+			source,
+			target,
+			root: target,
+			sourceRoot: source,
+			budget,
+			files: manifest.files,
+		});
 		manifest.status = "available";
 		await saveManifest(`${target}.snapshot.json`, manifest);
 		return manifest.files;
@@ -83,26 +97,32 @@ interface CopyInput {
 	source: string;
 	target: string;
 	root: string;
+	/** The workspace being copied, so a link's target can be placed inside or outside it. */
+	sourceRoot: string;
 	budget: SnapshotBudget;
 	files: SnapshotFiles;
+}
+/** Recreates a symlink as a link, and records its target as its content. Nothing is followed. */
+async function copySnapshotLink(input: CopyInput, source: string, target: string) {
+	const link = await readlink(source);
+	await symlink(link, target);
+	const resolved = relative(input.sourceRoot, resolve(dirname(source), link));
+	const outside = resolved === ".." || resolved.startsWith(`..${sep}`) || isAbsolute(resolved);
+	const sha256 = createHash("sha256").update(`link:${link}`).digest("hex");
+	return { sha256, bytes: 0, link, ...(outside ? { outside: true } : {}) };
 }
 async function copySnapshotDirectory(input: CopyInput): Promise<void> {
 	for (const item of await readdir(input.source, { withFileTypes: true })) {
 		if (input.budget.excludedNames.has(item.name)) continue;
 		const source = join(input.source, item.name),
 			target = join(input.target, item.name);
-		if (item.isSymbolicLink())
-			throw new Error(`Workspace snapshots do not support symlinks: ${source}`);
-		if (item.isDirectory()) {
+		const path = relative(input.root, target).split(sep).join("/");
+		if (item.isSymbolicLink()) input.files[path] = await copySnapshotLink(input, source, target);
+		else if (item.isDirectory()) {
 			await mkdir(target);
 			await copySnapshotDirectory({ ...input, source, target });
-		} else if (item.isFile()) {
-			input.files[relative(input.root, target).split(sep).join("/")] = await copySnapshotFile(
-				source,
-				target,
-				input.budget,
-			);
-		}
+		} else if (item.isFile())
+			input.files[path] = await copySnapshotFile(source, target, input.budget);
 	}
 }
 async function copySnapshotFile(source: string, target: string, budget: SnapshotBudget) {
@@ -195,13 +215,20 @@ export async function preserveSourceChanges(input: {
 	directory: string;
 	budget: SnapshotBudget;
 }): Promise<void> {
-	const changes: Record<string, "deleted" | "preserved" | "omitted-budget"> = {};
+	const changes: Record<string, "deleted" | "preserved" | "omitted-budget" | "link"> = {};
+	/** A changed symlink keeps its target, never the content it points to. */
+	const links: Record<string, string> = {};
 	const paths = new Set([...Object.keys(input.initial.files), ...Object.keys(input.final.files)]);
 	for (const path of paths) {
 		if (input.initial.files[path]?.sha256 === input.final.files[path]?.sha256) continue;
 		const file = input.final.files[path];
 		if (!file) {
 			changes[path] = "deleted";
+			continue;
+		}
+		if (file.link !== undefined) {
+			changes[path] = "link";
+			links[path] = file.link;
 			continue;
 		}
 		if (input.budget.usedBytes + file.bytes > input.budget.maximumBytes) {
@@ -213,5 +240,8 @@ export async function preserveSourceChanges(input: {
 		await copySnapshotFile(join(input.final.path, path), target, input.budget);
 		changes[path] = "preserved";
 	}
-	await writeFile(join(input.directory, "changes.json"), JSON.stringify({ version: 1, changes }));
+	await writeFile(
+		join(input.directory, "changes.json"),
+		JSON.stringify({ version: 1, changes, ...(Object.keys(links).length ? { links } : {}) }),
+	);
 }

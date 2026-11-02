@@ -103,7 +103,9 @@ async function materializeWorkspaceFolder(
 		throw new Error(`workspace must stay under the caller cwd: ${workspaceRel}`);
 	}
 	await rm(dest, { recursive: true, force: true });
-	await cp(from, dest, { recursive: true, filter: skipNestedGit });
+	// Links stay as written. Node otherwise rewrites a relative link to an absolute path in the
+	// caller checkout, which would point the sealed copy back at the denied source.
+	await cp(from, dest, { recursive: true, filter: skipNestedGit, verbatimSymlinks: true });
 }
 
 async function overlayPath(callerCwd: string, dest: string, rel: string): Promise<void> {

@@ -1,7 +1,7 @@
 import { expect, it } from "bun:test";
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -115,6 +115,24 @@ it("createSealedWorkspace › copies a workspace folder without parent HEAD file
 			cwd: sealed.path,
 		});
 		expect(realpathSync(stdout.trim())).toBe(realpathSync(sealed.path));
+	} finally {
+		await sealed.cleanup();
+	}
+});
+
+it("createSealedWorkspace › keeps a folder's relative links relative, never pointing back at the caller", async () => {
+	const repo = await initRepo();
+	await mkdir(join(repo, "fixture/rules"), { recursive: true });
+	await writeFile(join(repo, "fixture/code.ts"), "code\n", "utf8");
+	await symlink("../code.ts", join(repo, "fixture/rules/code.md"));
+	const sealed = await createSealedWorkspace({
+		callerCwd: repo,
+		workspace: "fixture",
+		overlayPaths: [],
+	});
+	try {
+		expect(await readlink(join(sealed.path, "rules/code.md"))).toBe("../code.ts");
+		expect(await readFile(join(sealed.path, "rules/code.md"), "utf8")).toBe("code\n");
 	} finally {
 		await sealed.cleanup();
 	}
