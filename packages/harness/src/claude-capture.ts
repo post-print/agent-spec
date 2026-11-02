@@ -7,6 +7,7 @@ import {
 	type TraceAccumulator,
 	toolResultFields,
 } from "./capture.js";
+import { redactSecrets } from "./host-failure.js";
 import type { AgentToolCall, AgentTrace, AgentUsage, HostReport } from "./types.js";
 
 /** One NDJSON line from `claude -p --output-format stream-json`. */
@@ -31,6 +32,10 @@ export interface ClaudeStreamEvent {
 	usage?: unknown;
 	error?: string;
 	errors?: string[];
+	/** HTTP status of the API error that ended the turn; present on Claude Code 2.1.300. */
+	api_error_status?: number | null;
+	/** Claude Code's own category for that API error. */
+	api_error?: string;
 	tools?: string[];
 	mcp_servers?: { name: string; status?: string }[];
 	model?: string;
@@ -56,6 +61,8 @@ export interface ClaudeTraceAccumulator extends TraceAccumulator {
 	resultText?: string;
 	resultIsError?: boolean;
 	resultError?: string;
+	apiErrorStatus?: number;
+	apiError?: string;
 	structuredOutput?: unknown;
 	/** Unnormalized CLI exit / result subtype. */
 	rawStatus?: string;
@@ -280,6 +287,8 @@ function accumulateResult(acc: ClaudeTraceAccumulator, event: ClaudeStreamEvent)
 		}
 	}
 	acc.resultError = resultError(event) ?? acc.resultError;
+	acc.apiErrorStatus = event.api_error_status ?? undefined;
+	acc.apiError = event.api_error;
 	acc.structuredOutput = event.structured_output;
 	const usage = normalizeClaudeUsage(event.usage);
 	if (usage) {
@@ -300,7 +309,7 @@ export function finalizeClaudeTraceAccumulator(
 		artifacts.claudeResultIsError = "true";
 	}
 	if (acc.resultError) {
-		artifacts.claudeResultError = acc.resultError;
+		artifacts.claudeResultError = redactSecrets(acc.resultError);
 	}
 	return {
 		...trace,

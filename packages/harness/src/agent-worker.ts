@@ -13,7 +13,6 @@ import { cancelActiveCursorRun, formatCursorRunFailure, runCursorAgent } from ".
 import {
 	type HostRunResult,
 	hostRunError,
-	isAuthFailure,
 	redactedHostResult,
 	redactSecrets,
 } from "./host-failure.js";
@@ -76,7 +75,8 @@ function builtinOptions(input: InitializeInput, prompt: string) {
 	const { agent, workspace, readOnly, protectedPaths } = input;
 	const auth = agent.options.auth ?? { type: "subscription" };
 	const apiKey = auth.type === "api-key" ? process.env[auth.env] : undefined;
-	if (auth.type === "api-key" && !apiKey) throw new Error(`Missing API key in ${auth.env}`);
+	if (auth.type === "api-key" && !apiKey)
+		throw new AgentInfrastructureError(`Missing API key in ${auth.env}`, "auth");
 	return {
 		cwd: workspace,
 		prompt,
@@ -203,8 +203,9 @@ async function run(prompt: string) {
 	}
 	send("result", trace);
 }
+/** Only a typed error classifies: a thrown message can quote anything, including the agent. */
 function serializedError(error: unknown) {
-	const message = error instanceof Error ? error.message : String(error);
+	const message = redactSecrets(error instanceof Error ? error.message : String(error));
 	if (error instanceof AgentRunTimeoutError)
 		return {
 			kind: "infrastructure",
@@ -212,8 +213,7 @@ function serializedError(error: unknown) {
 			message,
 			timeoutMs: error.timeoutMs,
 		};
-	if (error instanceof AgentInfrastructureError) return error.toJSON();
-	if (isAuthFailure(message)) return { kind: "infrastructure", code: "auth", message };
+	if (error instanceof AgentInfrastructureError) return { ...error.toJSON(), message };
 	return { name: error instanceof Error ? error.name : "Error", message };
 }
 process.on("SIGTERM", () => {
@@ -228,6 +228,7 @@ process.on("disconnect", () => {
 	cancelActiveClaudeRun();
 	cancelActiveCursorRun();
 	cancelActiveOpenaiRun();
+	cancelActiveOpenRouterRun();
 	process.exit(1);
 });
 process.on("message", async (raw) => {

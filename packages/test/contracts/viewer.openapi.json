@@ -52,6 +52,18 @@
 			}
 		},
 		"/api/executions/{executionId}": { "get": { "operationId": "getExecution" } },
-		"/api/executions/{executionId}/cancel": { "post": { "operationId": "cancelExecution" } }
+		"/api/executions/{executionId}/cancel": {
+			"post": {
+				"operationId": "cancelExecution",
+				"parameters": [
+					{
+						"name": "content-type",
+						"in": "header",
+						"required": true,
+						"schema": { "const": "application/json" }
+					}
+				]
+			}
+		}
 	}
 }

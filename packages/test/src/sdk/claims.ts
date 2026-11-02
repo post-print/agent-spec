@@ -12,6 +12,8 @@ export type ComparisonSubject = "prompt" | "skills" | "workspace" | "tools" | "m
 export interface SampleAnnotation {
 	title: string;
 	variant?: string;
+	/** Every arm the test declared, so an arm that never ran cannot go unnoticed. */
+	arms?: readonly string[];
 	flagAt?: number;
 	n: number;
 	subject?: ComparisonSubject;
@@ -21,6 +23,8 @@ export interface ClaimSample {
 	claim: string;
 	sample?: SampleAnnotation;
 	outcome: SampleOutcome;
+	/** A control that must fail passed on some attempt of this sample. */
+	survivedControl?: boolean;
 	record?: Record<string, unknown>;
 }
 export interface ClaimArm {
@@ -52,18 +56,31 @@ export interface ClaimResult {
 	flagAt?: number;
 	/** The plan's decision: flagged, clear of the flag, or only measured. */
 	decision: "flagged" | "clear" | "measured" | "no_verdict";
+	/** Samples whose control passed. Any at all means the test cannot tell good from bad. */
+	controlsSurvived: number;
+	/** Absent when the conditions cannot be told apart later, so no baseline can apply. */
 	fingerprint?: string;
 	comparison?: RateDifference & { first: string; second: string };
 	comparisonRefused?: string;
 	baseline: BaselineComparison;
 }
 
-const SHARED_CONDITIONS = ["host", "binaryVersion", "confinement", "network"];
+const SHARED_CONDITIONS = [
+	"host",
+	"binaryVersion",
+	"authMode",
+	"confinement",
+	"network",
+	"settingSources",
+	"overridingEnv",
+	"hashes.settings",
+];
 const SUBJECT_CONDITIONS: Record<string, ComparisonSubject> = {
 	requestedModel: "model",
 	observedModel: "model",
 	"hashes.prompt": "prompt",
 	"hashes.skills": "skills",
+	"hashes.tools": "tools",
 	"hashes.initialSnapshot": "workspace",
 };
 function recordField(record: Record<string, unknown>, field: string): unknown {
@@ -77,11 +94,25 @@ function fieldsFor(subject?: ComparisonSubject): string[] {
 		.map(([field]) => field);
 	return [...SHARED_CONDITIONS, "hashes.suite", ...free];
 }
-function fingerprintOf(samples: ClaimSample[]): string | undefined {
-	const records = samples.flatMap(({ record }) => (record ? [record] : []));
+function recordsOf(samples: ClaimSample[]): Record<string, unknown>[] {
+	return samples.flatMap(({ record }) => (record ? [record] : []));
+}
+/** The first listed condition the records do not share. */
+function differingField(records: Record<string, unknown>[], fields: string[]): string | undefined {
 	const first = records[0];
-	if (!first) return undefined;
-	return JSON.stringify(fieldsFor().map((field) => recordField(first, field)));
+	return fields.find((field) => {
+		const expected = JSON.stringify(first && recordField(first, field));
+		return records.some((record) => JSON.stringify(recordField(record, field)) !== expected);
+	});
+}
+/** No fingerprint when nothing names the model, or the runs differ: a later run cannot be matched. */
+function fingerprintOf(samples: ClaimSample[]): string | undefined {
+	const records = recordsOf(samples);
+	const first = records[0];
+	if (!first || !(first.requestedModel || first.observedModel)) return undefined;
+	const fields = fieldsFor();
+	if (differingField(records, fields)) return undefined;
+	return JSON.stringify(fields.map((field) => recordField(first, field)));
 }
 function armOf(variant: string | undefined, samples: ClaimSample[]): ClaimArm {
 	const count = (outcome: SampleOutcome) => samples.filter((s) => s.outcome === outcome).length;
@@ -98,30 +129,28 @@ function armOf(variant: string | undefined, samples: ClaimSample[]): ClaimArm {
 		lowerBound: lowerBound(passed, total),
 	};
 }
-/** Names the first condition that differs when it should not, so a comparison can be refused. */
-function comparisonConflict(samples: ClaimSample[], subject?: ComparisonSubject) {
-	const records = samples.flatMap(({ record }) => (record ? [record] : []));
-	const first = records[0];
-	if (!first) return "no run recorded its conditions";
-	for (const field of fieldsFor(subject)) {
-		const expected = JSON.stringify(recordField(first, field));
-		if (records.some((record) => JSON.stringify(recordField(record, field)) !== expected))
-			return `${field} differs between runs`;
-	}
-	return undefined;
+/** Names what keeps the arms from being compared, so the comparison can be refused. */
+function comparisonConflict(arms: ClaimArm[], samples: ClaimSample[], subject?: ComparisonSubject) {
+	const empty = arms.find(({ total }) => total === 0);
+	if (empty) return `arm ${empty.variant ?? "first"} has no run with a verdict`;
+	const records = recordsOf(samples);
+	if (records.length === 0) return "no run recorded its conditions";
+	const field = differingField(records, fieldsFor(subject));
+	return field && `${field} differs between runs`;
 }
 /** A plan clears only on passes: a sample with no verdict could still have been a failure. */
 function decisionOf(arms: ClaimArm[], sample?: SampleAnnotation): ClaimResult["decision"] {
-	if (arms.every(({ total }) => total === 0)) return "no_verdict";
-	if (sample?.flagAt === undefined) return "measured";
-	const { flagAt, n } = sample;
-	if (arms.some(({ failed }) => failed >= flagAt)) return "flagged";
+	const flagAt = sample?.flagAt;
+	if (flagAt !== undefined && arms.some(({ failed }) => failed >= flagAt)) return "flagged";
+	if (arms.some(({ total }) => total === 0)) return "no_verdict";
+	if (sample?.flagAt === undefined || flagAt === undefined) return "measured";
+	const { n } = sample;
 	return arms.every(({ passed }) => n - passed < flagAt) ? "clear" : "no_verdict";
 }
 function compared(arms: ClaimArm[], samples: ClaimSample[], subject?: ComparisonSubject) {
 	const [first, second] = arms;
 	if (arms.length !== 2 || !first || !second) return {};
-	const conflict = comparisonConflict(samples, subject);
+	const conflict = comparisonConflict(arms, samples, subject);
 	if (conflict) return { comparisonRefused: conflict };
 	return {
 		comparison: {
@@ -152,7 +181,7 @@ function claimOf(
 	baselines: Record<string, BaselineRecord>,
 ): ClaimResult {
 	const annotation = samples.find(({ sample }) => sample)?.sample;
-	const variants = [...new Set(samples.map(({ sample }) => sample?.variant))];
+	const variants = annotation?.arms ?? [...new Set(samples.map(({ sample }) => sample?.variant))];
 	const arms = variants.map((variant) =>
 		armOf(
 			variant,
@@ -166,10 +195,17 @@ function claimOf(
 		declared: annotation !== undefined,
 		flagAt: annotation?.flagAt,
 		decision: decisionOf(arms, annotation),
+		controlsSurvived: samples.filter(({ survivedControl }) => survivedControl).length,
 		fingerprint,
 		...compared(arms, samples, annotation?.subject),
 		baseline: baselineComparison(arms, fingerprint, baselines[claim]),
 	};
+}
+/** One test's identity across samples and repeats: its project and titles, without the file line. */
+export function claimKey(attempt: { title: string[]; sample?: { title: string } }): string {
+	const titles = attempt.title.filter(Boolean);
+	const path = attempt.sample ? [...titles.slice(0, -1), attempt.sample.title] : titles;
+	return path.join(" › ");
 }
 /** A claim is every run of one test: declared samples, or repeats of the same title. */
 export function buildClaims(
@@ -199,7 +235,8 @@ function comparisonLine(claim: ClaimResult): string[] {
 	];
 }
 function baselineLine({ baseline }: ClaimResult): string[] {
-	if (baseline.status === "new_conditions") return ["conditions changed, so no baseline applies"];
+	if (baseline.status === "new_conditions")
+		return ["conditions changed or are unknown, so no baseline applies"];
 	if (baseline.status !== "same_conditions") return [];
 	const against = `baseline ${baseline.passed} of ${baseline.total}`;
 	return [baseline.regressed ? `regressed from ${against}` : `consistent with ${against}`];
@@ -212,8 +249,12 @@ export function claimLines(claim: ClaimResult): string[] {
 			: claim.decision === "clear"
 				? [`clear of the flag at ${claim.flagAt} failures`]
 				: [];
+	const survived = claim.controlsSurvived
+		? [`a control that must fail passed in ${claim.controlsSurvived} samples`]
+		: [];
 	return [
 		claim.claim,
+		...survived,
 		...claim.arms.map(armLine),
 		...comparisonLine(claim),
 		...baselineLine(claim),

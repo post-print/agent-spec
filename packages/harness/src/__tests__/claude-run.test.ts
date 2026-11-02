@@ -1,4 +1,4 @@
-import { afterEach, expect, it, jest, mock } from "bun:test";
+import { afterAll, afterEach, expect, it, jest, mock } from "bun:test";
 import * as childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -17,6 +17,7 @@ const INVALID_AUTH = /invalid/;
 const CLAUDE_BINARY_MISSING = /Claude Code binary not found/;
 const CLAUDE_PATH_MISSING = /Claude Code binary not found at/;
 
+const realSpawn = childProcess.spawn;
 const spawnMock = jest.fn();
 
 mock.module("node:child_process", () => ({
@@ -78,6 +79,11 @@ function mockChild(options?: {
 
 	return child;
 }
+
+// Bun keeps module mocks across test files: leave a working spawn for the files that follow.
+afterAll(() => {
+	spawnMock.mockImplementation(realSpawn);
+});
 
 afterEach(() => {
 	delete process.env.ANTHROPIC_API_KEY;

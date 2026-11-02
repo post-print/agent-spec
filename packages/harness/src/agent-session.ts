@@ -1,7 +1,11 @@
 import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { AgentCapabilities, AgentDefinition, AgentEvent } from "./agent-definition.js";
-import { AgentInfrastructureError, isAgentInfrastructureCode } from "./agent-error.js";
+import {
+	AgentInfrastructureError,
+	AgentSessionCancelledError,
+	isAgentInfrastructureCode,
+} from "./agent-error.js";
 import { type HostConditions, hostConditions } from "./host-conditions.js";
 import { redactedTail } from "./host-failure.js";
 import type { AgentTrace } from "./types.js";
@@ -49,6 +53,8 @@ class SessionWorker {
 		this.child.on("error", (error) => this.fail(error));
 		this.child.on("exit", (code, signal) => {
 			this.closed = true;
+			// A crashed worker cannot stop its host, which shares the worker's process group.
+			this.kill();
 			this.fail(
 				new AgentInfrastructureError(
 					`Agent worker exited (${signal ?? code}): ${redactedTail(this.stderr)}`,
@@ -101,7 +107,7 @@ class SessionWorker {
 	};
 	private abort = () => {
 		this.closed = true;
-		this.fail(new Error("Agent session cancelled"));
+		this.fail(new AgentSessionCancelledError());
 		try {
 			if (this.child.pid && process.platform !== "win32") process.kill(-this.child.pid, "SIGTERM");
 			else this.child.kill("SIGTERM");

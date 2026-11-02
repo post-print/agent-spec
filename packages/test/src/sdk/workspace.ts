@@ -7,6 +7,7 @@ import {
 	type SealedWorkspace,
 } from "@post-print/agent-harness";
 import { captureSnapshot, type SnapshotBudget, snapshotBudget } from "./snapshot-storage.js";
+import { withoutSecrets } from "./stored-value.js";
 
 export interface Workspace {
 	path: string;
@@ -133,5 +134,5 @@ export function withContext(prompt: string, context: StartingContext): string {
 }
 export async function writeJson(path: string, value: unknown) {
 	await mkdir(dirname(path), { recursive: true });
-	await writeFile(path, JSON.stringify(value, null, 2));
+	await writeFile(path, JSON.stringify(withoutSecrets(value), null, 2));
 }

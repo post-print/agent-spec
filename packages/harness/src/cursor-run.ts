@@ -1,3 +1,4 @@
+import { type AgentInfrastructureCode, AgentInfrastructureError } from "./agent-error.js";
 import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
 import {
 	accumulateSdkEvent,
@@ -11,6 +12,7 @@ import {
 	isInvalidCursorUserApiKey,
 	wrapCursorSdkAuthError,
 } from "./cursor-auth.js";
+import { CAPTURE_INCOMPLETE, codeForProviderStatus, redactSecrets } from "./host-failure.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
 import {
@@ -125,6 +127,7 @@ export interface CursorRunResult {
 	sdkError?: CursorSdkError;
 	/** Cumulative agent token usage when the SDK reported it. */
 	usage?: AgentUsage;
+	failureCode?: AgentInfrastructureCode;
 }
 
 /** Map Cursor SDK terminal status to harness run status. */
@@ -246,12 +249,16 @@ class CursorExecution {
 		if (early) return early;
 		const result = await run.wait();
 		const usage = normalizeAgentUsage(result.usage) ?? normalizeAgentUsage(run.usage);
+		const trace = this.stashTrace(usage);
+		const sdkError = extractCursorSdkError(result.error);
+		const silent = result.status === "finished" && !traceHasAgentActivity(trace);
 		return {
-			status: normalizeSdkRunStatus(result.status),
-			trace: this.stashTrace(usage),
-			rawStatus: result.status,
-			sdkError: extractCursorSdkError(result.error),
+			status: silent ? "failed" : normalizeSdkRunStatus(result.status),
+			trace,
+			rawStatus: silent ? CAPTURE_INCOMPLETE : result.status,
+			sdkError,
 			usage,
+			failureCode: cursorRunFailureCode(result.status, sdkError),
 		};
 	}
 	private async execute(): Promise<CursorRunResult> {
@@ -267,7 +274,7 @@ class CursorExecution {
 				error.trace = error.trace ?? partial;
 				throw error;
 			}
-			throw wrapCursorSdkAuthError(error);
+			throw Object.assign(cursorThrownFailure(error), { trace: partial });
 		} finally {
 			if (activeCursorRun === run) activeCursorRun = undefined;
 		}
@@ -293,11 +300,12 @@ class CursorExecution {
 export async function runCursorAgent(options: CursorRunOptions): Promise<CursorRunResult> {
 	const authMode = resolveCursorAuthMode(undefined, options.apiKey, options.authMode);
 	const apiKey = options.apiKey ?? process.env.CURSOR_API_KEY;
-	if (authMode === "api-key" && !apiKey?.trim()) throw new Error(CURSOR_MISSING_KEY_MESSAGE);
-	const sdkModule = await import("@cursor/sdk");
+	if (authMode === "api-key" && !apiKey?.trim())
+		throw new AgentInfrastructureError(CURSOR_MISSING_KEY_MESSAGE, "auth");
 	const modelId = options.model?.id ?? process.env.CURSOR_AGENT_MODEL ?? DEFAULT_CURSOR_MODEL;
 	const mcpServers = resolveMcpServers(options.mcpServers, { cwd: options.cwd });
 	const execute = async () => {
+		const sdkModule = await import("@cursor/sdk");
 		await using agent = await sdkModule.Agent.create({
 			model: { id: modelId },
 			local: {
@@ -316,11 +324,46 @@ export async function runCursorAgent(options: CursorRunOptions): Promise<CursorR
 			),
 		);
 	} catch (error) {
-		throw wrapCursorSdkAuthError(error);
+		throw cursorThrownFailure(error);
 	}
 }
 
 /** Classifier-only judge path — one-shot Agent.prompt, JSON reply, temperature 0 when supported. */
+
+/** The SDK streams every message and tool call, so a finished run with none captured nothing. */
+function traceHasAgentActivity(trace: AgentTrace): boolean {
+	return trace.toolCalls.length > 0 || trace.messages.some((entry) => entry.role === "assistant");
+}
+
+/** The harness cancels only on its deadline, which surfaces as a timeout before this is read. */
+function cursorRunFailureCode(
+	status: string,
+	sdkError: CursorSdkError | undefined,
+): AgentInfrastructureCode | undefined {
+	if (status === "cancelled") return "host_exit";
+	return isInvalidCursorUserApiKey(sdkError) ? "auth" : undefined;
+}
+
+/** Classification from the SDK's own error classes; see `@cursor/sdk/dist/esm/errors.d.ts`. */
+function cursorThrownCode(error: unknown): AgentInfrastructureCode {
+	const record = (error ?? {}) as { name?: unknown; status?: unknown };
+	if (record.name === "AuthenticationError") return "auth";
+	if (record.name === "RateLimitError" || record.name === "NetworkError")
+		return "provider_unavailable";
+	const fromStatus = typeof record.status === "number" && codeForProviderStatus(record.status);
+	return fromStatus || "host_exit";
+}
+
+/** Anything the SDK throws ended the run before a terminal status, so it cannot be the agent's. */
+function cursorThrownFailure(error: unknown): Error {
+	if (error instanceof AgentInfrastructureError) return error;
+	if (error instanceof AgentRunTimeoutError || error instanceof UserInputRequiredError)
+		return error;
+	const wrapped = wrapCursorSdkAuthError(error);
+	if (wrapped instanceof AgentInfrastructureError) return wrapped;
+	const message = redactSecrets(error instanceof Error ? error.message : String(error));
+	return new AgentInfrastructureError(`Cursor SDK failed: ${message}`, cursorThrownCode(error));
+}
 
 function extractCursorSdkError(error: unknown): CursorSdkError | undefined {
 	if (!error || typeof error !== "object") {

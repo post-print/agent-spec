@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { access, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import type { Readable } from "node:stream";
 import { AgentInfrastructureError } from "./agent-error.js";
 import { type HostAuthMode, resolveKeyOrLoginAuthMode } from "./auth-mode.js";
 import { recordUnparsedLine } from "./capture.js";
-import { CAPTURE_INCOMPLETE } from "./host-failure.js";
+import { CAPTURE_INCOMPLETE, hostProcessFailure, spawnHostProcess } from "./host-failure.js";
 import {
 	codexPermissionArgs,
 	prepareSandboxPath,
@@ -24,6 +24,7 @@ import {
 	type OpenaiTraceAccumulator,
 	parseOpenaiJsonlLine,
 } from "./openai-capture.js";
+import { type OwnedRootKind, recoverOwnedRoots, writeOwnerManifest } from "./owned-temp-root.js";
 import {
 	AgentRunTimeoutError,
 	getPartialTrace,
@@ -35,6 +36,12 @@ import type { AgentTrace, LiveAgentEvent } from "./types.js";
 import { openaiUserConfigArgs } from "./user-skills.js";
 
 const ENV_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
+const OPENAI_HOME: OwnedRootKind = {
+	prefix: "agent-harness-openai-home-",
+	kind: "agent-harness-openai-home",
+};
+/** Shorter than sealed workspaces: all a stale home holds is a copy of the login. */
+const OPENAI_HOME_RECOVERY_AGE_MS = 60 * 60 * 1000;
 
 export type OpenaiAuthMode = HostAuthMode;
 
@@ -90,6 +97,7 @@ export interface OpenaiRunResult {
 	stderr?: string;
 	resultError?: string;
 	sawTerminalEvent: boolean;
+	hostReportedSuccess: boolean;
 }
 
 interface OpenaiChildProcess extends ChildProcess {
@@ -112,15 +120,27 @@ interface OpenaiRunHome {
 	cleanup: () => Promise<void>;
 }
 
-/** A clean home with only the Codex login file. */
+/** Removes homes a crashed run left behind. Homes without an owner manifest are not provably ours. */
+export function recoverOpenaiRunHomes(
+	options: { temporaryRoot?: string; minimumAgeMs?: number } = {},
+): Promise<void> {
+	return recoverOwnedRoots(OPENAI_HOME, {
+		minimumAgeMs: OPENAI_HOME_RECOVERY_AGE_MS,
+		...options,
+	});
+}
+
+/** A clean home with only the Codex login file, owned on disk before the login is copied into it. */
 export async function createOpenaiRunHome(options?: {
 	realHome?: string;
 	realCodexHome?: string;
 }): Promise<OpenaiRunHome> {
+	await recoverOpenaiRunHomes().catch(() => undefined);
 	const realHome = options?.realHome ?? homedir();
 	const realCodexHome =
 		options?.realCodexHome ?? process.env.CODEX_HOME ?? join(realHome, ".codex");
-	const home = await mkdtemp(join(tmpdir(), "agent-harness-openai-home-"));
+	const home = await mkdtemp(join(tmpdir(), OPENAI_HOME.prefix));
+	await writeOwnerManifest(home, OPENAI_HOME);
 	const codexHome = join(home, ".codex");
 	await mkdir(codexHome, { recursive: true });
 	try {
@@ -504,19 +524,15 @@ async function finishOpenaiRun(
 	const sawTerminalEvent = acc.sawTerminalEvent === true;
 	const rawStatus =
 		acc.rawStatus ?? (exitCode !== 0 ? "error" : sawTerminalEvent ? "success" : CAPTURE_INCOMPLETE);
-	const failed =
-		(exitCode !== null && exitCode !== 0) ||
-		rawStatus === "error" ||
-		rawStatus === CAPTURE_INCOMPLETE ||
-		Boolean(acc.resultError);
 	return {
-		status: failed ? "failed" : "completed",
+		status: rawStatus === "success" ? "completed" : "failed",
 		trace: options.outputSchema ? withStructuredOutput(trace) : trace,
 		rawStatus,
 		exitCode,
 		stderr: stderr || undefined,
 		resultError: acc.resultError,
 		sawTerminalEvent,
+		hostReportedSuccess: sawTerminalEvent && acc.rawStatus === undefined,
 	};
 }
 function throwOpenaiRunError(error: unknown, acc: OpenaiTraceAccumulator, bin: string): never {
@@ -525,16 +541,13 @@ function throwOpenaiRunError(error: unknown, acc: OpenaiTraceAccumulator, bin: s
 		error.trace = error.trace ?? partial;
 		throw error;
 	}
-	if (error && typeof error === "object" && "code" in error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") {
-			throw new AgentInfrastructureError(
-				`OpenAI Codex binary not found (${bin}). Install the Codex CLI or set CODEX_BIN.`,
-				"binary_missing",
-			);
-		}
+	if ((error as NodeJS.ErrnoException | null | undefined)?.code === "ENOENT") {
+		throw new AgentInfrastructureError(
+			`OpenAI Codex binary not found (${bin}). Install the Codex CLI or set CODEX_BIN.`,
+			"binary_missing",
+		);
 	}
-	throw error;
+	throw hostProcessFailure(error, "OpenAI Codex");
 }
 async function executeOpenaiRun(
 	options: OpenaiRunOptions,
@@ -554,7 +567,7 @@ async function executeOpenaiRun(
 		env.USERPROFILE = runHome.home;
 		env.CODEX_HOME = runHome.codexHome;
 	}
-	const child = spawn(bin, args, {
+	const child = spawnHostProcess("OpenAI Codex", [bin, args], {
 		cwd: options.cwd,
 		env,
 		stdio: ["ignore", "pipe", "pipe"],
@@ -619,7 +632,7 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 	const authMode = resolveOpenaiAuthMode(undefined, options.apiKey, options.authMode);
 	const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.CODEX_API_KEY;
 	if (authMode === "api-key" && !apiKey?.trim()) {
-		throw new Error(OPENAI_MISSING_KEY_MESSAGE);
+		throw new AgentInfrastructureError(OPENAI_MISSING_KEY_MESSAGE, "auth");
 	}
 	const bin = await resolveOpenaiBin(options.bin);
 	const deadline = { timedOut: false };
@@ -642,8 +655,9 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 	try {
 		return await runOpenaiWithDeadline(runOptions, { bin, args, authMode, deadline, runHome });
 	} finally {
-		await runHome?.cleanup();
-		await schemaFile?.cleanup();
+		// A cleanup failure must not replace the run's result; the next run sweeps the home.
+		await runHome?.cleanup().catch(() => undefined);
+		await schemaFile?.cleanup().catch(() => undefined);
 	}
 }
 /** Read by the Codex CLI itself, so the agent's denial of the temp folder does not apply. */

@@ -10,13 +10,18 @@ import {
 import {
 	type ExecutionDetail,
 	executionHistoryRoot,
-	listExecutionHistory,
 	readExecutionDetail,
-	recoverExecutionHistory,
 } from "../sdk/execution-store.js";
 import type { ViewerBootstrap } from "./bootstrap.js";
 import { renderViewerPage } from "./page.js";
 import { parseViewerClientMessage, VIEWER_PROTOCOL_VERSION } from "./protocol.js";
+import { attachmentHeaders, requestRefusal, socketRefusal } from "./request-policy.js";
+import {
+	readableSummary,
+	readTestClaims,
+	readViewerHistory,
+	type ViewerSummary,
+} from "./stored-execution.js";
 import { viewerCss } from "./styles.js";
 import type { TestCatalog } from "./test-catalog.js";
 
@@ -57,6 +62,7 @@ class ViewerServer {
 	private pollingExecutions = false;
 	private polledRunningExecutions = new Set<string>();
 	private readonly executionRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly testClaims = new Map<string, Record<string, string>>();
 	private catalogRefresh: ReturnType<typeof setTimeout> | undefined;
 	private historyWatcher: FSWatcher | undefined;
 	private closed = false;
@@ -66,7 +72,7 @@ class ViewerServer {
 		this.testCatalog = options.testCatalog;
 		this.server = createServer((request, response) => {
 			this.bumpIdle();
-			void this.handleRequest(request, response);
+			void this.answer(request, response);
 		});
 		this.server.on("upgrade", (request, socket, head) => this.handleUpgrade(request, socket, head));
 		if (options.watchWorkspace !== false) this.watchWorkspace();
@@ -94,14 +100,14 @@ class ViewerServer {
 		if (this.historyRefresh) clearTimeout(this.historyRefresh);
 		this.historyRefresh = setTimeout(() => {
 			this.historyRefresh = undefined;
-			void this.broadcastHistory();
+			this.inBackground(this.broadcastHistory());
 		}, 100);
 	}
 	private scheduleCatalogRefresh(): void {
 		if (!this.options.refreshTestCatalog || this.catalogRefresh) return;
 		this.catalogRefresh = setTimeout(() => {
 			this.catalogRefresh = undefined;
-			void this.refreshCatalog();
+			this.inBackground(this.refreshCatalog());
 		}, 100);
 	}
 	private async refreshCatalog(): Promise<void> {
@@ -112,13 +118,28 @@ class ViewerServer {
 		this.broadcast({ type: "catalog.snapshot", catalog: next });
 	}
 	private async broadcastHistory(): Promise<void> {
+		this.broadcast({ type: "executions.snapshot", executions: await this.readHistory() });
+	}
+	/** Work no request is waiting on. A bad file must never take the server down with it. */
+	private inBackground(work: Promise<void>): void {
+		work.catch(() => undefined);
+	}
+	private async readHistory(): Promise<ViewerSummary[]> {
 		const root = executionHistoryRoot(this.options.suitesDir);
-		await recoverExecutionHistory(root);
-		this.broadcast({ type: "executions.snapshot", executions: await listExecutionHistory(root) });
+		const summaries = await readViewerHistory(root);
+		return Promise.all(summaries.map((summary) => this.withTestClaims(summary)));
+	}
+	/** A stored verdict never changes, so one read of the journal holds for this run. */
+	private async withTestClaims<T extends ViewerSummary>(summary: T): Promise<T> {
+		if (!summary.verdict?.claims.length) return summary;
+		const root = join(executionHistoryRoot(this.options.suitesDir), summary.id);
+		const testClaims = this.testClaims.get(summary.id) ?? (await readTestClaims(root));
+		this.testClaims.set(summary.id, testClaims);
+		return { ...summary, testClaims };
 	}
 	private startExecutionPolling(): void {
 		if (this.executionPoll) return;
-		const poll = () => void this.pollExecutionHistory();
+		const poll = () => this.inBackground(this.pollExecutionHistory());
 		this.executionPoll = setInterval(poll, this.options.executionPollMs ?? 250);
 		poll();
 	}
@@ -132,9 +153,7 @@ class ViewerServer {
 		if (this.pollingExecutions || this.closed) return;
 		this.pollingExecutions = true;
 		try {
-			const root = executionHistoryRoot(this.options.suitesDir);
-			await recoverExecutionHistory(root);
-			const executions = await listExecutionHistory(root);
+			const executions = await this.readHistory();
 			this.broadcast({ type: "executions.snapshot", executions });
 			const running = new Set(
 				executions.filter((execution) => execution.status === "running").map(({ id }) => id),
@@ -153,7 +172,7 @@ class ViewerServer {
 			executionId,
 			setTimeout(() => {
 				this.executionRefreshes.delete(executionId);
-				void this.broadcastExecution(executionId);
+				this.inBackground(this.broadcastExecution(executionId));
 			}, 50),
 		);
 	}
@@ -163,12 +182,14 @@ class ViewerServer {
 	}
 	private async viewerExecution(id: string) {
 		const execution = await this.executionDetail(id);
-		return execution
-			? { ...withAttachmentUrls(execution), cancellable: this.executions.has(id) }
-			: undefined;
+		if (!execution) return undefined;
+		const summary = readableSummary(withAttachmentUrls(execution), id);
+		return { ...(await this.withTestClaims(summary)), cancellable: this.executions.has(id) };
 	}
-	private executionDetail(id: string) {
-		return readExecutionDetail(join(executionHistoryRoot(this.options.suitesDir), id));
+	/** A journal the store cannot fold is a run nobody can read, not a failed request. */
+	private async executionDetail(id: string): Promise<ExecutionDetail | undefined> {
+		const root = join(executionHistoryRoot(this.options.suitesDir), id);
+		return readExecutionDetail(root).catch(() => undefined);
 	}
 	private broadcast(message: object): void {
 		const data = JSON.stringify(message);
@@ -181,7 +202,11 @@ class ViewerServer {
 		head: Buffer,
 	): void {
 		const url = new URL(request.url ?? "/", "http://127.0.0.1");
-		if (url.pathname !== "/api/live" || url.searchParams.get("token") !== this.socketToken) {
+		if (
+			socketRefusal(request.headers, this.boundPort()) ||
+			url.pathname !== "/api/live" ||
+			url.searchParams.get("token") !== this.socketToken
+		) {
 			socket.destroy();
 			return;
 		}
@@ -216,7 +241,7 @@ class ViewerServer {
 			client.send(JSON.stringify({ type: "ready", protocol: VIEWER_PROTOCOL_VERSION }));
 			if (hello.subscriptions.includes("catalog"))
 				this.broadcast({ type: "catalog.snapshot", catalog: this.testCatalog });
-			if (hello.subscriptions.includes("executions")) void this.broadcastHistory();
+			if (hello.subscriptions.includes("executions")) this.inBackground(this.broadcastHistory());
 		} catch {
 			client.send(
 				JSON.stringify({ type: "error", code: "invalid_message", message: "Invalid handshake" }),
@@ -224,31 +249,45 @@ class ViewerServer {
 			client.close(1008);
 		}
 	}
+	/** Every route answers here, so a failure reaches the browser instead of ending the process. */
+	private async answer(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		try {
+			await this.handleRequest(request, response);
+		} catch {
+			if (response.headersSent) response.destroy();
+			else writeJson(response, 500, { error: "The viewer could not answer this request" });
+		}
+	}
+	private boundPort(): number {
+		const address = this.server.address();
+		return address && typeof address !== "string" ? address.port : 0;
+	}
 	private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+		const refusal = requestRefusal(request, this.boundPort());
+		if (refusal) {
+			writeJson(response, refusal.status, { error: refusal.error });
+			return;
+		}
 		const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-		if (request.method === "GET" && this.handleGet(path, response)) return;
+		if (request.method === "GET" && (await this.handleGet(path, response))) return;
 		if (request.method === "POST" && (await this.handlePost(path, request, response))) return;
 		response.writeHead(404);
 		response.end();
 	}
-	private handleGet(path: string, response: ServerResponse): boolean {
+	private async handleGet(path: string, response: ServerResponse): Promise<boolean> {
 		if (path === "/" || path === "/index.html" || VIEWER_ROUTE.test(path))
 			return this.render(response);
 		if (path === "/api/test-catalog") return writeJson(response, 200, this.testCatalog);
-		if (path === "/api/executions") {
-			void this.writeHistory(response);
-			return true;
-		}
+		if (path === "/api/executions") return this.writeHistory(response);
 		const attachment = path.match(ATTACHMENT_ROUTE);
 		if (attachment) {
 			const [, id = "", attemptIndex = "", attachmentIndex = ""] = attachment;
-			void this.writeAttachment(response, id, [Number(attemptIndex), Number(attachmentIndex)]);
+			await this.writeAttachment(response, id, [Number(attemptIndex), Number(attachmentIndex)]);
 			return true;
 		}
 		const executionId = path.match(EXECUTION_ROUTE)?.[1];
 		if (!executionId) return false;
-		void this.writeExecution(response, executionId);
-		return true;
+		return this.writeExecution(response, executionId);
 	}
 	/** Serves only a path the execution journal recorded, never one from the request. */
 	private async writeAttachment(
@@ -268,10 +307,7 @@ class ViewerServer {
 			else response.destroy();
 		});
 		file.once("open", () => {
-			response.writeHead(200, {
-				"content-type": attachment.contentType,
-				"cache-control": "no-store",
-			});
+			response.writeHead(200, attachmentHeaders(attachment));
 			file.pipe(response);
 		});
 	}
@@ -302,18 +338,13 @@ class ViewerServer {
 		});
 		return true;
 	}
-	private async writeHistory(response: ServerResponse): Promise<void> {
-		const root = executionHistoryRoot(this.options.suitesDir);
-		await recoverExecutionHistory(root);
-		writeJson(response, 200, { executions: await listExecutionHistory(root) });
+	private async writeHistory(response: ServerResponse): Promise<true> {
+		return writeJson(response, 200, { executions: await this.readHistory() });
 	}
-	private async writeExecution(response: ServerResponse, id: string): Promise<void> {
+	private async writeExecution(response: ServerResponse, id: string): Promise<true> {
 		const execution = await this.viewerExecution(id);
-		if (!execution) {
-			writeJson(response, 404, { error: "Execution not found" });
-			return;
-		}
-		writeJson(response, 200, { execution });
+		if (!execution) return writeJson(response, 404, { error: "Execution not found" });
+		return writeJson(response, 200, { execution });
 	}
 	private async startExecution(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		try {

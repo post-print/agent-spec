@@ -2,6 +2,8 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { AgentInfrastructureError } from "./agent-error.js";
+
 /** Default SDK login store. The Cursor app login does not write this file. */
 const INVALID_USER_KEY = /invalid user api key/i;
 const INVALID_KEY_CODE = /invalid.?user.?api.?key/i;
@@ -72,10 +74,10 @@ export function wrapCursorSdkAuthError(error: unknown): unknown {
 		return error;
 	}
 	const message = error instanceof Error ? error.message : String(error);
-	if (message.includes("agent-test login")) {
+	if (error instanceof AgentInfrastructureError) {
 		return error;
 	}
-	const wrapped = new Error(`${message}. ${CURSOR_SDK_LOGIN_HINT}`);
+	const wrapped = new AgentInfrastructureError(`${message}. ${CURSOR_SDK_LOGIN_HINT}`, "auth");
 	if (error instanceof Error) {
 		wrapped.cause = error;
 	}

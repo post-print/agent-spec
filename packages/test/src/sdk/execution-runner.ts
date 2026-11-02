@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBaselines } from "./baselines.js";
+import { claimKey } from "./claims.js";
 import {
 	ExecutionStore,
 	executionHistoryRoot,
@@ -80,12 +81,6 @@ export async function startRecordedExecution(
 	};
 }
 
-/** One test's identity across samples and repeats: its project and titles, without the file line. */
-function claimKey(attempt: { project?: string; title: string[]; sample?: { title: string } }) {
-	const titles = attempt.title.filter(Boolean);
-	const path = attempt.sample ? [...titles.slice(0, -1), attempt.sample.title] : titles;
-	return path.join(" › ");
-}
 async function concludeExecution(input: {
 	config: string;
 	root: string;
@@ -99,11 +94,17 @@ async function concludeExecution(input: {
 	const detail = await readExecutionDetail(root);
 	const attempts: VerdictAttempt[] = (detail?.attempts ?? []).map((attempt) => ({
 		...attempt,
+		// An attempt the runner never finished says nothing, whatever status the run left on it.
+		status: attempt.completedAt ? attempt.status : "interrupted",
 		claim: claimKey(attempt),
 	}));
+	const { records: baselines, unreadable: unreadableBaselines } = await readBaselines(config);
 	const verdict = reduceVerdict({
 		attempts,
-		baselines: await readBaselines(config),
+		baselines,
+		unreadableBaselines,
+		plannedTests: detail?.testIds,
+		runnerReportedError: Boolean(detail?.runErrors.length),
 		measureRepeats: input.measureRepeats,
 		interrupted: cancelled || detail?.status === "interrupted",
 		listOnly,

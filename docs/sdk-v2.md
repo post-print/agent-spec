@@ -108,7 +108,7 @@ const test = describe("seeded tasks", ({ agent }) => ({
 
 Here, `writeFile` comes from `node:fs/promises` and `join` from `node:path`. Inside a test, `coder.setup(fn).run({ prompt })` adds preparation for that derived handle. Setup callbacks receive the task workspace, not the source directory; failed preparation fails the run and test teardown removes its workspace.
 
-Set `observeEnvironment: { paths: ["node_modules"] }` on an agent or run to answer cold-start and teardown questions. `run.environment` then lists processes the run left alive in its workspace, the ports they listen on, and a file count and size for each named path, including paths snapshots exclude. `processesKnown` is false when `ps` could not run, so an empty list proves nothing. The runtime stops observed survivors at teardown. `run.record` and `run.exposure` state the conditions of every run; see [what a run records](hosts.md#what-a-run-records).
+Set `observeEnvironment: { paths: ["node_modules"] }` on an agent or run to answer cold-start and teardown questions. `run.environment` then lists processes the run left alive in its workspace, the ports they listen on, and a file count and size for each named path, including paths snapshots exclude. `processesKnown` is false when `ps` or `lsof` could not run; reading `processes` or `listeningPorts` then throws `ConditionsUnknownError`, so the test has no verdict. A path that could not be inspected behaves the same way. On a continuation the lists cover everything started since the task began. The runtime stops observed survivors at teardown. `run.record` and `run.exposure` state the conditions of every run; see [what a run records](hosts.md#what-a-run-records).
 
 ## Explicit judge inputs
 
@@ -176,7 +176,7 @@ import { samplingPlan } from "@post-print/agent-test";
 test("finds the tool", { description: "...", samples: samplingPlan({ target: 0.95, detect: 0.8 }) }, body);
 ```
 
-`variants` runs the same task for each named arm in a shuffled order, and the body receives the arm's name. The result gives both rates and their difference with an interval. `subject` declares what differs on purpose: `prompt`, `skills`, `workspace`, `tools`, or `model`. If the recorded conditions differ in anything else, the comparison is refused and the run has no verdict.
+`variants` runs the same task for each of two named arms, in an order shuffled per execution, and the body receives the arm's name. A third arm is an error when the suite loads. The result gives both rates and their difference with an interval. `subject` declares what differs on purpose: `prompt`, `skills`, `workspace`, `tools`, or `model`. If the recorded conditions differ in anything else, including auth mode, setting sources, overriding environment, tools or other definition settings, or an arm has no verdict or was filtered out, the comparison is refused and the run has no verdict.
 
 ```ts
 test("the wording matters", {
@@ -189,9 +189,9 @@ test("the wording matters", {
 });
 ```
 
-Failures from the host or runner count as no verdict and stay out of the rate. They do not bring a plan's stop closer, and a plan clears only on enough passes: one left short of them has no verdict and exits 2, unless it regressed from its baseline. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run and a repeat with no verdict exits 2, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
+A retried sample counts once, at its first verdict. Failures from the host or runner count as no verdict and stay out of the rate. They do not bring a plan's stop closer, and a plan clears only on enough passes: one left short of them has no verdict and exits 2, unless it regressed from its baseline. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run and a repeat with no verdict exits 2, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
 
-`agent-test baseline` saves the newest run's single-arm claims to `agent-test-baselines/`; commit them. A later run under the same conditions is compared against the baseline and fails if it regressed. A changed host, model, suite, prompt, skill, or workspace starts over rather than reading as a regression.
+`agent-test baseline` saves the newest run's single-arm claims to `agent-test-baselines/`; commit them. It leaves out, and names, a claim with runs that have no verdict, a surviving control, or a model nothing names, because a later run could not be matched to it. It saves nothing from a stopped run. A later run under the same conditions is compared against the baseline and fails if it regressed. A changed host, model, auth mode, setting, tool, suite, prompt, skill, or workspace starts over rather than reading as a regression, and so does a model that neither the definition nor the host names. A baseline file that cannot be read gives a sampled run no verdict, so a regression cannot go unseen.
 
 ## Verify results in the test
 
@@ -200,7 +200,8 @@ Assert outcomes with checks the test runs itself. The agent's own commands are w
 - `runCommand(directory, argv, { timeoutMs })` runs one program with an argument list (no shell) and resolves `{ exitCode, stdout, stderr }`. A nonzero exit resolves; a timeout, abort, or missing program rejects. Run it on `run.workspace.final.path`, a disposable copy, to rerun tests after the agent finishes. Copy held-out checks into that copy first when the visible tests could be satisfied by special-casing them. The copy excludes `node_modules`, `.git`, and `.venv`; a suite that needs dependencies installs them in setup.
 - `toHaveExecutedCommand({ command, exitCode })` matches unwrapped shell commands. With `exitCode`, a command counts only when it runs last, after `cd`, `&&`, or `;`. A command in a pipeline or before `||` does not own the recorded exit code: `bun test | tail` with failing tests no longer passes as exit 0.
 - `toHaveReadPath` needs a successful read through a read tool or a content-printing command (`cat`, `head`, `tail`, `sed`, `awk`, `nl`, `grep`, `rg`, and similar).
-- `toHaveAccessedPath` over-reports, for negative use. The exact path, an enclosing directory, a matching glob, and Grep or Glob without a `path` all count as possible access.
+- `toHaveModifiedPath` accepts a folder, and gives no verdict for paths snapshots leave out.
+- `toHaveAccessedPath` over-reports, for negative use. The exact path, an enclosing directory, a matching glob, and Grep or Glob without a `path` all count as possible access. Recursive shell searches (`grep -r`, `rg`) with no path count too.
 - Use a judge only for questions code cannot decide, such as whether an explanation is correct. Compare strings, file lists, and dates with assertions.
 
 ## Durable progress for long tests
@@ -228,13 +229,13 @@ For a future Skeleton qualification run, replace each per-pair attachment with a
 
 ## Custom agents
 
-Use `defineAgent` and `customAgent` from agent-harness. The adapter supplies capabilities and creates a session with `run(prompt)` and `close()`. It emits text, tool, usage, or normalized trace events. Adapter code runs in an isolated Node worker. Supply compiled JavaScript modules; configuration sent to workers must be serializable. Test-layer setup callbacks and judge schemas remain in the test process.
+Use `defineAgent` and `customAgent` from agent-harness. The adapter supplies capabilities and creates a session with `run(prompt)` and `close()`. It emits text, tool, usage, or normalized trace events. Adapter code runs in an isolated Node worker. Supply compiled JavaScript modules; configuration sent to workers must be serializable. Test-layer setup callbacks and judge schemas remain in the test process. An adapter whose host failed must throw `AgentInfrastructureError` with a code: a plain error is read as the run failing, whatever its message says.
 
 ## Migration
 
 Replace `test.use` with direct config defaults and factory resources returned from `describe`. Replace string run arguments with `{ prompt }`. Successive independent runs no longer share a workspace: use `run.continue` explicitly. Replace `compare` with JavaScript and assertions. Replace `defineJudge`/`run.judge` with a named `judge({ prompt, schema })` resource and selected `input`.
 
-Behavior changes in this release, all on by default: runs and judges that name paths outside their workspace fail with `WorkspaceEscapeError`; Codex runs use a permission profile instead of `--sandbox`; Claude runs pass sandbox and permission `--settings`; judges no longer work inside the test output folder; `toHaveExecutedCommand` with `exitCode` ignores commands whose exit code belongs to a pipeline or `||` chain; `toHaveAccessedPath` counts enclosing directories, globs, and unscoped searches.
+Behavior changes in this release, all on by default: runs and judges that name paths outside their workspace fail with `WorkspaceEscapeError`; Codex runs use a permission profile instead of `--sandbox`; Claude runs pass sandbox and permission `--settings`; judges no longer work inside the test output folder; `toHaveExecutedCommand` with `exitCode` gives no verdict when the only matching commands ran in a pipeline or `||` chain; `toHaveAccessedPath` counts enclosing directories, globs, and unscoped searches.
 
 JSON suites and their separate runtime remain removed. Playwright HTML reporting is available through `agent-test test --reporter=html`. No compatibility execution path is retained for the earlier SDK shape.
 

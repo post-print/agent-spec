@@ -10,14 +10,17 @@ import type { AgentDefinition } from "@post-print/agent-harness";
 import type { z } from "zod";
 import { derivedExpectCriteria } from "./criteria.js";
 import { type AgentResource, factories, type JudgeResource, type Resource } from "./definitions.js";
+import { UnearnedResultError } from "./operation-ledger.js";
 import { TestRuntime } from "./runtime.js";
 import {
+	NO_AGENT_ANNOTATION,
 	plannedSamples,
 	runRecordingSample,
 	SAMPLE_ANNOTATION,
 	type SamplingDetails,
 	sampleIsUnneeded,
 } from "./sampling.js";
+import { withoutSecrets } from "./stored-value.js";
 import type { AgentFixture, JudgeFixture } from "./types.js";
 
 interface Defaults {
@@ -55,9 +58,9 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		testFile: info.file,
 		remainingTestMs: () => (info.timeout === 0 ? undefined : startedAt + info.timeout - Date.now()),
 		onEvent: (event) => {
-			writes = writes.then(() => appendFile(path, `${JSON.stringify(event)}\n`));
+			writes = writes.then(() => appendFile(path, `${JSON.stringify(withoutSecrets(event))}\n`));
 			if (process.env.AGENT_TEST_VIEWER_EVENTS === "1" || process.env.AGENT_TEST_RECORDER === "1")
-				process.stdout.write(`@@agent-test:${JSON.stringify(event)}\n`);
+				process.stdout.write(`@@agent-test:${JSON.stringify({ ...event, at: Date.now() })}\n`);
 		},
 	});
 	return {
@@ -71,6 +74,22 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 			}
 		},
 	};
+}
+/** Runs a test body and holds it to earning its result, however it ends. */
+async function runEarnedBody(
+	{ runtime, info, noAgent }: { runtime: TestRuntime; info: TestInfo; noAgent: boolean },
+	body: () => Promise<void> | void,
+) {
+	try {
+		await body();
+	} catch (error) {
+		const skipping = info.expectedStatus === "skipped";
+		if (noAgent || skipping || !runtime.failedBeforeAnyHostStarted()) throw error;
+		throw new UnearnedResultError(
+			`The test failed before any agent started: ${(error as Error).message}`,
+		);
+	}
+	runtime.assertResultEarned({ noAgent });
 }
 export type Resources = Record<string, Resource>;
 export type Fixtures<R extends Resources> = {
@@ -148,8 +167,9 @@ export function describe<R extends Resources>(
 		runner.describe(name, () => {
 			if (!sampled) {
 				runner(title, { annotation }, async ({ runtime }, info) => {
-					await callback(bind(resources, runtime), info, "");
-					runtime.assertResultEarned({ noAgent });
+					await runEarnedBody({ runtime, info, noAgent }, () =>
+						callback(bind(resources, runtime), info, ""),
+					);
 				});
 				return;
 			}
@@ -161,10 +181,11 @@ export function describe<R extends Resources>(
 				runner(planned.title, { annotation: annotations }, async ({ runtime }, info) => {
 					const unneeded = await sampleIsUnneeded(info, planned.annotation);
 					info.skip(unneeded, "The sampling plan's decision is already fixed.");
-					await runRecordingSample({ info, annotation: planned.annotation, runtime }, async () => {
-						await callback(bind(resources, runtime), info, planned.annotation.variant ?? "");
-						runtime.assertResultEarned({ noAgent });
-					});
+					const body = () =>
+						callback(bind(resources, runtime), info, planned.annotation.variant ?? "");
+					await runRecordingSample({ info, annotation: planned.annotation, runtime }, () =>
+						runEarnedBody({ runtime, info, noAgent }, body),
+					);
 				});
 			}
 		});
@@ -191,6 +212,7 @@ function testAnnotations<R extends Resources>(
 			description: JSON.stringify(resourceMetadata(resources, details?.resources)),
 		},
 		...(details?.description ? [{ type: "description", description: details.description }] : []),
+		...(details?.noAgent ? [{ type: NO_AGENT_ANNOTATION, description: "" }] : []),
 		...(criteria.length
 			? [{ type: "agent-test.criteria", description: JSON.stringify(criteria) }]
 			: []),

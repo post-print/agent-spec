@@ -7,6 +7,7 @@ import { planIsDecided } from "./pass-rate.js";
 import { sampleOutcome } from "./verdict.js";
 
 export const SAMPLE_ANNOTATION = "agent-test.sample";
+export const NO_AGENT_ANNOTATION = "agent-test.no-agent";
 
 export interface SamplingDetails {
 	/** Run this test n times and report a rate. Pass a plan from `samplingPlan` to decide on it. */
@@ -33,18 +34,24 @@ function shuffled<T>(items: T[], seed: string): T[] {
 	}));
 	return keyed.sort((a, b) => a.key.localeCompare(b.key)).map(({ item }) => item);
 }
+/** Differs per execution, so arms are not always run in one order. Workers inherit the same id. */
+function shuffleSeed(title: string): string {
+	return `${title}:${process.env.AGENT_TEST_EXECUTION_ID ?? ""}`;
+}
 export function plannedSamples(title: string, details: SamplingDetails): PlannedSample[] {
 	const { samples = 1, variants, subject } = details;
 	const { n, flagAt } = typeof samples === "number" ? { n: samples, flagAt: undefined } : samples;
 	if (!Number.isInteger(n) || n < 1) throw new Error("samples must be a positive whole number");
+	if (variants && variants.length > 2)
+		throw new Error(`variants compares two arms at a time; "${title}" names ${variants.length}`);
 	const arms = variants?.length ? [...variants] : [undefined];
 	const planned = arms.flatMap((variant) =>
 		Array.from({ length: n }, (_, index) => ({
 			title: `${title} [${variant ? `${variant} ` : ""}${index + 1}/${n}]`,
-			annotation: { title, variant, flagAt, n, subject },
+			annotation: { title, variant, arms: variants, flagAt, n, subject },
 		})),
 	);
-	return shuffled(planned, title);
+	return shuffled(planned, shuffleSeed(title));
 }
 function ledgerPath(info: TestInfo, annotation: SampleAnnotation): string {
 	const key = createHash("sha256")
@@ -52,11 +59,16 @@ function ledgerPath(info: TestInfo, annotation: SampleAnnotation): string {
 		.digest("hex");
 	return join(info.project.outputDir, ".sample-ledger", `${key}.ndjson`);
 }
+/** Whether each sample failed, by its first verdict, however many times it was retried. */
 async function ledgerEntries(path: string): Promise<boolean[]> {
 	const content = await readFile(path, "utf8").catch(() => "");
-	return content
-		.split("\n")
-		.flatMap((line) => (line === "failed" || line === "passed" ? [line === "failed"] : []));
+	const firstVerdicts = new Map<string, string>();
+	for (const line of content.split("\n")) {
+		const [outcome = "", testId = ""] = line.split(" ");
+		if ((outcome === "failed" || outcome === "passed") && !firstVerdicts.has(testId))
+			firstVerdicts.set(testId, outcome);
+	}
+	return [...firstVerdicts.values()].map((outcome) => outcome === "failed");
 }
 /** True when the plan's decision is already fixed, so this sample would only spend tokens. */
 export async function sampleIsUnneeded(info: TestInfo, annotation: SampleAnnotation) {
@@ -74,19 +86,35 @@ async function recordSample({ info, annotation }: SampleRun, outcome: SampleOutc
 	if (annotation.flagAt === undefined) return;
 	const path = ledgerPath(info, annotation);
 	await mkdir(join(path, ".."), { recursive: true });
-	await appendFile(path, `${outcome}\n`);
+	await appendFile(path, `${outcome} ${info.testId}\n`);
 }
 function attemptStatus(info: TestInfo, errors: unknown[]) {
 	if (info.expectedStatus === "skipped") return "skipped";
 	return errors.length > 0 ? "failed" : "passed";
 }
-/** Asks the verdict how it will read this attempt, so the plan's stop and decision cannot disagree. */
+/** Thrown errors reach the verdict named as the runner names them once it records the attempt. */
+function asRecordedError(error: unknown): { message: string } {
+	const { name, message } = error as Error;
+	return { message: `${name}: ${message}` };
+}
+/** A failed `expect` carries its matcher's result; any other thrown error does not. */
+function isFailedCheck(error: unknown): boolean {
+	return (error as { matcherResult?: unknown } | null)?.matcherResult !== undefined;
+}
+/**
+ * Asks the verdict how it will read this attempt, so the plan's stop follows its decision. A control
+ * whose only failure was soft reads as no verdict here, which runs a sample more and never clears.
+ */
 function outcomeOf({ info, runtime }: SampleRun, thrown: unknown[]): SampleOutcome {
-	const errors = [...info.errors, ...thrown];
+	const errors = [...info.errors, ...thrown.map(asRecordedError)];
+	const expectedFailure = info.expectedStatus === "failed";
 	return sampleOutcome({
 		retry: info.retry,
 		status: attemptStatus(info, errors),
-		expectedFailure: info.expectedStatus === "failed",
+		expectedFailure,
+		survivedControl: expectedFailure && errors.length === 0,
+		checkFailed: thrown.some(isFailedCheck),
+		timedOut: info.status === "timedOut",
 		errors,
 		operations: runtime.reportedInfrastructureFailure()
 			? [{ data: [{ kind: "infrastructure" }] }]

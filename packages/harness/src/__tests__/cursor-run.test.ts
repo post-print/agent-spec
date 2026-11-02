@@ -383,3 +383,97 @@ it("runCursorAgent keeps its SDK agent alive until the run settles", async () =>
 		jest.clearAllMocks();
 	}
 });
+
+function cursorRun(wait: () => Promise<unknown>, events: unknown[] = []) {
+	agentCreate.mockResolvedValue({ send: agentSend, [Symbol.asyncDispose]: async () => {} });
+	agentSend.mockImplementation(async () => ({
+		stream: async function* () {
+			yield* events;
+		},
+		wait,
+	}));
+}
+const ASSISTANT_EVENT = {
+	type: "assistant",
+	message: { role: "assistant", content: [{ type: "text", text: "Hi" }] },
+};
+async function cursorFailure(): Promise<unknown> {
+	const { runCursorAgent, formatCursorRunFailure } = await import("../cursor-run.js");
+	const { hostRunError } = await import("../host-failure.js");
+	try {
+		const result = await runCursorAgent({ cwd: process.cwd(), prompt: "p", apiKey: "test-key" });
+		return result.status === "completed"
+			? undefined
+			: hostRunError(formatCursorRunFailure(result), result);
+	} catch (error) {
+		return error;
+	} finally {
+		jest.clearAllMocks();
+	}
+}
+
+it("cursor host failures › thrown SDK errors are typed by the SDK's error class", async () => {
+	const cases: Array<[Error, string]> = [
+		[Object.assign(new Error("nope"), { name: "AuthenticationError" }), "auth"],
+		[Object.assign(new Error("slow down"), { name: "RateLimitError" }), "provider_unavailable"],
+		[Object.assign(new Error("reset"), { name: "NetworkError" }), "provider_unavailable"],
+		[Object.assign(new Error("busy"), { status: 529 }), "provider_unavailable"],
+		[new Error("connect ECONNREFUSED"), "host_exit"],
+		[new Error("Invalid User API Key"), "auth"],
+	];
+	for (const [thrown, code] of cases) {
+		agentCreate.mockResolvedValue({ send: agentSend, [Symbol.asyncDispose]: async () => {} });
+		agentSend.mockImplementation(async () => {
+			throw thrown;
+		});
+		expect(await cursorFailure()).toMatchObject({ kind: "infrastructure", code });
+	}
+});
+
+it("cursor host failures › a broken stream keeps its partial trace and redacts the message", async () => {
+	const secret = ["hunter", "2secret"].join("");
+	agentCreate.mockResolvedValue({ send: agentSend, [Symbol.asyncDispose]: async () => {} });
+	agentSend.mockImplementation(async () => ({
+		stream: async function* () {
+			yield ASSISTANT_EVENT;
+			throw new Error(`stream reset token=${secret}`);
+		},
+		wait: async () => ({ status: "finished" }),
+	}));
+	const failure = (await cursorFailure()) as Error & { trace?: { messages: unknown[] } };
+	expect(failure).toMatchObject({ kind: "infrastructure", code: "host_exit" });
+	expect(failure.message).not.toContain(secret);
+	expect(failure.trace?.messages.length).toBeGreaterThan(0);
+});
+
+it("cursor host failures › terminal statuses that name the host are typed", async () => {
+	const cases: Array<[object, string]> = [
+		[{ status: "cancelled" }, "host_exit"],
+		[{ status: "error", error: { message: "rate limit exceeded" } }, "provider_unavailable"],
+		[
+			{ status: "error", error: { message: "x", code: "resource_exhausted" } },
+			"provider_unavailable",
+		],
+		[{ status: "error", error: { message: "Invalid User API Key" } }, "auth"],
+		[{ status: "finished" }, "capture_incomplete"],
+	];
+	for (const [result, code] of cases) {
+		cursorRun(async () => result);
+		expect(await cursorFailure()).toMatchObject({ kind: "infrastructure", code });
+	}
+});
+
+it("cursor host failures › agent-quoting text and unknown errors stay ordinary run failures", async () => {
+	cursorRun(
+		async () => ({ status: "error", error: { message: "the tool said 401 unauthorized" } }),
+		[ASSISTANT_EVENT],
+	);
+	const failure = (await cursorFailure()) as Error & { kind?: string };
+	expect(failure).toBeInstanceOf(Error);
+	expect(failure.kind).toBeUndefined();
+});
+
+it("cursor host failures › a finished run with assistant output completes", async () => {
+	cursorRun(async () => ({ status: "finished" }), [ASSISTANT_EVENT]);
+	expect(await cursorFailure()).toBeUndefined();
+});

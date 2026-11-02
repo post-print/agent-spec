@@ -1,17 +1,21 @@
 import { relative, resolve } from "node:path";
-import { baselineDirectory, saveBaselines } from "./baselines.js";
+import { baselineDirectory, type SavedBaselines, saveBaselines } from "./baselines.js";
 import { claimLines } from "./claims.js";
 import { startRecordedExecution } from "./execution-runner.js";
 import { executionHistoryRoot, listExecutionHistory } from "./execution-store.js";
-import { verdictSentence } from "./verdict.js";
+import { verdictNotes, verdictSentence } from "./verdict.js";
 
 export { playwrightCli } from "./playwright-cli.js";
 
-async function saveLatestBaselines(config: string): Promise<string[]> {
+/** A run that was stopped or that the runner contradicts has no rates worth keeping. */
+const UNFIT_FOR_BASELINES = new Set(["interrupted", "instrument_error"]);
+async function saveLatestBaselines(config: string): Promise<SavedBaselines> {
 	const root = executionHistoryRoot(config);
 	const summaries = await listExecutionHistory(root);
-	const latest = summaries.find((summary) => summary.verdict?.claims.length);
-	return latest?.verdict ? saveBaselines(config, latest.verdict.claims) : [];
+	const latest = summaries.find((summary) => summary.verdict?.claims.length)?.verdict;
+	if (latest && UNFIT_FOR_BASELINES.has(latest.verdict))
+		return { saved: [], skipped: [{ claim: "the newest run", reason: latest.verdict }] };
+	return latest ? saveBaselines(config, latest.claims) : { saved: [], skipped: [] };
 }
 
 type RunnerArgument =
@@ -70,7 +74,7 @@ export async function runSdkCli(args: string[]): Promise<number> {
 		const result = await execution.verdict;
 		if (!passThrough.includes("--list"))
 			process.stdout.write(
-				`${[verdictSentence(result), ...result.claims.flatMap(claimLines)].join("\n")}\n`,
+				`${[verdictSentence(result), ...verdictNotes(result), ...result.claims.flatMap(claimLines)].join("\n")}\n`,
 			);
 		if (!passThrough.includes("--list"))
 			for (const line of viewerHint({
@@ -113,11 +117,13 @@ export function viewerHint(input: {
 /** Saves the newest run's sampled claims as the baselines later runs compare against. */
 export async function runBaselineCli(args: string[]): Promise<number> {
 	const { config } = runnerArguments(args);
-	const saved = await saveLatestBaselines(config);
+	const { saved, skipped } = await saveLatestBaselines(config);
+	const where = relative(process.cwd(), baselineDirectory(config));
 	process.stdout.write(
 		saved.length
-			? `Saved ${saved.length} baselines to ${relative(process.cwd(), baselineDirectory(config))}. Commit them.\n`
+			? `Saved ${saved.length} baselines to ${where}. Commit them.\n`
 			: "The newest run has no sampled claims to save.\n",
 	);
+	for (const { claim, reason } of skipped) process.stdout.write(`Not saved: ${claim}: ${reason}\n`);
 	return 0;
 }

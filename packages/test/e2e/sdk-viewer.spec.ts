@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1666,6 +1667,7 @@ function conditionsVerdict(): VerdictResult {
 		exitCode: 0,
 		tests: {},
 		counts: { passed: 0, total: 0 },
+		claimVerdicts: { "viewer › a sampled claim": "measured" },
 		claims: [
 			{
 				claim: "viewer › a sampled claim",
@@ -1685,3 +1687,321 @@ function conditionsVerdict(): VerdictResult {
 		],
 	};
 }
+
+const CONTROL = "control fails as it should";
+const FLAKY = "flaky passes on retry";
+const BROKEN = "real failure";
+const STORED_TESTS = [
+	{ id: "stored-control", title: CONTROL },
+	{ id: "stored-flaky", title: FLAKY },
+	{ id: "stored-broken", title: BROKEN },
+];
+
+/** One attempt per entry, journaled as the reporter writes them. */
+async function recordAttempts(
+	store: ExecutionStore,
+	attempts: { testId: string; title: string; retry: number; finished: Record<string, unknown> }[],
+) {
+	for (const { testId, title, retry, finished } of attempts) {
+		const attemptId = `${testId}-${retry}`;
+		await store.record({
+			type: "attempt.started",
+			level: "info",
+			attemptId,
+			data: { testId, title: [title], retry, project: "default" },
+		});
+		await store.record({ type: "attempt.finished", level: "info", attemptId, data: finished });
+	}
+}
+
+/** The CLI's verdict disagrees with the recorded statuses for both a good control and a flaky test. */
+async function storedVerdictFixture() {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-stored-verdict-"));
+	const config = join(directory, "agent-test.config.ts");
+	const executionId = "feed0000-0000-4000-8000-00000000000b";
+	const root = join(executionHistoryRoot(config), executionId);
+	const store = await ExecutionStore.create({ root, id: executionId, config });
+	await store.setTests(STORED_TESTS.map(({ id }) => id));
+	const failure = { status: "failed", errors: [{ message: "Error: the check failed" }] };
+	await recordAttempts(store, [
+		{
+			testId: "stored-control",
+			title: CONTROL,
+			retry: 0,
+			finished: { ...failure, expectedStatus: "failed" },
+		},
+		{ testId: "stored-flaky", title: FLAKY, retry: 0, finished: failure },
+		{ testId: "stored-flaky", title: FLAKY, retry: 1, finished: { status: "passed" } },
+		{ testId: "stored-broken", title: BROKEN, retry: 0, finished: failure },
+	]);
+	await store.finish("failed");
+	await saveExecutionVerdict(root, {
+		verdict: "agent_failed",
+		exitCode: 1,
+		tests: {
+			"stored-control": "passed",
+			"stored-flaky": "flaky",
+			"stored-broken": "agent_failed",
+		},
+		counts: { passed: 1, total: 3 },
+		claims: [],
+	});
+	const catalog = createTestCatalog(
+		config,
+		STORED_TESTS.map(({ id, title }) => ({
+			id,
+			file: join(directory, "stored.spec.ts"),
+			title: `stored › ${title}`,
+			project: "default",
+		})),
+	);
+	return { directory, config, catalog, executionId };
+}
+
+test("the viewer shows the stored verdict, as the CLI reports it", async ({ page }) => {
+	const fixture = await storedVerdictFixture();
+	const viewer = await listenViewer({ suitesDir: fixture.config, testCatalog: fixture.catalog });
+	try {
+		await page.goto(viewer.url);
+		const main = page.getByRole("main");
+		const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+		await expect(row(CONTROL)).toContainText("passed");
+		await expect(row(CONTROL)).not.toContainText("the check failed");
+		await expect(row(FLAKY)).toContainText("flaky");
+		await expect(row(BROKEN)).toContainText("failed");
+		await expect(main.getByRole("button", { name: "Failed" })).toContainText("1");
+		await page.screenshot({
+			path: test.info().outputPath("stored-verdict-inbox.png"),
+			fullPage: true,
+		});
+
+		await row(CONTROL).click();
+		const verdict = page.getByRole("region", { name: "Test verdict" });
+		await expect(verdict).toContainText("as this control requires");
+		await expect(verdict).toContainText("Passed");
+		await expect(page.getByRole("button", { name: "Copy failure" })).toHaveCount(0);
+		await page.screenshot({
+			path: test.info().outputPath("stored-verdict-control.png"),
+			fullPage: true,
+		});
+
+		await page.goto(
+			new URL(`/tests/stored-flaky?execution=${fixture.executionId}`, viewer.url).toString(),
+		);
+		const headlines = page.getByRole("region", { name: "Test verdict" });
+		await expect(headlines.first()).toContainText("Failed");
+		await expect(headlines.last()).toContainText("Flaky");
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});
+
+const VALID_RUN = {
+	version: 1,
+	config: "c",
+	startedAt: "2026-01-02T00:00:00.000Z",
+	finishedAt: "2026-01-02T00:00:01.000Z",
+	status: "passed",
+	testIds: ["stored-control"],
+	testStatuses: { "stored-control": "passed" },
+};
+
+test("corrupt stored runs render as unknown and leave the page working", async ({ page }) => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-corrupt-e2e-"));
+	const config = join(directory, "agent-test.config.ts");
+	const runs: Record<string, string> = {
+		"aaaa0000-0000-4000-8000-000000000001": JSON.stringify({
+			...VALID_RUN,
+			id: "aaaa0000-0000-4000-8000-000000000001",
+			verdict: { verdict: "passed" },
+		}),
+		"bbbb0000-0000-4000-8000-000000000002": "{ not json",
+		"cccc0000-0000-4000-8000-000000000003":
+			'{"id":"cccc0000-0000-4000-8000-000000000003","startedAt":7,"testIds":5,"status":"odd"}',
+	};
+	for (const [id, content] of Object.entries(runs)) {
+		const root = join(executionHistoryRoot(config), id);
+		await mkdir(root, { recursive: true });
+		await writeFile(join(root, "execution.json"), content);
+	}
+	const catalog = createTestCatalog(config, [
+		{
+			id: "stored-control",
+			file: join(directory, "s.spec.ts"),
+			title: "s › t",
+			project: "default",
+		},
+	]);
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	const viewer = await listenViewer({ suitesDir: config, testCatalog: catalog });
+	try {
+		await page.goto(viewer.url);
+		const main = page.getByRole("main");
+		await expect(main).toContainText("stored record could not be read");
+		await expect(main).toContainText("Earlier runs");
+		await expect(main.getByText("Unknown date").first()).toBeVisible();
+		await page.screenshot({ path: test.info().outputPath("corrupt-runs.png"), fullPage: true });
+		await page.goto(
+			new URL("/executions/bbbb0000-0000-4000-8000-000000000002", viewer.url).toString(),
+		);
+		await expect(main).toContainText("stored record could not be read");
+		expect(errors).toEqual([]);
+	} finally {
+		await viewer.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+/** A second site, for the requests a page a user happens to visit could send to the viewer. */
+function listenAttackerSite(html: string): Promise<{ url: string; close: () => void }> {
+	const server = createServer((_request, response) => {
+		response.writeHead(200, { "content-type": "text/html" });
+		response.end(html);
+	});
+	return new Promise((resolveSite) => {
+		server.listen(0, "127.0.0.1", () => {
+			const address = server.address();
+			const port = typeof address === "object" && address ? address.port : 0;
+			resolveSite({ url: `http://127.0.0.1:${port}/`, close: () => server.close() });
+		});
+	});
+}
+
+/** Every way a cross-site page can send a POST: the preflighted one must not even get through. */
+async function sendCrossSiteRequests(page: Page, target: string) {
+	const body = JSON.stringify({ all: true });
+	const outcome = await page.evaluate(
+		async ({ target, body }) => {
+			const send = (init: RequestInit) =>
+				fetch(target, { method: "POST", body, ...init }).then(
+					() => "sent",
+					() => "blocked",
+				);
+			await send({ mode: "no-cors", headers: { "content-type": "text/plain" } });
+			return send({ headers: { "content-type": "application/json" } });
+		},
+		{ target, body },
+	);
+	expect(outcome).toBe("blocked");
+	const formAnswer = page.waitForResponse(target);
+	await page.locator("#f").evaluate((form: HTMLFormElement) => form.submit());
+	expect((await formAnswer).status()).toBe(403);
+	await page.waitForURL(target);
+}
+
+test("a page on another site cannot start a run", async ({ page }) => {
+	let starts = 0;
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-csrf-"));
+	const config = join(directory, "agent-test.config.ts");
+	const viewer = await listenViewer({
+		suitesDir: config,
+		testCatalog: createTestCatalog(config, []),
+		startExecution: async () => {
+			starts++;
+			return { id: "feed-face", cancel: () => undefined, completed: Promise.resolve(0) };
+		},
+	});
+	const target = new URL("/api/executions", viewer.url).toString();
+	const site = await listenAttackerSite(
+		`<form id="f" method="post" enctype="text/plain" action="${target}"><input name='{"all":true,"x":"' value='"}'></form>`,
+	);
+	try {
+		await page.goto(site.url);
+		await sendCrossSiteRequests(page, target);
+		expect(starts).toBe(0);
+		await page.goto(viewer.url);
+		const answer = await page.evaluate(
+			async () =>
+				(
+					await fetch("/api/executions", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ all: true }),
+					})
+				).status,
+		);
+		expect(answer).toBe(202);
+		expect(starts).toBe(1);
+	} finally {
+		site.close();
+		await viewer.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+async function attachmentsFixture() {
+	const directory = await mkdtemp(join(tmpdir(), "agent-test-viewer-script-"));
+	const config = join(directory, "agent-test.config.ts");
+	const executionId = "feed0000-0000-4000-8000-00000000000c";
+	const script = "<script>document.cookie='ran=1';parent.ran=true;window.ran=true</script>";
+	const files = [
+		{ name: "page", contentType: "text/html", content: script },
+		{
+			name: "drawing",
+			contentType: "image/svg+xml",
+			content: `<svg xmlns="http://www.w3.org/2000/svg"><script>window.ran=true</script></svg>`,
+		},
+		{ name: "shot", contentType: "image/png", content: Buffer.from(ONE_PIXEL_PNG, "base64") },
+	];
+	const attachments = await Promise.all(
+		files.map(async ({ name, contentType, content }) => {
+			const path = join(directory, name);
+			await writeFile(path, content);
+			return { name, contentType, path };
+		}),
+	);
+	const store = await ExecutionStore.create({
+		root: join(executionHistoryRoot(config), executionId),
+		id: executionId,
+		config,
+	});
+	await recordAttempts(store, [
+		{
+			testId: "stored-control",
+			title: "attaches files",
+			retry: 0,
+			finished: { status: "passed", attachments },
+		},
+	]);
+	await store.finish("passed");
+	return { directory, config, executionId };
+}
+
+test("an agent-written attachment downloads instead of running, and images still show", async ({
+	page,
+}) => {
+	const fixture = await attachmentsFixture();
+	const viewer = await listenViewer({
+		suitesDir: fixture.config,
+		testCatalog: createTestCatalog(fixture.config, []),
+	});
+	const attachment = (index: number) =>
+		new URL(
+			`/api/executions/${fixture.executionId}/attempts/0/attachments/${index}`,
+			viewer.url,
+		).toString();
+	try {
+		await page.goto(viewer.url);
+		for (const index of [0, 1]) {
+			const download = page.waitForEvent("download");
+			await page.evaluate((href) => {
+				const link = document.createElement("a");
+				link.href = href;
+				document.body.append(link);
+				link.click();
+			}, attachment(index));
+			await download;
+			expect(await page.evaluate(() => "ran" in window)).toBe(false);
+			expect(await page.evaluate(() => document.cookie)).toBe("");
+		}
+		await page.goto(attachment(2));
+		const image = page.locator("img");
+		await expect(image).toBeVisible();
+		expect(await image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(1);
+	} finally {
+		await viewer.close();
+		await rm(fixture.directory, { recursive: true, force: true });
+	}
+});

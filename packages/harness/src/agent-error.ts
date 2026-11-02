@@ -7,6 +7,7 @@ const AGENT_INFRASTRUCTURE_CODES = [
 	"host_exit",
 	"worker_crash",
 	"capture_incomplete",
+	"provider_unavailable",
 	"judge_failed",
 ] as const;
 export type AgentInfrastructureCode = (typeof AGENT_INFRASTRUCTURE_CODES)[number];
@@ -41,6 +42,17 @@ export class AgentInfrastructureError extends Error {
 			message: this.message,
 			...(this.timeoutMs === undefined ? {} : { timeoutMs: this.timeoutMs }),
 		};
+	}
+}
+
+/**
+ * The test ended or was stopped while this session ran. It is not an infrastructure failure, because
+ * a test that already failed a check still failed it. Alone, it leaves that test with no verdict.
+ */
+export class AgentSessionCancelledError extends Error {
+	constructor() {
+		super("Agent session cancelled");
+		this.name = "AgentSessionCancelledError";
 	}
 }
 

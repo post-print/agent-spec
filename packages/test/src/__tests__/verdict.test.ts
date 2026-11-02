@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { reduceVerdict, type VerdictAttempt, verdictSentence } from "../sdk/verdict.js";
+import {
+	reduceVerdict,
+	type VerdictAttempt,
+	verdictNotes,
+	verdictSentence,
+} from "../sdk/verdict.js";
 
 const attempt = (overrides: Partial<VerdictAttempt>): VerdictAttempt => ({
 	testId: "a",
@@ -26,22 +31,18 @@ describe("reduceVerdict", () => {
 		});
 	});
 	it("an expected failure counts as passing", () => {
-		const expected = attempt({ status: "failed", expectedFailure: true });
+		const expected = attempt({ status: "failed", expectedFailure: true, checkFailed: true });
 		expect(reduce([expected]).verdict).toBe("passed");
 	});
 	it("classifies each kind of failure", () => {
 		expect(reduce([failed("Expected 1")], 1).verdict).toBe("agent_failed");
 		expect(reduce([failed("AgentInfrastructureError: auth")], 1).verdict).toBe("infra_invalid");
-		expect(reduce([failed("Test timeout of 100ms exceeded.")], 1).verdict).toBe("infra_invalid");
+		const timedOut = attempt({ status: "failed", timedOut: true, errors: [{ message: "Late" }] });
+		expect(reduce([timedOut], 1).verdict).toBe("infra_invalid");
 		expect(reduce([failed("ConditionsUnknownError: no catalog")], 1).verdict).toBe(
 			"conditions_unknown",
 		);
-		expect(reduce([failed("finished without a completed agent operation")], 1).verdict).toBe(
-			"vacuous",
-		);
-		expect(
-			reduce([failed("2 agent operation(s) were not awaited and did not complete")], 1).verdict,
-		).toBe("vacuous");
+		expect(reduce([failed("UnearnedResultError: no agent ran")], 1).verdict).toBe("vacuous");
 	});
 	it("an infrastructure failure seen by an operation counts even under another error", () => {
 		const hidden = attempt({
@@ -85,6 +86,7 @@ describe("reduceVerdict controls", () => {
 		const rejected = attempt({
 			status: "failed",
 			expectedFailure: true,
+			checkFailed: true,
 			errors: [{ message: "Expected 1" }],
 		});
 		expect(reduce([rejected]).verdict).toBe("passed");
@@ -96,6 +98,22 @@ describe("reduceVerdict controls", () => {
 			errors: [{ message: "AgentInfrastructureError: auth" }],
 		});
 		expect(reduce([broken]).verdict).toBe("infra_invalid");
+	});
+});
+
+describe("reduceVerdict on runner failures", () => {
+	it("a cleanup failure after a passing test says nothing about the agent", () => {
+		expect(reduce([failed("RunnerCleanupError: EACCES")], 1).verdict).toBe("infra_invalid");
+	});
+	it("any other failure still stands if cleanup failed too", () => {
+		const both = attempt({
+			status: "failed",
+			errors: [
+				{ message: "WorkspaceEscapeError: /etc" },
+				{ message: "RunnerCleanupError: EACCES" },
+			],
+		});
+		expect(reduce([both], 1).verdict).toBe("agent_failed");
 	});
 });
 
@@ -125,6 +143,7 @@ describe("verdictSentence", () => {
 describe("reduceVerdict with a baseline", () => {
 	const record = {
 		host: "claude",
+		requestedModel: "m",
 		binaryVersion: "1",
 		confinement: "host-enforced",
 		network: "disabled",
@@ -184,5 +203,32 @@ describe("reduceVerdict with repeats from the command line", () => {
 	});
 	it("repeats that all pass exit 0", () => {
 		expect(reduce([repeat("passed", "a"), repeat("passed", "b")]).exitCode).toBe(0);
+	});
+});
+
+describe("reduceVerdict on runs that did not finish", () => {
+	const sampled = (testId: string, status: VerdictAttempt["status"]) =>
+		attempt({
+			testId,
+			claim: "claim",
+			status,
+			sample: { title: "claim", n: 2 },
+			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
+		});
+	it("a test that never started leaves a measured rate with no verdict", () => {
+		const result = reduce([sampled("a", "failed")], 1, { plannedTests: ["a", "b"] });
+		expect(result).toMatchObject({ verdict: "interrupted", exitCode: 2, notRun: 1 });
+	});
+	it("a runner failure outside any test is not excused by a failed sample", () => {
+		const result = reduce([sampled("a", "failed")], 1, { runnerReportedError: true });
+		expect(result).toMatchObject({ verdict: "instrument_error", exitCode: 2 });
+	});
+	it("an unreadable baseline leaves a sampled run with no verdict, and names the file", () => {
+		const result = reduce([sampled("a", "passed")], 0, { unreadableBaselines: ["bad.json"] });
+		expect(result).toMatchObject({ verdict: "conditions_unknown", exitCode: 2 });
+		expect(verdictNotes(result)).toEqual(["Baseline files could not be read: bad.json"]);
+	});
+	it("an unreadable baseline does not touch a run with nothing sampled", () => {
+		expect(reduce([attempt({})], 0, { unreadableBaselines: ["bad.json"] }).verdict).toBe("passed");
 	});
 });

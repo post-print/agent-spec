@@ -4,12 +4,14 @@ import type {
 	Reporter,
 	Suite,
 	TestCase,
+	TestError,
 	TestResult,
 	TestStep,
 } from "@playwright/test/reporter";
+import { redactSecrets } from "@post-print/agent-harness";
 import { stripAnsi } from "../viewer/presentation.js";
 import { type CriterionResult, ExecutionStore } from "./execution-store.js";
-import { SAMPLE_ANNOTATION } from "./sampling.js";
+import { NO_AGENT_ANNOTATION, SAMPLE_ANNOTATION } from "./sampling.js";
 import { storedValue } from "./stored-value.js";
 
 function executionInput() {
@@ -28,10 +30,13 @@ function attachmentData(result: TestResult) {
 		path ? [{ name, contentType, path }] : [],
 	);
 }
+function storedErrorText(text: string | undefined): string | undefined {
+	return text && redactSecrets(stripAnsi(text));
+}
 function errorData(result: TestResult) {
 	return result.errors.map((error) => ({
-		message: error.message ? stripAnsi(error.message) : error.message,
-		stack: error.stack ? stripAnsi(error.stack) : error.stack,
+		message: storedErrorText(error.message),
+		stack: storedErrorText(error.stack),
 	}));
 }
 function declaredCriteria(test: TestCase): string[] {
@@ -73,6 +78,23 @@ function criterionData(test: TestCase, result: TestResult): CriterionResult[] {
 		};
 	});
 }
+/**
+ * A control earns its result on a check that failed the test after an agent started: a check the
+ * test caught, or one that failed before any agent ran, shows nothing about what it is testing.
+ */
+function failedCheckAfterAgent(result: TestResult, agentStartedAt: number | undefined): boolean {
+	if (agentStartedAt === undefined) return false;
+	const reported = new Set(result.errors.map(({ message }) => message));
+	return expectationSteps(result.steps).some(
+		(step) =>
+			step.error !== undefined &&
+			reported.has(step.error.message) &&
+			step.startTime.getTime() >= agentStartedAt,
+	);
+}
+function declaresNoAgent(test: TestCase): boolean {
+	return test.annotations.some(({ type }) => type === NO_AGENT_ANNOTATION);
+}
 type CapturedOutput = {
 	stream: "stdout" | "stderr";
 	chunk: string;
@@ -84,6 +106,8 @@ type CapturedOutput = {
 export default class ExecutionReporter implements Reporter {
 	private readonly store = ExecutionStore.create({ ...executionInput(), ownerPid: process.pid });
 	private readonly buffers = new Map<string, string>();
+	/** When the first agent or judge operation of each attempt started, by the worker's clock. */
+	private readonly agentStartedAt = new Map<string, number>();
 	private writes = Promise.resolve();
 	private record(event: Parameters<ExecutionStore["record"]>[0]) {
 		this.writes = this.writes.then(async () => {
@@ -122,6 +146,10 @@ export default class ExecutionReporter implements Reporter {
 		this.buffers.set(key, lines.pop() ?? "");
 		for (const line of lines) this.captureLine({ ...output, chunk: line });
 	}
+	private noteAgentStarted(attempt: string | undefined, at: number | undefined) {
+		if (attempt && at !== undefined && !this.agentStartedAt.has(attempt))
+			this.agentStartedAt.set(attempt, at);
+	}
 	private captureLine(output: CapturedOutput) {
 		const { stream, chunk: line, test, result } = output;
 		const attempt = test && result ? attemptId(test, result) : undefined;
@@ -131,7 +159,7 @@ export default class ExecutionReporter implements Reporter {
 					type: `test.${stream}`,
 					level: stream === "stderr" ? "warn" : "info",
 					attemptId: attempt,
-					data: { text: line },
+					data: { text: redactSecrets(line) },
 				});
 			return;
 		}
@@ -140,7 +168,9 @@ export default class ExecutionReporter implements Reporter {
 				runId: string;
 				type: string;
 				value: unknown;
+				at?: number;
 			};
+			this.noteAgentStarted(attempt, event.at);
 			this.record({
 				type: `operation.${event.type}`,
 				level: "debug",
@@ -153,7 +183,7 @@ export default class ExecutionReporter implements Reporter {
 				type: "recorder.parse_failed",
 				level: "warn",
 				attemptId: attempt,
-				data: { line },
+				data: { line: redactSecrets(line) },
 			});
 		}
 	}
@@ -165,11 +195,22 @@ export default class ExecutionReporter implements Reporter {
 			data: {
 				status: result.status,
 				expectedStatus: test.expectedStatus,
+				checkFailed: failedCheckAfterAgent(
+					result,
+					declaresNoAgent(test) ? 0 : this.agentStartedAt.get(attemptId(test, result)),
+				),
 				durationMs: result.duration,
 				errors: errorData(result),
 				criterionResults: criterionData(test, result),
 				attachments: attachmentData(result),
 			},
+		});
+	}
+	onError(error: TestError) {
+		this.record({
+			type: "run.error",
+			level: "error",
+			data: { message: storedErrorText(error.message) },
 		});
 	}
 	async onEnd(result: FullResult) {

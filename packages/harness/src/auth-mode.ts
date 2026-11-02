@@ -1,3 +1,5 @@
+import { AgentInfrastructureError } from "./agent-error.js";
+
 /** How a host bills a run. The two modes charge different accounts. */
 export type HostAuthMode = "api-key" | "subscription";
 
@@ -79,7 +81,7 @@ export function resolveKeyOrLoginAuthMode(options: {
 }): HostAuthMode {
 	const mode = resolveHostAuthMode(options);
 	if (mode === "api-key" && !options.hasApiKey) {
-		throw new Error(options.missingKeyMessage);
+		throw new AgentInfrastructureError(options.missingKeyMessage, "auth");
 	}
 	return mode;
 }

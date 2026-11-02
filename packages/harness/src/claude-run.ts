@@ -1,10 +1,10 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
-import { AgentInfrastructureError } from "./agent-error.js";
+import { type AgentInfrastructureCode, AgentInfrastructureError } from "./agent-error.js";
 import { resolveHostAuthMode } from "./auth-mode.js";
 import { recordUnparsedLine } from "./capture.js";
 import {
@@ -14,7 +14,13 @@ import {
 	finalizeClaudeTraceAccumulator,
 	parseClaudeNdjsonLine,
 } from "./claude-capture.js";
-import { CAPTURE_INCOMPLETE } from "./host-failure.js";
+import {
+	CAPTURE_INCOMPLETE,
+	codeForHostText,
+	codeForProviderStatus,
+	hostProcessFailure,
+	spawnHostProcess,
+} from "./host-failure.js";
 import { claudeIsolationSettings, prepareClaudeEnvFile } from "./host-isolation.js";
 import { createLiveNotifyState, emitLiveAgentEvents } from "./live-agent-event.js";
 import { type McpServerConfig, resolveMcpServers } from "./mcp.js";
@@ -78,6 +84,8 @@ export interface ClaudeRunResult {
 	stderr?: string;
 	resultError?: string;
 	sawTerminalEvent: boolean;
+	hostReportedSuccess?: boolean;
+	failureCode?: AgentInfrastructureCode;
 }
 
 interface ClaudeChildProcess extends ChildProcess {
@@ -477,6 +485,20 @@ async function drainNdjson(
 	}
 }
 
+/** Categories from Claude Code 2.1.300's `api_error` schema. Others may be about the request. */
+const CLAUDE_AUTH_API_ERRORS = new Set([
+	"authentication_failed",
+	"oauth_org_not_allowed",
+	"account_on_hold",
+	"verification_required",
+	"cloud_credential_error",
+]);
+const CLAUDE_PROVIDER_API_ERRORS = new Set([
+	"billing_error",
+	"rate_limit",
+	"overloaded",
+	"server_error",
+]);
 interface ClaudeExecution {
 	bin: string;
 	args: string[];
@@ -498,22 +520,31 @@ async function finishClaudeRun(
 	});
 	const trace = stashTrace(acc);
 	const rawStatus = acc.rawStatus ?? (exitCode === 0 ? CAPTURE_INCOMPLETE : "error");
-	const failed =
-		acc.resultIsError ||
-		(exitCode !== null && exitCode !== 0) ||
-		rawStatus === "error" ||
-		rawStatus === CAPTURE_INCOMPLETE ||
-		Boolean(acc.resultError);
-
+	const hostReportedSuccess =
+		rawStatus === "success" && !acc.resultIsError && acc.resultError === undefined;
 	return {
-		status: failed ? "failed" : "completed",
+		status: hostReportedSuccess && exitCode === 0 ? "completed" : "failed",
 		trace,
 		rawStatus,
 		exitCode,
 		stderr: stderr || undefined,
 		resultError: acc.resultError ?? (acc.resultIsError ? acc.resultText : undefined),
 		sawTerminalEvent: acc.sawTerminalEvent === true,
+		hostReportedSuccess,
+		failureCode: acc.resultIsError ? claudeApiFailureCode(acc) : undefined,
 	};
+}
+/** Claude's own account of the API error that ended the turn. */
+function claudeApiFailureCode(acc: ClaudeTraceAccumulator): AgentInfrastructureCode | undefined {
+	if (acc.apiError && CLAUDE_AUTH_API_ERRORS.has(acc.apiError)) return "auth";
+	if (acc.apiError && CLAUDE_PROVIDER_API_ERRORS.has(acc.apiError)) return "provider_unavailable";
+	const byStatus =
+		acc.apiErrorStatus === undefined ? undefined : codeForProviderStatus(acc.apiErrorStatus);
+	if (byStatus) return byStatus;
+	// A request too big to send can be what the agent did, such as reading too much. Anything else
+	// Claude names as a failed API call means the model never answered.
+	if (acc.apiErrorStatus === 400 || !(acc.apiError || acc.apiErrorStatus)) return undefined;
+	return codeForHostText(acc.resultText) ?? "host_exit";
 }
 function throwClaudeRunError(error: unknown, acc: ClaudeTraceAccumulator, bin: string): never {
 	const partial = stashTrace(acc);
@@ -521,16 +552,13 @@ function throwClaudeRunError(error: unknown, acc: ClaudeTraceAccumulator, bin: s
 		error.trace = error.trace ?? partial;
 		throw error;
 	}
-	if (error && typeof error === "object" && "code" in error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") {
-			throw new AgentInfrastructureError(
-				`Claude Code binary not found (${bin}). Install Claude Code CLI or set CLAUDE_CODE_BIN.`,
-				"binary_missing",
-			);
-		}
+	if ((error as NodeJS.ErrnoException | null | undefined)?.code === "ENOENT") {
+		throw new AgentInfrastructureError(
+			`Claude Code binary not found (${bin}). Install Claude Code CLI or set CLAUDE_CODE_BIN.`,
+			"binary_missing",
+		);
 	}
-	throw error;
+	throw hostProcessFailure(error, "Claude Code");
 }
 async function executeClaudeRun(
 	options: ClaudeRunOptions,
@@ -543,7 +571,7 @@ async function executeClaudeRun(
 	const env = buildClaudeEnv(authMode, apiKey);
 	const envFile = prepareClaudeEnvFile(options.cwd, env.PATH);
 	if (envFile) env.CLAUDE_ENV_FILE = envFile;
-	const child = spawn(bin, args, {
+	const child = spawnHostProcess("Claude Code", [bin, args], {
 		cwd: options.cwd,
 		env,
 		stdio: ["ignore", "pipe", "pipe"],

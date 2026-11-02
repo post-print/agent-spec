@@ -159,6 +159,27 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["unawaited run fails", "vacuous", 2],
 	["catalog is unknown", "conditions_unknown", 2],
 	["skipped", "skipped_only", 2],
+	["control survives", "control_survived", 1],
+	["control breaks in its own code", "vacuous", 2],
+	["control fails before the agent runs", "vacuous", 2],
+	["check fails before the agent runs", "vacuous", 2],
+	["worker process crashes", "infra_invalid", 2],
+	["setup workspace is missing", "vacuous", 2],
+	["later setup second run has a missing workspace", "vacuous", 2],
+	["no-agent control fails on a check", "passed", 0],
+	["agent leaves a read-only folder", "passed", 0],
+	["control catches its own failed check, then throws", "vacuous", 2],
+	["control fails softly before the agent runs", "vacuous", 2],
+	["failed check quotes the agent saying Test timeout of 100ms exceeded.", "agent_failed", 1],
+	["failed check quotes the agent saying Agent worker exited", "agent_failed", 1],
+	["failed check quotes the agent saying Agent session cancelled", "agent_failed", 1],
+	["failed check quotes the agent saying AgentInfrastructureError: auth", "agent_failed", 1],
+	["failed check quotes the agent saying ConditionsUnknownError: no catalog", "agent_failed", 1],
+	[
+		"failed check quotes the agent saying The test finished without a completed agent operation",
+		"agent_failed",
+		1,
+	],
 ];
 describe("the verdict for a scripted host through the real runner", () => {
 	for (const [title, verdict, exitCode] of SCENARIOS) {
@@ -195,5 +216,85 @@ describe("the verdict for a scripted host through the real runner", () => {
 		const result = await runScenario("good run$", ["--list"]);
 		expect(result.verdict.verdict).toBe("listed");
 		expect(result.exitCode).toBe(0);
+	}, 60_000);
+});
+describe("results that have not been earned through the real runner", () => {
+	it("a control that survives and then fails on retry is still a surviving control", async () => {
+		const result = await runScenario("instrument control survives and fails on retry$", [
+			"--retries",
+			"1",
+		]);
+		expect(result.verdict.verdict).toBe("control_survived");
+		expect(result.exitCode).toBe(1);
+	}, 60_000);
+	it("a surviving control fails a rate, which would otherwise only be measured", async () => {
+		const { verdict, exitCode } = await rate("sampled control survives");
+		expect(verdict.verdict).toBe("control_survived");
+		expect(exitCode).toBe(1);
+		expect(verdict.claims[0]?.controlsSurvived).toBe(2);
+	}, 60_000);
+	it("a surviving control fails a plan short of its flag", async () => {
+		const { verdict, exitCode } = await rate("planned control survives");
+		expect(verdict.verdict).toBe("control_survived");
+		expect(exitCode).toBe(1);
+	}, 60_000);
+	it("tests stopped by --max-failures leave a rate with no verdict", async () => {
+		const { verdict, exitCode } = await runScenario("instrument rates sampled and stopped \\[", [
+			"--max-failures",
+			"1",
+		]);
+		expect(verdict.notRun).toBeGreaterThan(0);
+		expect(verdict.verdict).toBe("interrupted");
+		expect(exitCode).toBe(2);
+	}, 60_000);
+	it("an arm filtered out of the run leaves no verdict", async () => {
+		const { verdict, exitCode } = await runScenario("instrument rates two arms differ \\[good");
+		expect(verdict.claims[0]?.decision).toBe("no_verdict");
+		expect(verdict.claims[0]?.comparisonRefused).toContain("no run with a verdict");
+		expect(exitCode).toBe(2);
+	}, 60_000);
+	it("an arm with no verdict is not compared", async () => {
+		const { verdict, exitCode } = await rate("one arm has no verdict");
+		expect(verdict.claims[0]?.comparison).toBeUndefined();
+		expect(verdict.claims[0]?.comparisonRefused).toContain("arm b");
+		expect(exitCode).toBe(2);
+	}, 60_000);
+	it("a retried sample counts once, at its first verdict", async () => {
+		const { verdict } = await runScenario("instrument rates sample passes on retry \\[", [
+			"--retries",
+			"1",
+		]);
+		expect(verdict.claims[0]?.arms[0]).toMatchObject({ passed: 0, failed: 1, total: 1 });
+	}, 60_000);
+});
+describe("failures that say nothing about the agent, or say it plainly", () => {
+	it("a rate in which no sample reached a host has no verdict", async () => {
+		const { verdict, exitCode } = await runScenario(
+			"instrument setup workspace is missing in a rate",
+		);
+		expect(verdict.claims[0]?.arms[0]).toMatchObject({ total: 0, noVerdict: 2 });
+		expect(exitCode).toBe(2);
+	}, 60_000);
+	it("a sample's first failure stands although the runner calls it flaky", async () => {
+		const { verdict, exitCode } = await runScenario(
+			"instrument rates flagged plan passes on retry \\[",
+			["--retries", "1"],
+		);
+		expect(verdict.verdict).toBe("agent_failed");
+		expect(exitCode).toBe(1);
+	}, 60_000);
+	it("a real failure is not undone by the host breaking on retry", async () => {
+		const { verdict, exitCode } = await runScenario(
+			"instrument check fails, then the host fails on retry$",
+			["--retries", "1"],
+		);
+		expect(verdict.verdict).toBe("agent_failed");
+		expect(exitCode).toBe(1);
+	}, 60_000);
+	it("a secret in a failed check is not stored", async () => {
+		const { summary } = await runScenario("instrument secret in a failed check$");
+		const stored = JSON.stringify(summary?.attempts[0]?.errors);
+		expect(stored).toContain("[redacted]");
+		expect(stored).not.toContain(["sk", "abcdefghijklmnopqrst"].join("-"));
 	}, 60_000);
 });

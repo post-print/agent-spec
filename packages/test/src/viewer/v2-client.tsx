@@ -24,12 +24,15 @@ import Markdown from "react-markdown";
 import { ElapsedTime } from "./elapsed-time.js";
 import {
 	assertionComparison,
+	attemptRunStatus,
 	conversationPlaceholder,
 	describeShape,
 	formatRunDate,
 	median,
 	preferredTestExecutionId,
 	runConditionLabels,
+	runDisplayStatus,
+	statusNeedsReview,
 	stripAnsi,
 	type TestIntent,
 	type TestRunStatus,
@@ -57,7 +60,9 @@ type Attempt = {
 	id: string;
 	title: string[];
 	project?: string;
+	retry?: number;
 	status: string;
+	expectedFailure?: boolean;
 	errors: Array<{ message?: string }>;
 	criterionResults: Array<{
 		criterion: string;
@@ -1862,7 +1867,7 @@ function TestStatus({ status }: { status: TestStatusValue }) {
 					styles.navStatusDot,
 					status === "passed" && styles.navStatusDotPass,
 					status === "failed" && styles.navStatusDotFail,
-					status === "running" && styles.navStatusDotRunning,
+					(status === "running" || statusNeedsReview(status)) && styles.navStatusDotRunning,
 				)}
 			/>
 		</span>
@@ -2146,14 +2151,15 @@ function HistoryItem({
 	);
 }
 
-function StatusPill({ status }: { status: TestStatusValue | ExecutionSummary["status"] }) {
+function StatusPill({ status }: { status: string }) {
 	return (
 		<span
 			{...stylex.props(
 				styles.status,
 				status === "passed" && styles.statusPass,
 				status === "failed" && styles.statusFail,
-				(status === "running" || status === "queued") && styles.statusRunning,
+				(status === "running" || status === "queued" || statusNeedsReview(status)) &&
+					styles.statusRunning,
 			)}
 		>
 			{status}
@@ -2420,6 +2426,7 @@ function ExecutionDetailView({
 					<AttemptCard
 						key={attempt.id}
 						attempt={attempt}
+						outcome={attemptRunStatus(execution, attempt)}
 						criteria={criteria}
 						showTitle={false}
 						progress={execution.progress?.filter((entry) => entry.attemptId === attempt.id)}
@@ -2435,6 +2442,7 @@ function ExecutionDetailView({
 
 function emptyExecutionMessage(execution: ExecutionDetail, stopping: boolean): string {
 	if (stopping) return "Stopping this run…";
+	if (execution.status === "unknown") return "This run's stored record could not be read.";
 	if (execution.status === "interrupted") return "Run stopped before the first test started.";
 	if (execution.status === "failed") return "Run failed before the first test started.";
 	if (execution.status === "passed") return "Run completed without starting a test.";
@@ -2470,11 +2478,15 @@ function ComparisonColumn({ execution, label }: { execution: ExecutionDetail; la
 	return (
 		<article {...stylex.props(styles.card)}>
 			<strong>
-				{label}: {execution.status}
+				{label}: {runDisplayStatus(execution)}
 			</strong>
 			<p {...stylex.props(styles.meta)}>{execution.id.slice(0, 8)}</p>
 			{execution.attempts.map((attempt) => (
-				<AttemptCard key={attempt.id} attempt={attempt} />
+				<AttemptCard
+					key={attempt.id}
+					attempt={attempt}
+					outcome={attemptRunStatus(execution, attempt)}
+				/>
 			))}
 		</article>
 	);
@@ -2483,11 +2495,13 @@ function ComparisonColumn({ execution, label }: { execution: ExecutionDetail; la
 /** `showTitle` is off on a test page, whose header already names the test. */
 function AttemptCard({
 	attempt,
+	outcome,
 	criteria = [],
 	showTitle = true,
 	progress = [],
 }: {
 	attempt: Attempt;
+	outcome: string;
 	criteria?: string[];
 	showTitle?: boolean;
 	progress?: AttemptProgress[];
@@ -2506,25 +2520,21 @@ function AttemptCard({
 					</p>
 				</div>
 				<div {...stylex.props(styles.attemptActions)}>
-					{attempt.status === "failed" ? (
+					{attempt.status === "failed" && outcome !== "passed" ? (
 						<CopyFailureButton attempt={attempt} criteria={criteria} />
 					) : null}
-					<span
-						{...stylex.props(
-							styles.status,
-							attempt.status === "passed" && styles.statusPass,
-							attempt.status === "failed" && styles.statusFail,
-							attempt.status === "running" && styles.statusRunning,
-						)}
-					>
-						{attempt.status}
-					</span>
+					<StatusPill status={outcome} />
 				</div>
 			</div>
 			{attempt.status === "running" ? (
 				<LiveRunStrip attempt={attempt} operations={operations} progress={progress.at(-1)} />
 			) : null}
-			<TestVerdict attempt={attempt} criteria={criteria} operations={operations} />
+			<TestVerdict
+				attempt={attempt}
+				outcome={outcome}
+				criteria={criteria}
+				operations={operations}
+			/>
 			<OperationList operations={operations} />
 			<ConversationSection
 				label="Judges"
@@ -2620,10 +2630,12 @@ function progressSummary(data: unknown): string | undefined {
 /** Test-level outcome first: every check with its result, including judge-decided checks. */
 function TestVerdict({
 	attempt,
+	outcome,
 	criteria,
 	operations,
 }: {
 	attempt: Attempt;
+	outcome: string;
 	criteria: string[];
 	operations: Attempt["operations"];
 }) {
@@ -2639,14 +2651,15 @@ function TestVerdict({
 			aria-label="Test verdict"
 			{...stylex.props(
 				styles.verdictPanel,
-				attempt.status === "passed" && styles.verdictPass,
-				attempt.status === "failed" && styles.verdictFail,
+				outcome === "passed" && styles.verdictPass,
+				outcome === "failed" && styles.verdictFail,
 			)}
 		>
 			<p {...stylex.props(styles.verdictHeadline)}>
-				{capitalize(attempt.status)}
+				{capitalize(outcome)}
 				<span {...stylex.props(styles.verdictCount)}>
 					{checkSummary(presentations, attempt.status)}
+					{attempt.expectedFailure && outcome === "passed" ? ", as this control requires" : ""}
 				</span>
 			</p>
 			<RunConditionLabels operations={operations} />

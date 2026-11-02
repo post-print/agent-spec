@@ -20,7 +20,7 @@ const test = describe(
 );
 async function findsTheOwner(agent: AgentFixture) {
 	const run = await agent.run({ prompt: "Who owns TASK-104? Reply with the owner's name only." });
-	expect(run, "The agent was offered the tool.").toHaveBeenOffered(TOOL);
+	expect(run, "The agent was offered the tool.").toHaveBeenOffered(`mcp__records__${TOOL}`);
 	expect(run.prompt, "The prompt does not name the tool.").not.toContain(TOOL);
 	expect(run, "The agent called the tool.").toHaveCalledTool(new RegExp(TOOL), { succeeded: true });
 	expect(run.output, "The answer comes from the tool.").toContain("Mina");

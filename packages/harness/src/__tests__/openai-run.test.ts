@@ -1,9 +1,14 @@
-import { expect, it } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { describe, expect, it } from "bun:test";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildOpenaiExecArgs, buildOpenaiMcpOverride, createOpenaiRunHome } from "../openai-run.js";
+import {
+	buildOpenaiExecArgs,
+	buildOpenaiMcpOverride,
+	createOpenaiRunHome,
+	recoverOpenaiRunHomes,
+} from "../openai-run.js";
 
 it("creates an auth-only home for an isolated Codex run", async () => {
 	const realHome = await mkdtemp(join(tmpdir(), "openai-real-home-"));
@@ -142,4 +147,51 @@ it("a sealed run cannot reach the account's connected apps", async () => {
 		includeGlobalSkills: true,
 	});
 	expect(global.join(" ")).not.toContain("features.apps=false");
+});
+
+describe("Codex home recovery", () => {
+	const PREFIX = "agent-harness-openai-home-";
+	const KIND = "agent-harness-openai-home";
+	async function homeWithManifest(root: string, name: string, manifest: object | undefined) {
+		const home = join(root, `${PREFIX}${name}`);
+		await mkdir(join(home, ".codex"), { recursive: true });
+		await writeFile(join(home, ".codex", "marker"), "fake");
+		if (manifest) await writeFile(join(home, "owner.json"), JSON.stringify(manifest));
+	}
+	it("a run home names its owner on disk before it holds a login", async () => {
+		const realHome = await mkdtemp(join(tmpdir(), "openai-home-owner-"));
+		const realCodexHome = join(realHome, ".codex");
+		await mkdir(realCodexHome);
+		await writeFile(join(realCodexHome, "auth.json"), '{"fake":true}');
+		const isolated = await createOpenaiRunHome({ realHome, realCodexHome });
+		try {
+			const manifest = JSON.parse(await readFile(join(isolated.home, "owner.json"), "utf8"));
+			expect(manifest).toMatchObject({ version: 1, kind: KIND, owner: { pid: process.pid } });
+		} finally {
+			await isolated.cleanup();
+			await rm(realHome, { recursive: true, force: true });
+		}
+	});
+	it("removes only old homes of a provably dead owner", async () => {
+		const root = await mkdtemp(join(tmpdir(), "openai-home-recovery-"));
+		const dead = { version: 1, kind: KIND, owner: { pid: 999_999 } };
+		const old = "2020-01-01T00:00:00Z";
+		try {
+			await homeWithManifest(root, "unowned", undefined);
+			await homeWithManifest(root, "other-kind", { ...dead, kind: "x", createdAt: old });
+			await homeWithManifest(root, "young", { ...dead, createdAt: new Date().toISOString() });
+			await homeWithManifest(root, "live", {
+				...dead,
+				owner: { pid: process.pid },
+				createdAt: old,
+			});
+			await homeWithManifest(root, "dead", { ...dead, createdAt: old });
+			await recoverOpenaiRunHomes({ temporaryRoot: root });
+			expect((await readdir(root)).sort()).toEqual(
+				["live", "other-kind", "unowned", "young"].map((name) => `${PREFIX}${name}`),
+			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
 });

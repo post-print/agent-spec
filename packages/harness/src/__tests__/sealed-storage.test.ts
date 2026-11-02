@@ -1,4 +1,5 @@
 import { expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -77,5 +78,34 @@ it("forced termination leaves a recoverable manifest and recovery removes the ow
 		await expect(readdir(dirname(path))).rejects.toThrow();
 	} finally {
 		if (child.exitCode === null) child.kill("SIGKILL");
+	}
+});
+
+it("a tree with read-only folders is removed every time under Node", () => {
+	{
+		// Bun's rm does not race; Node's keeps deleting in the background after it fails.
+		const module = new URL("../../dist/owned-temp-root.js", import.meta.url).href;
+		const script = `
+			import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+			import { tmpdir } from "node:os";
+			import { join } from "node:path";
+			const { removeOwnedTree } = await import(${JSON.stringify(module)});
+			for (let round = 0; round < 20; round++) {
+				const root = mkdtempSync(join(tmpdir(), "owned-tree-"));
+				for (let index = 0; index < 5; index++) {
+					const folder = join(root, "locked", String(index));
+					mkdirSync(folder, { recursive: true });
+					writeFileSync(join(folder, "file"), "x");
+					chmodSync(folder, 0o500);
+				}
+				chmodSync(join(root, "locked"), 0o500);
+				await removeOwnedTree(root);
+				if (existsSync(root)) throw new Error("left " + root);
+			}`;
+		const { status, stderr } = spawnSync("node", ["--input-type=module", "-e", script], {
+			encoding: "utf8",
+		});
+		expect(stderr).toBe("");
+		expect(status).toBe(0);
 	}
 });
