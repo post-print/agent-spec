@@ -71,6 +71,10 @@ export type ExecutionAttempt = {
 	status: "running" | "passed" | "failed" | "skipped" | "interrupted";
 	expectedFailure?: boolean;
 	survivedControl?: boolean;
+	/** An assertion failed, as opposed to the test throwing for some other reason. */
+	checkFailed?: boolean;
+	/** The runner stopped the test at its deadline. */
+	timedOut?: boolean;
 	startedAt?: string;
 	completedAt?: string;
 	durationMs?: number;
@@ -85,6 +89,8 @@ export type ExecutionAttempt = {
 export type ExecutionDetail = ExecutionSummary & {
 	attempts: ExecutionAttempt[];
 	progress: ExecutionProgress[];
+	/** Failures the runner reported outside any test. */
+	runErrors: string[];
 };
 
 export function executionPaths(root: string) {
@@ -181,6 +187,14 @@ export class ExecutionStore {
 	}
 }
 
+function isExecutionEvent(value: unknown): value is ExecutionEvent {
+	return typeof asRecord(value).type === "string";
+}
+function isExecutionSummary(value: unknown): value is ExecutionSummary {
+	const { id, startedAt, status } = asRecord(value);
+	return typeof id === "string" && typeof startedAt === "string" && typeof status === "string";
+}
+
 export async function readExecutionEvents(root: string): Promise<ExecutionEvent[]> {
 	let content: string;
 	try {
@@ -191,7 +205,8 @@ export async function readExecutionEvents(root: string): Promise<ExecutionEvent[
 	}
 	return content.split("\n").flatMap((line) => {
 		try {
-			return line ? [JSON.parse(line) as ExecutionEvent] : [];
+			const event: unknown = line ? JSON.parse(line) : undefined;
+			return isExecutionEvent(event) ? [event] : [];
 		} catch {
 			return [];
 		}
@@ -206,7 +221,14 @@ export async function readExecutionDetail(root: string): Promise<ExecutionDetail
 		readExecutionProgress(root),
 	]);
 	const attempts = terminalAttempts(summary.status, summarizeAttempts(events));
-	return { ...summary, attempts: withProgressMetrics(attempts, progress), progress };
+	return {
+		...summary,
+		attempts: withProgressMetrics(attempts, progress),
+		progress,
+		runErrors: events.flatMap(({ type, data }) =>
+			type === "run.error" ? [String(asRecord(data).message)] : [],
+		),
+	};
 }
 
 /** Folds each attempt's progress updates into its metrics; later numbers replace earlier ones. */
@@ -313,6 +335,8 @@ function applyAttemptFinish(attempt: ExecutionAttempt, event: ExecutionEvent): v
 	attempt.status = outcomeStatus(data.status);
 	attempt.expectedFailure = data.status === "failed" && data.expectedStatus === "failed";
 	attempt.survivedControl = data.status === "passed" && data.expectedStatus === "failed";
+	attempt.checkFailed = data.checkFailed === true;
+	attempt.timedOut = data.status === "timedOut";
 	attempt.durationMs = typeof data.durationMs === "number" ? data.durationMs : undefined;
 	attempt.errors = Array.isArray(data.errors) ? data.errors : [];
 	attempt.criterionResults = parseCriterionResults(data.criterionResults);
@@ -445,9 +469,8 @@ export async function finishExecutionIfRunning(
 
 async function readExecutionSummary(root: string): Promise<ExecutionSummary | undefined> {
 	try {
-		const summary = JSON.parse(
-			await readFile(executionPaths(root).summary, "utf8"),
-		) as ExecutionSummary;
+		const summary: unknown = JSON.parse(await readFile(executionPaths(root).summary, "utf8"));
+		if (!isExecutionSummary(summary)) return undefined;
 		if (!summary.testIds || !summary.testStatuses) {
 			const events = await readExecutionEvents(root);
 			summary.testIds ??= testIdsFromEvents(events);

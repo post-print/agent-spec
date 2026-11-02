@@ -7,11 +7,15 @@ import type { TestCatalog } from "./test-catalog.js";
 /** Run summary as the execution store and live socket publish it. */
 export type ExecutionSummary = {
 	verdict?: VerdictResult;
+	/** A verdict was stored but cannot be read, so nothing is known about this run. */
+	verdictUnreadable?: boolean;
+	/** The claim each sampled or repeated test belongs to. */
+	testClaims?: Record<string, string>;
 	id: string;
 	startedAt: string;
 	finishedAt?: string;
 	testIds?: string[];
-	status: "running" | "passed" | "failed" | "interrupted";
+	status: "running" | "passed" | "failed" | "interrupted" | "unknown";
 	testStatuses?: Record<string, TestRunStatus>;
 };
 

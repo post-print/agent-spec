@@ -95,9 +95,8 @@ rates(
 	"sampled with a failure",
 	{ description: "One run in three fails, with nothing required.", samples: 3 },
 	async ({ agent }, info) => {
-		expect(
-			info.title.includes("[2/3]") ? "wrong" : (await agent.run(scenario("GOOD"))).output,
-		).toBe("done");
+		const { output } = await agent.run(scenario("GOOD"));
+		expect(info.title.includes("[2/3]") ? "wrong" : output).toBe("done");
 	},
 );
 rates(
@@ -183,5 +182,83 @@ rates(
 	},
 	async ({ agent }, _info, variant) => {
 		await agent.run({ prompt: `SCENARIO_GOOD ${variant}` });
+	},
+);
+test("control survives", async ({ agent }, info) => {
+	info.fail();
+	expect((await agent.run(scenario("GOOD"))).output).toBe("done");
+});
+test("control survives and fails on retry", async ({ agent }, info) => {
+	info.fail();
+	expect((await agent.run(scenario("GOOD"))).output).toBe(info.retry === 0 ? "done" : "wrong");
+});
+test("control breaks in its own code", async ({ agent }, info) => {
+	info.fail();
+	await agent.run(scenario("GOOD"));
+	throw new Error("The fixture could not be prepared");
+});
+test("control fails before the agent runs", async (_resources, info) => {
+	info.fail();
+	expect("setup").toBe("ready");
+});
+test("check fails before the agent runs", async () => {
+	expect("setup").toBe("ready");
+});
+for (const words of [
+	"Test timeout of 100ms exceeded.",
+	"Agent worker exited",
+	"Agent session cancelled",
+	"AgentInfrastructureError: auth",
+	"ConditionsUnknownError: no catalog",
+	"The test finished without a completed agent operation",
+])
+	test(`failed check quotes the agent saying ${words}`, async ({ agent }) => {
+		await agent.run(scenario("GOOD"));
+		expect(words).toBe("done");
+	});
+test("worker process crashes", async ({ agent }) => {
+	await agent.run(scenario("GOOD"));
+	process.exit(3);
+});
+rates(
+	"sampled control survives",
+	{ description: "A control that passes is not a pass in a rate.", samples: 2 },
+	async ({ agent }, info) => {
+		info.fail();
+		expect((await agent.run(scenario("GOOD"))).output).toBe("done");
+	},
+);
+rates(
+	"planned control survives",
+	{ description: "A control that passes is not a pass in a plan.", samples: { n: 3, flagAt: 3 } },
+	async ({ agent }, info) => {
+		info.fail();
+		expect((await agent.run(scenario("GOOD"))).output).toBe("done");
+	},
+);
+rates(
+	"sampled and stopped",
+	{ description: "Every sample fails, for stopping with --max-failures.", samples: 3 },
+	async ({ agent }) => {
+		expect((await agent.run(scenario("GOOD"))).output).toBe("wrong");
+	},
+);
+rates(
+	"sample passes on retry",
+	{ description: "A sample's first verdict stands.", samples: 1 },
+	async ({ agent }, info) => {
+		expect((await agent.run(scenario("GOOD"))).output).toBe(info.retry === 0 ? "wrong" : "done");
+	},
+);
+rates(
+	"one arm has no verdict",
+	{
+		description: "A rate with an empty arm compares nothing.",
+		samples: 1,
+		variants: ["a", "b"],
+		subject: "prompt",
+	},
+	async ({ agent }, _info, variant) => {
+		await agent.run(scenario(variant === "a" ? "GOOD" : "EMPTY"));
 	},
 );

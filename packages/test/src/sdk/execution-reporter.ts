@@ -4,6 +4,7 @@ import type {
 	Reporter,
 	Suite,
 	TestCase,
+	TestError,
 	TestResult,
 	TestStep,
 } from "@playwright/test/reporter";
@@ -165,12 +166,16 @@ export default class ExecutionReporter implements Reporter {
 			data: {
 				status: result.status,
 				expectedStatus: test.expectedStatus,
+				checkFailed: expectationSteps(result.steps).some((step) => step.error),
 				durationMs: result.duration,
 				errors: errorData(result),
 				criterionResults: criterionData(test, result),
 				attachments: attachmentData(result),
 			},
 		});
+	}
+	onError(error: TestError) {
+		this.record({ type: "run.error", level: "error", data: { message: error.message } });
 	}
 	async onEnd(result: FullResult) {
 		await this.writes;

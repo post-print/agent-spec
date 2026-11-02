@@ -18,6 +18,14 @@ class ObservedOperation<T> extends Promise<T> {
 	}
 }
 
+/** The test did not earn a result, so it says nothing about the agent either way. */
+export class UnearnedResultError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "UnearnedResultError";
+	}
+}
+
 const acknowledgedEscapes = new WeakSet<WorkspaceEscapeError>();
 
 export interface WorkspaceEscapeOutcome {
@@ -78,6 +86,11 @@ export class OperationLedger {
 		return this.infrastructureFailed;
 	}
 
+	/** A test that failed before any agent operation started failed in its own setup. */
+	failedBeforeAnyOperation(): boolean {
+		return this.operations.length === 0;
+	}
+
 	/** Throws when the test body finished without earning its result. */
 	assertResultEarned(options: { noAgent: boolean }): void {
 		this.assertNoFloatingOperation();
@@ -86,7 +99,7 @@ export class OperationLedger {
 		if (unacknowledged) throw unacknowledged;
 		if (options.noAgent) return;
 		if (escapes.length === 0 && !this.operations.some(({ state }) => state === "fulfilled"))
-			throw new Error(
+			throw new UnearnedResultError(
 				"The test finished without a completed agent operation, so its result says nothing about an agent. Declare noAgent: true if that is intended.",
 			);
 	}
@@ -96,7 +109,7 @@ export class OperationLedger {
 			({ operation, state }) => state !== "fulfilled" && !operation.observed,
 		);
 		if (floating.length > 0)
-			throw new Error(
+			throw new UnearnedResultError(
 				`${floating.length} agent operation(s) were not awaited and did not complete. Await each run, or handle its rejection.`,
 			);
 	}

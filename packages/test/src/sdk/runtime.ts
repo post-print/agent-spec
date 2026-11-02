@@ -14,6 +14,7 @@ import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import {
 	captureEnvironmentBaseline,
+	type EnvironmentBaseline,
 	type EnvironmentObservation,
 	observeEnvironment,
 	stopSurvivors,
@@ -80,6 +81,8 @@ interface RunInput {
 	settings: AgentSettings;
 	definition: AgentDefinition;
 	mcpCatalog: McpCatalogEntry[];
+	/** Taken once per task, so a process from an earlier turn still counts on a continuation. */
+	environmentBaseline?: EnvironmentBaseline;
 }
 interface CaptureInput {
 	name: string;
@@ -166,6 +169,9 @@ export class TestRuntime {
 	}
 	assertResultEarned(options: { noAgent: boolean }): void {
 		this.ledger.assertResultEarned(options);
+	}
+	failedBeforeAnyOperation(): boolean {
+		return this.ledger.failedBeforeAnyOperation();
 	}
 	reportedInfrastructureFailure(): boolean {
 		return this.ledger.reportedInfrastructureFailure();
@@ -277,6 +283,9 @@ export class TestRuntime {
 		});
 		const history: AgentTrace = { messages: [], toolCalls: [], shellCommands: [], artifacts: {} };
 		return this.conversation(name, {
+			environmentBaseline: settings.observeEnvironment
+				? await captureEnvironmentBaseline()
+				: undefined,
 			settings,
 			definition,
 			mcpCatalog: await listMcpCatalog(definition.options.mcpServers, { cwd: workspace.path }),
@@ -321,7 +330,7 @@ export class TestRuntime {
 		const start = performance.now();
 		this.announceRun(id, name, input);
 		const observed = input.settings.observeEnvironment;
-		const baseline = observed ? await captureEnvironmentBaseline() : undefined;
+		const baseline = input.environmentBaseline;
 		try {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
@@ -331,7 +340,7 @@ export class TestRuntime {
 				observed && baseline
 					? await observeEnvironment({ baseline, workspace: workspace.path, observe: observed })
 					: undefined;
-			this.survivors.push(...(environment?.processes.map(({ pid }) => pid) ?? []));
+			this.survivors.push(...(environment?.stoppablePids ?? []));
 			const final = await snapshot(workspace.path, join(directory, "final"), this.snapshotStorage);
 			await this.preserveChanges({ initial, final, directory });
 			const record = await this.runRecord(input, trace, initial);

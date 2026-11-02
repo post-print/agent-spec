@@ -1,4 +1,7 @@
 import type { AgentEvent } from "./agent-definition.js";
+import { type AgentInfrastructureCode, AgentInfrastructureError } from "./agent-error.js";
+import { codeForProviderStatus, redactSecrets } from "./host-failure.js";
+import { AgentRunTimeoutError } from "./run-guards.js";
 import type { AgentTrace, AgentUsage } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -20,6 +23,17 @@ export interface OpenRouterRunOptions {
 export interface OpenRouterRunResult {
 	status: "completed" | "failed";
 	trace: AgentTrace;
+	failureCode?: AgentInfrastructureCode;
+}
+
+/** Everything the response has shown so far, kept when the stream fails partway. */
+interface OpenRouterStream {
+	answer: string;
+	usage?: AgentUsage;
+	finishReason?: string;
+	sawDone: boolean;
+	droppedLines: number;
+	providerError?: AgentInfrastructureError;
 }
 
 let activeRun: AbortController | undefined;
@@ -29,82 +43,173 @@ export function cancelActiveOpenRouterRun(): void {
 	activeRun = undefined;
 }
 
-function streamDelta(event: Record<string, unknown>): string | undefined {
+function firstChoice(event: Record<string, unknown>): Record<string, unknown> | undefined {
 	const choices = event.choices;
 	const choice = Array.isArray(choices) ? choices[0] : undefined;
-	if (!choice || typeof choice !== "object") return undefined;
-	const delta = (choice as Record<string, unknown>).delta;
+	return choice && typeof choice === "object" ? (choice as Record<string, unknown>) : undefined;
+}
+
+function streamDelta(choice: Record<string, unknown> | undefined): string | undefined {
+	const delta = choice?.delta;
 	if (!delta || typeof delta !== "object") return undefined;
 	const content = (delta as Record<string, unknown>).content;
 	return typeof content === "string" ? content : undefined;
 }
 
-function streamLine(
-	line: string,
-	onText: (text: string) => void,
-	onUsage: (usage: AgentUsage) => void,
-): string {
-	if (!line.startsWith("data:")) return "";
-	const data = line.slice(5).trim();
-	if (data === "[DONE]") return "";
-	const event = JSON.parse(data) as Record<string, unknown>;
-	const text = streamDelta(event) ?? "";
-	if (text) onText(text);
+/** OpenRouter reports a failure after the 200 as an `error` field on a stream chunk. */
+function midstreamError(raw: unknown): AgentInfrastructureError {
+	const status = (raw as { code?: unknown } | null | undefined)?.code;
+	const code = typeof status === "number" ? codeForProviderStatus(status) : undefined;
+	return new AgentInfrastructureError(
+		`OpenRouter failed mid-stream: ${readErrorBody({ error: raw })}`,
+		code ?? "provider_unavailable",
+	);
+}
+
+function parseStreamEvent(data: string): Record<string, unknown> | undefined {
+	try {
+		const event = JSON.parse(data);
+		return event && typeof event === "object" ? event : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function applyStreamEvent(
+	stream: OpenRouterStream,
+	event: Record<string, unknown>,
+	options: OpenRouterRunOptions,
+): void {
+	if (event.error) stream.providerError ??= midstreamError(event.error);
+	const choice = firstChoice(event);
+	if (typeof choice?.finish_reason === "string") stream.finishReason = choice.finish_reason;
+	const text = streamDelta(choice);
+	if (text) {
+		stream.answer += text;
+		options.onAgentEvent?.({ type: "text", text });
+	}
 	const usage = usageFrom(event.usage);
-	if (usage) onUsage(usage);
-	return text;
+	if (usage) {
+		stream.usage = usage;
+		options.onAgentEvent?.({ type: "usage", usage });
+	}
+}
+
+function applyStreamLine(
+	stream: OpenRouterStream,
+	line: string,
+	options: OpenRouterRunOptions,
+): void {
+	if (!line.startsWith("data:")) return;
+	const data = line.slice(5).trim();
+	if (data === "[DONE]") {
+		stream.sawDone = true;
+		return;
+	}
+	const event = parseStreamEvent(data);
+	if (event) applyStreamEvent(stream, event, options);
+	else stream.droppedLines += 1;
 }
 
 async function readStream(
 	response: Response,
-	onText: (text: string) => void,
-	onUsage: (usage: AgentUsage) => void,
-): Promise<string> {
-	if (!response.body) throw new Error("OpenRouter response did not include a body");
+	stream: OpenRouterStream,
+	options: OpenRouterRunOptions,
+): Promise<void> {
+	if (!response.body) return;
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
-	let answer = "";
 	for (;;) {
 		const chunk = await reader.read();
 		buffer += decoder.decode(chunk.value, { stream: !chunk.done });
 		const lines = buffer.split("\n");
 		buffer = lines.pop() ?? "";
-		for (const line of lines) answer += streamLine(line, onText, onUsage);
-		if (chunk.done) return answer;
+		for (const line of lines) applyStreamLine(stream, line, options);
+		if (chunk.done) {
+			applyStreamLine(stream, buffer, options);
+			return;
+		}
 	}
 }
 
-async function requestOpenRouter(
-	options: OpenRouterRunOptions,
-	controller: AbortController,
-): Promise<string> {
-	const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(TRAILING_SLASH, "");
+async function rejectedResponseError(response: Response): Promise<AgentInfrastructureError> {
+	const body = await response.json().catch(() => undefined);
+	return new AgentInfrastructureError(
+		`OpenRouter returned ${response.status}: ${readErrorBody(body)}`,
+		codeForProviderStatus(response.status) ?? "host_exit",
+	);
+}
+
+function openRouterHeaders(options: OpenRouterRunOptions): Record<string, string> {
 	const headers: Record<string, string> = {
 		Authorization: `Bearer ${options.apiKey}`,
 		"Content-Type": "application/json",
 	};
 	if (options.httpReferer) headers["HTTP-Referer"] = options.httpReferer;
 	if (options.xTitle) headers["X-Title"] = options.xTitle;
-	const response = await fetch(`${baseUrl}/chat/completions`, {
+	return headers;
+}
+
+async function postCompletion(
+	options: OpenRouterRunOptions,
+	signal: AbortSignal,
+): Promise<Response> {
+	const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(TRAILING_SLASH, "");
+	return await fetch(`${baseUrl}/chat/completions`, {
 		method: "POST",
-		headers,
+		headers: openRouterHeaders(options),
 		body: JSON.stringify({
 			model: options.model,
 			messages: [{ role: "user", content: options.prompt }],
 			stream: true,
 			stream_options: { include_usage: true },
 		}),
-		signal: controller.signal,
+		signal,
+	}).catch((error: unknown) => {
+		if (signal.aborted) throw error;
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new AgentInfrastructureError(
+			`OpenRouter could not be reached: ${detail}`,
+			"provider_unavailable",
+		);
 	});
-	if (!response.ok) {
-		const body = await response.json().catch(() => undefined);
-		throw new Error(`${response.status}: ${readErrorBody(body)}`);
-	}
-	return readStream(
-		response,
-		(text) => options.onAgentEvent?.({ type: "text", text }),
-		(usage) => options.onAgentEvent?.({ type: "usage", usage }),
+}
+
+async function requestOpenRouter(
+	options: OpenRouterRunOptions,
+	stream: OpenRouterStream,
+	signal: AbortSignal,
+): Promise<void> {
+	const response = await postCompletion(options, signal);
+	if (!response.ok) throw await rejectedResponseError(response);
+	await readStream(response, stream, options).catch((error: unknown) => {
+		if (signal.aborted) throw error;
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new AgentInfrastructureError(
+			`OpenRouter stream broke before it finished: ${detail}`,
+			"capture_incomplete",
+		);
+	});
+}
+
+/** The API's own end marker, and a reply or finish reason before it, make a run complete. */
+function incompleteStreamFailure(stream: OpenRouterStream): AgentInfrastructureError | undefined {
+	if (stream.providerError) return stream.providerError;
+	if (stream.finishReason === "error")
+		return new AgentInfrastructureError(
+			"OpenRouter stream finished with finish_reason error",
+			"provider_unavailable",
+		);
+	if (!stream.sawDone)
+		return new AgentInfrastructureError(
+			"OpenRouter response ended without [DONE]",
+			"capture_incomplete",
+		);
+	if (stream.answer || stream.finishReason) return undefined;
+	return new AgentInfrastructureError(
+		"OpenRouter response finished with no reply",
+		"capture_incomplete",
 	);
 }
 
@@ -144,42 +249,62 @@ function readErrorBody(raw: unknown): string {
 	return "OpenRouter request failed";
 }
 
-function validationError(options: OpenRouterRunOptions): string | undefined {
-	if (!options.apiKey) return "OPENROUTER_API_KEY is required";
-	if (!options.model?.trim()) return "openrouter() requires a model";
-	return undefined;
+function validationFailure(options: OpenRouterRunOptions): OpenRouterRunResult | undefined {
+	const trace = emptyTrace(options.prompt);
+	if (!options.apiKey) {
+		trace.artifacts.openrouterError = "OPENROUTER_API_KEY is required";
+		return { status: "failed", trace, failureCode: "auth" };
+	}
+	if (options.model?.trim()) return undefined;
+	trace.artifacts.openrouterError = "openrouter() requires a model";
+	return { status: "failed", trace };
+}
+
+/** Whatever streamed before a failure stays in the trace as evidence. */
+function streamedTrace(options: OpenRouterRunOptions, stream: OpenRouterStream): AgentTrace {
+	const trace = emptyTrace(options.prompt);
+	if (stream.answer) trace.messages.push({ role: "assistant", content: stream.answer });
+	if (stream.usage) trace.usage = stream.usage;
+	if (stream.finishReason) trace.artifacts.openrouterFinishReason = stream.finishReason;
+	if (stream.droppedLines > 0) trace.artifacts.droppedOutputLines = String(stream.droppedLines);
+	return trace;
+}
+
+function failedRun(trace: AgentTrace, failure: AgentInfrastructureError): OpenRouterRunResult {
+	trace.artifacts.openrouterError = redactSecrets(failure.message);
+	return { status: "failed", trace, failureCode: failure.code };
+}
+
+function abortedRunFailure(): AgentInfrastructureError {
+	return new AgentInfrastructureError("OpenRouter request was cancelled", "host_exit");
 }
 
 export async function runOpenRouterAgent(
 	options: OpenRouterRunOptions,
 ): Promise<OpenRouterRunResult> {
-	const trace = emptyTrace(options.prompt);
-	const invalid = validationError(options);
-	if (invalid) {
-		trace.artifacts.openrouterError = invalid;
-		return { status: "failed", trace };
-	}
+	const invalid = validationFailure(options);
+	if (invalid) return invalid;
+	const stream: OpenRouterStream = { answer: "", sawDone: false, droppedLines: 0 };
+	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const controller = new AbortController();
 	activeRun = controller;
-	const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-	let usage: AgentUsage | undefined;
+	let timedOut = false;
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, timeoutMs);
 	try {
-		const answer = await requestOpenRouter(
-			{
-				...options,
-				onAgentEvent: (event) => {
-					if (event.type === "usage") usage = event.usage;
-					options.onAgentEvent?.(event);
-				},
-			},
-			controller,
-		);
-		if (answer) trace.messages.push({ role: "assistant", content: answer });
-		if (usage) trace.usage = usage;
-		return { status: "completed", trace };
+		await requestOpenRouter(options, stream, controller.signal);
+		const trace = streamedTrace(options, stream);
+		const failure = incompleteStreamFailure(stream);
+		return failure ? failedRun(trace, failure) : { status: "completed", trace };
 	} catch (error) {
-		trace.artifacts.openrouterError = error instanceof Error ? error.message : String(error);
-		return { status: "failed", trace };
+		const trace = streamedTrace(options, stream);
+		if (timedOut) throw Object.assign(new AgentRunTimeoutError(timeoutMs), { trace });
+		return failedRun(
+			trace,
+			error instanceof AgentInfrastructureError ? error : abortedRunFailure(),
+		);
 	} finally {
 		clearTimeout(timeout);
 		if (activeRun === controller) activeRun = undefined;

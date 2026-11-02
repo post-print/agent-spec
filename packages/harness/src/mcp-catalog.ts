@@ -15,7 +15,10 @@ const INITIALIZE = {
 	},
 };
 const INITIALIZED = { jsonrpc: "2.0", method: "notifications/initialized" };
-const LIST_TOOLS = { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} };
+const FIRST_LIST_ID = 2;
+function listToolsRequest(id: number, cursor?: string) {
+	return { jsonrpc: "2.0", id, method: "tools/list", params: cursor ? { cursor } : {} };
+}
 
 export interface McpCatalogTool {
 	name: string;
@@ -25,9 +28,16 @@ export type McpCatalogEntry =
 	| { server: string; status: "listed"; tools: McpCatalogTool[] }
 	| { server: string; status: "failed"; error: string };
 
-type RpcReply = { id?: unknown; result?: { tools?: McpCatalogTool[] } };
-function toolsFrom(reply: RpcReply): McpCatalogTool[] {
-	return (reply.result?.tools ?? []).map(({ name, description }) => ({ name, description }));
+interface RpcReply {
+	id?: unknown;
+	/** Present when the server is asking the client something, not answering it. */
+	method?: unknown;
+	result?: { tools?: McpCatalogTool[]; nextCursor?: string };
+	error?: { message?: string };
+}
+interface ToolPage {
+	tools: McpCatalogTool[];
+	nextCursor?: string;
 }
 function parsedReply(line: string): RpcReply | undefined {
 	try {
@@ -35,6 +45,20 @@ function parsedReply(line: string): RpcReply | undefined {
 	} catch {
 		return undefined;
 	}
+}
+function answers(reply: RpcReply | undefined, id: number): boolean {
+	return reply?.id === id && reply.method === undefined;
+}
+/** Anything but an explicit tool array throws: an errored listing must not read as an empty one. */
+function toolPage(reply: RpcReply | undefined): ToolPage {
+	if (reply?.error)
+		throw new Error(`MCP server refused to list its tools: ${reply.error.message ?? "no reason"}`);
+	const tools = reply?.result?.tools;
+	if (!Array.isArray(tools)) throw new Error("MCP server did not answer with a tool list");
+	return {
+		tools: tools.map(({ name, description }) => ({ name, description })),
+		nextCursor: reply?.result?.nextCursor,
+	};
 }
 function stdioTools(config: Extract<McpServerConfig, { command: string }>) {
 	return new Promise<McpCatalogTool[]>((resolve, reject) => {
@@ -50,25 +74,50 @@ function stdioTools(config: Extract<McpServerConfig, { command: string }>) {
 			child.kill("SIGKILL");
 			reject(new Error("MCP server did not list its tools in time"));
 		}, CATALOG_TIMEOUT_MS);
+		const finish = (settle: () => void) => {
+			clearTimeout(timer);
+			settle();
+			child.kill();
+		};
+		const tools: McpCatalogTool[] = [];
+		let listId = FIRST_LIST_ID;
+		const acceptPage = (reply: RpcReply) => {
+			const page = toolPage(reply);
+			tools.push(...page.tools);
+			if (!page.nextCursor) return finish(() => resolve(tools));
+			listId += 1;
+			write(listToolsRequest(listId, page.nextCursor));
+		};
 		createInterface({ input: child.stdout }).on("line", (line) => {
 			const reply = parsedReply(line);
-			if (reply?.id === 1) {
+			if (answers(reply, INITIALIZE.id)) {
 				write(INITIALIZED);
-				write(LIST_TOOLS);
+				write(listToolsRequest(listId));
 			}
-			if (reply?.id !== 2) return;
-			clearTimeout(timer);
-			resolve(toolsFrom(reply));
-			child.kill();
+			if (!reply || !answers(reply, listId)) return;
+			try {
+				acceptPage(reply);
+			} catch (error) {
+				finish(() => reject(error));
+			}
 		});
 		write(INITIALIZE);
 	});
 }
-async function httpRpc(
-	config: Extract<McpServerConfig, { url: string }>,
-	message: object,
-	sessionId?: string,
-) {
+interface HttpConversation {
+	config: Extract<McpServerConfig, { url: string }>;
+	/** One deadline for the whole listing, so a server that pages forever still ends. */
+	deadline: AbortSignal;
+	sessionId?: string;
+}
+/** A JSON body is the reply. An event stream can carry notifications before it. */
+function replyIn(text: string, id: number | undefined): RpcReply | undefined {
+	const events = text.split("\n").filter((line) => line.startsWith("data:"));
+	const candidates = events.length ? events.map((line) => line.slice("data:".length)) : [text];
+	return candidates.map(parsedReply).find((reply) => id !== undefined && answers(reply, id));
+}
+async function httpRpc(conversation: HttpConversation, message: { id?: number; method: string }) {
+	const { config, deadline, sessionId } = conversation;
 	const response = await fetch(config.url, {
 		method: "POST",
 		headers: {
@@ -78,21 +127,29 @@ async function httpRpc(
 			...(sessionId ? { "mcp-session-id": sessionId } : {}),
 		},
 		body: JSON.stringify(message),
-		signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+		signal: deadline,
 	});
 	if (!response.ok) throw new Error(`MCP server answered ${response.status}`);
-	const text = await response.text();
-	const data = text.split("\n").find((line) => line.startsWith("data:"));
 	return {
-		reply: parsedReply(data ? data.slice("data:".length) : text),
+		reply: replyIn(await response.text(), message.id),
 		sessionId: response.headers.get("mcp-session-id") ?? undefined,
 	};
 }
 async function httpTools(config: Extract<McpServerConfig, { url: string }>) {
-	const { sessionId } = await httpRpc(config, INITIALIZE);
-	await httpRpc(config, INITIALIZED, sessionId);
-	const { reply } = await httpRpc(config, LIST_TOOLS, sessionId);
-	return toolsFrom(reply ?? {});
+	const deadline = AbortSignal.timeout(CATALOG_TIMEOUT_MS);
+	const { sessionId } = await httpRpc({ config, deadline }, INITIALIZE);
+	const conversation = { config, deadline, sessionId };
+	await httpRpc(conversation, INITIALIZED);
+	const tools: McpCatalogTool[] = [];
+	let listId = FIRST_LIST_ID;
+	let page = toolPage((await httpRpc(conversation, listToolsRequest(listId))).reply);
+	tools.push(...page.tools);
+	while (page.nextCursor) {
+		listId += 1;
+		page = toolPage((await httpRpc(conversation, listToolsRequest(listId, page.nextCursor))).reply);
+		tools.push(...page.tools);
+	}
+	return tools;
 }
 async function catalogEntry(name: string, config: McpServerConfig): Promise<McpCatalogEntry> {
 	try {

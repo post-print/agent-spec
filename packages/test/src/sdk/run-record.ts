@@ -115,7 +115,14 @@ export interface RunRecord {
 	calibrated: boolean;
 	packageVersion?: string;
 	git?: { sha: string; dirty: boolean };
-	hashes: { suite?: string; prompt: string; skills: string; initialSnapshot: string };
+	hashes: {
+		suite?: string;
+		prompt: string;
+		skills: string;
+		tools: string;
+		settings: string;
+		initialSnapshot: string;
+	};
 }
 export interface RunRecordBase {
 	baseDir: string;
@@ -175,6 +182,25 @@ function snapshotDigest(snapshot: WorkspaceSnapshot): string {
 		.sort();
 	return sha256(entries.join("\n"));
 }
+/** Keys in a fixed order, so the same configuration always hashes the same. */
+function stableJson(value: unknown): string {
+	return JSON.stringify(value, (_key, item: unknown) =>
+		item && typeof item === "object" && !Array.isArray(item)
+			? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+			: item,
+	);
+}
+/**
+ * What a definition gives its agent besides what the record names on its own. A deadline is left
+ * out: it is cut to the time left in each test, and it does not change what the agent can do.
+ */
+function definitionDigests({ options }: AgentDefinition) {
+	const { model, skills, auth, timeoutMs, tools, mcpServers, ...settings } = options;
+	return {
+		tools: sha256(stableJson({ tools, mcpServers })),
+		settings: sha256(stableJson(settings)),
+	};
+}
 function calibrationPath(baseDir: string, host: string, version: string): string {
 	const safeVersion = version.replace(/[^\w.-]+/g, "_");
 	return join(baseDir, ".agent-test", "calibration", `${host}-${safeVersion}.json`);
@@ -222,6 +248,7 @@ export async function buildRunRecord(
 			suite: base.suiteHash,
 			prompt: sha256(prompt),
 			skills: await skillsDigest(context),
+			...definitionDigests(definition),
 			initialSnapshot: snapshotDigest(initial),
 		},
 	};

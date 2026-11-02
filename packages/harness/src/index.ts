@@ -27,8 +27,9 @@ export { createAgentSession, HarnessSession } from "./agent-session.js";
 export { resolvedTotalTokens } from "./capture.js";
 export { loginCursorSdk } from "./cursor-auth.js";
 export { Confinement, HostConditions, NetworkState } from "./host-conditions.js";
+export { isSecretFieldName, redactSecrets } from "./host-failure.js";
 export { listMcpCatalog, McpCatalogEntry, McpCatalogTool } from "./mcp-catalog.js";
-export { resolveOpenaiBin } from "./openai-run.js";
+export { recoverOpenaiRunHomes, resolveOpenaiBin } from "./openai-run.js";
 export { ownerIsActive, ProcessOwner, processOwner } from "./process-owner.js";
 export { recoverSealedWorkspaces } from "./sealed-storage.js";
 export {

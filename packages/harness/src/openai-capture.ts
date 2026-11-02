@@ -7,6 +7,7 @@ import {
 	type TraceAccumulator,
 	toolResultFields,
 } from "./capture.js";
+import { redactSecrets } from "./host-failure.js";
 import type { AgentTrace, AgentUsage } from "./types.js";
 
 /** One JSONL line from `codex exec --json`. */
@@ -39,12 +40,15 @@ export interface OpenaiTraceAccumulator extends TraceAccumulator {
 	rawStatus?: string;
 	sawTerminalEvent?: boolean;
 	resultError?: string;
+	/** Errors Codex reported and then recovered from, such as "Reconnecting... 1/5". */
+	recoveredErrors: string[];
 	shellCommands: string[];
 }
 
 export function createOpenaiTraceAccumulator(): OpenaiTraceAccumulator {
 	return {
 		...createTraceAccumulator(),
+		recoveredErrors: [],
 		shellCommands: [],
 	};
 }
@@ -215,18 +219,32 @@ function openaiEventError(event: OpenaiJsonlEvent): string | undefined {
 	if (typeof event.error === "string") return event.error;
 	return event.error?.message || event.message || undefined;
 }
+/**
+ * Codex emits `error` for retryable stream errors as well as fatal ones, without telling them
+ * apart, so only the turn's terminal event decides. A fatal error ends in `turn.failed`.
+ */
+function recoverFromEarlierErrors(acc: OpenaiTraceAccumulator): void {
+	if (acc.rawStatus === "turn.failed") return;
+	if (acc.resultError) acc.recoveredErrors.push(acc.resultError);
+	acc.rawStatus = undefined;
+	acc.resultError = undefined;
+}
 /** Folds turn status and failure events; false means the event carries an item instead. */
 function accumulateStatusEvent(acc: OpenaiTraceAccumulator, event: OpenaiJsonlEvent): boolean {
 	const type = event.type ?? "";
 	if (type === "turn.completed") {
 		acc.sawTerminalEvent = true;
+		recoverFromEarlierErrors(acc);
 		if (event.usage) acc.usage = mergeAgentUsage(acc.usage, normalizeOpenaiUsage(event.usage));
 		return true;
 	}
 	if (type !== "turn.failed" && type !== "error" && type !== "thread.error") return false;
 	if (type === "turn.failed") acc.sawTerminalEvent = true;
+	const message = openaiEventError(event);
+	if (message && acc.resultError && message !== acc.resultError)
+		acc.recoveredErrors.push(acc.resultError);
 	acc.rawStatus = type;
-	acc.resultError = openaiEventError(event) ?? acc.resultError;
+	acc.resultError = message ?? acc.resultError;
 	return true;
 }
 /** Fold one Codex JSONL event into the accumulator. */
@@ -254,7 +272,10 @@ export function finalizeOpenaiTraceAccumulator(acc: OpenaiTraceAccumulator): Age
 		artifacts: {
 			...trace.artifacts,
 			...(acc.rawStatus ? { openaiRawStatus: acc.rawStatus } : {}),
-			...(acc.resultError ? { openaiResultError: acc.resultError } : {}),
+			...(acc.resultError ? { openaiResultError: redactSecrets(acc.resultError) } : {}),
+			...(acc.recoveredErrors.length > 0
+				? { openaiRecoveredErrors: redactSecrets(acc.recoveredErrors.join("\n")) }
+				: {}),
 		},
 	};
 }

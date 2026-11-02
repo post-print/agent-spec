@@ -23,7 +23,10 @@ export class ViewerApi {
 		return this.start<T>({ all: true, workers });
 	}
 	cancelExecution<T>(id: string): Promise<T> {
-		return this.json(`/api/executions/${id}/cancel`, { method: "POST" });
+		return this.json(`/api/executions/${id}/cancel`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+		});
 	}
 	private start<T>(body: ExecutionRequest): Promise<T> {
 		return this.json("/api/executions", {

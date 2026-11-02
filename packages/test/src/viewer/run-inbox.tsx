@@ -3,12 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { claimLines } from "../sdk/claims.js";
-import { verdictSentence } from "../sdk/verdict.js";
+import { verdictNotes, verdictSentence } from "../sdk/verdict.js";
 import { ElapsedTime } from "./elapsed-time.js";
 import {
 	formatElapsed,
 	formatRunDate,
+	runDisplayStatus,
 	runStatusCounts,
+	statusNeedsReview,
 	stripAnsi,
 	type TestRunStatus,
 	testIdsBySeverity,
@@ -91,7 +93,11 @@ function RunOverview({ run, eyebrow }: { run: ExecutionSummary; eyebrow: string 
 
 /** Failure excerpts and the stop control need the full record; passing runs skip that fetch. */
 function useRunDetail(run: ExecutionSummary, counts: Map<TestRunStatus, number>) {
-	const needsDetail = run.status === "running" || counts.has("failed") || counts.has("interrupted");
+	const needsDetail =
+		run.status === "running" ||
+		[...counts.keys()].some(
+			(status) => status === "failed" || status === "interrupted" || statusNeedsReview(status),
+		);
 	const detail = useQuery({
 		queryKey: ["execution", run.id],
 		queryFn: () => fetchExecution<RunDetail>(run.id),
@@ -128,7 +134,7 @@ function RunHeader({
 			</div>
 			<div {...stylex.props(styles.headerActions)}>
 				{run.status === "running" && detail?.cancellable ? <StopRunButton run={run} /> : null}
-				<StatusPill status={runOutcome(run)} />
+				<StatusPill status={runDisplayStatus(run)} />
 			</div>
 		</header>
 	);
@@ -150,11 +156,22 @@ function RunningFor({ run, total }: { run: ExecutionSummary; total: number }) {
 
 /** Explains a run that has no test outcome yet, or never got one. */
 function RunNotice({ run }: { run: ExecutionSummary }) {
+	if (run.verdictUnreadable || run.status === "unknown")
+		return (
+			<p role="status" {...stylex.props(styles.meta)}>
+				Unknown: this run's stored record could not be read, so nothing is known about it.
+			</p>
+		);
 	if (!run.verdict || (run.verdict.verdict === "passed" && !run.verdict.claims?.length))
 		return <RunStartNotice run={run} />;
 	return (
 		<>
 			<p {...stylex.props(styles.meta)}>{verdictSentence(run.verdict)}</p>
+			{verdictNotes(run.verdict).map((note) => (
+				<p key={note} {...stylex.props(styles.meta)}>
+					{note}
+				</p>
+			))}
 			{run.verdict.claims?.map((claim) => (
 				<p key={claim.claim} {...stylex.props(styles.meta)}>
 					{claimLines(claim).join(" · ")}
@@ -264,7 +281,7 @@ function RunTestList({
 						runId={run.id}
 						status={testRunStatus(run, testId)}
 						test={tests.get(testId) ?? missingTest(testId)}
-						error={firstErrorLine(detail, testId)}
+						error={testError(run, detail, testId)}
 					/>
 				</li>
 			))}
@@ -329,14 +346,14 @@ function EarlierRunRow({ run }: { run: ExecutionSummary }) {
 	const when = formatRunDate(run.startedAt);
 	const body = (
 		<>
-			<StatusDot status={runOutcome(run)} />
+			<StatusDot status={runDisplayStatus(run)} />
 			<span {...stylex.props(styles.testCopy)}>
 				<span {...stylex.props(styles.testTitle)}>{onlyTest?.title.at(-1) ?? when}</span>
 				<span {...stylex.props(styles.testGroup)}>
 					{onlyTest ? when : `${run.testIds?.length ?? 0} tests · ${countSummary(run)}`}
 				</span>
 			</span>
-			<span {...stylex.props(styles.rowStatus)}>{runOutcome(run)}</span>
+			<span {...stylex.props(styles.rowStatus)}>{runDisplayStatus(run)}</span>
 		</>
 	);
 	return onlyTest ? (
@@ -380,7 +397,8 @@ function StatusPill({ status }: { status: TestRunStatus }) {
 				styles.pill,
 				status === "passed" && styles.pillPass,
 				status === "failed" && styles.pillFail,
-				(status === "running" || status === "queued") && styles.pillRunning,
+				(status === "running" || status === "queued" || statusNeedsReview(status)) &&
+					styles.pillRunning,
 			)}
 		>
 			{status}
@@ -398,19 +416,11 @@ function StatusDot({ status, inline = false }: { status: TestRunStatus; inline?:
 				status === "passed" && styles.dotPass,
 				status === "failed" && styles.dotFail,
 				(status === "running" || status === "queued") && styles.dotRunning,
+				statusNeedsReview(status) && styles.dotReview,
 				status === "skipped" && styles.dotSkipped,
 			)}
 		/>
 	);
-}
-
-/** The most severe test outcome; a batch with nothing run is not "passed". */
-function runOutcome(run: ExecutionSummary): TestRunStatus {
-	if (run.status === "running") return "running";
-	const worst = runStatusCounts(run).keys().next().value ?? "passed";
-	if (run.status === "interrupted" && (worst === "passed" || worst === "skipped"))
-		return "interrupted";
-	return worst;
 }
 
 function capitalize(value: string): string {
@@ -427,6 +437,11 @@ function runDuration(run: ExecutionSummary): string | undefined {
 	const ms = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
 	if (!Number.isFinite(ms) || ms < 0) return undefined;
 	return formatElapsed(ms);
+}
+
+/** A control's failure is its pass, so a passed row carries no error to explain. */
+function testError(run: ExecutionSummary, detail: RunDetail | undefined, testId: string) {
+	return testRunStatus(run, testId) === "passed" ? undefined : firstErrorLine(detail, testId);
 }
 
 function firstErrorLine(detail: RunDetail | undefined, testId: string): string | undefined {
@@ -608,6 +623,7 @@ const styles = stylex.create({
 	dotPass: { backgroundColor: "var(--pass)" },
 	dotFail: { backgroundColor: "var(--fail)" },
 	dotRunning: { backgroundColor: "var(--skip)", boxShadow: "0 0 0 3px var(--skip-soft)" },
+	dotReview: { backgroundColor: "var(--skip)" },
 	dotSkipped: {
 		backgroundColor: "transparent",
 		borderWidth: 1.5,

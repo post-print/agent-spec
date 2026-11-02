@@ -56,7 +56,13 @@ function networkState(agent: AgentDefinition, readOnly: boolean): NetworkState {
 }
 function settingSources(agent: AgentDefinition): string[] | undefined {
 	const includeGlobal = agent.options.includeGlobalSkills === true;
-	if (agent.host === "claude") return includeGlobal ? ["user", "project"] : ["project"];
+	if (agent.host === "claude") {
+		if (includeGlobal) return ["user", "project"];
+		// See claudeSessionFlags: API-key auth with no project context runs `--bare`.
+		const bare =
+			agent.options.auth?.type === "api-key" && agent.options.loadProjectContext === false;
+		return bare ? [] : ["project"];
+	}
 	if (agent.host === "openai") return includeGlobal ? ["user"] : [];
 	return undefined;
 }
