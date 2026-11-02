@@ -19,7 +19,7 @@ A result earns trust by answering four questions, in order. Each is meaningless 
 
 Before adding a test, name the subject, the question, the evidence it reads, and the control that would make it fail.
 
-A pass is default-deny. agent-test exits 0 only on a path listed in `EXIT_ZERO_PATHS` (`packages/test/src/sdk/verdict.ts`), and each path names the evidence it needs. A verdict that reaches exit 0 without that evidence becomes `instrument_error`. Property tests over generated runs (`packages/test/src/__tests__/verdict-properties.test.ts`) check the rules every run must keep. Exit 0 needs a test or plan that passed on its own evidence. A failure is charged to the agent only through a recorded check or a control that survived. The verdict does not depend on the order attempts arrive in.
+A pass is default-deny. agent-test exits 0 only on a path listed in `EXIT_ZERO_PATHS` (`packages/test/src/sdk/verdict.ts`), and each path names the evidence it needs. A verdict that reaches exit 0 without that evidence becomes `instrument_error`. Property tests over generated runs (`packages/test/src/__tests__/verdict-properties.test.ts`) check the rules every run must keep. Exit 0 needs a test or plan that passed on its own evidence. A failure is charged to the agent only on typed evidence that the agent caused it. That evidence is a check that failed after the agent started, the agent's own outcome as its host reported it (`AgentOutcomeError`, or a run that left its workspace), or a control that survived. The test's own code failing, such as a `TypeError` in a helper, is `author_error`. An operation that failed for a reason nobody typed is `instrument_error`. Neither is ever charged to the agent. The verdict does not depend on the order attempts arrive in.
 
 ## Controls
 
@@ -41,7 +41,7 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | 0 | `passed` | Every test that ran passed, on the first try, every sampling plan cleared or every `--repeat-each` repeat passed, and the runner agrees. |
 | 0 | `listed` | `--list` only. No test ran. |
 | 3 | `indicative` | Rates were reported, with no plan to decide them: `samples` with no `flagAt`, or `--repeat-each` with `--measure`. Nothing failed, but nothing passed either. |
-| 1 | `agent_failed` | A test's checks failed, a repeat from `--repeat-each` failed, a sampling plan flagged, or a claim regressed from its baseline. A real failure outranks any test with no verdict. |
+| 1 | `agent_failed` | A check failed after the agent started, the host reported the agent's own terminal failure, the agent left its workspace, a repeat from `--repeat-each` failed, a sampling plan flagged, or a claim regressed from its baseline. A real failure outranks any test with no verdict. |
 | 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |
 | 2 | `infra_invalid` | The host or runner failed, so nothing is known about the agent. |
 | 2 | `conditions_unknown` | The run cannot show what a test asked about, a comparison's arms differ beyond its subject or one has no verdict, or a sampled run found a baseline file it cannot read. |
@@ -49,7 +49,8 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | 2 | `flaky` | A test failed and then passed on retry. Every attempt is kept. |
 | 2 | `skipped_only` | No test ran. |
 | 2 | `interrupted` | The run was stopped, a test it set out to run never started, for example under `--max-failures`, or an attempt never finished. |
-| 2 | `instrument_error` | The runner and the recorded attempts disagree, a failure has no recorded error, the samples of one test disagree on their plan, or a verdict reached exit 0 without the evidence its path needs. |
+| 2 | `author_error` | The test's own code failed, not a check and not an agent operation, so nothing is known about the agent. |
+| 2 | `instrument_error` | The runner and the recorded attempts disagree, an agent or judge operation failed for a reason nobody typed, a failure has no recorded error, the samples of one test disagree on their plan, or a verdict reached exit 0 without the evidence its path needs. |
 
 `--allow-indicative` makes an indicative run exit 0 for a caller that only wants the rates. The stored verdict keeps `indicative` and records `indicativeAllowed`, and the CLI says that exit 0 came from the flag. Runs stored before v5 named this verdict `measured`; the viewer reads them as indicative.
 

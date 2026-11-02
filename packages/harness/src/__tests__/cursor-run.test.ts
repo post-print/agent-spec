@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { AgentOutcomeError } from "../agent-error.js";
 import { AgentRunTimeoutError } from "../run-guards.js";
 
 const agentCreate = jest.fn();
@@ -463,14 +464,12 @@ it("cursor host failures › terminal statuses that name the host are typed", as
 	}
 });
 
-it("cursor host failures › agent-quoting text and unknown errors stay ordinary run failures", async () => {
+it("cursor host failures › agent-quoting text and unknown errors stay the agent's own outcome", async () => {
 	cursorRun(
 		async () => ({ status: "error", error: { message: "the tool said 401 unauthorized" } }),
 		[ASSISTANT_EVENT],
 	);
-	const failure = (await cursorFailure()) as Error & { kind?: string };
-	expect(failure).toBeInstanceOf(Error);
-	expect(failure.kind).toBeUndefined();
+	expect(await cursorFailure()).toBeInstanceOf(AgentOutcomeError);
 });
 
 it("cursor host failures › a finished run with assistant output completes", async () => {

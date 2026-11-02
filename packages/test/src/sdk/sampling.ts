@@ -113,7 +113,8 @@ function outcomeOf({ info, runtime }: SampleRun, thrown: unknown[]): SampleOutco
 		status: attemptStatus(info, errors),
 		expectedFailure,
 		survivedControl: expectedFailure && errors.length === 0,
-		checkFailed: thrown.some(isFailedCheck),
+		// While the body runs, the test's own errors so far can only be soft checks that failed.
+		checkFailed: info.errors.length > 0 || thrown.some(isFailedCheck),
 		timedOut: info.status === "timedOut",
 		errors,
 		operations: runtime.reportedInfrastructureFailure()

@@ -56,6 +56,18 @@ export class AgentSessionCancelledError extends Error {
 	}
 }
 
+/**
+ * The host ran and reported its own terminal failure, such as running out of turns. That is
+ * something the agent did, so it is charged to the agent, unlike an error nobody typed.
+ */
+export class AgentOutcomeError extends Error {
+	readonly kind = "agent-outcome" as const;
+	constructor(message: string) {
+		super(message);
+		this.name = "AgentOutcomeError";
+	}
+}
+
 /** The agent named paths outside its sealed workspace; its result is not trusted evidence. */
 export class WorkspaceEscapeError extends Error {
 	readonly kind = "workspace-escape" as const;

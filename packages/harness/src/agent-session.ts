@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentCapabilities, AgentDefinition, AgentEvent } from "./agent-definition.js";
 import {
 	AgentInfrastructureError,
+	AgentOutcomeError,
 	AgentSessionCancelledError,
 	isAgentInfrastructureCode,
 } from "./agent-error.js";
@@ -193,6 +194,7 @@ function workerError(raw: unknown): Error {
 			value.code,
 			typeof value.timeoutMs === "number" ? value.timeoutMs : undefined,
 		);
+	if (value.name === "AgentOutcomeError") return new AgentOutcomeError(message);
 	const error = new Error(message);
 	if (typeof value.name === "string") error.name = value.name;
 	return error;

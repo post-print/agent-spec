@@ -156,6 +156,7 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["good run", "passed", 0],
 	["assertion fails", "agent_failed", 1],
 	["host reports hitting its limit", "agent_failed", 1],
+	["test code breaks after the agent ran", "author_error", 2],
 	["host emits nothing", "infra_invalid", 2],
 	["host emits garbage", "infra_invalid", 2],
 	["host is killed", "infra_invalid", 2],

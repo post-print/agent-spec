@@ -91,6 +91,7 @@ const VERDICT_STATUS: Record<RunVerdict, TestRunStatus> = {
 	skipped_only: "skipped",
 	interrupted: "interrupted",
 	listed: "skipped",
+	author_error: "no verdict",
 	instrument_error: "no verdict",
 };
 /** The names a stored verdict may use. Any other name is a verdict this viewer cannot read. */

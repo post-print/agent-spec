@@ -17,6 +17,8 @@ const MESSAGES = [
 	"UnearnedResultError: no agent ran",
 	"ConditionsUnknownError: no catalog",
 	"RunnerCleanupError: rm failed",
+	"TypeError: Cannot read properties of undefined",
+	"AgentOutcomeError: error_max_turns",
 ];
 const TYPED = /^(AgentInfrastructureError|UnearnedResultError|ConditionsUnknownError)\b/;
 const WORKER_CRASH = { message: "Error: worker process exited unexpectedly (code 1)" };
@@ -26,7 +28,15 @@ const error = fc.oneof(
 	fc.constant(WORKER_CRASH),
 );
 const operation = fc.record({
-	data: fc.array(fc.constantFrom({ kind: "infrastructure" }, { kind: "run" }), { maxLength: 2 }),
+	data: fc.array(
+		fc.constantFrom(
+			{ kind: "infrastructure" },
+			{ kind: "agent" },
+			{ kind: "runtime" },
+			{ kind: "run" },
+		),
+		{ maxLength: 2 },
+	),
 });
 const TESTS = ["a", "b", "c", "d"];
 const plan = fc.record(
@@ -81,18 +91,25 @@ function counterexample(property: Property): string | undefined {
 	return details.failed ? (fc.defaultReportMessage(details) ?? "failed") : undefined;
 }
 /** A failure the agent could have caused: a recorded check error, with nothing typed above it. */
+function operationsReport(attempt: VerdictAttempt, kind: string): boolean {
+	return attempt.operations.some(({ data }) =>
+		data.some((item) => (item as { kind: string }).kind === kind),
+	);
+}
+/** Typed evidence the agent caused it: a check that failed after it started, or its own outcome. */
+function agentEvidence(attempt: VerdictAttempt): boolean {
+	return attempt.checkFailed === true || operationsReport(attempt, "agent");
+}
+/** A failure the agent could have caused, with nothing typed above it that would void the attempt. */
 function chargeableToAgent(attempt: VerdictAttempt): boolean {
 	const messages = attempt.errors.map((item) => (item as { message: string }).message);
-	const infrastructure = attempt.operations.some(({ data }) =>
-		data.some((item) => (item as { kind: string }).kind === "infrastructure"),
-	);
 	return (
 		attempt.status === "failed" &&
 		!attempt.timedOut &&
-		!infrastructure &&
+		!operationsReport(attempt, "infrastructure") &&
 		!attempt.errors.includes(WORKER_CRASH) &&
 		!messages.some((message) => TYPED.test(message)) &&
-		messages.some((message) => message.startsWith("Error: expect"))
+		agentEvidence(attempt)
 	);
 }
 function passedOnItsOwn(attempt: VerdictAttempt): boolean {

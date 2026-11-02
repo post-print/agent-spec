@@ -44,6 +44,11 @@ test("good run", async ({ agent }) => {
 test("assertion fails", async ({ agent }) => {
 	expect((await agent.run(scenario("GOOD"))).output).toBe("something else");
 });
+test("test code breaks after the agent ran", async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	const parsed = JSON.parse("{}") as { answer?: { text: string } };
+	expect(run.output.length + (parsed.answer as { text: string }).text.length).toBeGreaterThan(0);
+});
 test("host reports hitting its limit", async ({ agent }) => {
 	await agent.run(scenario("MAX_TURNS"));
 });

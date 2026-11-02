@@ -16,8 +16,9 @@ const attempt = (overrides: Partial<VerdictAttempt>): VerdictAttempt => ({
 });
 const reduce = (attempts: VerdictAttempt[], runnerExitCode = 0, extra = {}) =>
 	reduceVerdict({ attempts, interrupted: false, listOnly: false, runnerExitCode, ...extra });
+/** A failed check after the agent started, as the reporter records an assertion that failed. */
 const failed = (message: string, testId = "a") =>
-	attempt({ testId, status: "failed", errors: [{ message }] });
+	attempt({ testId, status: "failed", checkFailed: true, errors: [{ message }] });
 
 describe("reduceVerdict", () => {
 	it("passed needs every test to pass and the runner to agree", () => {
@@ -117,8 +118,43 @@ describe("reduceVerdict on runner failures", () => {
 				{ message: "WorkspaceEscapeError: /etc" },
 				{ message: "RunnerCleanupError: EACCES" },
 			],
+			operations: [{ data: [{ kind: "agent", message: "Agent used paths outside" }] }],
 		});
 		expect(reduce([both], 1).verdict).toBe("agent_failed");
+	});
+});
+
+describe("reduceVerdict on who caused a failure", () => {
+	const thrown = (message: string, operations: VerdictAttempt["operations"] = []) =>
+		attempt({ status: "failed", errors: [{ message }], operations });
+	it("the test's own code failing after the agent ran is not the agent's failure", () => {
+		const result = reduce([thrown("TypeError: Cannot read properties of undefined")], 1);
+		expect(result).toMatchObject({ verdict: "author_error", exitCode: 2 });
+	});
+	it("the agent's own outcome, as the host reported it, is the agent's failure", () => {
+		const outcome = [{ data: [{ kind: "agent", message: "error_max_turns" }] }];
+		expect(reduce([thrown("AgentOutcomeError: error_max_turns", outcome)], 1).verdict).toBe(
+			"agent_failed",
+		);
+	});
+	it("an operation that failed for a reason nobody typed is the instrument's", () => {
+		const untyped = [{ data: [{ kind: "runtime", message: "adapter broke" }] }];
+		expect(reduce([thrown("Error: adapter broke", untyped)], 1).verdict).toBe("instrument_error");
+	});
+	it("a check that failed after the agent ran is the agent's, beside an untyped error", () => {
+		const untyped = [{ data: [{ kind: "runtime", message: "adapter broke" }] }];
+		const checked = {
+			...thrown("Error: expect(received).toBe(expected)", untyped),
+			checkFailed: true,
+		};
+		expect(reduce([checked], 1).verdict).toBe("agent_failed");
+	});
+	it("a sample that failed in the test's own code counts as no verdict, not a failure", () => {
+		const sample = { title: "claim", n: 1, flagAt: 1 };
+		const broken = { ...thrown("TypeError: x is not a function"), claim: "claim", sample };
+		const result = reduce([broken], 1);
+		expect(result.claims[0]?.arms[0]).toMatchObject({ failed: 0, noVerdict: 1 });
+		expect(result.verdict).toBe("infra_invalid");
 	});
 });
 
@@ -160,6 +196,7 @@ describe("reduceVerdict with a baseline", () => {
 			claim: "claim",
 			status,
 			sample: { title: "claim", n: 27 },
+			checkFailed: status === "failed",
 			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
 			operations: [{ data: [{ record }] }],
 		});
@@ -194,6 +231,7 @@ describe("reduceVerdict with repeats from the command line", () => {
 			testId,
 			claim: "claim",
 			status,
+			checkFailed: status === "failed",
 			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
 		});
 	const attempts = [repeat("passed", "a"), repeat("failed", "b")];
@@ -226,6 +264,7 @@ describe("reduceVerdict on runs that did not finish", () => {
 			claim: "claim",
 			status,
 			sample: { title: "claim", n: 2 },
+			checkFailed: status === "failed",
 			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
 		});
 	it("a test that never started leaves a rate with no verdict", () => {

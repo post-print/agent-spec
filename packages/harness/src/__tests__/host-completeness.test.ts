@@ -3,7 +3,13 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { claude, createAgentSession, customAgent, openai } from "../../dist/index.js";
+import {
+	AgentOutcomeError,
+	claude,
+	createAgentSession,
+	customAgent,
+	openai,
+} from "../../dist/index.js";
 
 const MESSAGE_LINE = {
 	claude: '{"type":"assistant","message":{"content":[{"type":"text","text":"Working."}]}}',
@@ -146,14 +152,13 @@ describe("session failure messages", () => {
 		expect(message).not.toContain("hunter2");
 		expect(message).not.toContain("abc.def");
 	});
-	it("a terminal failure stays a runtime failure", async () => {
+	it("a terminal failure is the agent's own outcome, not infrastructure", async () => {
 		const bin = await fakeHost(
 			"claude-s-max-turns",
 			`echo '{"type":"result","subtype":"error_max_turns","is_error":false}'`,
 		);
 		const failure = await sessionFailure("claude", bin);
-		expect(failure).toBeInstanceOf(Error);
-		expect((failure as { kind?: string }).kind).toBeUndefined();
+		expect(failure).toBeInstanceOf(AgentOutcomeError);
 		expect((failure as Error).message).toContain("error_max_turns");
 	});
 });

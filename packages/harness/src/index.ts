@@ -20,6 +20,7 @@ export {
 	AgentInfrastructureCode,
 	AgentInfrastructureError,
 	AgentInfrastructureFailure,
+	AgentOutcomeError,
 	isAgentInfrastructureCode,
 	WorkspaceEscapeError,
 } from "./agent-error.js";

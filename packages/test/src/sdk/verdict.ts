@@ -28,6 +28,7 @@ export type RunVerdict =
 	| "skipped_only"
 	| "interrupted"
 	| "listed"
+	| "author_error"
 	| "instrument_error";
 
 export interface VerdictAttempt {
@@ -97,6 +98,7 @@ const EXIT_CODES: { [V in RunVerdict]: V extends ExitZeroVerdict ? 0 : 1 | 2 | 3
 	flaky: 2,
 	skipped_only: 2,
 	interrupted: 2,
+	author_error: 2,
 	instrument_error: 2,
 };
 
@@ -115,10 +117,23 @@ function workerCrashed(attempt: VerdictAttempt): boolean {
 		return WORKER_CRASH.test(message) && !stack;
 	});
 }
-function operationReportedInfrastructure(attempt: VerdictAttempt): boolean {
+function operationReported(attempt: VerdictAttempt, kind: string): boolean {
 	return attempt.operations.some(({ data }) =>
-		data.some((item) => (item as { kind?: string } | null)?.kind === "infrastructure"),
+		data.some((item) => (item as { kind?: string } | null)?.kind === kind),
 	);
+}
+function operationReportedInfrastructure(attempt: VerdictAttempt): boolean {
+	return operationReported(attempt, "infrastructure");
+}
+/**
+ * The agent is charged only on evidence that it caused the failure: a check that failed after it
+ * started, or its own outcome as the host reported it. An operation that failed for a reason
+ * nobody typed is the instrument's. Anything else came from the test's own code.
+ */
+function blamedSource(attempt: VerdictAttempt): RunVerdict {
+	if (attempt.checkFailed || operationReported(attempt, "agent")) return "agent_failed";
+	if (operationReported(attempt, "runtime")) return "instrument_error";
+	return "author_error";
 }
 /** A failure whose cause was typed when it happened, before any check could be blamed. */
 function typedFailureVerdict(attempt: VerdictAttempt): RunVerdict | undefined {
@@ -137,7 +152,7 @@ function failedAttemptVerdict(attempt: VerdictAttempt): RunVerdict {
 	if (attempt.expectedFailure && !attempt.checkFailed) return "vacuous";
 	// Cleanup alone says nothing about the agent. Any other failure beside it still stands.
 	if (attempt.errors.every(isCleanupFailure)) return "infra_invalid";
-	return "agent_failed";
+	return blamedSource(attempt);
 }
 /** An expected failure only counts when a check failed, not when the host or runner did. */
 function passedAttempt(attempt: VerdictAttempt): boolean {
@@ -175,6 +190,7 @@ const PRECEDENCE: RunVerdict[] = [
 	"control_survived",
 	"instrument_error",
 	"interrupted",
+	"author_error",
 	"infra_invalid",
 	"conditions_unknown",
 	"vacuous",
@@ -388,6 +404,8 @@ const SENTENCES: Record<RunVerdict, string> = {
 	skipped_only: "No verdict: no test ran",
 	interrupted: "No verdict: the run was interrupted",
 	listed: "Listed tests only",
+	author_error:
+		"No verdict: the test's own code failed, not a check on the agent, so nothing is known about the agent",
 	instrument_error: "No verdict: the runner and the recorded attempts disagree",
 };
 /** Plain words for a person. A count is a count of runs, never a claim of reliability. */
