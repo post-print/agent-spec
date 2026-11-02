@@ -160,6 +160,31 @@ expect(tokens.mean).toBeLessThan(tokenBudget);
 
 `statistics` computes count/mean/min/max. Missing measurements expose `available: false` and throw when an aggregate is accessed. Judge usage is separate from task usage. Cross-provider tokens are not equivalent cost; small samples do not establish reliability.
 
+## Accepting weaker conditions
+
+A suite that cannot meet the conditions a pass needs can say so in its config, and give its reason. One example is a custom adapter run unconfined in a real worktree:
+
+```ts
+export default defineConfig({
+  agent: customAgent({ adapter: "./adapter.mjs", options: { model: "pinned-model" } }),
+  accept: {
+    conditions: ["calibration", "confinement", "user-config"],
+    reason: "Runs unconfined in a real worktree; only escape detection applies.",
+  },
+});
+```
+
+`accept.conditions` names some of these:
+- `calibration`: no passing host probe from the last week
+- `escape-battery`: no escape battery that held
+- `confinement`: the host only detects escapes
+- `user-config`: the host's own user configuration may reach the run
+- `model`: no pinned model
+
+A run whose only weaknesses are on that list ends as `accepted`, exit 0, never `passed`. A weakness that is not on the list still makes the run `indicative`. A failure is still a failure, and a rate with no plan is never accepted.
+
+Each run record carries `accepted`, which is part of a claim's fingerprint, and the viewer labels the run "Accepted conditions". `--verdict-grade` refuses a suite that sets `accept`. Only the config can set it, never an adapter.
+
 ## Rates and comparisons
 
 One run says something can happen, not how often it does. `samples` runs a test n times and reports one claim: k of n, with an exact 95% interval.

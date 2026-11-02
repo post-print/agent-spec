@@ -10,6 +10,7 @@ import {
 	executionHistoryRoot,
 	saveExecutionVerdict,
 } from "../sdk/execution-store.js";
+import { defineConfig } from "../sdk/test.js";
 import type { RunVerdict, VerdictResult } from "../sdk/verdict.js";
 
 it("rejects legacy JSON flags with migration guidance", async () => {
@@ -90,4 +91,15 @@ it("a run with no verdict saves no baseline at all", async () => {
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
+});
+
+it("defineConfig refuses an accept that names nothing, names an unknown condition, or gives no reason", () => {
+	const config = (accept: unknown) => () => defineConfig({ accept } as never);
+	expect(config({ conditions: [], reason: "x" })).toThrow("accept.conditions");
+	expect(config({ conditions: ["sandbox"], reason: "x" })).toThrow("unknown: sandbox");
+	expect(config({ conditions: ["calibration"], reason: " " })).toThrow("accept.reason");
+	const accepted = defineConfig({ accept: { conditions: ["model", "model"], reason: " why " } });
+	expect(accepted.use).toMatchObject({
+		acceptedConditions: { conditions: ["model"], reason: "why" },
+	});
 });

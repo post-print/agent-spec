@@ -11,7 +11,7 @@ export { playwrightCli } from "./playwright-cli.js";
  * Only a rate that stood can become the bar later runs are held to. A failed, flagged or regressed
  * claim would lower it, and a run with no verdict says nothing it could be held to.
  */
-const FIT_FOR_BASELINES = new Set<RunVerdict>(["passed", "indicative"]);
+const FIT_FOR_BASELINES = new Set<RunVerdict>(["passed", "accepted", "indicative"]);
 async function saveLatestBaselines(config: string): Promise<SavedBaselines> {
 	const root = executionHistoryRoot(config);
 	const summaries = await listExecutionHistory(root);

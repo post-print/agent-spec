@@ -8,6 +8,7 @@ import {
 } from "@playwright/test";
 import type { AgentDefinition } from "@post-print/agent-harness";
 import type { z } from "zod";
+import { ACCEPTABLE_CONDITIONS, type AcceptedConditions } from "./claim-strength.js";
 import { derivedExpectCriteria } from "./criteria.js";
 import { type AgentResource, factories, type JudgeResource, type Resource } from "./definitions.js";
 import { UnearnedResultError } from "./operation-ledger.js";
@@ -28,13 +29,20 @@ interface Defaults {
 	agentDefinition?: AgentDefinition;
 	judgeDefinition?: AgentDefinition;
 	workspaceSource: string;
+	acceptedConditions?: AcceptedConditions;
 }
 const runner = base.extend<Defaults & { runtime: TestRuntime }>({
 	agentDefinition: [undefined, { option: true }],
 	judgeDefinition: [undefined, { option: true }],
 	workspaceSource: [".", { option: true }],
-	runtime: async ({ agentDefinition, judgeDefinition, workspaceSource }, use, info) => {
-		const owner = await runtimeOwner({ agentDefinition, judgeDefinition, workspaceSource }, info);
+	acceptedConditions: [undefined, { option: true }],
+	runtime: async (
+		{ agentDefinition, judgeDefinition, workspaceSource, acceptedConditions },
+		use,
+		info,
+	) => {
+		const defaults = { agentDefinition, judgeDefinition, workspaceSource, acceptedConditions };
+		const owner = await runtimeOwner(defaults, info);
 		try {
 			await use(owner.runtime);
 		} finally {
@@ -55,6 +63,7 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		agent: defaults.agentDefinition,
 		judge: defaults.judgeDefinition,
 		workspace: defaults.workspaceSource,
+		accepted: defaults.acceptedConditions,
 		signal: new AbortController().signal,
 		testFile: info.file,
 		remainingTestMs: () => (info.timeout === 0 ? undefined : startedAt + info.timeout - Date.now()),
@@ -241,19 +250,35 @@ interface Configuration {
 	agent?: AgentDefinition;
 	judge?: AgentDefinition;
 	workspace?: string;
+	/**
+	 * Conditions this suite accepts going without, with why. A run weak only on these ends as
+	 * `accepted`, exit 0, never `passed`. It is recorded on every run and `--verdict-grade` refuses it.
+	 */
+	accept?: AcceptedConditions;
+}
+/** An `accept` that names nothing, names an unknown condition, or gives no reason is a mistake. */
+function checkedAccept(accept: AcceptedConditions): AcceptedConditions {
+	const unknown = accept.conditions.filter((name) => !ACCEPTABLE_CONDITIONS.includes(name));
+	if (accept.conditions.length === 0 || unknown.length > 0)
+		throw new Error(
+			`accept.conditions must name some of ${ACCEPTABLE_CONDITIONS.join(", ")}${unknown.length ? `; unknown: ${unknown.join(", ")}` : ""}`,
+		);
+	if (!accept.reason?.trim()) throw new Error("accept.reason must say why the suite accepts them");
+	return { conditions: [...new Set(accept.conditions)], reason: accept.reason.trim() };
 }
 export type AgentTestConfig = Omit<PlaywrightTestConfig<Defaults>, "use" | "projects"> &
 	Configuration & {
 		projects?: (Omit<NonNullable<PlaywrightTestConfig<Defaults>["projects"]>[number], "use"> &
 			Configuration)[];
 	};
-function translate({ agent, judge, workspace, ...rest }: Configuration) {
+function translate({ agent, judge, workspace, accept, ...rest }: Configuration) {
 	return {
 		...rest,
 		use: {
 			...(agent ? { agentDefinition: agent } : {}),
 			...(judge ? { judgeDefinition: judge } : {}),
 			...(workspace ? { workspaceSource: workspace } : {}),
+			...(accept ? { acceptedConditions: checkedAccept(accept) } : {}),
 		},
 	};
 }

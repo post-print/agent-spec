@@ -13,6 +13,7 @@ import {
 } from "@post-print/agent-harness";
 import { z } from "zod";
 import { noteUncalibratedJudge } from "./check-outcomes.js";
+import type { AcceptedConditions } from "./claim-strength.js";
 import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import {
@@ -65,6 +66,8 @@ export interface RuntimeOptions {
 	agent?: AgentDefinition;
 	judge?: AgentDefinition;
 	workspace: string;
+	/** Conditions the suite accepts going without, recorded on every run. */
+	accepted?: AcceptedConditions;
 	signal: AbortSignal;
 	onEvent?: (event: { runId: string; type: string; value: unknown }) => void;
 	/** Time left before the test runner kills this test; undefined when it has no limit. */
@@ -256,6 +259,10 @@ export class TestRuntime {
 		return this.ledger.reportedInfrastructureFailure();
 	}
 	private forTest(definition: AgentDefinition): AgentDefinition {
+		if (process.env[VERDICT_GRADE_ENV] === "1" && this.options.accepted)
+			throw new Error(
+				"--verdict-grade refuses a suite that accepts weaker conditions; remove accept from its config.",
+			);
 		return withinTestDeadline(verdictGrade(definition), this.options.remainingTestMs?.());
 	}
 	agent(
@@ -497,7 +504,7 @@ export class TestRuntime {
 		initial: Awaited<ReturnType<typeof snapshot>>,
 	): Promise<Run["record"]> {
 		this.recordBase ??= runRecordBase(this.options.baseDir, this.options.testFile);
-		return buildRunRecord(await this.recordBase, {
+		const record = await buildRunRecord(await this.recordBase, {
 			conditions: await input.session.conditions,
 			definition: input.definition,
 			hostReport: trace.hostReport,
@@ -505,6 +512,7 @@ export class TestRuntime {
 			context: input.context,
 			initial,
 		});
+		return this.options.accepted ? { ...record, accepted: this.options.accepted } : record;
 	}
 	private announceRun(id: string, name: string, input: RunInput): void {
 		this.options.onEvent?.({

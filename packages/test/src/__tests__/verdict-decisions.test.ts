@@ -8,6 +8,7 @@ import {
 	sampleOutcome,
 	type VerdictAttempt,
 	type VerdictInput,
+	verdictNotes,
 } from "../sdk/verdict.js";
 
 /**
@@ -77,10 +78,18 @@ describe("the exit-0 evidence check, on its own", () => {
 		const measuring = { ...claims, claims: [repeated], input: { ...input, measureRepeats: true } };
 		expect(EXIT_ZERO_PATHS.passed(measuring)).toBe(false);
 	});
-	it("lists only a listing as the other way to exit 0", () => {
+	it("lists only a listing and an accepted run as the other ways to exit 0", () => {
 		expect(EXIT_ZERO_PATHS.listed({ ...evidence, input: { ...input, listOnly: true } })).toBe(true);
 		expect(EXIT_ZERO_PATHS.listed(evidence)).toBe(false);
-		expect(Object.keys(EXIT_ZERO_PATHS).sort()).toEqual(["listed", "passed"]);
+		expect(Object.keys(EXIT_ZERO_PATHS).sort()).toEqual(["accepted", "listed", "passed"]);
+	});
+	it("takes an accepted run only when one test was accepted and nothing else failed", () => {
+		const accepted = { ...evidence, tests: { a: "accepted" as const, b: "passed" as const } };
+		expect(EXIT_ZERO_PATHS.accepted(accepted)).toBe(true);
+		expect(EXIT_ZERO_PATHS.passed(accepted)).toBe(false);
+		expect(EXIT_ZERO_PATHS.accepted(evidence)).toBe(false);
+		const failing = { ...evidence, tests: { a: "accepted" as const, b: "indicative" as const } };
+		expect(EXIT_ZERO_PATHS.accepted(failing)).toBe(false);
 	});
 });
 
@@ -252,13 +261,17 @@ describe("a record's weaknesses", () => {
 	it("names a host-enforced run with no escape battery that held", () => {
 		expect(recordWeaknesses(strong)).toEqual([]);
 		expect(recordWeaknesses({ ...strong, confinementProven: false })).toEqual([
-			"claude has no escape battery from the last week in which every enforced vector held",
+			{
+				condition: "escape-battery",
+				reason:
+					"claude has no escape battery from the last week in which every enforced vector held",
+			},
 		]);
 	});
 	it("names a detect-only host once, without asking it for a battery it cannot pass", () => {
 		expect(
 			recordWeaknesses({ ...strong, confinement: "detect-only", confinementProven: false }),
-		).toEqual(["claude only detects escapes"]);
+		).toEqual([{ condition: "confinement", reason: "claude only detects escapes" }]);
 	});
 });
 
@@ -325,5 +338,67 @@ describe("a judge nobody calibrated", () => {
 		const outcome = [{ data: [{ kind: "agent" }] }];
 		const both = checkFailure({ judgeBlamed: true, operations: outcome });
 		expect(run([both], { runnerExitCode: 1 }).verdict).toBe("agent_failed");
+	});
+});
+
+// A custom adapter run unconfined in a real worktree: nothing calibrates or seals it.
+const UNCONFINED = {
+	host: "custom",
+	calibrated: false,
+	confinementProven: false,
+	modelPinned: true,
+	userConfig: "unknown",
+	confinement: "detect-only",
+};
+const acceptOnly = (conditions: string[]) => ({
+	conditions,
+	reason: "PostPrint runs it unconfined",
+});
+const ranUnder = (record: object) => attempt({ operations: [{ data: [{ record }] }] });
+describe("a suite that accepts weaker conditions", () => {
+	const unconfined = UNCONFINED;
+	const accept = acceptOnly;
+	const ran = ranUnder;
+	it("ends an unconfined pass as accepted, exit 0, and says what it went without", () => {
+		const record = {
+			...unconfined,
+			accepted: accept(["calibration", "confinement", "user-config"]),
+		};
+		const result = run([ran(record)]);
+		expect(result).toMatchObject({ verdict: "accepted", exitCode: 0 });
+		expect(result.acceptedConditions?.reasons).toEqual(["PostPrint runs it unconfined"]);
+		expect(verdictNotes(result)).toContain("Accepted: custom only detects escapes");
+	});
+	it("stays indicative when one weakness is not accepted", () => {
+		const record = { ...unconfined, accepted: accept(["calibration", "confinement"]) };
+		expect(run([ran(record)]).verdict).toBe("indicative");
+	});
+	it("leaves a failure a failure, and a strong pass a pass", () => {
+		const record = {
+			...unconfined,
+			accepted: accept(["calibration", "confinement", "user-config"]),
+		};
+		const failed = checkFailure({ operations: [{ data: [{ record }] }] });
+		expect(run([failed], { runnerExitCode: 1 }).verdict).toBe("agent_failed");
+		const strong = {
+			...unconfined,
+			calibrated: true,
+			userConfig: "excluded",
+			confinement: "host-enforced",
+			confinementProven: true,
+		};
+		expect(run([ran({ ...strong, accepted: accept(["calibration"]) })]).verdict).toBe("passed");
+	});
+	it("never accepts a rate with no plan", () => {
+		const record = {
+			...unconfined,
+			accepted: accept(["calibration", "confinement", "user-config"]),
+		};
+		const unplanned = attempt({
+			claim: "claim",
+			sample: { title: "claim", n: 1 },
+			operations: [{ data: [{ record }] }],
+		});
+		expect(run([unplanned]).verdict).toBe("indicative");
 	});
 });

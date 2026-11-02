@@ -114,6 +114,8 @@ export interface RunRecord {
 	observedModel?: string;
 	/** False when no definition names a model, so the host or environment chose it. */
 	modelPinned: boolean;
+	/** Conditions the suite declared it accepts going without, with its reason. */
+	accepted?: { conditions: readonly string[]; reason: string };
 	/** True when this host version has a passing host probe on record. */
 	calibrated: boolean;
 	/** Every escape vector the host is said to enforce held in a battery run from the last week. */
