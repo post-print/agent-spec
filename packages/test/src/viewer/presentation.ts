@@ -49,7 +49,7 @@ export type TestRunStatus =
 	| "interrupted"
 	| "flaky"
 	| "no verdict"
-	| "measured"
+	| "indicative"
 	| "unknown";
 /** What the stored verdict says, and what a test alone cannot show: the test's claim. */
 export type RunSummary = {
@@ -71,9 +71,9 @@ export const TEST_RUN_STATUS_ORDER: TestRunStatus[] = [
 	"no verdict",
 	"unknown",
 	"flaky",
+	"indicative",
 	"running",
 	"queued",
-	"measured",
 	"passed",
 	"skipped",
 ];
@@ -81,7 +81,7 @@ export const TEST_RUN_STATUS_ORDER: TestRunStatus[] = [
 /** Every verdict the CLI can reach, in the viewer's words. A new verdict will not compile until named. */
 const VERDICT_STATUS: Record<RunVerdict, TestRunStatus> = {
 	passed: "passed",
-	measured: "measured",
+	indicative: "indicative",
 	agent_failed: "failed",
 	control_survived: "failed",
 	infra_invalid: "no verdict",
@@ -151,7 +151,9 @@ export function attemptRunStatus(
 
 /** A status that is neither a pass nor a failure and still asks the reader to look. */
 export function statusNeedsReview(status: string): boolean {
-	return status === "flaky" || status === "no verdict" || status === "unknown";
+	return (
+		status === "flaky" || status === "no verdict" || status === "indicative" || status === "unknown"
+	);
 }
 
 /** Prefer the run where this test is active, then the newest run that actually ran it. */

@@ -167,7 +167,7 @@ test("how often an agent finds the tool", { description: "...", samples: 10 }, a
 });
 ```
 
-With no threshold the verdict is `measured`: a rate, with nothing required of it. To decide, compute a plan first, which fixes the sample size and the flag before any run. The run stops as soon as the decision can no longer change, which leaves the plan's error rates intact.
+With no threshold the verdict is `indicative` and exits 3: a rate with nothing required of it, so it cannot pass. To decide, compute a plan first, which fixes the sample size and the flag before any run. The run stops as soon as the decision can no longer change, which leaves the plan's error rates intact.
 
 ```ts
 import { samplingPlan } from "@post-print/agent-test";
@@ -189,7 +189,7 @@ test("the wording matters", {
 });
 ```
 
-A retried sample counts once, at its first verdict. Failures from the host or runner count as no verdict and stay out of the rate. They do not bring a plan's stop closer, and a plan clears only on enough passes: one left short of them has no verdict and exits 2, unless it regressed from its baseline. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run and a repeat with no verdict exits 2, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
+A retried sample counts once, at its first verdict. Failures from the host or runner count as no verdict and stay out of the rate. They do not bring a plan's stop closer, and a plan clears only on enough passes: one left short of them has no verdict and exits 2, unless it regressed from its baseline. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run and a repeat with no verdict exits 2, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them; the run is then `indicative`. A `--repeat-each` gate where every repeat passed is `passed`.
 
 `agent-test baseline` saves the newest run's single-arm claims to `agent-test-baselines/`; commit them. It leaves out, and names, a claim with runs that have no verdict, a surviving control, or a model nothing names, because a later run could not be matched to it. It saves nothing from a stopped run. A later run under the same conditions is compared against the baseline and fails if it regressed. A changed host, model, auth mode, setting, tool, suite, prompt, skill, or workspace starts over rather than reading as a regression, and so does a model that neither the definition nor the host names. A baseline file that cannot be read gives a sampled run no verdict, so a regression cannot go unseen.
 

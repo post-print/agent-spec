@@ -62,6 +62,8 @@ export interface ClaimResult {
 	fingerprint?: string;
 	comparison?: RateDifference & { first: string; second: string };
 	comparisonRefused?: string;
+	/** The samples disagree on their plan, so no one plan can decide them. */
+	planConflict?: boolean;
 	baseline: BaselineComparison;
 }
 
@@ -175,6 +177,13 @@ function baselineComparison(
 		total: baseline.total,
 	};
 }
+/** Every sample of one claim must carry the same plan, or which one decides depends on order. */
+function plansDisagree(samples: ClaimSample[]): boolean {
+	const plans = samples.map(({ sample }) =>
+		JSON.stringify(sample && [sample.n, sample.flagAt, sample.subject, sample.arms]),
+	);
+	return new Set(plans).size > 1;
+}
 function claimOf(
 	claim: string,
 	samples: ClaimSample[],
@@ -198,6 +207,7 @@ function claimOf(
 		controlsSurvived: samples.filter(({ survivedControl }) => survivedControl).length,
 		fingerprint,
 		...compared(arms, samples, annotation?.subject),
+		...(plansDisagree(samples) ? { planConflict: true } : {}),
 		baseline: baselineComparison(arms, fingerprint, baselines[claim]),
 	};
 }

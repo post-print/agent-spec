@@ -9,12 +9,13 @@ const config = fileURLToPath(new URL("./agent-test.config.ts", import.meta.url))
 const fakeHost = fileURLToPath(new URL("./fake-host.mjs", import.meta.url));
 const roots: string[] = [];
 
-async function runScenario(grep: string, extra: string[] = []) {
+async function runScenario(grep: string, extra: string[] = [], allowIndicative = false) {
 	const previous = process.env.CLAUDE_CODE_BIN;
 	process.env.CLAUDE_CODE_BIN = fakeHost;
 	const execution = await startRecordedExecution({
 		config,
 		args: ["--grep", grep, "--workers", "1", ...extra],
+		allowIndicative,
 	});
 	if (previous === undefined) delete process.env.CLAUDE_CODE_BIN;
 	else process.env.CLAUDE_CODE_BIN = previous;
@@ -57,10 +58,10 @@ describe("judges through the real runner", () => {
 		}, 60_000);
 });
 describe("rates through the real runner", () => {
-	it("samples: 5 produces one claim with its count and interval", async () => {
+	it("samples: 5 with no plan is one indicative claim with its count and interval", async () => {
 		const { verdict, exitCode } = await rate("sampled pass");
-		expect(verdict.verdict).toBe("measured");
-		expect(exitCode).toBe(0);
+		expect(verdict.verdict).toBe("indicative");
+		expect(exitCode).toBe(3);
 		expect(verdict.claims).toHaveLength(1);
 		const arm = verdict.claims[0]?.arms[0];
 		expect(arm).toMatchObject({ passed: 5, failed: 0, total: 5 });
@@ -68,9 +69,14 @@ describe("rates through the real runner", () => {
 	}, 60_000);
 	it("a failed sample is part of a rate, not a failed run", async () => {
 		const { verdict, exitCode } = await rate("sampled with a failure");
-		expect(verdict.verdict).toBe("measured");
-		expect(exitCode).toBe(0);
+		expect(verdict.verdict).toBe("indicative");
+		expect(exitCode).toBe(3);
 		expect(verdict.claims[0]?.arms[0]).toMatchObject({ passed: 2, failed: 1, total: 3 });
+	}, 60_000);
+	it("--allow-indicative exits 0 on a rate and stores that it did", async () => {
+		const { verdict, exitCode } = await runScenario("instrument rates sampled pass \\[", [], true);
+		expect(verdict).toMatchObject({ verdict: "indicative", indicativeAllowed: true });
+		expect(exitCode).toBe(0);
 	}, 60_000);
 });
 describe("sampling plans through the real runner", () => {
@@ -200,9 +206,10 @@ describe("the verdict for a scripted host through the real runner", () => {
 		expect(result.verdict.verdict).toBe("skipped_only");
 		expect(result.exitCode).toBe(2);
 	}, 60_000);
-	it("repeats of one test become one claim", async () => {
+	it("repeats of one test become one claim, which passes only when every repeat did", async () => {
 		const result = await runScenario("instrument good run$", ["--repeat-each", "3"]);
-		expect(result.verdict.verdict).toBe("measured");
+		expect(result.verdict.verdict).toBe("passed");
+		expect(result.exitCode).toBe(0);
 		expect(result.verdict.claims).toHaveLength(1);
 		expect(result.verdict.claims[0]?.arms[0]).toMatchObject({ passed: 3, total: 3 });
 	}, 60_000);
@@ -227,7 +234,7 @@ describe("results that have not been earned through the real runner", () => {
 		expect(result.verdict.verdict).toBe("control_survived");
 		expect(result.exitCode).toBe(1);
 	}, 60_000);
-	it("a surviving control fails a rate, which would otherwise only be measured", async () => {
+	it("a surviving control fails a rate, which would otherwise only be indicative", async () => {
 		const { verdict, exitCode } = await rate("sampled control survives");
 		expect(verdict.verdict).toBe("control_survived");
 		expect(exitCode).toBe(1);

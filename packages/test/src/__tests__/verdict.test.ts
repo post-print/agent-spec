@@ -31,7 +31,12 @@ describe("reduceVerdict", () => {
 		});
 	});
 	it("an expected failure counts as passing", () => {
-		const expected = attempt({ status: "failed", expectedFailure: true, checkFailed: true });
+		const expected = attempt({
+			status: "failed",
+			expectedFailure: true,
+			checkFailed: true,
+			errors: [{ message: "Error: Expected 1" }],
+		});
 		expect(reduce([expected]).verdict).toBe("passed");
 	});
 	it("classifies each kind of failure", () => {
@@ -177,9 +182,9 @@ describe("reduceVerdict with a baseline", () => {
 		expect(result.claims[0]?.decision).toBe("no_verdict");
 		expect(result).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
 	});
-	it("a claim consistent with its baseline stays measured", () => {
+	it("a claim consistent with its baseline, with no plan, is only indicative", () => {
 		const result = reduce(attempts(26, 1), 1, { baselines });
-		expect(result).toMatchObject({ verdict: "measured", exitCode: 0 });
+		expect(result).toMatchObject({ verdict: "indicative", exitCode: 3 });
 	});
 });
 
@@ -195,11 +200,19 @@ describe("reduceVerdict with repeats from the command line", () => {
 	it("a failed repeat fails the run", () => {
 		expect(reduce(attempts, 1)).toMatchObject({ verdict: "agent_failed", exitCode: 1 });
 	});
-	it("--measure reports the same repeats as a rate", () => {
+	it("--measure reports the same repeats as a rate, which cannot pass", () => {
 		expect(reduce(attempts, 1, { measureRepeats: true })).toMatchObject({
-			verdict: "measured",
-			exitCode: 0,
+			verdict: "indicative",
+			exitCode: 3,
 		});
+	});
+	it("--allow-indicative exits 0 on a rate and says why", () => {
+		const result = reduce(attempts, 1, { measureRepeats: true, allowIndicative: true });
+		expect(result).toMatchObject({ verdict: "indicative", exitCode: 0, indicativeAllowed: true });
+		expect(verdictNotes(result)).toEqual(["Exit 0 only because --allow-indicative was given"]);
+	});
+	it("--allow-indicative does not touch a failure", () => {
+		expect(reduce(attempts, 1, { allowIndicative: true }).exitCode).toBe(1);
 	});
 	it("repeats that all pass exit 0", () => {
 		expect(reduce([repeat("passed", "a"), repeat("passed", "b")]).exitCode).toBe(0);
@@ -215,7 +228,7 @@ describe("reduceVerdict on runs that did not finish", () => {
 			sample: { title: "claim", n: 2 },
 			errors: status === "failed" ? [{ message: "Expected 1" }] : [],
 		});
-	it("a test that never started leaves a measured rate with no verdict", () => {
+	it("a test that never started leaves a rate with no verdict", () => {
 		const result = reduce([sampled("a", "failed")], 1, { plannedTests: ["a", "b"] });
 		expect(result).toMatchObject({ verdict: "interrupted", exitCode: 2, notRun: 1 });
 	});
@@ -230,5 +243,24 @@ describe("reduceVerdict on runs that did not finish", () => {
 	});
 	it("an unreadable baseline does not touch a run with nothing sampled", () => {
 		expect(reduce([attempt({})], 0, { unreadableBaselines: ["bad.json"] }).verdict).toBe("passed");
+	});
+});
+
+describe("reduceVerdict on lost or mixed evidence", () => {
+	it("a failure with no recorded error is the instrument's, whoever it would blame", () => {
+		const lost = attempt({ status: "failed", expectedFailure: true, checkFailed: true });
+		expect(reduce([lost]).verdict).toBe("instrument_error");
+		expect(reduce([attempt({ status: "failed" })], 1).verdict).toBe("instrument_error");
+	});
+	it("an unfinished sample leaves the run with no verdict", () => {
+		const sample = { title: "claim", n: 2, flagAt: 2 };
+		const sampled = (testId: string, status: VerdictAttempt["status"]) =>
+			attempt({ testId, claim: "claim", sample, status });
+		expect(reduce([sampled("a", "passed"), sampled("b", "running")]).verdict).toBe("interrupted");
+	});
+	it("samples that disagree on their plan cannot be decided by either", () => {
+		const sampled = (testId: string, flagAt?: number) =>
+			attempt({ testId, claim: "claim", sample: { title: "claim", n: 2, flagAt } });
+		expect(reduce([sampled("a", 1), sampled("b")]).verdict).toBe("instrument_error");
 	});
 });

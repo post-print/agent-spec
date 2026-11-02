@@ -56,13 +56,15 @@ function runnerArguments(args: string[]) {
 	}
 	return { config, reporter, passThrough };
 }
+/** Flags agent-test reads itself. Every other argument goes to Playwright. */
+const OWN_FLAGS = ["--measure", "--allow-indicative"];
 export async function runSdkCli(args: string[]): Promise<number> {
 	const { config, reporter: requestedReporter, passThrough: parsed } = runnerArguments(args);
-	const measureRepeats = parsed.includes("--measure");
-	const passThrough = parsed.filter((argument) => argument !== "--measure");
+	const passThrough = parsed.filter((argument) => !OWN_FLAGS.includes(argument));
 	const execution = await startRecordedExecution({
 		config,
-		measureRepeats,
+		measureRepeats: parsed.includes("--measure"),
+		allowIndicative: parsed.includes("--allow-indicative"),
 		args: passThrough,
 		reporter: requestedReporter,
 		onOutput: (line) => process.stdout.write(`${line}\n`),

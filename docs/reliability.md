@@ -19,6 +19,8 @@ A result earns trust by answering four questions, in order. Each is meaningless 
 
 Before adding a test, name the subject, the question, the evidence it reads, and the control that would make it fail.
 
+A pass is default-deny. agent-test exits 0 only on a path listed in `EXIT_ZERO_PATHS` (`packages/test/src/sdk/verdict.ts`), and each path names the evidence it needs. A verdict that reaches exit 0 without that evidence becomes `instrument_error`. Property tests over generated runs (`packages/test/src/__tests__/verdict-properties.test.ts`) check the rules every run must keep. Exit 0 needs a test or plan that passed on its own evidence. A failure is charged to the agent only through a recorded check or a control that survived. The verdict does not depend on the order attempts arrive in.
+
 ## Controls
 
 A control proves a test could have gone the other way. There are two shapes.
@@ -36,9 +38,9 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 
 | Exit | Verdict | Meaning |
 | --- | --- | --- |
-| 0 | `passed` | Every test that ran passed, on the first try, every sampling plan cleared, and the runner agrees. |
-| 0 | `measured` | Rates were reported, with no threshold set: `samples` with no plan, or `--repeat-each` with `--measure`. |
+| 0 | `passed` | Every test that ran passed, on the first try, every sampling plan cleared or every `--repeat-each` repeat passed, and the runner agrees. |
 | 0 | `listed` | `--list` only. No test ran. |
+| 3 | `indicative` | Rates were reported, with no plan to decide them: `samples` with no `flagAt`, or `--repeat-each` with `--measure`. Nothing failed, but nothing passed either. |
 | 1 | `agent_failed` | A test's checks failed, a repeat from `--repeat-each` failed, a sampling plan flagged, or a claim regressed from its baseline. A real failure outranks any test with no verdict. |
 | 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |
 | 2 | `infra_invalid` | The host or runner failed, so nothing is known about the agent. |
@@ -46,8 +48,10 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | 2 | `vacuous` | A test finished without earning its result: no agent operation completed, a run failed before its host started, for example on a missing workspace or skill or an exhausted snapshot budget, or a control failed for a reason other than a check. |
 | 2 | `flaky` | A test failed and then passed on retry. Every attempt is kept. |
 | 2 | `skipped_only` | No test ran. |
-| 2 | `interrupted` | The run was stopped, or a test it set out to run never started, for example under `--max-failures`. |
-| 2 | `instrument_error` | The runner and the recorded attempts disagree. |
+| 2 | `interrupted` | The run was stopped, a test it set out to run never started, for example under `--max-failures`, or an attempt never finished. |
+| 2 | `instrument_error` | The runner and the recorded attempts disagree, a failure has no recorded error, the samples of one test disagree on their plan, or a verdict reached exit 0 without the evidence its path needs. |
+
+`--allow-indicative` makes an indicative run exit 0 for a caller that only wants the rates. The stored verdict keeps `indicative` and records `indicativeAllowed`, and the CLI says that exit 0 came from the flag. Runs stored before v5 named this verdict `measured`; the viewer reads them as indicative.
 
 ## Offline and live proof
 
@@ -73,7 +77,7 @@ bun run test:probe
 bun run test:controls
 ```
 
-The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries, and reports each test's rate with its interval. It passes `--measure` to set no threshold, because requiring every repetition to pass would wrongly fail a 95% behavior 64% of the time. To decide on a rate, use a [sampling plan](sdk-v2.md#rates-and-comparisons). The separately configured reviewer also needs authentication.
+The reliability command repeats the eleven TypeScript capability tests twenty times on the default OpenAI agent, with no retries, and reports each test's rate with its interval. It passes `--measure` to set no threshold, because requiring every repetition to pass would wrongly fail a 95% behavior 64% of the time. So the run is `indicative` and exits 3. To decide on a rate, use a [sampling plan](sdk-v2.md#rates-and-comparisons). The separately configured reviewer also needs authentication.
 
 Missing usage never becomes zero or a partial average. Agent and judge usage are reported separately. Token differences across providers do not imply equivalent cost. An interval assumes independent runs, and same-day provider state can correlate them, so it can be optimistic; spread a qualifying run across days when that matters. A rate does not carry over to other prompts, tasks, or models.
 

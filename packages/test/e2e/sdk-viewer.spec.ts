@@ -1586,7 +1586,7 @@ test("a run states its conditions and rates, and never calls a pass reliable", a
 	try {
 		await page.goto(viewer.url);
 		const main = page.getByRole("main");
-		await expect(main).toContainText("Measured: rates are reported below");
+		await expect(main).toContainText("Indicative: rates are reported below");
 		await expect(main).toContainText("7 of 10 (95% interval 35% to 93%)");
 		await page.goto(
 			new URL(`/tests/${fixture.testId}?execution=${fixture.executionId}`, viewer.url).toString(),
@@ -1663,11 +1663,11 @@ async function recordConditionsAttempt(store: ExecutionStore, testId: string) {
 
 function conditionsVerdict(): VerdictResult {
 	return {
-		verdict: "measured",
-		exitCode: 0,
+		verdict: "indicative",
+		exitCode: 3,
 		tests: {},
 		counts: { passed: 0, total: 0 },
-		claimVerdicts: { "viewer › a sampled claim": "measured" },
+		claimVerdicts: { "viewer › a sampled claim": "indicative" },
 		claims: [
 			{
 				claim: "viewer › a sampled claim",

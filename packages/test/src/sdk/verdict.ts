@@ -18,7 +18,7 @@ const WORKER_CRASH = /^Error: worker process exited unexpectedly \(/;
 
 export type RunVerdict =
 	| "passed"
-	| "measured"
+	| "indicative"
 	| "agent_failed"
 	| "control_survived"
 	| "infra_invalid"
@@ -62,6 +62,8 @@ export interface VerdictInput {
 	runnerReportedError?: boolean;
 	/** Baseline files that could not be read, so a regression could go unseen. */
 	unreadableBaselines?: string[];
+	/** The caller accepts an indicative run as exit 0. The result says so. */
+	allowIndicative?: boolean;
 }
 export interface VerdictResult {
 	verdict: RunVerdict;
@@ -75,14 +77,18 @@ export interface VerdictResult {
 	/** Tests the runner set out to run that never started. Absent on older stored runs. */
 	notRun?: number;
 	unreadableBaselines?: string[];
+	/** An indicative run exited 0 only because the caller passed --allow-indicative. */
+	indicativeAllowed?: boolean;
 }
 
-const EXIT_CODES: Record<RunVerdict, number> = {
+/** The only verdicts that may exit 0. Each must show its evidence in EXIT_ZERO_PATHS. */
+type ExitZeroVerdict = "passed" | "listed";
+const EXIT_CODES: { [V in RunVerdict]: V extends ExitZeroVerdict ? 0 : 1 | 2 | 3 } = {
 	passed: 0,
-	// A rate with no threshold to meet: nothing was asked of it, so nothing failed.
-	measured: 0,
 	// Listing tests is not a test run, so nothing failed.
 	listed: 0,
+	// Something ran and nothing failed, but the evidence cannot carry a pass.
+	indicative: 3,
 	agent_failed: 1,
 	control_survived: 1,
 	infra_invalid: 2,
@@ -114,15 +120,23 @@ function operationReportedInfrastructure(attempt: VerdictAttempt): boolean {
 		data.some((item) => (item as { kind?: string } | null)?.kind === "infrastructure"),
 	);
 }
-function failedAttemptVerdict(attempt: VerdictAttempt): RunVerdict {
+/** A failure whose cause was typed when it happened, before any check could be blamed. */
+function typedFailureVerdict(attempt: VerdictAttempt): RunVerdict | undefined {
 	if (failedWith(attempt, CONDITIONS_UNKNOWN)) return "conditions_unknown";
 	if (failedWith(attempt, NOT_EARNED)) return "vacuous";
 	if (attempt.timedOut || failedWith(attempt, INFRASTRUCTURE)) return "infra_invalid";
 	if (workerCrashed(attempt) || operationReportedInfrastructure(attempt)) return "infra_invalid";
+	return undefined;
+}
+function failedAttemptVerdict(attempt: VerdictAttempt): RunVerdict {
+	const typed = typedFailureVerdict(attempt);
+	if (typed) return typed;
+	// A failure with nothing recorded against it: the instrument lost what happened.
+	if (attempt.errors.length === 0) return "instrument_error";
 	// A control earns its result only on a failed check: a setup error shows nothing about the test.
 	if (attempt.expectedFailure && !attempt.checkFailed) return "vacuous";
 	// Cleanup alone says nothing about the agent. Any other failure beside it still stands.
-	if (attempt.errors.length > 0 && attempt.errors.every(isCleanupFailure)) return "infra_invalid";
+	if (attempt.errors.every(isCleanupFailure)) return "infra_invalid";
 	return "agent_failed";
 }
 /** An expected failure only counts when a check failed, not when the host or runner did. */
@@ -159,12 +173,13 @@ function testVerdict(attempts: VerdictAttempt[]): RunVerdict {
 const PRECEDENCE: RunVerdict[] = [
 	"agent_failed",
 	"control_survived",
+	"instrument_error",
 	"interrupted",
 	"infra_invalid",
 	"conditions_unknown",
 	"vacuous",
 	"flaky",
-	"measured",
+	"indicative",
 	"passed",
 	"skipped_only",
 ];
@@ -178,7 +193,8 @@ function attemptsByTest(attempts: VerdictAttempt[]): Map<string, VerdictAttempt[
 }
 /** The attempts and the runner must tell the same story, or neither can be believed. */
 function runnerDisagrees(verdict: RunVerdict, input: VerdictInput, tolerated: boolean): boolean {
-	if (EXIT_CODES[verdict] === 0 && input.runnerExitCode !== 0) return !tolerated;
+	const nothingFailed = EXIT_CODES[verdict] === 0 || verdict === "indicative";
+	if (nothingFailed && input.runnerExitCode !== 0) return !tolerated;
 	// The runner exits 0 on a pass after a retry. The first verdict decides here, so that is no conflict.
 	if (input.attempts.some(({ retry }) => retry > 0)) return false;
 	return EXIT_CODES[verdict] === 1 && input.runnerExitCode === 0;
@@ -239,28 +255,84 @@ function failedRepeatVerdict({ arms }: ClaimResult): RunVerdict | undefined {
 	if (arms.some(({ failed }) => failed > 0)) return "agent_failed";
 	return arms.some(({ noVerdict }) => noVerdict > 0) ? "infra_invalid" : undefined;
 }
+function isRepeatGate(claim: ClaimResult, measureRepeats: boolean): boolean {
+	return !claim.declared && !measureRepeats;
+}
+/** Every repeat ran to a verdict and passed. */
+function everyRepeatPassed({ arms }: ClaimResult): boolean {
+	return arms.every(
+		({ passed, failed, noVerdict }) => passed > 0 && failed === 0 && noVerdict === 0,
+	);
+}
 /** Asking for repeats is not asking for a rate: a gate using --repeat-each must still go red. */
 function claimVerdict(claim: ClaimResult, measureRepeats: boolean): RunVerdict {
 	if (claim.controlsSurvived > 0) return "control_survived";
+	if (claim.planConflict) return "instrument_error";
 	if (claim.decision === "flagged") return "agent_failed";
 	if (claim.comparisonRefused) return "conditions_unknown";
 	if (claim.baseline.status === "same_conditions" && claim.baseline.regressed)
 		return "agent_failed";
 	if (claim.decision === "no_verdict") return "infra_invalid";
-	const repeat = claim.declared || measureRepeats ? undefined : failedRepeatVerdict(claim);
-	if (repeat) return repeat;
-	return claim.decision === "clear" ? "passed" : "measured";
+	// Repeats from the command line gate on every repeat, which is a plan: all of them must pass.
+	if (isRepeatGate(claim, measureRepeats)) return failedRepeatVerdict(claim) ?? "passed";
+	// A rate with no plan: nothing was asked of it, so it shows a rate but cannot pass.
+	return claim.decision === "clear" ? "passed" : "indicative";
 }
 function testsNeverStarted({ attempts, plannedTests = [] }: VerdictInput): number {
 	const started = new Set(attempts.map(({ testId }) => testId));
 	return plannedTests.filter((testId) => !started.has(testId)).length;
 }
+function unfinished({ status }: VerdictAttempt): boolean {
+	return status === "running" || status === "interrupted";
+}
 function incompleteRunVerdicts(input: VerdictInput, claims: ClaimResult[]): RunVerdict[] {
 	const baselinesUnread = claims.length > 0 && Boolean(input.unreadableBaselines?.length);
+	const incomplete = testsNeverStarted(input) > 0 || input.attempts.some(unfinished);
 	return [
-		...(testsNeverStarted(input) > 0 ? (["interrupted"] as const) : []),
+		...(incomplete ? (["interrupted"] as const) : []),
 		...(baselinesUnread ? (["conditions_unknown"] as const) : []),
 	];
+}
+interface ExitZeroEvidence {
+	input: VerdictInput;
+	tests: Record<string, RunVerdict>;
+	claims: ClaimResult[];
+	claimVerdicts: Record<string, RunVerdict>;
+}
+/** A run passes on positive evidence: tests and plans that passed, not only an absence of failures. */
+function everythingRanPassed({ input, tests, claims, claimVerdicts }: ExitZeroEvidence): boolean {
+	const verdicts = [...Object.values(tests), ...Object.values(claimVerdicts)];
+	const cleared = claims.every(
+		(claim) =>
+			claimVerdicts[claim.claim] !== "passed" ||
+			claim.decision === "clear" ||
+			(isRepeatGate(claim, input.measureRepeats === true) && everyRepeatPassed(claim)),
+	);
+	return (
+		!input.interrupted &&
+		testsNeverStarted(input) === 0 &&
+		verdicts.includes("passed") &&
+		verdicts.every((verdict) => verdict === "passed" || verdict === "skipped_only") &&
+		cleared
+	);
+}
+/**
+ * Every way a run may exit 0, each with the evidence it needs. A verdict that reaches exit 0
+ * without its evidence is the instrument's error, never a pass.
+ */
+export const EXIT_ZERO_PATHS: Record<ExitZeroVerdict, (evidence: ExitZeroEvidence) => boolean> = {
+	listed: ({ input }) => input.listOnly,
+	passed: everythingRanPassed,
+};
+function isExitZero(verdict: RunVerdict): verdict is ExitZeroVerdict {
+	return Object.hasOwn(EXIT_ZERO_PATHS, verdict);
+}
+function provenVerdict(verdict: RunVerdict, evidence: ExitZeroEvidence): RunVerdict {
+	if (isExitZero(verdict) && !EXIT_ZERO_PATHS[verdict](evidence)) return "instrument_error";
+	return verdict;
+}
+function exitCodeOf(verdict: RunVerdict, input: VerdictInput): number {
+	return verdict === "indicative" && input.allowIndicative ? 0 : EXIT_CODES[verdict];
 }
 /** The one place a run's meaning is decided. The CLI exit code and the viewer both read this. */
 export function reduceVerdict(input: VerdictInput): VerdictResult {
@@ -288,21 +360,24 @@ export function reduceVerdict(input: VerdictInput): VerdictResult {
 	// Failed samples make the runner exit non-zero; the claim, not one sample, is the verdict.
 	const tolerated =
 		!input.runnerReportedError && samples.some((attempt) => attempt.status === "failed");
-	const verdict = runVerdict(present, input, tolerated);
+	const evidence = { input, tests, claims, claimVerdicts };
+	const verdict = provenVerdict(runVerdict(present, input, tolerated), evidence);
 	return {
 		verdict,
-		exitCode: EXIT_CODES[verdict],
+		exitCode: exitCodeOf(verdict, input),
 		tests,
 		claims,
 		claimVerdicts,
 		counts: { passed: ran.filter((value) => value === "passed").length, total: ran.length },
 		notRun: testsNeverStarted(input),
 		unreadableBaselines: input.unreadableBaselines ?? [],
+		...(verdict === "indicative" && input.allowIndicative ? { indicativeAllowed: true } : {}),
 	};
 }
 const SENTENCES: Record<RunVerdict, string> = {
 	passed: "Passed",
-	measured: "Measured: rates are reported below, with nothing required of them",
+	indicative:
+		"Indicative: rates are reported below, with no plan to decide them, so nothing passed",
 	agent_failed: "Failed: the agent did not meet a check",
 	control_survived:
 		"Failed: a control that must fail passed, so its test cannot tell good from bad",
@@ -321,13 +396,18 @@ export function verdictSentence({ verdict, counts, claims }: VerdictResult): str
 		return `Passed, ${counts.passed} of ${counts.total} single-run tests and ${claims.length} sampled tests below`;
 	if (verdict === "passed")
 		return `Passed, ${counts.passed} of ${counts.total} tests, one run each`;
-	if (verdict === "listed" || verdict === "skipped_only" || verdict === "measured")
+	if (verdict === "listed" || verdict === "skipped_only" || verdict === "indicative")
 		return SENTENCES[verdict];
 	return `${SENTENCES[verdict]} (${counts.passed} of ${counts.total} tests passed)`;
 }
 /** What kept the run from being complete, said apart from the verdict it led to. */
-export function verdictNotes({ notRun = 0, unreadableBaselines = [] }: VerdictResult): string[] {
+export function verdictNotes({
+	notRun = 0,
+	unreadableBaselines = [],
+	indicativeAllowed,
+}: VerdictResult): string[] {
 	return [
+		...(indicativeAllowed ? ["Exit 0 only because --allow-indicative was given"] : []),
 		...(notRun > 0 ? [`${notRun} tests never started`] : []),
 		...(unreadableBaselines.length
 			? [`Baseline files could not be read: ${unreadableBaselines.join(", ")}`]
