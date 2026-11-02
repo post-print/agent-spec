@@ -137,6 +137,27 @@ it("runClaudeAgent › strips a stale key in subscription mode", () => {
 	expect(env.ANTHROPIC_API_KEY).toBeUndefined();
 });
 
+it("buildClaudeEnv › gives a nested host no marker of the Claude session that launched it", () => {
+	const markers = { CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_SESSION_ID: "s" };
+	const saved = { ...process.env };
+	Object.assign(process.env, markers, {
+		CLAUDE_CODE_OAUTH_TOKEN: "token",
+		CLAUDE_AGENT_MODEL: "m",
+	});
+	try {
+		for (const env of [buildClaudeEnv("subscription"), buildClaudeEnv("api-key", "sk")]) {
+			const names = Object.keys(env);
+			expect(names.filter((name) => name.startsWith("CLAUDE_CODE"))).toEqual([
+				"CLAUDE_CODE_OAUTH_TOKEN",
+			]);
+			expect(names).not.toContain("CLAUDECODE");
+			expect(env.CLAUDE_AGENT_MODEL).toBe("m");
+		}
+	} finally {
+		for (const name of Object.keys(process.env)) if (!(name in saved)) delete process.env[name];
+	}
+});
+
 it("runClaudeAgent › maps a successful stream-json run", async () => {
 	process.env.ANTHROPIC_API_KEY = "test-key";
 	process.env[CLAUDE_AUTH_MODE_ENV] = "api-key";
@@ -365,6 +386,55 @@ it("buildClaudeArgs › exposes only the named built-in tools", () => {
 	expect(toolsArg([])).toBe("");
 	expect(toolsArg(["Read", "Grep"])).toBe("Read,Grep");
 	expect(toolsArg()).toBeUndefined();
+});
+
+it("buildClaudeArgs › runs an unconfined agent unsandboxed, in the default mode, under its allow list", () => {
+	const build = (readOnly: boolean) => {
+		const args = buildClaudeArgs({
+			prompt: "Start the stack.",
+			cwd: "/tmp/seal/workspace",
+			protectedPaths: ["/repo/checkout"],
+			allowedRoots: ["/opt/postprint"],
+			allowedTools: "Read,Bash(bun run dev:status)",
+			authMode: "subscription",
+			confinement: "none",
+			readOnly,
+		});
+		const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}");
+		return { mode: args[args.indexOf("--permission-mode") + 1], settings, args };
+	};
+	const agent = build(false);
+	expect(agent.mode).toBe("default");
+	expect(agent.args).not.toContain("bypassPermissions");
+	expect(agent.args[agent.args.indexOf("--allowedTools") + 1]).toBe(
+		"Read,Bash(bun run dev:status)",
+	);
+	expect(agent.settings).toEqual({
+		sandbox: { enabled: false },
+		permissions: {
+			blockReadsOutsideWorkingDirectories: true,
+			additionalDirectories: ["/opt/postprint"],
+			deny: ["Read(//repo/checkout/**)"],
+		},
+	});
+	const reviewer = build(true);
+	expect(reviewer.mode).toBe("plan");
+	expect(reviewer.settings.sandbox.enabled).toBe(true);
+});
+
+it("claude › refuses an unconfined agent with no allow list before any host starts", () => {
+	expect(() => claude({ confinement: "none" })).toThrow(
+		'confinement: "none" requires allowedTools',
+	);
+	expect(() => claude({ confinement: "none", allowedTools: [] })).toThrow("requires allowedTools");
+	expect(() => claude({ allowedTools: ["Read", " "] })).toThrow("may not contain an empty rule");
+	const unconfined = claude({ confinement: "none", allowedTools: ["Read"] });
+	expect(unconfined.options).toMatchObject({ confinement: "none", allowedTools: ["Read"] });
+	expect(claude({ allowedTools: ["Read"] }).options.allowedTools).toEqual(["Read"]);
+	expect(() => openai({ confinement: "none" })).toThrow("confinement is not supported by openai");
+	expect(() => openai({ allowedTools: ["Read"] })).toThrow(
+		"allowedTools is not supported by openai",
+	);
 });
 
 it("claude › limits tools and project context to the Claude host", () => {

@@ -23,6 +23,7 @@ import {
 } from "./host-failure.js";
 import {
 	claudeIsolationSettings,
+	claudeUnconfinedSettings,
 	prepareClaudeEnvFile,
 	prepareSealedHome,
 } from "./host-isolation.js";
@@ -61,8 +62,13 @@ export interface ClaudeRunOptions {
 	onAgentEvent?: (event: LiveAgentEvent) => void;
 	/** Override binary path; defaults to CLAUDE_CODE_BIN or `claude`. */
 	bin?: string;
-	/** Override --allowedTools; defaults to CLAUDE_CODE_ALLOWED_TOOLS or built-in list. */
-	allowedTools?: string;
+	/**
+	 * The permission rules passed as `--allowedTools`. Defaults to `tools`, then
+	 * CLAUDE_CODE_ALLOWED_TOOLS, then the built-in list.
+	 */
+	allowedTools?: readonly string[];
+	/** `"none"` runs without Claude's sandbox, in the default permission mode. */
+	confinement?: ClaudeConfinement;
 	/** Built-in tools the CLI exposes (`--tools`); `[]` leaves only MCP tools. Also the allow list. */
 	tools?: readonly string[];
 	/** Auth mode; when omitted it is `--auth-mode`, then CLAUDE_AUTH_MODE, then subscription. */
@@ -83,6 +89,8 @@ export interface ClaudeRunOptions {
 	/** JSON Schema the reply must match (`--json-schema`). */
 	outputSchema?: object;
 }
+
+export type ClaudeConfinement = "sandbox" | "none";
 
 export interface ClaudeRunResult {
 	status: "completed" | "failed";
@@ -213,22 +221,40 @@ export async function resolveClaudeBin(override?: string): Promise<string> {
 	return candidate;
 }
 
+/** The one CLAUDE_CODE variable a nested host keeps: the token `claude setup-token` issues. */
+const CLAUDE_SUBSCRIPTION_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN";
+
 /**
- * Child env for the CLI. In subscription mode ANTHROPIC_API_KEY is stripped:
- * the CLI prefers a key over OAuth, so a stale one in the parent shell would
- * silently bill the API instead of the plan.
+ * A Claude Code session that launches the suite marks its children with CLAUDECODE and
+ * CLAUDE_CODE_* variables, which change how a nested CLI behaves. The parent without them.
+ */
+function withoutParentSessionMarkers(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	return Object.fromEntries(
+		Object.entries(env).filter(
+			([name]) =>
+				name !== "CLAUDECODE" &&
+				(!name.startsWith("CLAUDE_CODE") || name === CLAUDE_SUBSCRIPTION_TOKEN),
+		),
+	);
+}
+
+/**
+ * Child env for the CLI, without the launching session's markers. In subscription mode
+ * ANTHROPIC_API_KEY is stripped: the CLI prefers a key over OAuth, so a stale one in the parent
+ * shell would silently bill the API instead of the plan.
  */
 export function buildClaudeEnv(authMode: ClaudeAuthMode, apiKey?: string): NodeJS.ProcessEnv {
+	const parent = withoutParentSessionMarkers(process.env);
 	if (authMode === "api-key") {
-		return { ...process.env, ANTHROPIC_API_KEY: apiKey };
+		return { ...parent, ANTHROPIC_API_KEY: apiKey };
 	}
-	const { ANTHROPIC_API_KEY: _apiKey, ...env } = process.env;
+	const { ANTHROPIC_API_KEY: _apiKey, ...env } = parent;
 	return env;
 }
 
-function resolveAllowedTools(override?: string): string {
+function resolveAllowedTools(override?: readonly string[]): string {
 	if (override !== undefined) {
-		return override.trim();
+		return override.join(",").trim();
 	}
 	return process.env.CLAUDE_CODE_ALLOWED_TOOLS?.trim() || DEFAULT_ALLOWED_TOOLS;
 }
@@ -352,6 +378,15 @@ function claudeJsonSchema(schema: object): string {
 	return JSON.stringify(rest);
 }
 
+/**
+ * Without a sandbox, only the permission check stands between the agent and the machine, so an
+ * unconfined run uses the default mode: headless Claude denies every call outside the allow list.
+ */
+function claudePermissionMode(readOnly: boolean, unconfined: boolean): string {
+	if (readOnly) return "plan";
+	return unconfined ? "default" : "acceptEdits";
+}
+
 export function buildClaudeArgs(options: {
 	prompt: string;
 	cwd: string;
@@ -368,7 +403,18 @@ export function buildClaudeArgs(options: {
 	allowUnixSockets?: boolean;
 	networkAccess?: boolean;
 	outputSchema?: object;
+	confinement?: ClaudeConfinement;
 }): string[] {
+	const isolation = {
+		cwd: options.cwd,
+		readOnly: options.readOnly === true,
+		protectedPaths: options.protectedPaths ?? [],
+		allowedRoots: options.allowedRoots ?? [],
+		allowUnixSockets: options.allowUnixSockets === true,
+		networkAccess: options.networkAccess === true,
+	};
+	// A read-only reviewer stays sandboxed whatever its definition asks.
+	const unconfined = options.confinement === "none" && !options.readOnly;
 	const args = [
 		"-p",
 		options.prompt,
@@ -381,7 +427,7 @@ export function buildClaudeArgs(options: {
 		"stream-json",
 		"--verbose",
 		"--permission-mode",
-		options.readOnly ? "plan" : "acceptEdits",
+		claudePermissionMode(options.readOnly === true, unconfined),
 		"--allowedTools",
 		options.allowedTools,
 	];
@@ -389,14 +435,7 @@ export function buildClaudeArgs(options: {
 	if (tools) args.push("--tools", tools.join(","));
 	args.push(
 		"--settings",
-		claudeIsolationSettings({
-			cwd: options.cwd,
-			readOnly: options.readOnly === true,
-			protectedPaths: options.protectedPaths ?? [],
-			allowedRoots: options.allowedRoots ?? [],
-			allowUnixSockets: options.allowUnixSockets === true,
-			networkAccess: options.networkAccess === true,
-		}),
+		unconfined ? claudeUnconfinedSettings(isolation) : claudeIsolationSettings(isolation),
 	);
 	const model = options.model?.trim() || process.env.CLAUDE_AGENT_MODEL?.trim();
 	if (model) {
@@ -653,7 +692,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 
 	const bin = await resolveClaudeBin(options.bin);
 	const allowedTools = withMcpAllowedTools(
-		resolveAllowedTools(options.tools ? options.tools.join(",") : options.allowedTools),
+		resolveAllowedTools(options.allowedTools ?? options.tools),
 		options.mcpServers,
 	);
 	let mcpConfigDir: string | undefined;
@@ -678,6 +717,7 @@ export async function runClaudeAgent(options: ClaudeRunOptions): Promise<ClaudeR
 			allowUnixSockets: options.allowUnixSockets === true,
 			networkAccess: options.networkAccess === true,
 			outputSchema: options.outputSchema,
+			confinement: options.confinement,
 		});
 
 		return await runClaudeWithDeadline(options, { bin, args, authMode, deadline, apiKey });

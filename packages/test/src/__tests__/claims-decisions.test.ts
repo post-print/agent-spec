@@ -69,6 +69,8 @@ describe("a claim's fingerprint", () => {
 		["settingSources", { settingSources: ["user"] }],
 		["userConfig", { userConfig: "may-load" }],
 		["home", { home: "readable" }],
+		["allowedRoots", { allowedRoots: ["/opt/postprint"] }],
+		["allowedTools", { allowedTools: ["Bash(bun run dev:status)"] }],
 		["overridingEnv", { overridingEnv: ["CODEX_BIN"] }],
 		["requestedModel", { requestedModel: "n" }],
 		["observedModel", { observedModel: "n" }],

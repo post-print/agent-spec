@@ -42,4 +42,13 @@ it("--verdict-grade refuses subscription auth, project context, and unsealable h
 	expect(await refusal(globalSkills)).toContain("it includes global skills");
 	const custom = customAgent({ adapter: "file:///nowhere.mjs", options: {} });
 	expect(await refusal(custom)).toContain("a custom adapter cannot seal its runs");
+	const unconfined = claude({
+		auth: { type: "api-key", env: "KEY" },
+		loadProjectContext: false,
+		confinement: "none",
+		allowedTools: ["Read"],
+	});
+	expect(await refusal(unconfined)).toBe(
+		'--verdict-grade refuses this agent definition: it runs Claude without its sandbox. Remove confinement: "none".',
+	);
 });

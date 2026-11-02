@@ -106,7 +106,7 @@ const test = describe("seeded tasks", ({ agent }) => ({
 }));
 ```
 
-Here, `writeFile` comes from `node:fs/promises` and `join` from `node:path`. Inside a test, `coder.setup(fn).run({ prompt })` adds preparation for that derived handle. Setup callbacks receive the task workspace, not the source directory; failed preparation fails the run and test teardown removes its workspace. Setup runs outside the host sandbox, so it is where a test installs dependencies or writes config the agent cannot. Agents start with network off; `networkAccess: true` on an `openai()` or `claude()` coding agent turns it on. See [what an agent can reach](isolation.md#what-an-agent-can-reach). `workspace: { worktree, ref }` runs a custom adapter in a real git worktree instead of a sealed copy, for a suite that accepts `confinement`; see [worktree workspaces](isolation.md#worktree-workspaces).
+Here, `writeFile` comes from `node:fs/promises` and `join` from `node:path`. Inside a test, `coder.setup(fn).run({ prompt })` adds preparation for that derived handle. Setup callbacks receive the task workspace, not the source directory; failed preparation fails the run and test teardown removes its workspace. Setup runs outside the host sandbox, so it is where a test installs dependencies or writes config the agent cannot. Agents start with network off; `networkAccess: true` on an `openai()` or `claude()` coding agent turns it on. See [what an agent can reach](isolation.md#what-an-agent-can-reach). `workspace: { worktree, ref }` runs a custom adapter or an unconfined `claude()` in a real git worktree instead of a sealed copy, for a suite that accepts `confinement`; see [worktree workspaces](isolation.md#worktree-workspaces).
 
 Set `observeEnvironment: { paths: ["node_modules"] }` on an agent or run to answer cold-start and teardown questions. `run.environment` then lists processes the run left alive in its workspace, the ports they listen on, and a file count and size for each named path, including paths snapshots exclude. `processesKnown` is false when `ps` or `lsof` could not run; reading `processes` or `listeningPorts` then throws `ConditionsUnknownError`, so the test has no verdict. A path that could not be inspected behaves the same way. On a continuation the lists cover everything started since the task began. The runtime stops observed survivors at teardown. `run.record` and `run.exposure` state the conditions of every run; see [what a run records](hosts.md#what-a-run-records).
 
@@ -162,17 +162,24 @@ expect(tokens.mean).toBeLessThan(tokenBudget);
 
 ## Accepting weaker conditions
 
-A suite that cannot meet the conditions a pass needs can say so in its config, and give its reason. One example is a custom adapter run unconfined in a real worktree:
+A suite that cannot meet the conditions a pass needs can say so in its config, and give its reason. One example is Claude run without its sandbox in a real worktree, for a task that starts containers:
 
 ```ts
 export default defineConfig({
-  agent: customAgent({ adapter: "./adapter.mjs", options: { model: "pinned-model" } }),
+  agent: claude({
+    model: "pinned-model",
+    confinement: "none",
+    allowedTools: ["Read", "Grep", "Bash(bun run dev:status)", "Bash(bun run dev:down)"],
+  }),
+  workspace: { worktree: ".", ref: "origin/main" },
   accept: {
-    conditions: ["calibration", "confinement", "user-config"],
-    reason: "Runs unconfined in a real worktree; only escape detection applies.",
+    conditions: ["calibration", "confinement"],
+    reason: "Starts real containers, so Claude runs unsandboxed; only escape detection applies.",
   },
 });
 ```
+
+The suite need not accept `user-config`: the run records that Claude loads no user settings. A custom adapter records `unknown` and must accept it.
 
 `accept.conditions` names some of these:
 - `calibration`: no passing host probe from the last week

@@ -92,23 +92,28 @@ const VERDICT_GRADE_ENV = "AGENT_TEST_VERDICT_GRADE";
  * What keeps a definition from a verdict-grade run: it must keep the host's own configuration out
  * and be able to seal the real home, which only API-key Claude (bare) and Codex runs can.
  */
-function verdictGradeRefusal({ host, options }: AgentDefinition): string | undefined {
+function verdictGradeRefusal(definition: AgentDefinition): string | undefined {
+	const { host, options } = definition;
 	if (host !== "claude" && host !== "openai")
 		return `${host ?? "a custom adapter"} cannot seal its runs`;
+	if (isUnconfinedClaude(definition)) return "it runs Claude without its sandbox";
 	if (options.auth?.type !== "api-key") return "it uses subscription auth";
 	if (options.includeGlobalSkills === true) return "it includes global skills";
 	if (host === "claude" && options.loadProjectContext !== false)
 		return "Claude loads project context, so it cannot run --bare";
 	return undefined;
 }
+function isUnconfinedClaude({ host, options }: AgentDefinition): boolean {
+	return host === "claude" && options.confinement === "none";
+}
 function verdictGrade(definition: AgentDefinition): AgentDefinition {
 	if (process.env[VERDICT_GRADE_ENV] !== "1") return definition;
 	const refusal = verdictGradeRefusal(definition);
-	if (refusal)
-		throw new Error(
-			`--verdict-grade refuses this agent definition: ${refusal}. Use API-key auth, and on Claude set loadProjectContext: false.`,
-		);
-	return { ...definition, options: { ...definition.options, sealHome: true } };
+	if (!refusal) return { ...definition, options: { ...definition.options, sealHome: true } };
+	const fix = isUnconfinedClaude(definition)
+		? 'Remove confinement: "none".'
+		: "Use API-key auth, and on Claude set loadProjectContext: false.";
+	throw new Error(`--verdict-grade refuses this agent definition: ${refusal}. ${fix}`);
 }
 interface RunInput {
 	session: HarnessSession;
@@ -359,8 +364,9 @@ export class TestRuntime {
 	}
 	/**
 	 * A real worktree shares its repository's object store, so the agent can reach every branch in
-	 * it. Only a suite that accepts `confinement` may use one, only with a custom adapter (built-in
-	 * hosts keep their shims in a `.git` a worktree does not have), and never under --verdict-grade.
+	 * it. Only a suite that accepts `confinement` may use one, never under --verdict-grade, and only
+	 * with an agent that does not claim a sandbox: a custom adapter, or Claude with
+	 * `confinement: "none"`.
 	 */
 	private refuseUnsealedWorkspace(source: WorkspaceSource, definition: AgentDefinition): void {
 		if (typeof source === "string") return;
@@ -370,9 +376,9 @@ export class TestRuntime {
 			throw new Error(
 				"A worktree workspace reaches its repository's history, so the suite's config must accept confinement.",
 			);
-		if (definition.host)
+		if (definition.host && !isUnconfinedClaude(definition))
 			throw new Error(
-				`A worktree workspace runs only with a custom adapter for now, not the built-in ${definition.host} host.`,
+				`A worktree workspace runs only with a custom adapter or claude({ confinement: "none" }), not a sandboxed ${definition.host} host.`,
 			);
 	}
 	/** The definition with its allowed roots expanded and checked, before any host starts. */

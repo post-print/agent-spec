@@ -134,6 +134,8 @@ async function runBuiltin(input: InitializeInput, prompt: string): Promise<HostR
 				...common,
 				model: agent.options.model,
 				tools: agent.options.tools,
+				allowedTools: agent.options.allowedTools,
+				confinement: agent.options.confinement,
 				loadProjectContext: agent.options.loadProjectContext !== false,
 				allowUnixSockets: agent.options.allowUnixSockets === true,
 				networkAccess: !readOnly && agent.options.networkAccess === true,
