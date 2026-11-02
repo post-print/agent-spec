@@ -206,6 +206,8 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["host reports hitting its limit", "agent_failed", 1],
 	["test code breaks after the agent ran", "author_error", 2],
 	["agent runs and nothing checks it", "vacuous", 2],
+	["reading an allowed root is no escape", "passed", 0],
+	["reading the same folder without allowing it is an escape", "agent_failed", 1],
 	["named control fails on the check it names", "passed", 0],
 	["named control fails on a precondition instead", "vacuous", 2],
 	["only the prompt is checked", "vacuous", 2],

@@ -9,6 +9,7 @@ import {
 	type HarnessSession,
 	listMcpCatalog,
 	type McpCatalogEntry,
+	resolveAllowedRoots,
 } from "@post-print/agent-harness";
 import { z } from "zod";
 import { noteUncalibratedJudge } from "./check-outcomes.js";
@@ -347,8 +348,20 @@ export class TestRuntime {
 		if (!calibrated) noteUncalibratedJudge(evaluationId);
 		return { key, calibrated };
 	}
+	/** The definition with its allowed roots expanded and checked, before any host starts. */
+	private async withAllowedRoots(definition: AgentDefinition): Promise<AgentDefinition> {
+		const roots = definition.options.allowedRoots;
+		if (!roots?.length) return definition;
+		const allowedRoots = resolveAllowedRoots(roots, {
+			protectedPaths: await this.checkoutPaths(),
+			sealHome: definition.options.sealHome === true,
+		});
+		return { ...definition, options: { ...definition.options, allowedRoots } };
+	}
 	private judgeDefinition(settings: AgentSettings): Promise<AgentDefinition> {
-		return preparing(async () => this.forTest(configuredAgent(this.options.judge, settings)));
+		return preparing(async () =>
+			this.withAllowedRoots(this.forTest(configuredAgent(this.options.judge, settings))),
+		);
 	}
 	private async start(task: AgentTask, settings: AgentSettings): Promise<Run> {
 		const input = await preparing(() => this.prepareTask(task, settings));
@@ -359,7 +372,9 @@ export class TestRuntime {
 		this.signal.throwIfAborted();
 		if (typeof prompt !== "string" || !prompt.trim())
 			throw new Error("agent.run requires a nonempty prompt");
-		const definition = this.forTest(configuredAgent(this.options.agent, settings));
+		const definition = await this.withAllowedRoots(
+			this.forTest(configuredAgent(this.options.agent, settings)),
+		);
 		validateSkills(definition.options.skills ?? [], this.options.baseDir);
 		const workspace = await prepareWorkspace(
 			this.options.baseDir,
@@ -430,7 +445,9 @@ export class TestRuntime {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
 			);
-			assertInsideWorkspace(trace, workspace.path);
+			assertInsideWorkspace(trace, workspace.path, {
+				allowedRoots: input.definition.options.allowedRoots,
+			});
 			const result = await recordingRun(() =>
 				this.recordFinishedTurn({
 					id,

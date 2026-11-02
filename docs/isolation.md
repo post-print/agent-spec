@@ -35,7 +35,10 @@ The two layers give different answers for the same path. The host decides whethe
 | Claude Code scratch folder `/tmp/claude-<uid>` | Allowed | Allowed | Allowed |
 | User home, including `~/.config` and package-manager stores | Allowed; denied under `--verdict-grade` | Denied | `WorkspaceEscapeError` for `~`, `$HOME`, or an absolute home path |
 | Read-only system roots and the Playwright browser cache | Allowed | Denied | Allowed |
+| A folder in the agent's `allowedRoots` | Allowed | Denied | Allowed |
 | Network | Off unless `networkAccess: true` | — | — |
+
+`allowedRoots: ["$TMPDIR/postprint", "~/postprint"]` on an agent definition names folders outside the workspace the agent may read, such as runtime manifests. Each root is expanded and checked before any host starts. A root may not be relative, the whole filesystem, or a folder that contains the temp folder or the home folder. It may not overlap the caller checkout, and under `--verdict-grade` it may not sit in the real home. Naming a path under an allowed root is not an escape. Claude Code adds the roots to its sandbox reads and `permissions.additionalDirectories`, Codex gives them `read` in its permission profile, and custom adapters get only the detection change. The run record lists them in `allowedRoots`, which is part of a claim's fingerprint, and the viewer labels the run `Allowed roots`. Neither host has been shown to let a root under the temp folder through its temp-folder deny, so prove that live before relying on it.
 
 A tool that writes its cache or config under home or the temp folder fails inside the sandbox, even if the agent never names that path. Point it at the workspace instead, through the tool's own flag or environment variable, in setup or in the task prompt. Setup callbacks run before the host starts, as test-owned code outside these limits. They can install dependencies into the workspace, because the default workspace is committed HEAD and has no `node_modules`.
 

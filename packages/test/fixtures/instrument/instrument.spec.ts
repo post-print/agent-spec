@@ -2,6 +2,10 @@ import { describe, expect, type Run, z } from "../../dist/index.js";
 
 const test = describe("instrument", ({ agent, judge }) => ({
 	agent: agent({ description: "A scripted host." }),
+	allowed: agent({
+		description: "The scripted host, allowed to read one folder outside its workspace.",
+		allowedRoots: ["$TMPDIR/agent-test-allowed-root"],
+	}),
 	reviewer: judge({ prompt: "Is the input correct?", schema: z.object({ correct: z.boolean() }) }),
 	// Never calibrated: a different prompt is a different judge.
 	unvetted: judge({
@@ -83,6 +87,12 @@ test("named control fails on a precondition instead", WRONG, async ({ agent }) =
 	const run = await agent.run(scenario("GOOD"));
 	expect(run.output, "A precondition holds.").toBe("precondition");
 	expect(run.output, "The output is wrong.").toBe("wrong");
+});
+test("reading an allowed root is no escape", async ({ allowed }) => {
+	expect((await allowed.run(scenario("READ_ALLOWED_ROOT"))).output).toBe("done");
+});
+test("reading the same folder without allowing it is an escape", async ({ agent }) => {
+	expect((await agent.run(scenario("READ_ALLOWED_ROOT"))).output).toBe("done");
 });
 test("host reports hitting its limit", async ({ agent }) => {
 	await agent.run(scenario("MAX_TURNS"));

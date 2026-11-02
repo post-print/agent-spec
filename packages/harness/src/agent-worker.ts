@@ -92,6 +92,7 @@ function builtinOptions(input: InitializeInput, prompt: string) {
 			? sealedProtectedPaths(workspace, protectedPaths)
 			: protectedPaths,
 		sealHome: agent.options.sealHome === true,
+		allowedRoots: agent.options.allowedRoots ?? [],
 		mcpServers: readOnly ? undefined : agent.options.mcpServers,
 		failOnUserInput: true,
 		onAgentEvent: (event: AgentEvent) => send("event", event),

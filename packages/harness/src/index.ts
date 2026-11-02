@@ -25,6 +25,7 @@ export {
 	WorkspaceEscapeError,
 } from "./agent-error.js";
 export { createAgentSession, HarnessSession } from "./agent-session.js";
+export { resolveAllowedRoots } from "./allowed-roots.js";
 export { resolvedTotalTokens } from "./capture.js";
 export { loginCursorSdk } from "./cursor-auth.js";
 export {
@@ -45,6 +46,7 @@ export {
 	createSealedWorkspace,
 	SealedWorkspace,
 	toolPathsOutsideWorkspace,
+	WorkspaceBoundary,
 } from "./sealed-workspace.js";
 export { ShellSegment, shellPayload, shellSegments, shellTokens } from "./shell-paths.js";
 export { parseClaudeStream, parseCodexStream } from "./stream-parsers.js";

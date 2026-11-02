@@ -63,7 +63,7 @@ Custom integrations use `defineAgent()` and `customAgent()` with explicit capabi
 
 ## What a run records
 
-Every completed run carries `run.record`, also stored by operation in the execution summary: host, binary and version, requested and observed model, whether the model is pinned, auth mode, confinement, network state, setting sources, whether the host's own user configuration can reach the run (`userConfig`), whether the agent can read the real home (`home`: `sealed` under `--verdict-grade`, otherwise `readable`, or `unknown` on Cursor and custom adapters), the names of overriding environment variables, package version, git SHA and dirty flag, and hashes of the suite, prompt, skills, and initial workspace.
+Every completed run carries `run.record`, also stored by operation in the execution summary: host, binary and version, requested and observed model, whether the model is pinned, auth mode, confinement, network state, setting sources, whether the host's own user configuration can reach the run (`userConfig`), whether the agent can read the real home (`home`: `sealed` under `--verdict-grade`, otherwise `readable`, or `unknown` on Cursor and custom adapters), the folders outside the workspace the test allowed it to read (`allowedRoots`), the names of overriding environment variables, package version, git SHA and dirty flag, and hashes of the suite, prompt, skills, and initial workspace.
 
 | Host | Confinement | Reports its tools and model | Network |
 | --- | --- | --- | --- |

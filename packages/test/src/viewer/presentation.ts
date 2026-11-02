@@ -288,6 +288,7 @@ type RecordedConditions = {
 	calibrated?: boolean;
 	modelPinned?: boolean;
 	userConfig?: string;
+	allowedRoots?: string[];
 };
 /** Conditions a reader must know before trusting a pass. Empty when no run recorded them. */
 export function runConditionLabels(operations: { data: unknown[] }[]): string[] {
@@ -306,5 +307,6 @@ function conditionLabels(record: RecordedConditions): string[] {
 		...(hosted && record.calibrated === false ? ["Uncalibrated"] : []),
 		...(hosted && record.modelPinned === false ? ["Model unpinned"] : []),
 		...(record.userConfig === "may-load" ? ["User config may load"] : []),
+		...(record.allowedRoots?.length ? ["Allowed roots"] : []),
 	];
 }

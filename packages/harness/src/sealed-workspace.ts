@@ -302,9 +302,15 @@ function toolCallPaths(
 	return { paths, shellCwd: callDir === undefined ? shell.cwd : shellCwd };
 }
 
-function escapesWorkspace(path: NamedPath, root: string): boolean {
+/** What a test lets its agent name besides the workspace: folders it allowed, already checked. */
+export interface WorkspaceBoundary {
+	allowedRoots?: readonly string[];
+}
+function escapesWorkspace(path: NamedPath, root: string, boundary: WorkspaceBoundary): boolean {
 	if (isCursorToolOutput(path.absolute.replaceAll("\\", "/"))) return false;
 	if (isPathUnderRoot(path.absolute, root) || isSystemPath(path.absolute)) return false;
+	if (boundary.allowedRoots?.some((allowed) => isPathUnderRoot(path.absolute, allowed)))
+		return false;
 	return !existsInsideFromSubfolder(path.raw, root);
 }
 
@@ -347,7 +353,11 @@ function existsInsideFromSubfolder(raw: string, root: string): boolean {
  * and scanned for absolute, home-relative, and parent-relative tokens; only read-only
  * system toolchain roots are allowed.
  */
-export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: string): string[] {
+export function toolPathsOutsideWorkspace(
+	trace: AgentTrace,
+	workspaceRoot: string,
+	boundary: WorkspaceBoundary = {},
+): string[] {
 	const root = resolve(workspaceRoot);
 	const escaped: string[] = [];
 	let shellCwd = root;
@@ -355,14 +365,20 @@ export function toolPathsOutsideWorkspace(trace: AgentTrace, workspaceRoot: stri
 		const named = toolCallPaths(call.args, root, shellCwd);
 		shellCwd = named.shellCwd;
 		escaped.push(
-			...named.paths.filter((path) => escapesWorkspace(path, root)).map((path) => path.raw),
+			...named.paths
+				.filter((path) => escapesWorkspace(path, root, boundary))
+				.map((path) => path.raw),
 		);
 	}
 	return [...new Set(escaped)];
 }
 
 /** Reject a trace whose tool calls named paths outside the sealed workspace. */
-export function assertInsideWorkspace(trace: AgentTrace, workspaceRoot: string): void {
-	const escaped = toolPathsOutsideWorkspace(trace, workspaceRoot);
+export function assertInsideWorkspace(
+	trace: AgentTrace,
+	workspaceRoot: string,
+	boundary: WorkspaceBoundary = {},
+): void {
+	const escaped = toolPathsOutsideWorkspace(trace, workspaceRoot, boundary);
 	if (escaped.length) throw new WorkspaceEscapeError(escaped, trace);
 }

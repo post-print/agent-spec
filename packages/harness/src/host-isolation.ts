@@ -21,6 +21,8 @@ export interface HostIsolation {
 	networkAccess?: boolean;
 	/** Claude only: let sandboxed commands create Unix sockets, which headless Chrome needs. */
 	allowUnixSockets?: boolean;
+	/** Folders outside the workspace the agent may read, already checked by `resolveAllowedRoots`. */
+	allowedRoots?: readonly string[];
 }
 
 /**
@@ -179,6 +181,7 @@ export function codexPermissionArgs(isolation: HostIsolation): string[] {
 		'":tmpdir"="deny"',
 		'":slash_tmp"="deny"',
 		...denied,
+		...uniquePaths(isolation.allowedRoots ?? []).map((path) => `${tomlString(path)}="read"`),
 		// Codex keeps `.git` read-only inside writable roots; agents must be able to commit in
 		// their own throwaway repository.
 		`":workspace_roots"={"."="${workspaceAccess}"${isolation.readOnly ? "" : ',".git"="write"'}}`,
@@ -221,12 +224,15 @@ export function claudeIsolationSettings(isolation: HostIsolation): string {
 			...claudeSandboxNetwork(isolation),
 			filesystem: {
 				denyRead: [...protectedPaths, ...uniquePaths([tmpdir()])],
-				allowRead: uniquePaths([isolation.cwd]),
+				allowRead: uniquePaths([isolation.cwd, ...(isolation.allowedRoots ?? [])]),
 			},
 		},
 		env: { NODE_OPTIONS: sandboxNodeOptions() },
 		permissions: {
 			blockReadsOutsideWorkingDirectories: true,
+			...(isolation.allowedRoots?.length
+				? { additionalDirectories: uniquePaths(isolation.allowedRoots) }
+				: {}),
 			deny: protectedPaths.map((path) => `Read(/${path}/**)`),
 		},
 	});

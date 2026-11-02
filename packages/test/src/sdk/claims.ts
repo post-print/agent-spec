@@ -82,6 +82,7 @@ const SHARED_CONDITIONS = [
 	"settingSources",
 	"userConfig",
 	"home",
+	"allowedRoots",
 	"overridingEnv",
 	"hashes.settings",
 ];
