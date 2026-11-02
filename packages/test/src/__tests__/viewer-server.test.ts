@@ -393,7 +393,7 @@ function socketOpens(
 		connection: "Upgrade",
 		upgrade: "websocket",
 		"sec-websocket-version": "13",
-		"sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+		"sec-websocket-key": Buffer.from("the sample nonce").toString("base64"),
 	}).map(([name, value]) => `${name}: ${value}`);
 	const { hostname, port } = new URL(url);
 	return new Promise((resolveOpen) => {

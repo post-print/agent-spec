@@ -1,0 +1,2 @@
+# The RFC 6455 sample WebSocket nonce, base64 of "the sample nonce". Not a credential.
+6ad5779019364e2a3afa7ce337e8469fd99ccf6e:packages/test/src/__tests__/viewer-server.test.ts:generic-api-key:396
