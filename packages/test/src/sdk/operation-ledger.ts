@@ -1,4 +1,5 @@
 import { WorkspaceEscapeError } from "@post-print/agent-harness";
+import { isInfrastructureFailure } from "./failure.js";
 import type { Run } from "./types.js";
 
 /** A promise that knows whether the test ever looked at its outcome, however late. */
@@ -49,6 +50,7 @@ export class OperationLedger {
 	private readonly operations: { operation: ObservedOperation<unknown>; state: OperationState }[] =
 		[];
 	private readonly escapes = new Set<WorkspaceEscapeError>();
+	private infrastructureFailed = false;
 
 	record<T>(underlying: Promise<T>): Promise<T> {
 		const operation = new ObservedOperation<T>((resolve, reject) => {
@@ -65,9 +67,15 @@ export class OperationLedger {
 			(error: unknown) => {
 				entry.state = "rejected";
 				if (error instanceof WorkspaceEscapeError) this.escapes.add(error);
+				if (isInfrastructureFailure(error)) this.infrastructureFailed = true;
 			},
 		);
 		return operation;
+	}
+
+	/** Whether any operation failed for a reason that says nothing about the agent. */
+	reportedInfrastructureFailure(): boolean {
+		return this.infrastructureFailed;
 	}
 
 	/** Throws when the test body finished without earning its result. */

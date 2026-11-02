@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TestInfo } from "@playwright/test";
-import type { ComparisonSubject, SampleAnnotation } from "./claims.js";
-import { isInfrastructureFailure } from "./failure.js";
+import type { ComparisonSubject, SampleAnnotation, SampleOutcome } from "./claims.js";
 import { planIsDecided } from "./pass-rate.js";
+import { sampleOutcome } from "./verdict.js";
 
 export const SAMPLE_ANNOTATION = "agent-test.sample";
 
@@ -15,6 +15,11 @@ export interface SamplingDetails {
 	variants?: readonly string[];
 	/** What differs between arms on purpose. Any other difference refuses the comparison. */
 	subject?: ComparisonSubject;
+}
+export interface SampleRun {
+	info: TestInfo;
+	annotation: SampleAnnotation;
+	runtime: { reportedInfrastructureFailure(): boolean };
 }
 export interface PlannedSample {
 	title: string;
@@ -65,31 +70,37 @@ export async function sampleIsUnneeded(info: TestInfo, annotation: SampleAnnotat
 	});
 }
 /** A sample with no verdict is not a run the plan can decide on, so it does not bring a stop closer. */
-async function recordSample(
-	info: TestInfo,
-	annotation: SampleAnnotation,
-	outcome: "passed" | "failed" | "no_verdict",
-) {
+async function recordSample({ info, annotation }: SampleRun, outcome: SampleOutcome) {
 	if (annotation.flagAt === undefined) return;
 	const path = ledgerPath(info, annotation);
 	await mkdir(join(path, ".."), { recursive: true });
 	await appendFile(path, `${outcome}\n`);
 }
-/** Matches how the verdict reads the attempt, so the plan's stop and its decision cannot disagree. */
-function failureOutcome(error: unknown, info: TestInfo) {
-	if (isInfrastructureFailure(error)) return "no_verdict";
-	return info.expectedStatus === "failed" ? "passed" : "failed";
+function attemptStatus(info: TestInfo, errors: unknown[]) {
+	if (info.expectedStatus === "skipped") return "skipped";
+	return errors.length > 0 ? "failed" : "passed";
 }
-export async function runRecordingSample(
-	info: TestInfo,
-	annotation: SampleAnnotation,
-	body: () => Promise<void>,
-) {
+/** Asks the verdict how it will read this attempt, so the plan's stop and decision cannot disagree. */
+function outcomeOf({ info, runtime }: SampleRun, thrown: unknown[]): SampleOutcome {
+	const errors = [...info.errors, ...thrown];
+	return sampleOutcome({
+		retry: info.retry,
+		status: attemptStatus(info, errors),
+		expectedFailure: info.expectedStatus === "failed",
+		errors,
+		operations: runtime.reportedInfrastructureFailure()
+			? [{ data: [{ kind: "infrastructure" }] }]
+			: [],
+	});
+}
+export async function runRecordingSample(run: SampleRun, body: () => Promise<void>) {
+	const thrown: unknown[] = [];
 	try {
 		await body();
 	} catch (error) {
-		await recordSample(info, annotation, failureOutcome(error, info));
+		thrown.push(error);
 		throw error;
+	} finally {
+		await recordSample(run, outcomeOf(run, thrown));
 	}
-	await recordSample(info, annotation, "passed");
 }

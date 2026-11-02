@@ -144,7 +144,7 @@ function runVerdict(present: Set<RunVerdict>, input: VerdictInput, tolerated: bo
 	const verdict = PRECEDENCE.find((candidate) => present.has(candidate)) ?? "skipped_only";
 	return runnerDisagrees(verdict, input, tolerated) ? "instrument_error" : verdict;
 }
-function sampleOutcome(attempt: VerdictAttempt): ClaimSample["outcome"] {
+export function sampleOutcome(attempt: VerdictAttempt): ClaimSample["outcome"] {
 	if (attempt.status === "skipped") return "not_run";
 	if (passedAttempt(attempt)) return "passed";
 	if (attempt.status !== "failed") return "no_verdict";

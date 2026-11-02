@@ -161,7 +161,7 @@ export function describe<R extends Resources>(
 				runner(planned.title, { annotation: annotations }, async ({ runtime }, info) => {
 					const unneeded = await sampleIsUnneeded(info, planned.annotation);
 					info.skip(unneeded, "The sampling plan's decision is already fixed.");
-					await runRecordingSample(info, planned.annotation, async () => {
+					await runRecordingSample({ info, annotation: planned.annotation, runtime }, async () => {
 						await callback(bind(resources, runtime), info, planned.annotation.variant ?? "");
 						runtime.assertResultEarned({ noAgent });
 					});

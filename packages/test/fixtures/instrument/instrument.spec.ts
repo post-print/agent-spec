@@ -131,6 +131,24 @@ rates(
 		expect((await agent.run(scenario("GOOD"))).output).toBe("wrong");
 	},
 );
+rates(
+	"plan with handled judge failures",
+	{
+		description: "No sample earns a verdict, so none brings a stop closer.",
+		samples: { n: 4, flagAt: 2 },
+	},
+	async ({ reviewer }) => {
+		await reviewer.run({ input: "SCENARIO_JUDGE_PROSE" }).catch(() => undefined);
+		expect("wrong").toBe("done");
+	},
+);
+rates(
+	"plan with soft failures",
+	{ description: "A soft failure counts toward the flag.", samples: { n: 4, flagAt: 2 } },
+	async ({ agent }) => {
+		expect.soft((await agent.run(scenario("GOOD"))).output).toBe("wrong");
+	},
+);
 rates("repeat short of verdicts", async ({ reviewer }, info) => {
 	const input = info.repeatEachIndex === 0 ? "SCENARIO_JUDGE_PROSE" : "SCENARIO_JUDGE_ENFORCED";
 	expect((await reviewer.run({ input })).output.correct).toBe(true);
