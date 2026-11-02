@@ -28,6 +28,34 @@ afterAll(async () => {
 });
 
 const rate = (title: string) => runScenario(`instrument rates ${title} \\[`);
+
+describe("judges through the real runner", () => {
+	it("takes the verdict from the host's enforced output, not its prose", async () => {
+		const { verdict, exitCode } = await runScenario("judge verdict comes from enforced output");
+		expect(verdict.verdict).toBe("passed");
+		expect(exitCode).toBe(0);
+	}, 60_000);
+	for (const title of [
+		"judge answers with the schema",
+		"judge answers in prose",
+		"judge host reports a failure",
+		"judge cannot start",
+	])
+		it(`${title}: no verdict, not an agent failure`, async () => {
+			const { verdict, exitCode } = await runScenario(title);
+			expect(verdict.verdict).toBe("infra_invalid");
+			expect(exitCode).toBe(2);
+		}, 60_000);
+	for (const title of [
+		"judge rejects the answer$",
+		"judge rejects the answer while another judge is running",
+	])
+		it(`${title}: still a failure`, async () => {
+			const { verdict, exitCode } = await runScenario(title);
+			expect(verdict.verdict).toBe("agent_failed");
+			expect(exitCode).toBe(1);
+		}, 60_000);
+});
 describe("rates through the real runner", () => {
 	it("samples: 5 produces one claim with its count and interval", async () => {
 		const { verdict, exitCode } = await rate("sampled pass");
@@ -53,6 +81,40 @@ describe("sampling plans through the real runner", () => {
 		expect(verdict.claims[0]).toMatchObject({ decision: "flagged", flagAt: 2 });
 		expect(verdict.claims[0]?.arms[0]).toMatchObject({ failed: 2, total: 2 });
 	}, 60_000);
+});
+describe("plans and repeats short of verdicts through the real runner", () => {
+	it("a plan short of verdicts runs every sample and does not clear", async () => {
+		const { verdict, exitCode } = await rate("plan short of verdicts");
+		expect(verdict.verdict).toBe("infra_invalid");
+		expect(exitCode).toBe(2);
+		expect(verdict.claims[0]).toMatchObject({ decision: "no_verdict", flagAt: 2 });
+		expect(verdict.claims[0]?.arms[0]).toMatchObject({ passed: 2, failed: 0, noVerdict: 2 });
+	}, 120_000);
+	it("a plan of controls that fail as they must clears", async () => {
+		const { verdict, exitCode } = await rate("plan of controls");
+		expect(verdict.verdict).toBe("passed");
+		expect(exitCode).toBe(0);
+		expect(verdict.claims[0]).toMatchObject({ decision: "clear", flagAt: 2 });
+	}, 120_000);
+	it("a handled judge failure does not bring a plan's stop closer", async () => {
+		const { verdict, exitCode } = await rate("plan with handled judge failures");
+		expect(exitCode).toBe(2);
+		expect(verdict.claims[0]?.arms[0]).toMatchObject({ failed: 0, noVerdict: 4 });
+	}, 120_000);
+	it("a soft failure brings a plan's stop closer", async () => {
+		const { verdict, exitCode } = await rate("plan with soft failures");
+		expect(exitCode).toBe(1);
+		expect(verdict.claims[0]).toMatchObject({ decision: "flagged" });
+		expect(verdict.claims[0]?.arms[0]).toMatchObject({ failed: 2 });
+	}, 120_000);
+	it("a repeat with no verdict keeps a gate from going green", async () => {
+		const { verdict, exitCode } = await runScenario("repeat short of verdicts", [
+			"--repeat-each",
+			"2",
+		]);
+		expect(verdict.verdict).toBe("infra_invalid");
+		expect(exitCode).toBe(2);
+	}, 120_000);
 	it("a plan stops once the flag cannot be reached", async () => {
 		const { verdict, exitCode } = await rate("plan clears early");
 		expect(verdict.verdict).toBe("passed");

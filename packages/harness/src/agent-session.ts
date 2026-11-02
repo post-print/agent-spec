@@ -20,6 +20,8 @@ interface SessionInput {
 	readOnly?: boolean;
 	/** Absolute paths built-in hosts deny to the session (the caller checkout). */
 	protectedPaths?: readonly string[];
+	/** JSON Schema the host should hold its reply to, where it can. */
+	outputSchema?: object;
 }
 class SessionWorker {
 	private readonly child = fork(fileURLToPath(new URL("./agent-worker.js", import.meta.url)), [], {
@@ -110,7 +112,7 @@ class SessionWorker {
 	};
 	async initialize(): Promise<HarnessSession> {
 		try {
-			const { agent, workspace, readOnly, protectedPaths } = this.input;
+			const { agent, workspace, readOnly, protectedPaths, outputSchema } = this.input;
 			const capabilities = (await this.request({
 				type: "init",
 				value: {
@@ -118,6 +120,7 @@ class SessionWorker {
 					workspace,
 					readOnly: readOnly === true,
 					protectedPaths: protectedPaths ?? [],
+					outputSchema,
 				},
 			})) as AgentCapabilities;
 			return {

@@ -112,7 +112,7 @@ Set `observeEnvironment: { paths: ["node_modules"] }` on an agent or run to answ
 
 ## Explicit judge inputs
 
-A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ input })` supplies JSON data selected by the test. You may use the SDK's `z` export or import a compatible Zod v4 schema. Schemas must support conversion to JSON Schema; unsupported transforms fail explicitly.
+A judge factory defines its reviewer, prompt, and Zod v4 schema. `judge.run({ input })` supplies JSON data selected by the test. You may use the SDK's `z` export or import a compatible Zod v4 schema. Schemas must support conversion to JSON Schema; unsupported transforms fail explicitly. The host holds the reply to the schema where it can; see [hosts](hosts.md). On OpenAI, give every field a value, using `.nullable()` rather than `.optional()`, or the schema is sent only in the prompt. A judge that cannot give a verdict rejects `judge.run` with an `AgentInfrastructureError`: the code `host_exit`, `auth`, or `timeout` when the host crashed, could not log in, or ran out of time, and `judge_failed` for a turn the host reported as failed, a reply that still does not match, or a request that could not be prepared, such as an unsupported schema or an oversized input. A test that fails after that has no verdict, even if it handled the rejection: it is not counted as a failure of the agent, and the run exits 2. A test that handles the rejection and otherwise earns its result still passes. A judge with no configured agent still fails as a plain test error.
 
 There is no automatic transcript, workspace, tool, or token inclusion. Passing `run.output` supplies only text. To evaluate a patch, read the selected snapshot files yourself and pass their contents. A whole run object is not JSON input because it contains execution methods. Judge definitions may explicitly attach their own context and skills; those are also supplied.
 
@@ -189,7 +189,7 @@ test("the wording matters", {
 });
 ```
 
-Failures from the host or runner count as no verdict and stay out of the rate. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
+Failures from the host or runner count as no verdict and stay out of the rate. They do not bring a plan's stop closer, and a plan clears only on enough passes: one left short of them has no verdict and exits 2, unless it regressed from its baseline. `--repeat-each` also reports per-test rates, but a failed repeat still fails the run and a repeat with no verdict exits 2, so a gate that uses repeats stays a gate. Add `--measure` to report the rates without judging them.
 
 `agent-test baseline` saves the newest run's single-arm claims to `agent-test-baselines/`; commit them. A later run under the same conditions is compared against the baseline and fails if it regressed. A changed host, model, suite, prompt, skill, or workspace starts over rather than reading as a regression.
 

@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { access, copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -78,6 +78,8 @@ export interface OpenaiRunOptions {
 	networkAccess?: boolean;
 	/** Absolute paths the agent may neither read nor write (the caller checkout). */
 	protectedPaths?: readonly string[];
+	/** JSON Schema the reply must match (`--output-schema`), when Codex accepts the schema. */
+	outputSchema?: object;
 }
 
 export interface OpenaiRunResult {
@@ -301,6 +303,43 @@ export function buildOpenaiMcpConfigArgs(
 	return args;
 }
 
+/** Schema keywords the Codex backend refuses, or was not shown to accept, under strict output. */
+const CODEX_REFUSED_KEYWORDS = [
+	"format",
+	"oneOf",
+	"allOf",
+	"not",
+	"if",
+	"prefixItems",
+	"patternProperties",
+	"propertyNames",
+];
+type SchemaNode = Record<string, unknown>;
+function isClosedObject(node: SchemaNode): boolean {
+	if (![node.type].flat().includes("object")) return true;
+	const required = (node.required ?? []) as string[];
+	const keys = Object.keys((node.properties ?? {}) as SchemaNode);
+	return node.additionalProperties === false && keys.every((key) => required.includes(key));
+}
+function subschemas(node: SchemaNode): SchemaNode[] {
+	return [
+		...Object.values((node.properties ?? {}) as Record<string, SchemaNode>),
+		...Object.values((node.$defs ?? {}) as Record<string, SchemaNode>),
+		...((node.anyOf ?? []) as SchemaNode[]),
+		...(node.items ? [node.items as SchemaNode] : []),
+	];
+}
+function isStrictNode(node: SchemaNode): boolean {
+	if (typeof node !== "object") return false;
+	if (CODEX_REFUSED_KEYWORDS.some((keyword) => keyword in node)) return false;
+	return isClosedObject(node) && subschemas(node).every(isStrictNode);
+}
+/** Codex fails the whole turn on a schema its strict mode refuses, such as one with an optional field. */
+export function codexAcceptsSchema(schema: object): boolean {
+	const root = schema as SchemaNode;
+	return root.type === "object" && isStrictNode(root);
+}
+
 export function buildOpenaiExecArgs(options: {
 	prompt: string;
 	cwd: string;
@@ -310,6 +349,7 @@ export function buildOpenaiExecArgs(options: {
 	includeGlobalSkills?: boolean;
 	networkAccess?: boolean;
 	protectedPaths?: readonly string[];
+	outputSchemaPath?: string;
 }): string[] {
 	const readOnly = options.sandbox === "read-only";
 	const args = [
@@ -341,6 +381,7 @@ export function buildOpenaiExecArgs(options: {
 	if (model) {
 		args.push("--model", model);
 	}
+	if (options.outputSchemaPath) args.push("--output-schema", options.outputSchemaPath);
 	args.push(options.prompt);
 	return args;
 }
@@ -438,6 +479,15 @@ interface OpenaiExecution {
 	deadline: { timedOut: boolean };
 	runHome: Awaited<ReturnType<typeof createOpenaiRunHome>> | undefined;
 }
+/** Codex holds only its final message to the schema; earlier messages are ordinary commentary. */
+function withStructuredOutput(trace: AgentTrace): AgentTrace {
+	const final = trace.messages.filter((message) => message.role === "assistant").at(-1);
+	try {
+		return { ...trace, structuredOutput: JSON.parse(final?.content ?? "") };
+	} catch {
+		return trace;
+	}
+}
 async function finishOpenaiRun(
 	options: OpenaiRunOptions,
 	stream: OpenaiStream,
@@ -461,7 +511,7 @@ async function finishOpenaiRun(
 		Boolean(acc.resultError);
 	return {
 		status: failed ? "failed" : "completed",
-		trace,
+		trace: options.outputSchema ? withStructuredOutput(trace) : trace,
 		rawStatus,
 		exitCode,
 		stderr: stderr || undefined,
@@ -573,6 +623,8 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 	}
 	const bin = await resolveOpenaiBin(options.bin);
 	const deadline = { timedOut: false };
+	const enforced = options.outputSchema && codexAcceptsSchema(options.outputSchema);
+	const schemaFile = enforced ? await writeOutputSchemaFile(options.outputSchema) : undefined;
 	const args = buildOpenaiExecArgs({
 		prompt: options.prompt,
 		cwd: options.cwd,
@@ -582,14 +634,24 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		includeGlobalSkills: options.includeGlobalSkills === true,
 		networkAccess: options.networkAccess === true,
 		protectedPaths: options.protectedPaths,
+		outputSchemaPath: schemaFile?.path,
 	});
 	const runHome = options.includeGlobalSkills === true ? undefined : await createOpenaiRunHome();
+	const runOptions = enforced ? options : { ...options, outputSchema: undefined };
 
 	try {
-		return await runOpenaiWithDeadline(options, { bin, args, authMode, deadline, runHome });
+		return await runOpenaiWithDeadline(runOptions, { bin, args, authMode, deadline, runHome });
 	} finally {
 		await runHome?.cleanup();
+		await schemaFile?.cleanup();
 	}
+}
+/** Read by the Codex CLI itself, so the agent's denial of the temp folder does not apply. */
+async function writeOutputSchemaFile(schema: object | undefined) {
+	const directory = await mkdtemp(join(tmpdir(), "agent-harness-codex-schema-"));
+	const path = join(directory, "output-schema.json");
+	await writeFile(path, JSON.stringify(schema), "utf8");
+	return { path, cleanup: () => rm(directory, { recursive: true, force: true }) };
 }
 
 /** Classifier-only Codex path — read-only sandbox, last assistant text. */

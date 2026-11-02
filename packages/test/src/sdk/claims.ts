@@ -110,10 +110,13 @@ function comparisonConflict(samples: ClaimSample[], subject?: ComparisonSubject)
 	}
 	return undefined;
 }
-function decisionOf(arms: ClaimArm[], flagAt?: number): ClaimResult["decision"] {
+/** A plan clears only on passes: a sample with no verdict could still have been a failure. */
+function decisionOf(arms: ClaimArm[], sample?: SampleAnnotation): ClaimResult["decision"] {
 	if (arms.every(({ total }) => total === 0)) return "no_verdict";
-	if (flagAt === undefined) return "measured";
-	return arms.some(({ failed }) => failed >= flagAt) ? "flagged" : "clear";
+	if (sample?.flagAt === undefined) return "measured";
+	const { flagAt, n } = sample;
+	if (arms.some(({ failed }) => failed >= flagAt)) return "flagged";
+	return arms.every(({ passed }) => n - passed < flagAt) ? "clear" : "no_verdict";
 }
 function compared(arms: ClaimArm[], samples: ClaimSample[], subject?: ComparisonSubject) {
 	const [first, second] = arms;
@@ -162,7 +165,7 @@ function claimOf(
 		arms,
 		declared: annotation !== undefined,
 		flagAt: annotation?.flagAt,
-		decision: decisionOf(arms, annotation?.flagAt),
+		decision: decisionOf(arms, annotation),
 		fingerprint,
 		...compared(arms, samples, annotation?.subject),
 		baseline: baselineComparison(arms, fingerprint, baselines[claim]),

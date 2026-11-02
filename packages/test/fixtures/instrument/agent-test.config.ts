@@ -8,5 +8,6 @@ export default defineConfig({
 	timeout: 30_000,
 	workers: 1,
 	agent: claude({ timeoutMs: 20_000 }),
+	judge: claude({ timeoutMs: 20_000 }),
 	workspace: "./project",
 });

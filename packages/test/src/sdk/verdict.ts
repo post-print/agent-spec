@@ -144,7 +144,7 @@ function runVerdict(present: Set<RunVerdict>, input: VerdictInput, tolerated: bo
 	const verdict = PRECEDENCE.find((candidate) => present.has(candidate)) ?? "skipped_only";
 	return runnerDisagrees(verdict, input, tolerated) ? "instrument_error" : verdict;
 }
-function sampleOutcome(attempt: VerdictAttempt): ClaimSample["outcome"] {
+export function sampleOutcome(attempt: VerdictAttempt): ClaimSample["outcome"] {
 	if (attempt.status === "skipped") return "not_run";
 	if (passedAttempt(attempt)) return "passed";
 	if (attempt.status !== "failed") return "no_verdict";
@@ -170,15 +170,19 @@ function sampledClaims(attempts: VerdictAttempt[]): Set<string> {
 	}
 	return sampled;
 }
+function failedRepeatVerdict({ arms }: ClaimResult): RunVerdict | undefined {
+	if (arms.some(({ failed }) => failed > 0)) return "agent_failed";
+	return arms.some(({ noVerdict }) => noVerdict > 0) ? "infra_invalid" : undefined;
+}
 /** Asking for repeats is not asking for a rate: a gate using --repeat-each must still go red. */
 function claimVerdict(claim: ClaimResult, measureRepeats: boolean): RunVerdict {
 	if (claim.comparisonRefused) return "conditions_unknown";
-	if (claim.decision === "no_verdict") return "infra_invalid";
-	if (!claim.declared && !measureRepeats && claim.arms.some(({ failed }) => failed > 0))
-		return "agent_failed";
-	if (claim.decision === "flagged") return "agent_failed";
 	if (claim.baseline.status === "same_conditions" && claim.baseline.regressed)
 		return "agent_failed";
+	if (claim.decision === "no_verdict") return "infra_invalid";
+	const repeat = claim.declared || measureRepeats ? undefined : failedRepeatVerdict(claim);
+	if (repeat) return repeat;
+	if (claim.decision === "flagged") return "agent_failed";
 	return claim.decision === "clear" ? "passed" : "measured";
 }
 /** The one place a run's meaning is decided. The CLI exit code and the viewer both read this. */

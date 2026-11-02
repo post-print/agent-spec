@@ -33,6 +33,32 @@ if (prompt.includes("SCENARIO_AUTH")) {
 	process.exit(1);
 }
 init();
+if (prompt.includes("SCENARIO_JUDGE_ENFORCED")) {
+	message("Yes, that is right.");
+	say({
+		type: "result",
+		subtype: "success",
+		is_error: false,
+		structured_output: { correct: true },
+	});
+	process.exit(0);
+}
+if (prompt.includes("SCENARIO_JUDGE_SLOW")) await new Promise((done) => setTimeout(done, 30_000));
+if (prompt.includes("SCENARIO_JUDGE_ECHOES_SCHEMA")) {
+	const reply = '{"type":"object","properties":{"correct":{"type":"boolean"}}}';
+	message(reply);
+	finish(reply);
+	process.exit(0);
+}
+if (prompt.includes("SCENARIO_JUDGE_PROSE")) {
+	message("I think it is correct.");
+	finish();
+	process.exit(0);
+}
+if (prompt.includes("SCENARIO_JUDGE_REFUSED")) {
+	say({ type: "result", subtype: "error_during_execution", is_error: true, result: "refused" });
+	process.exit(1);
+}
 if (prompt.includes("SCENARIO_MAX_TURNS")) {
 	say({ type: "result", subtype: "error_max_turns", is_error: false });
 	process.exit(0);

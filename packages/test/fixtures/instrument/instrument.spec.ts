@@ -1,9 +1,42 @@
-import { describe, expect, type Run } from "../../dist/index.js";
+import { describe, expect, type Run, z } from "../../dist/index.js";
 
-const test = describe("instrument", ({ agent }) => ({
+const test = describe("instrument", ({ agent, judge }) => ({
 	agent: agent({ description: "A scripted host." }),
+	reviewer: judge({ prompt: "Is the input correct?", schema: z.object({ correct: z.boolean() }) }),
+	unconvertible: judge({
+		prompt: "Is the input correct?",
+		schema: z.object({ correct: z.boolean() }).transform(({ correct }) => correct),
+	}),
 }));
 const scenario = (name: string) => ({ prompt: `SCENARIO_${name}` });
+
+test("judge verdict comes from enforced output", async ({ reviewer }) => {
+	const { output } = await reviewer.run({ input: "SCENARIO_JUDGE_ENFORCED" });
+	expect(output.correct).toBe(true);
+});
+test("judge answers with the schema", async ({ reviewer }) => {
+	await reviewer.run({ input: "SCENARIO_JUDGE_ECHOES_SCHEMA" });
+});
+test("judge answers in prose", async ({ reviewer }) => {
+	await reviewer.run({ input: "SCENARIO_JUDGE_PROSE" });
+});
+test("judge host reports a failure", async ({ reviewer }) => {
+	await reviewer.run({ input: "SCENARIO_JUDGE_REFUSED" });
+});
+test("judge rejects the answer", async ({ reviewer }) => {
+	const { output } = await reviewer.run({ input: "SCENARIO_JUDGE_ENFORCED" });
+	expect(output.correct, "The judge accepted it.").toBe(false);
+});
+test("judge rejects the answer while another judge is running", async ({ reviewer }) => {
+	const running = reviewer.run({ input: "SCENARIO_JUDGE_SLOW" });
+	running.catch(() => undefined);
+	const { output } = await reviewer.run({ input: "SCENARIO_JUDGE_ENFORCED" });
+	expect(output.correct, "The judge accepted it.").toBe(false);
+	await running;
+});
+test("judge cannot start", async ({ unconvertible }) => {
+	await unconvertible.run({ input: "answer" });
+});
 
 test("good run", async ({ agent }) => {
 	expect((await agent.run(scenario("GOOD"))).output).toBe("done");
@@ -51,8 +84,9 @@ test("passes on retry", async ({ agent }, info) => {
 		info.retry > 0 ? "done" : "first try fails",
 	);
 });
-const rates = describe("instrument rates", ({ agent }) => ({
+const rates = describe("instrument rates", ({ agent, judge }) => ({
 	agent: agent({ description: "A scripted host." }),
+	reviewer: judge({ prompt: "Is the input correct?", schema: z.object({ correct: z.boolean() }) }),
 }));
 rates("sampled pass", { description: "Five good runs.", samples: 5 }, async ({ agent }) => {
 	expect((await agent.run(scenario("GOOD"))).output).toBe("done");
@@ -80,6 +114,45 @@ rates(
 		expect((await agent.run(scenario("GOOD"))).output).toBe("done");
 	},
 );
+rates(
+	"plan short of verdicts",
+	{ description: "Half the judge replies are unusable.", samples: { n: 4, flagAt: 2 } },
+	async ({ reviewer }, info) => {
+		const unusable = info.title.includes("[1/4]") || info.title.includes("[2/4]");
+		const input = unusable ? "SCENARIO_JUDGE_PROSE" : "SCENARIO_JUDGE_ENFORCED";
+		expect((await reviewer.run({ input })).output.correct).toBe(true);
+	},
+);
+rates(
+	"plan of controls",
+	{ description: "Every sample fails as it must.", samples: { n: 4, flagAt: 2 } },
+	async ({ agent }, info) => {
+		info.fail();
+		expect((await agent.run(scenario("GOOD"))).output).toBe("wrong");
+	},
+);
+rates(
+	"plan with handled judge failures",
+	{
+		description: "No sample earns a verdict, so none brings a stop closer.",
+		samples: { n: 4, flagAt: 2 },
+	},
+	async ({ reviewer }) => {
+		await reviewer.run({ input: "SCENARIO_JUDGE_PROSE" }).catch(() => undefined);
+		expect("wrong").toBe("done");
+	},
+);
+rates(
+	"plan with soft failures",
+	{ description: "A soft failure counts toward the flag.", samples: { n: 4, flagAt: 2 } },
+	async ({ agent }) => {
+		expect.soft((await agent.run(scenario("GOOD"))).output).toBe("wrong");
+	},
+);
+rates("repeat short of verdicts", async ({ reviewer }, info) => {
+	const input = info.repeatEachIndex === 0 ? "SCENARIO_JUDGE_PROSE" : "SCENARIO_JUDGE_ENFORCED";
+	expect((await reviewer.run({ input })).output.correct).toBe(true);
+});
 rates(
 	"infrastructure is not a sample",
 	{ description: "The host fails, so no run has a verdict.", samples: 2 },

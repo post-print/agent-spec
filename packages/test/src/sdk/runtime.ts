@@ -167,6 +167,9 @@ export class TestRuntime {
 	assertResultEarned(options: { noAgent: boolean }): void {
 		this.ledger.assertResultEarned(options);
 	}
+	reportedInfrastructureFailure(): boolean {
+		return this.ledger.reportedInfrastructureFailure();
+	}
 	private forTest(definition: AgentDefinition): AgentDefinition {
 		return withinTestDeadline(definition, this.options.remainingTestMs?.());
 	}

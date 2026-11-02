@@ -11,6 +11,8 @@ import type { AgentToolCall, AgentTrace, AgentUsage, HostReport } from "./types.
 
 /** One NDJSON line from `claude -p --output-format stream-json`. */
 const SHELL_TOOL = /^(bash|shell)$/i;
+/** How Claude delivers `--json-schema` output. It is the reply itself, not an action the agent took. */
+const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
 
 export interface ClaudeStreamEvent {
 	type?: string;
@@ -24,6 +26,7 @@ export interface ClaudeStreamEvent {
 		delta?: { type?: string; text?: string };
 	};
 	result?: string;
+	structured_output?: unknown;
 	is_error?: boolean;
 	usage?: unknown;
 	error?: string;
@@ -53,6 +56,7 @@ export interface ClaudeTraceAccumulator extends TraceAccumulator {
 	resultText?: string;
 	resultIsError?: boolean;
 	resultError?: string;
+	structuredOutput?: unknown;
 	/** Unnormalized CLI exit / result subtype. */
 	rawStatus?: string;
 	sawTerminalEvent?: boolean;
@@ -175,7 +179,8 @@ function pushToolCall(
 }
 
 function handleContentBlocks(acc: ClaudeTraceAccumulator, blocks: ClaudeContentBlock[]): void {
-	for (const block of blocks) handleContentBlock(acc, block);
+	for (const block of blocks)
+		if (block.name !== STRUCTURED_OUTPUT_TOOL) handleContentBlock(acc, block);
 }
 function handleContentBlock(acc: ClaudeTraceAccumulator, block: ClaudeContentBlock): void {
 	const type = block.type ?? "";
@@ -275,6 +280,7 @@ function accumulateResult(acc: ClaudeTraceAccumulator, event: ClaudeStreamEvent)
 		}
 	}
 	acc.resultError = resultError(event) ?? acc.resultError;
+	acc.structuredOutput = event.structured_output;
 	const usage = normalizeClaudeUsage(event.usage);
 	if (usage) {
 		acc.usage = mergeAgentUsage(acc.usage, usage);
@@ -300,6 +306,7 @@ export function finalizeClaudeTraceAccumulator(
 		...trace,
 		artifacts,
 		...(acc.hostReport ? { hostReport: acc.hostReport } : {}),
+		...(acc.structuredOutput === undefined ? {} : { structuredOutput: acc.structuredOutput }),
 	};
 }
 

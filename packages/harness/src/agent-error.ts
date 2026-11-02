@@ -7,6 +7,7 @@ const AGENT_INFRASTRUCTURE_CODES = [
 	"host_exit",
 	"worker_crash",
 	"capture_incomplete",
+	"judge_failed",
 ] as const;
 export type AgentInfrastructureCode = (typeof AGENT_INFRASTRUCTURE_CODES)[number];
 
