@@ -1,6 +1,5 @@
 {
-	"$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-	"_comment": "Mutation audit of the verdict code: a mutant the tests miss is a way agent-test could report a result it did not earn. Nightly and by hand, never a merge gate.",
+	"_comment": "Mutation audit of the verdict code: a mutant the tests miss is a way agent-test could report a result it did not earn. Nightly and by hand, never a merge gate. Stryker runs through bunx at a pinned version, so its dependencies stay out of the lockfile and bun audit.",
 	"testRunner": "command",
 	"commandRunner": {
 		"command": "bun test packages/test/src/__tests__/verdict.test.ts packages/test/src/__tests__/verdict-decisions.test.ts packages/test/src/__tests__/verdict-properties.test.ts packages/test/src/__tests__/claims.test.ts packages/test/src/__tests__/claims-decisions.test.ts packages/test/src/__tests__/baselines.test.ts"
