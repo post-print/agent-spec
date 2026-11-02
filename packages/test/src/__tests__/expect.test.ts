@@ -5,6 +5,8 @@ import { ConditionsUnknownError, type RunExposure, runExposure } from "../sdk/ru
 import type { Run } from "../sdk/types.js";
 
 const BUN_TEST = /\bbun test\b/;
+const BUN_TEST_ANYWHERE = /bun test/;
+const SHELL_TOOLS = /bash|shell/i;
 
 describe("skill use", () => {
 	it("accepts a skill loaded by the host's tool or read from its file, and nothing else", () => {
@@ -26,6 +28,48 @@ describe("skill use", () => {
 		expect(withSkills(other)).not.toHaveUsedSkill("release-note");
 		const failed = { ...tool, succeeded: false };
 		expect(withSkills(failed)).not.toHaveUsedSkill("release-note");
+	});
+	it("a skill load whose outcome was not reported shows nothing either way", () => {
+		const unreported = recordedRun({ name: "Skill", args: { skill: "release-note" } });
+		expect(() => expect(unreported).toHaveUsedSkill("release-note")).toThrow(
+			ConditionsUnknownError,
+		);
+	});
+});
+
+describe("checks that something did not happen", () => {
+	const hidden = (call: Run["toolCalls"][number]) => {
+		const run = recordedRun(call);
+		return { ...run, capabilities: { ...run.capabilities, commandEventsComplete: false } };
+	};
+	const read = { name: "Read", args: { file_path: "PROJECT.md" }, result: "x", succeeded: true };
+	it("refuse on a host that can run a command without reporting it", () => {
+		const run = hidden(read);
+		expect(() => expect(run).not.toHaveAccessedPath("secret.md")).toThrow(ConditionsUnknownError);
+		expect(() => expect(run).not.toHaveReadPath("secret.md")).toThrow(ConditionsUnknownError);
+		expect(() => expect(run).not.toHaveExecutedCommand({ command: "rm" })).toThrow(
+			ConditionsUnknownError,
+		);
+		expect(() => expect(run).not.toHaveCalledTool(SHELL_TOOLS)).toThrow(ConditionsUnknownError);
+	});
+	it("still answer what did happen, and what no shell could hide", () => {
+		const run = hidden(read);
+		expect(run).toHaveAccessedPath("PROJECT.md");
+		expect(run).not.toHaveCalledTool("mcp__records__get_task");
+	});
+});
+
+describe("command patterns", () => {
+	const ran = (command: string) =>
+		recordedRun({ name: "Bash", args: { command }, exitCode: 0, succeeded: true });
+	it("name a command from its start, not text inside another one", () => {
+		expect(ran("bun test")).toHaveExecutedCommand({ command: BUN_TEST_ANYWHERE });
+		expect(ran("CI=1 bun test --watch")).toHaveExecutedCommand({ command: BUN_TEST });
+		expect(ran("cd app && bun test")).toHaveExecutedCommand({ command: BUN_TEST_ANYWHERE });
+		expect(ran("echo bun test")).not.toHaveExecutedCommand({ command: BUN_TEST_ANYWHERE });
+		expect(ran('grep "bun test" README.md')).not.toHaveExecutedCommand({
+			command: BUN_TEST_ANYWHERE,
+		});
 	});
 });
 
@@ -473,6 +517,7 @@ function recordedRun(toolCall: AgentTrace["toolCalls"][number]): Run {
 			conversation: "native",
 			toolCalls: true,
 			commandExitCodes: true,
+			commandEventsComplete: true,
 			fileReads: true,
 		},
 		startingContext: {

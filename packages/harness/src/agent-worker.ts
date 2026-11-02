@@ -47,6 +47,9 @@ async function initialize(input: InitializeInput): Promise<AgentCapabilities> {
 		conversation: "reconstructed",
 		toolCalls: !apiCapabilities,
 		commandExitCodes: !apiCapabilities,
+		// Claude reports each command as a tool_use. Codex can run one without an event (CLI 0.154.0),
+		// and the Cursor SDK has not been shown to report every one.
+		commandEventsComplete: agent.host === "claude",
 		fileReads: !apiCapabilities,
 		tokenUsage: true,
 		readOnly: agent.host !== "cursor",

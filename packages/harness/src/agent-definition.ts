@@ -50,6 +50,11 @@ export interface AgentCapabilities {
 	conversation: "native" | "reconstructed";
 	toolCalls?: boolean;
 	commandExitCodes?: boolean;
+	/**
+	 * Every command the agent ran appears as a tool event. Without it, a check that a command,
+	 * read or access did not happen cannot be shown.
+	 */
+	commandEventsComplete?: boolean;
 	fileReads?: boolean;
 	tokenUsage?: boolean;
 	readOnly?: boolean;

@@ -56,6 +56,8 @@ export default {
 		conversation: "native",
 		toolCalls: true,
 		commandExitCodes: true,
+		// Scripted: every command it runs is one it reports.
+		commandEventsComplete: true,
 		fileReads: true,
 		tokenUsage: true,
 		readOnly: true,

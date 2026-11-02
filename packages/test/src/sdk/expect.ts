@@ -101,6 +101,22 @@ function requireTools(run: Run) {
 	if (!run.capabilities.toolCalls)
 		throw new ConditionsUnknownError("Tool-call observation unavailable for this adapter");
 }
+/** Tool names a host gives the agent's shell. A pattern that could name one can be hidden by it. */
+const SHELL_TOOL_NAMES = ["Bash", "shell", "local_shell", "exec_command", "command_execution"];
+function couldNameCommandTool(expected: string | RegExp): boolean {
+	if (typeof expected === "string") return COMMAND_TOOL.test(expected);
+	return SHELL_TOOL_NAMES.some((name) => namesTool(name, expected));
+}
+function namesTool(name: string, expected: RegExp): boolean {
+	return new RegExp(expected.source, expected.flags.replace("g", "").replace("y", "")).test(name);
+}
+/** A check that something did not happen needs every command the agent ran to be visible. */
+function requireEveryCommand(run: Run, isNot: boolean, what: string): void {
+	if (isNot && !run.capabilities.commandEventsComplete)
+		throw new ConditionsUnknownError(
+			`Cannot show that ${what} did not happen: this host can run a command without reporting it.`,
+		);
+}
 /** Drop leading `NAME=value` assignments, so `tokens[0]` is the program that runs. */
 function withoutEnvAssignments(tokens: string[]): string[] {
 	const start = tokens.findIndex((token) => !ENV_ASSIGNMENT.test(token));
@@ -123,19 +139,28 @@ function ownsExitCode(segments: ShellSegment[], index: number): boolean {
 	if (index !== segments.length - 1) return false;
 	return segments.slice(0, index).every(({ next }) => next === "&&" || next === ";");
 }
-function segmentText(segment: ShellSegment): string {
-	return segment.tokens.join(" ");
-}
 interface CommandMatch {
 	call: ToolCall;
 	ownsExitCode: boolean;
 }
+/**
+ * A pattern names a command from its start, after any `NAME=value` assignments, so `echo bun test`
+ * or `grep "bun test"` is not `bun test` running.
+ */
+function namesCommand(text: string, expected: string | RegExp): boolean {
+	if (typeof expected === "string") return text === expected;
+	const flags = expected.flags.replace("g", "").replace("y", "");
+	return new RegExp(`^(?:${expected.source})`, flags).test(text);
+}
 function commandMatches(call: ToolCall, expected: string | RegExp): CommandMatch | undefined {
 	const raw = commandText(call);
 	const segments = shellSegments(raw);
-	const index = segments.findIndex((segment) => matches(segmentText(segment), expected));
+	const index = segments.findIndex((segment) =>
+		namesCommand(withoutEnvAssignments(segment.tokens).join(" "), expected),
+	);
 	if (index >= 0) return { call, ownsExitCode: ownsExitCode(segments, index) };
-	return matches(raw, expected) ? { call, ownsExitCode: segments.length <= 1 } : undefined;
+	if (segments.length > 0) return undefined;
+	return namesCommand(raw.trim(), expected) ? { call, ownsExitCode: true } : undefined;
 }
 const RECURSIVE_FLAG = /^-[a-zA-Z0-9]*[rR]|^--recursive$|^--dereference-recursive$/;
 /** Options that need no pattern operand: every operand is then a path to search. */
@@ -365,6 +390,7 @@ function readsSkillFile(call: ToolCall, name: string): boolean {
 const extendedExpect = base.extend({
 	toHaveExecutedCommand(run: Run, expected: ExpectedCommand) {
 		requireTools(run);
+		requireEveryCommand(run, this.isNot, `command ${String(expected.command)}`);
 		const wantsExit = expected.exitCode !== undefined;
 		if (wantsExit && !run.capabilities.commandExitCodes)
 			throw new ConditionsUnknownError("Command exit-code evidence unavailable for this adapter");
@@ -381,6 +407,8 @@ const extendedExpect = base.extend({
 	},
 	toHaveCalledTool(run: Run, expected: string | RegExp, details: ExpectedToolCall = {}) {
 		requireTools(run);
+		if (couldNameCommandTool(expected))
+			requireEveryCommand(run, this.isNot, `a call to ${String(expected)}`);
 		const named = run.toolCalls.filter((call) => matches(call.name, expected));
 		const found = named.some((call) => matchesToolCall(call, details));
 		const gap = found ? undefined : toolCallEvidenceGap(named, details);
@@ -402,6 +430,7 @@ const extendedExpect = base.extend({
 		);
 	},
 	toHaveReadPath(run: Run, path: string) {
+		requireEveryCommand(run, this.isNot, `a read of ${path}`);
 		if (!run.capabilities.fileReads)
 			throw new ConditionsUnknownError(
 				"Successful file-read evidence unavailable for this adapter",
@@ -425,17 +454,21 @@ const extendedExpect = base.extend({
 	/** A host may load a skill through its own tool or by reading the file. Either is evidence. */
 	toHaveUsedSkill(run: Run, name: string) {
 		requireTools(run);
-		const loaded = run.toolCalls.some(
-			(call) => SKILL_TOOL.test(call.name) && call.args?.skill === name && call.succeeded !== false,
+		requireEveryCommand(run, this.isNot, `use of skill ${name}`);
+		const loads = run.toolCalls.filter(
+			(call) => SKILL_TOOL.test(call.name) && call.args?.skill === name,
 		);
+		const loaded = loads.some((call) => call.succeeded === true);
 		const reads = run.toolCalls.filter((call) => readsSkillFile(call, name));
 		const read = reads.some((call) => call.succeeded === true);
-		if (!loaded && !read && reads.some((call) => call.succeeded === undefined))
-			throw new ConditionsUnknownError(`Skill read outcome unavailable: ${name}`);
+		// A load or read whose outcome was not reported may have failed, so it shows nothing either way.
+		if (!loaded && !read && [...loads, ...reads].some((call) => call.succeeded === undefined))
+			throw new ConditionsUnknownError(`Skill use outcome unavailable: ${name}`);
 		return outcome(loaded || read, `Expected the agent to use skill ${name}`);
 	},
 	toHaveAccessedPath(run: Run, path: string) {
 		requireTools(run);
+		requireEveryCommand(run, this.isNot, `access to ${path}`);
 		const found = run.toolCalls.some((call) => accessesPath(run, call, path));
 		if (!found && run.toolCalls.some(accessIsUnrecorded))
 			throw new ConditionsUnknownError(
