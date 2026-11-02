@@ -307,3 +307,19 @@ test("secret in a failed check", async ({ agent }) => {
 	await agent.run(scenario("GOOD"));
 	expect(["sk", "abcdefghijklmnopqrst"].join("-")).toBe("done");
 });
+const secondRun = describe("instrument later setup", ({ agent }) => ({
+	good: agent({ description: "A scripted host." }),
+	missing: agent({ workspace: "./no-such-folder" }),
+}));
+secondRun("second run has a missing workspace", async ({ good, missing }) => {
+	await good.run(scenario("GOOD"));
+	await missing.run(scenario("GOOD"));
+});
+test(
+	"no-agent control fails on a check",
+	{ description: "A control of the runner itself.", noAgent: true },
+	async (_resources, info) => {
+		info.fail();
+		expect("runner").toBe("broken");
+	},
+);

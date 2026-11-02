@@ -165,6 +165,8 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["check fails before the agent runs", "vacuous", 2],
 	["worker process crashes", "infra_invalid", 2],
 	["setup workspace is missing", "vacuous", 2],
+	["later setup second run has a missing workspace", "vacuous", 2],
+	["no-agent control fails on a check", "passed", 0],
 	["agent leaves a read-only folder", "passed", 0],
 	["control catches its own failed check, then throws", "vacuous", 2],
 	["control fails softly before the agent runs", "vacuous", 2],

@@ -11,7 +11,7 @@ import type {
 import { redactSecrets } from "@post-print/agent-harness";
 import { stripAnsi } from "../viewer/presentation.js";
 import { type CriterionResult, ExecutionStore } from "./execution-store.js";
-import { SAMPLE_ANNOTATION } from "./sampling.js";
+import { NO_AGENT_ANNOTATION, SAMPLE_ANNOTATION } from "./sampling.js";
 import { storedValue } from "./stored-value.js";
 
 function executionInput() {
@@ -91,6 +91,9 @@ function failedCheckAfterAgent(result: TestResult, agentStartedAt: number | unde
 			reported.has(step.error.message) &&
 			step.startTime.getTime() >= agentStartedAt,
 	);
+}
+function declaresNoAgent(test: TestCase): boolean {
+	return test.annotations.some(({ type }) => type === NO_AGENT_ANNOTATION);
 }
 type CapturedOutput = {
 	stream: "stdout" | "stderr";
@@ -180,7 +183,7 @@ export default class ExecutionReporter implements Reporter {
 				type: "recorder.parse_failed",
 				level: "warn",
 				attemptId: attempt,
-				data: { line },
+				data: { line: redactSecrets(line) },
 			});
 		}
 	}
@@ -194,7 +197,7 @@ export default class ExecutionReporter implements Reporter {
 				expectedStatus: test.expectedStatus,
 				checkFailed: failedCheckAfterAgent(
 					result,
-					this.agentStartedAt.get(attemptId(test, result)),
+					declaresNoAgent(test) ? 0 : this.agentStartedAt.get(attemptId(test, result)),
 				),
 				durationMs: result.duration,
 				errors: errorData(result),
@@ -204,7 +207,11 @@ export default class ExecutionReporter implements Reporter {
 		});
 	}
 	onError(error: TestError) {
-		this.record({ type: "run.error", level: "error", data: { message: error.message } });
+		this.record({
+			type: "run.error",
+			level: "error",
+			data: { message: storedErrorText(error.message) },
+		});
 	}
 	async onEnd(result: FullResult) {
 		await this.writes;

@@ -13,6 +13,7 @@ import { type AgentResource, factories, type JudgeResource, type Resource } from
 import { UnearnedResultError } from "./operation-ledger.js";
 import { TestRuntime } from "./runtime.js";
 import {
+	NO_AGENT_ANNOTATION,
 	plannedSamples,
 	runRecordingSample,
 	SAMPLE_ANNOTATION,
@@ -211,6 +212,7 @@ function testAnnotations<R extends Resources>(
 			description: JSON.stringify(resourceMetadata(resources, details?.resources)),
 		},
 		...(details?.description ? [{ type: "description", description: details.description }] : []),
+		...(details?.noAgent ? [{ type: NO_AGENT_ANNOTATION, description: "" }] : []),
 		...(criteria.length
 			? [{ type: "agent-test.criteria", description: JSON.stringify(criteria) }]
 			: []),

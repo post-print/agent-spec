@@ -20,9 +20,9 @@ import {
 	observeEnvironment,
 	stopSurvivors,
 } from "./environment-observation.js";
-import { recordedFailure } from "./failure.js";
+import { isInfrastructureFailure, recordedFailure } from "./failure.js";
 import { evaluate } from "./judge.js";
-import { OperationLedger } from "./operation-ledger.js";
+import { OperationLedger, UnearnedResultError } from "./operation-ledger.js";
 import {
 	buildRunRecord,
 	ConditionsUnknownError,
@@ -148,6 +148,21 @@ interface FinishedTurn {
 	start: number;
 	continuation: (prompt: string) => Promise<Run>;
 }
+interface AgentTask {
+	name: string;
+	prompt: string;
+	preparation: readonly WorkspaceSetup[];
+	invocationIndex: number;
+}
+/** No host has been asked anything for this run yet, so its failure says nothing about the agent. */
+async function preparing<T>(prepare: () => Promise<T>): Promise<T> {
+	try {
+		return await prepare();
+	} catch (error) {
+		if (isInfrastructureFailure(error) || (error as Error).name === "AbortError") throw error;
+		throw new UnearnedResultError((error as Error).message);
+	}
+}
 /** The agent's turn is over. If keeping its evidence fails, that failure is the runner's. */
 async function recordingRun(record: () => Promise<Run>): Promise<Run> {
 	try {
@@ -239,7 +254,7 @@ export class TestRuntime {
 			run: ({ input }) => {
 				const invocationIndex = this.nextInvocationIndex++;
 				return this.track(async () => {
-					const definition = this.forTest(configuredAgent(this.options.judge, agentSettings));
+					const definition = await this.judgeDefinition(agentSettings);
 					this.ledger.noteHostStarted();
 					const id = crypto.randomUUID();
 					let startedEvaluation: { prompt: string; schema: unknown } | undefined;
@@ -285,16 +300,15 @@ export class TestRuntime {
 			},
 		};
 	}
-	private async start(
-		task: {
-			name: string;
-			prompt: string;
-			preparation: readonly WorkspaceSetup[];
-			invocationIndex: number;
-		},
-		settings: AgentSettings,
-	): Promise<Run> {
-		const { name, prompt, preparation, invocationIndex } = task;
+	private judgeDefinition(settings: AgentSettings): Promise<AgentDefinition> {
+		return preparing(async () => this.forTest(configuredAgent(this.options.judge, settings)));
+	}
+	private async start(task: AgentTask, settings: AgentSettings): Promise<Run> {
+		const input = await preparing(() => this.prepareTask(task, settings));
+		return this.conversation(task.name, input);
+	}
+	private async prepareTask(task: AgentTask, settings: AgentSettings): Promise<RunInput> {
+		const { prompt, preparation, invocationIndex } = task;
 		this.signal.throwIfAborted();
 		if (typeof prompt !== "string" || !prompt.trim())
 			throw new Error("agent.run requires a nonempty prompt");
@@ -319,7 +333,7 @@ export class TestRuntime {
 			protectedPaths: await this.checkoutPaths(),
 		});
 		const history: AgentTrace = { messages: [], toolCalls: [], shellCommands: [], artifacts: {} };
-		return this.conversation(name, {
+		return {
 			environmentBaseline: settings.observeEnvironment
 				? await captureEnvironmentBaseline()
 				: undefined,
@@ -332,7 +346,7 @@ export class TestRuntime {
 			history,
 			prompt,
 			invocationIndex,
-		});
+		};
 	}
 	private conversation(name: string, input: RunInput): Promise<Run> {
 		let busy = false;
@@ -358,12 +372,10 @@ export class TestRuntime {
 		const { session, workspace, prompt, context } = input;
 		const id = crypto.randomUUID(),
 			directory = join(this.options.outputDir, id);
-		await mkdir(directory, { recursive: true });
-		const initial = await snapshot(
-			workspace.path,
-			join(directory, "initial"),
-			this.snapshotStorage,
-		);
+		const initial = await preparing(async () => {
+			await mkdir(directory, { recursive: true });
+			return snapshot(workspace.path, join(directory, "initial"), this.snapshotStorage);
+		});
 		const start = performance.now();
 		this.announceRun(id, name, input);
 		this.ledger.noteHostStarted();

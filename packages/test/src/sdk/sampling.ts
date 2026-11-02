@@ -7,6 +7,7 @@ import { planIsDecided } from "./pass-rate.js";
 import { sampleOutcome } from "./verdict.js";
 
 export const SAMPLE_ANNOTATION = "agent-test.sample";
+export const NO_AGENT_ANNOTATION = "agent-test.no-agent";
 
 export interface SamplingDetails {
 	/** Run this test n times and report a rate. Pass a plan from `samplingPlan` to decide on it. */

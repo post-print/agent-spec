@@ -9,8 +9,8 @@ import type { Run } from "./types.js";
 
 const FILE_PROTOCOL = /^file:\/\//;
 const COMMAND_TOOL = /shell|bash|terminal|exec|command/i;
-/** A word in a tool's name: read_file or NotebookRead, not list_threads or spreadsheet. */
-const READ_TOOL = /(?:^|[^a-zA-Z])[Rr]ead|Read/;
+/** read_file, NotebookRead or fileread, but not list_threads, spreadsheet or already. */
+const READ_TOOL = /(?<!th|sp|b|d|al)read/i;
 const SEARCH_TOOL = /^(grep|glob)$/i;
 const SKILL_TOOL = /^skill$/i;
 const GLOB_CHARS = /[*?[{]/;

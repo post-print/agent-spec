@@ -498,4 +498,10 @@ describe("tools with no recorded arguments", () => {
 		const listing = recordedRun({ name: "mcp__records__list_threads" });
 		expect(listing).not.toHaveAccessedPath("records/TASK-101.md");
 	});
+	it("a read tool is a read, however its name is written", () => {
+		for (const name of ["mcp__fs__READ_FILE", "mcp__fs__fileread", "NotebookRead"])
+			expect(() => expect(recordedRun({ name })).not.toHaveAccessedPath("x.md")).toThrow(
+				ConditionsUnknownError,
+			);
+	});
 });

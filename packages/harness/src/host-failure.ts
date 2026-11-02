@@ -21,7 +21,7 @@ const AUTH_SIGNAL = new RegExp(
 	"i",
 );
 const PROVIDER_SIGNAL = new RegExp(
-	`${HOST_PREFIX}(?:${STATUS_PREFIX}(?:429|5\\d\\d)\\b|429 too many requests\\b|5\\d\\d (?:overloaded|internal|bad gateway|service unavailable|gateway)|repeated 529|overloaded|rate[ _-]?limit|resource_exhausted\\b|too many requests\\b|service unavailable\\b|you've hit your (?:usage )?limit|selected model is at capacity|quota exceeded|stream disconnected before completion|(?:api error: )?connection error\\b|(?:api error: )?request timed out\\b|error sending request\\b)`,
+	`${HOST_PREFIX}(?:${STATUS_PREFIX}(?:429|5\\d\\d)\\b|429 too many requests\\b|5\\d\\d (?:overloaded|internal|bad gateway|service unavailable|gateway)|repeated 529|overloaded|rate[ _-]?limit|resource_exhausted\\b|too many requests\\b|service unavailable\\b|you've hit your (?:usage )?limit|selected model is at capacity|quota exceeded|stream disconnected before completion|api error: (?:connection error|request timed out)\\b|error sending request\\b)`,
 	"i",
 );
 

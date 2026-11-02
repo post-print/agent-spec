@@ -51,13 +51,21 @@ async function makeWritable(path: string): Promise<void> {
 	const stats = await lstat(path);
 	if (!stats.isDirectory()) return;
 	await chmod(path, stats.mode | 0o700);
-	for (const name of await readdir(path)) await makeWritable(join(path, name));
+	for (const name of await readdir(path)) await makeWritableIfPresent(join(path, name));
+}
+/** A failed `rm` can still be deleting in the background, so a path may vanish mid-walk. */
+async function makeWritableIfPresent(path: string): Promise<void> {
+	try {
+		await makeWritable(path);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
 }
 export async function removeOwnedTree(path: string): Promise<void> {
 	try {
 		await rm(path, { recursive: true, force: true });
 	} catch {
-		await makeWritable(path);
+		await makeWritableIfPresent(path);
 		await rm(path, { recursive: true, force: true });
 	}
 }

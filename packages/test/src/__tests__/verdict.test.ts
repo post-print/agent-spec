@@ -105,11 +105,13 @@ describe("reduceVerdict on runner failures", () => {
 	it("a cleanup failure after a passing test says nothing about the agent", () => {
 		expect(reduce([failed("RunnerCleanupError: EACCES")], 1).verdict).toBe("infra_invalid");
 	});
-	it("a failed check still stands if cleanup failed too", () => {
+	it("any other failure still stands if cleanup failed too", () => {
 		const both = attempt({
 			status: "failed",
-			checkFailed: true,
-			errors: [{ message: "Error: expect" }, { message: "RunnerCleanupError: EACCES" }],
+			errors: [
+				{ message: "WorkspaceEscapeError: /etc" },
+				{ message: "RunnerCleanupError: EACCES" },
+			],
 		});
 		expect(reduce([both], 1).verdict).toBe("agent_failed");
 	});

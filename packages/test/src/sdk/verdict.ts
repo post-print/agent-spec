@@ -94,6 +94,9 @@ const EXIT_CODES: Record<RunVerdict, number> = {
 	instrument_error: 2,
 };
 
+function isCleanupFailure(error: unknown): boolean {
+	return RUNNER_CLEANUP.test((error as { message?: string } | null)?.message ?? "");
+}
 function failedWith(attempt: VerdictAttempt, pattern: RegExp): boolean {
 	return attempt.errors.some((error) =>
 		pattern.test((error as { message?: string } | null)?.message ?? ""),
@@ -118,8 +121,8 @@ function failedAttemptVerdict(attempt: VerdictAttempt): RunVerdict {
 	if (workerCrashed(attempt) || operationReportedInfrastructure(attempt)) return "infra_invalid";
 	// A control earns its result only on a failed check: a setup error shows nothing about the test.
 	if (attempt.expectedFailure && !attempt.checkFailed) return "vacuous";
-	// A failed check still stands if cleanup also failed; alone, cleanup says nothing about the agent.
-	if (!attempt.checkFailed && failedWith(attempt, RUNNER_CLEANUP)) return "infra_invalid";
+	// Cleanup alone says nothing about the agent. Any other failure beside it still stands.
+	if (attempt.errors.length > 0 && attempt.errors.every(isCleanupFailure)) return "infra_invalid";
 	return "agent_failed";
 }
 /** An expected failure only counts when a check failed, not when the host or runner did. */
