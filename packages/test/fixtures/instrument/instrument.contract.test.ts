@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startRecordedExecution } from "../../dist/sdk/execution-runner.js";
 import { executionHistoryRoot, readExecutionDetail } from "../../dist/sdk/execution-store.js";
-import { recordHostCalibration } from "../../dist/sdk/run-record.js";
+import {
+	ENFORCED_VECTORS,
+	recordEscapeVector,
+	recordHostCalibration,
+} from "../../dist/sdk/run-record.js";
 
 const config = fileURLToPath(new URL("./agent-test.config.ts", import.meta.url));
 const fakeHost = fileURLToPath(new URL("./fake-host.mjs", import.meta.url));
@@ -35,8 +39,15 @@ const calibration = join(
 );
 beforeAll(async () => {
 	process.env.AGENT_TEST_FIXTURE_KEY = "fixture-key-not-real";
-	await recordHostCalibration(fileURLToPath(new URL(".", import.meta.url)), FAKE_HOST);
+	await calibrateFakeHost();
 });
+/** The scripted host's probe and escape battery, both held, as a calibrated real host's would be. */
+async function calibrateFakeHost() {
+	const configDir = fileURLToPath(new URL(".", import.meta.url));
+	await recordHostCalibration(configDir, FAKE_HOST);
+	for (const vector of ENFORCED_VECTORS)
+		await recordEscapeVector(configDir, FAKE_HOST, { vector, held: true });
+}
 afterAll(async () => {
 	await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -336,7 +347,7 @@ describe("conditions a pass needs through the real runner", () => {
 			expect(exitCode).toBe(3);
 			expect(verdict.weakConditions?.[0]).toContain("no passing host probe");
 		} finally {
-			await recordHostCalibration(fileURLToPath(new URL(".", import.meta.url)), FAKE_HOST);
+			await calibrateFakeHost();
 		}
 	}, 60_000);
 });

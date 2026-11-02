@@ -10,7 +10,9 @@ import { expect as agentExpect } from "../sdk/expect.js";
 import {
 	buildRunRecord,
 	ConditionsUnknownError,
+	ENFORCED_VECTORS,
 	offeredTool,
+	recordEscapeVector,
 	recordHostCalibration,
 	runExposure,
 } from "../sdk/run-record.js";
@@ -165,6 +167,31 @@ describe("host calibration", () => {
 			const stale = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
 			await writeFile(path, JSON.stringify({ ...key, at: stale }));
 			expect((await buildRunRecord({ ...BASE, baseDir }, input)).calibrated).toBe(false);
+		} finally {
+			await rm(baseDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("escape battery calibration", () => {
+	const input = {
+		conditions: CONDITIONS,
+		definition: { options: { model: "m1" } },
+		hostReport: { model: "m1-observed", version: "1.0.1" },
+		prompt: "hello",
+		context: CONTEXT,
+		initial: SNAPSHOT,
+	};
+	it("proves confinement only when every enforced escape vector held", async () => {
+		const baseDir = await mkdtemp(join(tmpdir(), "calibration-"));
+		try {
+			const key = { host: "claude", binaryVersion: "1.0.1", authMode: "subscription" };
+			for (const vector of ENFORCED_VECTORS)
+				await recordEscapeVector(baseDir, key, { vector, held: true });
+			const base = { ...BASE, baseDir };
+			expect((await buildRunRecord(base, input)).confinementProven).toBe(true);
+			await recordEscapeVector(baseDir, key, { vector: "symlink-out", held: false });
+			expect((await buildRunRecord(base, input)).confinementProven).toBe(false);
 		} finally {
 			await rm(baseDir, { recursive: true, force: true });
 		}

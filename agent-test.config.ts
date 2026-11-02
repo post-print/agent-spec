@@ -5,6 +5,8 @@ import { reviewer } from "./agent-suites/tour/agents.js";
 export default defineConfig({
 	testDir: "./agent-suites",
 	testMatch: "**/*.spec.ts",
+	// The escape battery calibrates hosts; it runs with the probe, not with ordinary suites.
+	testIgnore: "**/escape/**",
 	timeout: 180_000,
 	retries: 0,
 	workers: 1,

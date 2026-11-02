@@ -24,6 +24,7 @@ const MESSAGES = [
 const STRONG_RECORD = {
 	host: "claude",
 	calibrated: true,
+	confinementProven: true,
 	modelPinned: true,
 	userConfig: "excluded",
 	confinement: "host-enforced",

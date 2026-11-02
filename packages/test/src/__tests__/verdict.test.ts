@@ -330,6 +330,7 @@ describe("reduceVerdict on the conditions a pass needs", () => {
 		binaryVersion: "2.1",
 		authMode: "api-key",
 		calibrated: true,
+		confinementProven: true,
 		modelPinned: true,
 		userConfig: "excluded",
 		confinement: "host-enforced",

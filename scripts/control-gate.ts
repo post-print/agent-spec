@@ -9,20 +9,28 @@ import {
 	executionHistoryRoot,
 	readExecutionDetail,
 } from "../packages/test/dist/sdk/execution-store.js";
-import { recordHostCalibration } from "../packages/test/dist/sdk/run-record.js";
+import {
+	ENFORCED_VECTORS,
+	recordEscapeVector,
+	recordHostCalibration,
+} from "../packages/test/dist/sdk/run-record.js";
 
 const host = fileURLToPath(new URL("../agent-suites/controls/control-host.mjs", import.meta.url));
 const config = fileURLToPath(new URL("../agent-test.controls.config.ts", import.meta.url));
 // The scripted host's probe: its version under API-key auth, so a good behavior can pass.
 process.env.AGENT_TEST_FIXTURE_KEY = "fixture-key-not-real";
-await recordHostCalibration(fileURLToPath(new URL("..", import.meta.url)), {
-	host: "claude",
-	binaryVersion: "1 (Control host)",
-	authMode: "api-key",
-});
+const CONTROL_HOST = { host: "claude", binaryVersion: "1 (Control host)", authMode: "api-key" };
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+/** Before each control: an escape control that breaches a vector must not weaken the next one. */
+async function calibrateControlHost() {
+	await recordHostCalibration(repoRoot, CONTROL_HOST);
+	for (const vector of ENFORCED_VECTORS)
+		await recordEscapeVector(repoRoot, CONTROL_HOST, { vector, held: true });
+}
 
 type Outcome = { verdict: string; exitCode: number; errors: string };
 async function runControl(title: string, behavior: string, judge = "accept"): Promise<Outcome> {
+	await calibrateControlHost();
 	Object.assign(process.env, {
 		CLAUDE_CODE_BIN: host,
 		AGENT_TEST_CONTROL: behavior,

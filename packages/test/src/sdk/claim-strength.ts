@@ -20,6 +20,9 @@ export function recordWeaknesses(record: RecordLike): string[] {
 			? []
 			: [`${host} may load the host's own user configuration`]),
 		...(record.confinement === "host-enforced" ? [] : [`${host} only detects escapes`]),
+		...(record.confinement === "host-enforced" && record.confinementProven !== true
+			? [`${host} has no escape battery from the last week in which every enforced vector held`]
+			: []),
 	];
 }
 interface RecordedAttempt {

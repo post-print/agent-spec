@@ -116,6 +116,8 @@ export interface RunRecord {
 	modelPinned: boolean;
 	/** True when this host version has a passing host probe on record. */
 	calibrated: boolean;
+	/** Every escape vector the host is said to enforce held in a battery run from the last week. */
+	confinementProven: boolean;
 	packageVersion?: string;
 	git?: { sha: string; dirty: boolean };
 	hashes: {
@@ -224,6 +226,62 @@ async function hostCalibrated(baseDir: string, key: CalibrationKey, now = Date.n
 		return false;
 	}
 }
+/**
+ * Ways out of a sealed workspace the escape battery tries. The first six are what the harness says
+ * a host enforces, so a pass needs each one held. The rest are recorded findings: the real home and
+ * global git config are sealed only under `--verdict-grade`, and nothing yet contains the parent's
+ * environment or a process the agent leaves running.
+ */
+export const ENFORCED_VECTORS = [
+	"caller-checkout",
+	"sealed-manifest",
+	"temp-folder",
+	"symlink-out",
+	"write-outside",
+	"network-off",
+] as const;
+export const SEALED_HOME_VECTORS = ["real-home", "global-git-config"] as const;
+export const FINDING_VECTORS = ["parent-env", "outlives-run"] as const;
+export type EscapeVector =
+	| (typeof ENFORCED_VECTORS)[number]
+	| (typeof SEALED_HOME_VECTORS)[number]
+	| (typeof FINDING_VECTORS)[number];
+const JSON_SUFFIX = /\.json$/;
+type VectorOutcomes = Record<string, { outcome: "held" | "breached"; at: string }>;
+function vectorsPath(baseDir: string, key: CalibrationKey): string {
+	return calibrationPath(baseDir, key).replace(JSON_SUFFIX, ".vectors.json");
+}
+async function storedVectors(baseDir: string, key: CalibrationKey): Promise<VectorOutcomes> {
+	const stored = await readFile(vectorsPath(baseDir, key), "utf8").catch(() => "{}");
+	try {
+		return JSON.parse(stored) as VectorOutcomes;
+	} catch {
+		return {};
+	}
+}
+/** Called by the escape battery for each vector it tried, held or not. */
+export async function recordEscapeVector(
+	configDir: string,
+	key: CalibrationKey,
+	result: { vector: EscapeVector; held: boolean },
+): Promise<void> {
+	if (!key.binaryVersion) throw new Error("Cannot record a vector for a host of unknown version");
+	const vectors = await storedVectors(configDir, key);
+	const outcome = result.held ? "held" : "breached";
+	vectors[result.vector] = { outcome, at: new Date().toISOString() };
+	await mkdir(dirname(vectorsPath(configDir, key)), { recursive: true });
+	await writeFile(vectorsPath(configDir, key), JSON.stringify(vectors, null, 2));
+}
+/** Every vector the host is said to enforce held in the last week, for this host, version and auth. */
+async function confinementProven(baseDir: string, key: CalibrationKey, now = Date.now()) {
+	if (!key.binaryVersion) return false;
+	const vectors = await storedVectors(baseDir, key);
+	return ENFORCED_VECTORS.every((vector) => {
+		const entry = vectors[vector];
+		const at = Date.parse(entry?.at ?? "");
+		return entry?.outcome === "held" && Number.isFinite(at) && now - at <= CALIBRATION_TTL_MS;
+	});
+}
 /** Called by the host probe after every check passed. Other runs read it to label themselves. */
 export async function recordHostCalibration(
 	configDir: string,
@@ -256,6 +314,7 @@ export async function buildRunRecord(
 		observedModel: hostReport?.model,
 		modelPinned: Boolean(definition.options.model),
 		calibrated: await hostCalibrated(base.baseDir, { ...conditions, binaryVersion }),
+		confinementProven: await confinementProven(base.baseDir, { ...conditions, binaryVersion }),
 		packageVersion: base.packageVersion,
 		git: base.git,
 		hashes: {

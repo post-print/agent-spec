@@ -9,8 +9,8 @@ const SCRIPTED = {
 	loadProjectContext: false,
 };
 export default defineConfig({
-	testDir: "./agent-suites/test-sdk-capabilities",
-	testMatch: "**/*.spec.ts",
+	testDir: "./agent-suites",
+	testMatch: ["test-sdk-capabilities/**/*.spec.ts", "escape/**/*.spec.ts"],
 	outputDir: "./test-results/controls",
 	timeout: 60_000,
 	workers: 1,
