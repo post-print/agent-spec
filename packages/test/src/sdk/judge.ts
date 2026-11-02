@@ -99,7 +99,7 @@ function verdictFrom<S extends z.ZodType>(trace: AgentTrace, schema: S): z.outpu
 }
 export async function evaluate<S extends z.ZodType>(
 	request: EvaluationRequest<S>,
-): Promise<Evaluation<z.output<S>>> {
+): Promise<Omit<Evaluation<z.output<S>>, "judge">> {
 	request.signal.throwIfAborted();
 	const id = request.id ?? crypto.randomUUID(),
 		directory = join(request.outputDir, id);

@@ -282,6 +282,42 @@ async function confinementProven(baseDir: string, key: CalibrationKey, now = Dat
 		return entry?.outcome === "held" && Number.isFinite(at) && now - at <= CALIBRATION_TTL_MS;
 	});
 }
+/** One judge: the same prompt and schema on the same host and model. */
+export function judgeKey(input: {
+	prompt: string;
+	schema: unknown;
+	host?: string;
+	model?: string;
+}) {
+	return sha256(
+		stableJson([input.prompt, input.schema, input.host ?? "custom", input.model ?? ""]),
+	);
+}
+function judgePath(baseDir: string, key: string): string {
+	return join(baseDir, ".agent-test", "calibration", `judge-${key.slice(0, 32)}.json`);
+}
+/** Whether labelled fixtures agreed with this judge in the last week. */
+export async function judgeCalibrated(baseDir: string, key: string, now = Date.now()) {
+	const stored = await readFile(judgePath(baseDir, key), "utf8").catch(() => undefined);
+	if (!stored) return false;
+	try {
+		const at = Date.parse((JSON.parse(stored) as { at?: string }).at ?? "");
+		return Number.isFinite(at) && now - at <= CALIBRATION_TTL_MS;
+	} catch {
+		return false;
+	}
+}
+/** Called by the judge calibration suite once every labelled fixture agreed with the judge. */
+export async function recordJudgeCalibration(
+	configDir: string,
+	evaluation: { name: string; judge: { key: string } },
+	agreed: { fixtures: number },
+): Promise<void> {
+	const path = judgePath(configDir, evaluation.judge.key);
+	await mkdir(dirname(path), { recursive: true });
+	const at = new Date().toISOString();
+	await writeFile(path, JSON.stringify({ name: evaluation.name, ...agreed, at }, null, 2));
+}
 /** Called by the host probe after every check passed. Other runs read it to label themselves. */
 export async function recordHostCalibration(
 	configDir: string,

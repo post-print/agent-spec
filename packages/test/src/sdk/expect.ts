@@ -2,7 +2,7 @@ import { basename, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { expect as base } from "@playwright/test";
 import { type ShellSegment, shellPayload, shellSegments } from "@post-print/agent-harness";
-import { reportingOutcome } from "./check-outcomes.js";
+import { type CheckSubject, reportingOutcome } from "./check-outcomes.js";
 import { consumeCriterionOperations, noteCheck } from "./criterion-provenance.js";
 import { ConditionsUnknownError, listedTool, offeredTool, type RunExposure } from "./run-record.js";
 import { snapshotBudget } from "./snapshot-storage.js";
@@ -496,9 +496,13 @@ const extendedExpect = base.extend({
 	},
 });
 
-function recordCriterionOwners(actual: unknown, criterion: unknown): void {
+/** The operations whose output this check reads: read just now, or handed to it. */
+function checkOwners(actual: unknown): string[] {
 	const owners = new Set(consumeCriterionOperations());
 	if (isOperationResult(actual)) owners.add(actual.id);
+	return [...owners];
+}
+function recordCriterionOwners(owners: string[], criterion: unknown): void {
 	if (
 		typeof criterion !== "string" ||
 		(!process.env.AGENT_TEST_VIEWER_EVENTS && !process.env.AGENT_TEST_RECORDER)
@@ -524,25 +528,27 @@ function isOperationResult(value: unknown): value is { id: string } {
 	);
 }
 
-function checking(argumentsList: unknown[]): void {
-	recordCriterionOwners(argumentsList[0], argumentsList[1]);
-	const [actual] = argumentsList;
+function checking(argumentsList: unknown[]): CheckSubject {
+	const [actual, criterion] = argumentsList;
+	const owners = checkOwners(actual);
+	recordCriterionOwners(owners, criterion);
 	noteCheck(isOperationResult(actual) ? actual.id : undefined);
+	return { criterion: typeof criterion === "string" ? criterion : undefined, owners };
 }
 /** Soft and polled checks are checks too, so they reach the same record. */
 const CHECK_VARIANTS = new Set<PropertyKey>(["soft", "poll"]);
 export const expect = new Proxy(extendedExpect, {
 	apply(target, thisArg, argumentsList) {
-		checking(argumentsList);
-		return reportingOutcome(Reflect.apply(target, thisArg, argumentsList), argumentsList[1], false);
+		const subject = checking(argumentsList);
+		return reportingOutcome(Reflect.apply(target, thisArg, argumentsList), subject, false);
 	},
 	get(target, property, receiver) {
 		const value: unknown = Reflect.get(target, property, receiver);
 		if (!CHECK_VARIANTS.has(property) || typeof value !== "function") return value;
 		return (...argumentsList: unknown[]) => {
-			checking(argumentsList);
+			const subject = checking(argumentsList);
 			const matchers: unknown = Reflect.apply(value, target, argumentsList);
-			return reportingOutcome(matchers, argumentsList[1], property === "soft");
+			return reportingOutcome(matchers, subject, property === "soft");
 		};
 	},
 });

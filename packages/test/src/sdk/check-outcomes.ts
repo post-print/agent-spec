@@ -6,8 +6,16 @@ import { test } from "@playwright/test";
  */
 export const CHECK_OUTCOME_PREFIX = "@@agent-test-check:";
 export interface CheckOutcome {
-	criterion: string;
+	/** The check's label, when it has one. */
+	criterion?: string;
 	passed: boolean;
+	/** The operations whose output this check read, so a failure can be traced to its source. */
+	owners: string[];
+}
+/** What a check is about: its label and the operations it read. */
+export interface CheckSubject {
+	criterion?: string;
+	owners: string[];
 }
 
 function recording(): boolean {
@@ -23,8 +31,8 @@ function attemptKey(): string | undefined {
 		return undefined;
 	}
 }
-function report(criterion: string, passed: boolean): void {
-	const outcome: CheckOutcome = { criterion, passed };
+function report(subject: CheckSubject, passed: boolean): void {
+	const outcome: CheckOutcome = { ...subject, passed };
 	const key = attemptKey();
 	if (key) outcomesByAttempt.set(key, [...(outcomesByAttempt.get(key) ?? []), outcome]);
 	if (recording()) process.stdout.write(`${CHECK_OUTCOME_PREFIX}${JSON.stringify(outcome)}\n`);
@@ -33,6 +41,28 @@ function report(criterion: string, passed: boolean): void {
 export function reportedOutcomes(): CheckOutcome[] {
 	const key = attemptKey();
 	return key ? (outcomesByAttempt.get(key) ?? []) : [];
+}
+/**
+ * The agent is not charged for a judge nobody calibrated: true when every check that failed read
+ * its evidence only from evaluations whose judge had no calibration from the last week.
+ */
+export function failedOnlyOnUncalibratedJudges(
+	checks: CheckOutcome[],
+	uncalibrated: ReadonlySet<string>,
+): boolean {
+	const failed = checks.filter(({ passed }) => !passed);
+	return (
+		failed.length > 0 &&
+		failed.every(({ owners }) => owners.length > 0 && owners.every((id) => uncalibrated.has(id)))
+	);
+}
+/** Evaluations in this worker whose judge had no calibration from the last week. */
+const uncalibratedEvaluations = new Set<string>();
+export function noteUncalibratedJudge(evaluationId: string): void {
+	uncalibratedEvaluations.add(evaluationId);
+}
+export function uncalibratedJudges(): ReadonlySet<string> {
+	return uncalibratedEvaluations;
 }
 /** Whether the check a control names is among those that failed. */
 export function namedCheckFailed(mustFail: string, outcomes: CheckOutcome[]): boolean {
@@ -46,10 +76,10 @@ function recordedErrors(): number | undefined {
 		return undefined;
 	}
 }
-function settled(call: () => unknown, criterion: string, soft: boolean): unknown {
+function settled(call: () => unknown, subject: CheckSubject, soft: boolean): unknown {
 	const before = soft ? recordedErrors() : undefined;
 	const finish = (threw: boolean) =>
-		report(criterion, !threw && (before === undefined || recordedErrors() === before));
+		report(subject, !threw && (before === undefined || recordedErrors() === before));
 	try {
 		const result = call();
 		if (!(result instanceof Promise)) {
@@ -71,17 +101,20 @@ function settled(call: () => unknown, criterion: string, soft: boolean): unknown
 		throw error;
 	}
 }
-/** Matchers that report whether the labelled check passed, through `.not`, `.resolves` and `.rejects`. */
-export function reportingOutcome<T>(matchers: T, criterion: unknown, soft: boolean): T {
-	if (typeof criterion !== "string") return matchers;
+/**
+ * Matchers that report whether the check passed, through `.not`, `.resolves` and `.rejects`. A check
+ * with no label and no operation behind it says nothing a report could use.
+ */
+export function reportingOutcome<T>(matchers: T, subject: CheckSubject, soft: boolean): T {
+	if (subject.criterion === undefined && subject.owners.length === 0) return matchers;
 	if (typeof matchers !== "object" || matchers === null) return matchers;
 	return new Proxy(matchers, {
 		get(target, property, receiver) {
 			const value: unknown = Reflect.get(target, property, receiver);
 			if (typeof value === "function")
 				return (...argumentsList: unknown[]) =>
-					settled(() => Reflect.apply(value, target, argumentsList), criterion, soft);
-			return reportingOutcome(value, criterion, soft);
+					settled(() => Reflect.apply(value, target, argumentsList), subject, soft);
+			return reportingOutcome(value, subject, soft);
 		},
 	});
 }

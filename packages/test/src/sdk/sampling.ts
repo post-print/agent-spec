@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TestInfo } from "@playwright/test";
-import { namedCheckFailed, reportedOutcomes } from "./check-outcomes.js";
+import {
+	failedOnlyOnUncalibratedJudges,
+	namedCheckFailed,
+	reportedOutcomes,
+	uncalibratedJudges,
+} from "./check-outcomes.js";
 import type { ComparisonSubject, SampleAnnotation, SampleOutcome } from "./claims.js";
 import { planIsDecided } from "./pass-rate.js";
 import { sampleOutcome } from "./verdict.js";
@@ -124,6 +129,7 @@ function outcomeOf({ info, runtime }: SampleRun, thrown: unknown[]): SampleOutco
 		// While the body runs, the test's own errors so far can only be soft checks that failed.
 		checkFailed: info.errors.length > 0 || thrown.some(isFailedCheck),
 		...namedCheckOf(info),
+		judgeBlamed: failedOnlyOnUncalibratedJudges(reportedOutcomes(), uncalibratedJudges()),
 		timedOut: info.status === "timedOut",
 		errors,
 		operations: runtime.reportedInfrastructureFailure()

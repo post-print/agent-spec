@@ -13,6 +13,7 @@ import {
 	ENFORCED_VECTORS,
 	recordEscapeVector,
 	recordHostCalibration,
+	recordJudgeCalibration,
 } from "../packages/test/dist/sdk/run-record.js";
 
 const host = fileURLToPath(new URL("../agent-suites/controls/control-host.mjs", import.meta.url));
@@ -28,7 +29,19 @@ async function calibrateControlHost() {
 		await recordEscapeVector(repoRoot, CONTROL_HOST, { vector, held: true });
 }
 
-type Outcome = { verdict: string; exitCode: number; errors: string };
+type Outcome = { verdict: string; exitCode: number; errors: string; judges: string[] };
+/** The judges a run used, by key, read from its evaluations. */
+function judgeKeysOf(attempts: { operations: { data: unknown[] }[] }[]): string[] {
+	const keys = attempts.flatMap(({ operations }) =>
+		operations.flatMap(({ data }) =>
+			data.flatMap((item) => {
+				const key = (item as { judge?: { key?: string } } | null)?.judge?.key;
+				return key ? [key] : [];
+			}),
+		),
+	);
+	return [...new Set(keys)];
+}
 async function runControl(title: string, behavior: string, judge = "accept"): Promise<Outcome> {
 	await calibrateControlHost();
 	Object.assign(process.env, {
@@ -50,20 +63,27 @@ async function runControl(title: string, behavior: string, judge = "accept"): Pr
 		const errors = (detail?.attempts ?? []).flatMap((attempt) =>
 			attempt.errors.map((error) => (error as { message?: string }).message ?? ""),
 		);
-		return { verdict: result.verdict, exitCode, errors: errors.join("\n") };
+		const judges = judgeKeysOf(detail?.attempts ?? []);
+		return { verdict: result.verdict, exitCode, errors: errors.join("\n"), judges };
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 }
 const problems: string[] = [];
-async function expectPass(title: string, behavior: string) {
-	const { verdict, exitCode, errors } = await runControl(title, behavior);
+async function expectPass(title: string, behavior: string): Promise<string[]> {
+	const { verdict, exitCode, errors, judges } = await runControl(title, behavior);
 	const passed = verdict === "passed" && exitCode === 0;
 	if (!passed)
 		problems.push(
 			`${title}\n  ${behavior} must pass with exit 0, but was ${verdict} (exit ${exitCode})\n  ${errors.slice(0, 400)}`,
 		);
 	console.log(`${passed ? "ok  " : "FAIL"} pass  ${behavior}`);
+	return judges;
+}
+/** The scripted judge the good behavior used: once calibrated, its "no" is the agent's failure. */
+async function calibrateJudges(keys: string[]) {
+	for (const key of keys)
+		await recordJudgeCalibration(repoRoot, { name: "scripted", judge: { key } }, { fixtures: 0 });
 }
 type Rejection = { title: string; label: string; mustFail: string };
 /** Rejected means charged to the agent, exit 1, on the named check: no other failure will do. */
@@ -78,9 +98,10 @@ function expectRejected({ title, label, mustFail }: Rejection, outcome: Outcome)
 }
 for (const { title, good, controls, judgeRejects } of CONTROLS) {
 	console.log(title);
-	await expectPass(title, good);
+	const judges = await expectPass(title, good);
 	for (const { behavior, mustFail } of controls)
 		expectRejected({ title, label: behavior, mustFail }, await runControl(title, behavior));
+	if (judgeRejects) await calibrateJudges(judges);
 	if (judgeRejects)
 		expectRejected(
 			{ title, label: "judge rejects", mustFail: judgeRejects.mustFail },

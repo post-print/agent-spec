@@ -16,6 +16,7 @@ export {
 	type RunRecord,
 	recordEscapeVector,
 	recordHostCalibration,
+	recordJudgeCalibration,
 } from "./sdk/run-record.js";
 export {
 	type AgentTestConfig,

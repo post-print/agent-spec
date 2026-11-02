@@ -3,6 +3,11 @@ import { describe, expect, type Run, z } from "../../dist/index.js";
 const test = describe("instrument", ({ agent, judge }) => ({
 	agent: agent({ description: "A scripted host." }),
 	reviewer: judge({ prompt: "Is the input correct?", schema: z.object({ correct: z.boolean() }) }),
+	// Never calibrated: a different prompt is a different judge.
+	unvetted: judge({
+		prompt: "Is the input acceptable?",
+		schema: z.object({ correct: z.boolean() }),
+	}),
 	unconvertible: judge({
 		prompt: "Is the input correct?",
 		schema: z.object({ correct: z.boolean() }).transform(({ correct }) => correct),
@@ -33,6 +38,10 @@ test("judge rejects the answer while another judge is running", async ({ reviewe
 	const { output } = await reviewer.run({ input: "SCENARIO_JUDGE_ENFORCED" });
 	expect(output.correct, "The judge accepted it.").toBe(false);
 	await running;
+});
+test("uncalibrated judge rejects the answer", async ({ unvetted }) => {
+	const { output } = await unvetted.run({ input: "SCENARIO_JUDGE_ENFORCED" });
+	expect(output.correct, "The judge accepted it.").toBe(false);
 });
 test("judge cannot start", async ({ unconvertible }) => {
 	await unconvertible.run({ input: "answer" });

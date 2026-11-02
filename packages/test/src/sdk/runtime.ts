@@ -11,6 +11,7 @@ import {
 	type McpCatalogEntry,
 } from "@post-print/agent-harness";
 import { z } from "zod";
+import { noteUncalibratedJudge } from "./check-outcomes.js";
 import { trackOperationOutput } from "./criterion-provenance.js";
 import { configuredAgent, mergeSettings, validateSkills } from "./definitions.js";
 import {
@@ -26,6 +27,8 @@ import { OperationLedger, UnearnedResultError } from "./operation-ledger.js";
 import {
 	buildRunRecord,
 	ConditionsUnknownError,
+	judgeCalibrated,
+	judgeKey,
 	runExposure,
 	runRecordBase,
 } from "./run-record.js";
@@ -306,6 +309,10 @@ export class TestRuntime {
 						this.options.onEvent?.({ runId: id, type: "error", value: recordedFailure(error) });
 						throw error;
 					}
+					result = {
+						...result,
+						judge: await this.judgeIdentity(result.id, definition, { prompt, schema }),
+					};
 					this.options.onEvent?.({
 						runId: result.id,
 						type: "evaluation",
@@ -313,16 +320,32 @@ export class TestRuntime {
 							...result,
 							invocationIndex,
 							input,
-							evaluation: startedEvaluation ?? {
-								prompt,
-								schema: z.toJSONSchema(schema),
-							},
+							evaluation: startedEvaluation ?? { prompt, schema: z.toJSONSchema(schema) },
 						},
 					});
 					return trackOperationOutput(result);
 				});
 			},
 		};
+	}
+	/**
+	 * The judge's identity, and whether its calibration fixtures agreed with it lately. An
+	 * evaluation by an uncalibrated judge is noted, so a "no" it gives is not charged to the agent.
+	 */
+	private async judgeIdentity(
+		evaluationId: string,
+		definition: AgentDefinition,
+		judged: { prompt: string; schema: z.ZodType },
+	) {
+		const key = judgeKey({
+			prompt: judged.prompt,
+			schema: z.toJSONSchema(judged.schema),
+			host: definition.host,
+			model: definition.options.model,
+		});
+		const calibrated = await judgeCalibrated(this.options.baseDir, key);
+		if (!calibrated) noteUncalibratedJudge(evaluationId);
+		return { key, calibrated };
 	}
 	private judgeDefinition(settings: AgentSettings): Promise<AgentDefinition> {
 		return preparing(async () => this.forTest(configuredAgent(this.options.judge, settings)));

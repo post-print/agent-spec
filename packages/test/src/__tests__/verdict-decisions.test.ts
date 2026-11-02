@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { failedOnlyOnUncalibratedJudges } from "../sdk/check-outcomes.js";
 import { recordWeaknesses } from "../sdk/claim-strength.js";
 import { buildClaims, type ClaimSample } from "../sdk/claims.js";
 import {
@@ -300,5 +301,29 @@ describe("why an indicative run is not a pass", () => {
 		const result = run([planned]);
 		expect(result.verdict).toBe("indicative");
 		expect(result.weakConditions).toEqual(["claude has no passing host probe from the last week"]);
+	});
+});
+
+describe("a judge nobody calibrated", () => {
+	const uncalibrated = new Set(["judge-1"]);
+	it("is blamed only when every failed check read its evidence from it", () => {
+		const onJudge = { passed: false, owners: ["judge-1"] };
+		expect(failedOnlyOnUncalibratedJudges([onJudge], uncalibrated)).toBe(true);
+		const onRun = { passed: false, owners: ["run-1"] };
+		expect(failedOnlyOnUncalibratedJudges([onJudge, onRun], uncalibrated)).toBe(false);
+		expect(failedOnlyOnUncalibratedJudges([{ passed: false, owners: [] }], uncalibrated)).toBe(
+			false,
+		);
+		expect(
+			failedOnlyOnUncalibratedJudges([{ passed: true, owners: ["judge-1"] }], uncalibrated),
+		).toBe(false);
+	});
+	it("gives its failure no verdict, unless the agent's own outcome failed too", () => {
+		expect(run([checkFailure({ judgeBlamed: true })], { runnerExitCode: 1 }).verdict).toBe(
+			"infra_invalid",
+		);
+		const outcome = [{ data: [{ kind: "agent" }] }];
+		const both = checkFailure({ judgeBlamed: true, operations: outcome });
+		expect(run([both], { runnerExitCode: 1 }).verdict).toBe("agent_failed");
 	});
 });

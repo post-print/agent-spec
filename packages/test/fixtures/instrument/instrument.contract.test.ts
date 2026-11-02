@@ -2,12 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "../../dist/index.js";
 import { startRecordedExecution } from "../../dist/sdk/execution-runner.js";
 import { executionHistoryRoot, readExecutionDetail } from "../../dist/sdk/execution-store.js";
 import {
 	ENFORCED_VECTORS,
+	judgeKey,
 	recordEscapeVector,
 	recordHostCalibration,
+	recordJudgeCalibration,
 } from "../../dist/sdk/run-record.js";
 
 const config = fileURLToPath(new URL("./agent-test.config.ts", import.meta.url));
@@ -47,7 +50,21 @@ async function calibrateFakeHost() {
 	await recordHostCalibration(configDir, FAKE_HOST);
 	for (const vector of ENFORCED_VECTORS)
 		await recordEscapeVector(configDir, FAKE_HOST, { vector, held: true });
+	await recordJudgeCalibration(
+		configDir,
+		{ name: "reviewer", judge: { key: REVIEWER } },
+		{
+			fixtures: 0,
+		},
+	);
 }
+/** The scripted reviewer in instrument.spec.ts: its "no" counts against the agent once calibrated. */
+const REVIEWER = judgeKey({
+	prompt: "Is the input correct?",
+	schema: z.toJSONSchema(z.object({ correct: z.boolean() })),
+	host: "claude",
+	model: "fake",
+});
 afterAll(async () => {
 	await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -55,6 +72,11 @@ afterAll(async () => {
 const rate = (title: string) => runScenario(`instrument rates ${title} \\[`);
 
 describe("judges through the real runner", () => {
+	it("an uncalibrated judge's no is not charged to the agent", async () => {
+		const { verdict, exitCode } = await runScenario("uncalibrated judge rejects the answer");
+		expect(verdict.verdict).toBe("infra_invalid");
+		expect(exitCode).toBe(2);
+	}, 60_000);
 	it("takes the verdict from the host's enforced output, not its prose", async () => {
 		const { verdict, exitCode } = await runScenario("judge verdict comes from enforced output");
 		expect(verdict.verdict).toBe("passed");

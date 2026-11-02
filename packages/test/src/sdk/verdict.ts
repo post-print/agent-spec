@@ -46,6 +46,8 @@ export interface VerdictAttempt {
 	checkFailed?: boolean;
 	/** For a control that names its check: whether that check is the one that failed. */
 	namedCheckFailed?: boolean;
+	/** Every failed check read its evidence only from a judge nobody calibrated. */
+	judgeBlamed?: boolean;
 	/** The runner stopped the test at its deadline. */
 	timedOut?: boolean;
 	errors: unknown[];
@@ -136,6 +138,8 @@ function operationReportedInfrastructure(attempt: VerdictAttempt): boolean {
  * nobody typed is the instrument's. Anything else came from the test's own code.
  */
 function blamedSource(attempt: VerdictAttempt): RunVerdict {
+	// A judge nobody calibrated may be wrong, so its "no" is not the agent's failure.
+	if (attempt.judgeBlamed && !operationReported(attempt, "agent")) return "infra_invalid";
 	if (attempt.checkFailed || operationReported(attempt, "agent")) return "agent_failed";
 	if (operationReported(attempt, "runtime")) return "instrument_error";
 	return "author_error";
