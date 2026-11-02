@@ -204,26 +204,37 @@ function definitionDigests({ options }: AgentDefinition) {
 		settings: sha256(stableJson(settings)),
 	};
 }
-function calibrationPath(baseDir: string, host: string, version: string): string {
-	const safeVersion = version.replace(/[^\w.-]+/g, "_");
-	return join(baseDir, ".agent-test", "calibration", `${host}-${safeVersion}.json`);
+/** A calibration speaks for one host version under one auth mode, and only for a week. */
+const CALIBRATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+type CalibrationKey = Pick<RunRecord, "host" | "binaryVersion" | "authMode">;
+function calibrationPath(baseDir: string, { host, binaryVersion, authMode }: CalibrationKey) {
+	const safe = (value: string) => value.replace(/[^\w.-]+/g, "_");
+	const name = `${host}-${safe(binaryVersion ?? "")}-${safe(authMode ?? "none")}.json`;
+	return join(baseDir, ".agent-test", "calibration", name);
 }
-async function hostCalibrated(baseDir: string, host: string, version?: string): Promise<boolean> {
-	if (!version) return false;
-	return readFile(calibrationPath(baseDir, host, version)).then(
-		() => true,
-		() => false,
-	);
+/** Calibrated only by a probe of this exact host, version and auth mode, in the last week. */
+async function hostCalibrated(baseDir: string, key: CalibrationKey, now = Date.now()) {
+	if (!key.binaryVersion) return false;
+	const stored = await readFile(calibrationPath(baseDir, key), "utf8").catch(() => undefined);
+	if (!stored) return false;
+	try {
+		const at = Date.parse((JSON.parse(stored) as { at?: string }).at ?? "");
+		return Number.isFinite(at) && now - at <= CALIBRATION_TTL_MS;
+	} catch {
+		return false;
+	}
 }
 /** Called by the host probe after every check passed. Other runs read it to label themselves. */
 export async function recordHostCalibration(
 	configDir: string,
-	record: Pick<RunRecord, "host" | "binaryVersion">,
+	record: CalibrationKey,
 ): Promise<void> {
 	if (!record.binaryVersion) throw new Error("Cannot calibrate a host with an unknown version");
-	const path = calibrationPath(configDir, record.host, record.binaryVersion);
+	const path = calibrationPath(configDir, record);
 	await mkdir(dirname(path), { recursive: true });
-	await writeFile(path, JSON.stringify({ ...record, at: new Date().toISOString() }, null, 2));
+	const { host, binaryVersion, authMode } = record;
+	const at = new Date().toISOString();
+	await writeFile(path, JSON.stringify({ host, binaryVersion, authMode, at }, null, 2));
 }
 export async function buildRunRecord(
 	base: RunRecordBase,
@@ -244,7 +255,7 @@ export async function buildRunRecord(
 		requestedModel: definition.options.model,
 		observedModel: hostReport?.model,
 		modelPinned: Boolean(definition.options.model),
-		calibrated: await hostCalibrated(base.baseDir, conditions.host, binaryVersion),
+		calibrated: await hostCalibrated(base.baseDir, { ...conditions, binaryVersion }),
 		packageVersion: base.packageVersion,
 		git: base.git,
 		hashes: {

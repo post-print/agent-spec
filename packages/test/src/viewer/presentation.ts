@@ -287,6 +287,7 @@ type RecordedConditions = {
 	confinement?: string;
 	calibrated?: boolean;
 	modelPinned?: boolean;
+	userConfig?: string;
 };
 /** Conditions a reader must know before trusting a pass. Empty when no run recorded them. */
 export function runConditionLabels(operations: { data: unknown[] }[]): string[] {
@@ -296,11 +297,14 @@ export function runConditionLabels(operations: { data: unknown[] }[]): string[] 
 			return record ? [record] : [];
 		}),
 	);
-	const labels = new Set<string>();
-	for (const record of records) {
-		if (record.confinement === "detect-only") labels.add("Unconfined");
-		if (record.host !== "custom" && record.calibrated === false) labels.add("Uncalibrated");
-		if (record.host !== "custom" && record.modelPinned === false) labels.add("Model unpinned");
-	}
-	return [...labels];
+	return [...new Set(records.flatMap(conditionLabels))];
+}
+function conditionLabels(record: RecordedConditions): string[] {
+	const hosted = record.host !== "custom";
+	return [
+		...(record.confinement === "detect-only" ? ["Unconfined"] : []),
+		...(hosted && record.calibrated === false ? ["Uncalibrated"] : []),
+		...(hosted && record.modelPinned === false ? ["Model unpinned"] : []),
+		...(record.userConfig === "may-load" ? ["User config may load"] : []),
+	];
 }

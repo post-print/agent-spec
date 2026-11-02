@@ -74,6 +74,7 @@ const SHARED_CONDITIONS = [
 	"confinement",
 	"network",
 	"settingSources",
+	"userConfig",
 	"overridingEnv",
 	"hashes.settings",
 ];
