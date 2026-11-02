@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { failedOnlyOnUncalibratedJudges } from "../sdk/check-outcomes.js";
-import { recordWeaknesses } from "../sdk/claim-strength.js";
+import { ACCEPTABLE_CONDITIONS, recordWeaknesses } from "../sdk/claim-strength.js";
 import { buildClaims, type ClaimSample } from "../sdk/claims.js";
 import {
 	EXIT_ZERO_PATHS,
@@ -400,5 +400,53 @@ describe("a suite that accepts weaker conditions", () => {
 			operations: [{ data: [{ record }] }],
 		});
 		expect(run([unplanned]).verdict).toBe("indicative");
+	});
+});
+
+describe("each condition a suite may accept", () => {
+	const strong = {
+		host: "claude",
+		calibrated: true,
+		confinementProven: true,
+		modelPinned: true,
+		userConfig: "excluded",
+		confinement: "host-enforced",
+	};
+	const weakOnly: Record<string, [object, string]> = {
+		calibration: [{ calibrated: false }, "claude has no passing host probe from the last week"],
+		"escape-battery": [
+			{ confinementProven: false },
+			"claude has no escape battery from the last week in which every enforced vector held",
+		],
+		confinement: [{ confinement: "detect-only" }, "claude only detects escapes"],
+		"user-config": [
+			{ userConfig: "may-load" },
+			"claude may load the host's own user configuration",
+		],
+		model: [{ modelPinned: false }, "the model is not pinned"],
+	};
+	it("is one of exactly five", () => {
+		expect([...ACCEPTABLE_CONDITIONS].sort()).toEqual(Object.keys(weakOnly).sort());
+	});
+	for (const condition of ACCEPTABLE_CONDITIONS)
+		it(`${condition}: accepted only when the suite accepts it`, () => {
+			const [change, reason] = weakOnly[condition] ?? [{}, ""];
+			const weak = { ...strong, ...change };
+			const accepted = run([ranUnder({ ...weak, accepted: acceptOnly([condition]) })]);
+			expect(accepted.verdict).toBe("accepted");
+			expect(accepted.acceptedConditions?.conditions).toEqual([reason]);
+			const other = condition === "model" ? "calibration" : "model";
+			const refused = run([ranUnder({ ...weak, accepted: acceptOnly([other]) })]);
+			expect(refused).toMatchObject({ verdict: "indicative", weakConditions: [reason] });
+		});
+	it("ignores an accepted field that names no list of conditions", () => {
+		const malformed = { ...strong, calibrated: false, accepted: { conditions: "calibration" } };
+		expect(run([ranUnder(malformed)]).verdict).toBe("indicative");
+	});
+	it("names a host with no record of its name", () => {
+		const nameless = { ...strong, host: undefined, calibrated: false };
+		expect(run([ranUnder(nameless)]).weakConditions).toEqual([
+			"the host has no passing host probe from the last week",
+		]);
 	});
 });
