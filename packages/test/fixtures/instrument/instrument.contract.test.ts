@@ -1,9 +1,10 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startRecordedExecution } from "../../dist/sdk/execution-runner.js";
 import { executionHistoryRoot, readExecutionDetail } from "../../dist/sdk/execution-store.js";
+import { recordHostCalibration } from "../../dist/sdk/run-record.js";
 
 const config = fileURLToPath(new URL("./agent-test.config.ts", import.meta.url));
 const fakeHost = fileURLToPath(new URL("./fake-host.mjs", import.meta.url));
@@ -24,6 +25,17 @@ async function runScenario(grep: string, extra: string[] = [], allowIndicative =
 	const exitCode = await execution.completed;
 	return { exitCode, verdict: await execution.verdict, summary: await readExecutionDetail(root) };
 }
+/** The fake host's probe: this version under API-key auth, so a run of it can carry a pass. */
+const FAKE_HOST = { host: "claude", binaryVersion: "1", authMode: "api-key" };
+const calibration = join(
+	fileURLToPath(new URL(".", import.meta.url)),
+	".agent-test",
+	"calibration",
+);
+beforeAll(async () => {
+	process.env.AGENT_TEST_FIXTURE_KEY = "fixture-key-not-real";
+	await recordHostCalibration(fileURLToPath(new URL(".", import.meta.url)), FAKE_HOST);
+});
 afterAll(async () => {
 	await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -310,5 +322,18 @@ describe("failures that say nothing about the agent, or say it plainly", () => {
 		const stored = JSON.stringify(summary?.attempts[0]?.errors);
 		expect(stored).toContain("[redacted]");
 		expect(stored).not.toContain(["sk", "abcdefghijklmnopqrst"].join("-"));
+	}, 60_000);
+});
+describe("conditions a pass needs through the real runner", () => {
+	it("an uncalibrated host gives an indicative run that names why", async () => {
+		await rm(calibration, { recursive: true, force: true });
+		try {
+			const { verdict, exitCode } = await runScenario("instrument good run$");
+			expect(verdict.verdict).toBe("indicative");
+			expect(exitCode).toBe(3);
+			expect(verdict.weakConditions?.[0]).toContain("no passing host probe");
+		} finally {
+			await recordHostCalibration(fileURLToPath(new URL(".", import.meta.url)), FAKE_HOST);
+		}
 	}, 60_000);
 });

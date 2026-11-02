@@ -19,6 +19,8 @@ A result earns trust by answering four questions, in order. Each is meaningless 
 
 Before adding a test, name the subject, the question, the evidence it reads, and the control that would make it fail.
 
+A pass also needs conditions that can carry it. The claim's strength is part of the verdict, not only a label in the viewer: a run whose records fall short becomes `indicative`, and its reasons are printed after the verdict. Run `bun run test:probe` to calibrate a host. Use API-key auth with `loadProjectContext: false` on Claude to keep the host's own configuration out.
+
 A pass is default-deny. agent-test exits 0 only on a path listed in `EXIT_ZERO_PATHS` (`packages/test/src/sdk/verdict.ts`), and each path names the evidence it needs. A verdict that reaches exit 0 without that evidence becomes `instrument_error`. Property tests over generated runs (`packages/test/src/__tests__/verdict-properties.test.ts`) check the rules every run must keep. Exit 0 needs a test or plan that passed on its own evidence. A failure is charged to the agent only on typed evidence that the agent caused it. That evidence is a check that failed after the agent started, the agent's own outcome as its host reported it (`AgentOutcomeError`, or a run that left its workspace), or a control that survived. The test's own code failing, such as a `TypeError` in a helper, is `author_error`. An operation that failed for a reason nobody typed is `instrument_error`. Neither is ever charged to the agent. The verdict does not depend on the order attempts arrive in.
 
 ## Controls
@@ -40,7 +42,7 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | --- | --- | --- |
 | 0 | `passed` | Every test that ran passed, on the first try, every sampling plan cleared or every `--repeat-each` repeat passed, and the runner agrees. |
 | 0 | `listed` | `--list` only. No test ran. |
-| 3 | `indicative` | Rates were reported, with no plan to decide them: `samples` with no `flagAt`, or `--repeat-each` with `--measure`. Nothing failed, but nothing passed either. |
+| 3 | `indicative` | Nothing failed, but the evidence cannot carry a pass. Either a rate has no plan to decide it (`samples` with no `flagAt`, or `--repeat-each` with `--measure`), or a run that would have passed recorded weak conditions: a host with no passing probe for its version and auth mode in the last week, an unpinned model, user configuration that may reach the run, or a host that only detects escapes. The CLI names each reason. |
 | 1 | `agent_failed` | A check failed after the agent started, the host reported the agent's own terminal failure, the agent left its workspace, a repeat from `--repeat-each` failed, a sampling plan flagged, or a claim regressed from its baseline. A real failure outranks any test with no verdict. |
 | 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |
 | 2 | `infra_invalid` | The host or runner failed, so nothing is known about the agent. |

@@ -247,7 +247,10 @@ describe("reduceVerdict with repeats from the command line", () => {
 	it("--allow-indicative exits 0 on a rate and says why", () => {
 		const result = reduce(attempts, 1, { measureRepeats: true, allowIndicative: true });
 		expect(result).toMatchObject({ verdict: "indicative", exitCode: 0, indicativeAllowed: true });
-		expect(verdictNotes(result)).toEqual(["Exit 0 only because --allow-indicative was given"]);
+		expect(verdictNotes(result)).toEqual([
+			"Not a pass: claim is a rate with no plan to decide it",
+			"Exit 0 only because --allow-indicative was given",
+		]);
 	});
 	it("--allow-indicative does not touch a failure", () => {
 		expect(reduce(attempts, 1, { allowIndicative: true }).exitCode).toBe(1);
@@ -318,5 +321,43 @@ describe("reduceVerdict on controls that name their check", () => {
 	});
 	it("a control that failed on another check, such as a precondition, proves nothing", () => {
 		expect(reduce([control(false)], 0)).toMatchObject({ verdict: "vacuous", exitCode: 2 });
+	});
+});
+
+describe("reduceVerdict on the conditions a pass needs", () => {
+	const strong = {
+		host: "claude",
+		binaryVersion: "2.1",
+		authMode: "api-key",
+		calibrated: true,
+		modelPinned: true,
+		userConfig: "excluded",
+		confinement: "host-enforced",
+	};
+	const ran = (record: object) => attempt({ operations: [{ data: [{ record }] }] });
+	it("a pass under calibrated, pinned, hermetic, confined conditions stands", () => {
+		expect(reduce([ran(strong)])).toMatchObject({ verdict: "passed", exitCode: 0 });
+	});
+	it("a pass under weaker conditions is indicative, and says which", () => {
+		const weak = { ...strong, authMode: "subscription", calibrated: false, userConfig: "may-load" };
+		const result = reduce([ran(weak)]);
+		expect(result).toMatchObject({ verdict: "indicative", exitCode: 3 });
+		expect(verdictNotes(result)).toEqual([
+			"Not a pass: claude 2.1 under subscription auth has no passing host probe from the last week",
+			"Not a pass: claude 2.1 under subscription auth may load the host's own user configuration",
+		]);
+	});
+	it("an unpinned model or a host that only detects escapes cannot pass either", () => {
+		expect(reduce([ran({ ...strong, modelPinned: false })]).verdict).toBe("indicative");
+		expect(reduce([ran({ ...strong, confinement: "detect-only" })]).verdict).toBe("indicative");
+	});
+	it("a failure under weak conditions is still a failure", () => {
+		const failedWeak = {
+			...ran({ ...strong, calibrated: false }),
+			status: "failed" as const,
+			checkFailed: true,
+			errors: [{ message: "Error: Expected 1" }],
+		};
+		expect(reduce([failedWeak], 1).verdict).toBe("agent_failed");
 	});
 });

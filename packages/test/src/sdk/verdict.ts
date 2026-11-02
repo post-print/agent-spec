@@ -1,3 +1,4 @@
+import { weaknesses } from "./claim-strength.js";
 import {
 	type BaselineRecord,
 	buildClaims,
@@ -82,6 +83,8 @@ export interface VerdictResult {
 	unreadableBaselines?: string[];
 	/** An indicative run exited 0 only because the caller passed --allow-indicative. */
 	indicativeAllowed?: boolean;
+	/** Why the tests and claims that are indicative could not pass, in a reader's words. */
+	weakConditions?: string[];
 }
 
 /** The only verdicts that may exit 0. Each must show its evidence in EXIT_ZERO_PATHS. */
@@ -313,6 +316,40 @@ function incompleteRunVerdicts(input: VerdictInput, claims: ClaimResult[]): RunV
 		...(baselinesUnread ? (["conditions_unknown"] as const) : []),
 	];
 }
+interface Judged {
+	verdicts: Record<string, RunVerdict>;
+	/** Why each test or claim that would have passed is only indicative. */
+	weak: string[];
+}
+/** A pass whose runs fall short of the conditions a pass needs is only indicative. */
+function weighed(verdict: RunVerdict, weak: string[], into: string[]): RunVerdict {
+	if (verdict !== "passed" || weak.length === 0) return verdict;
+	into.push(...weak);
+	return "indicative";
+}
+function judgedTests(attempts: VerdictAttempt[]): Judged {
+	const weak: string[] = [];
+	const verdicts = Object.fromEntries(
+		[...attemptsByTest(attempts)].map(([testId, own]) => [
+			testId,
+			weighed(testVerdict(own), weaknesses(own), weak),
+		]),
+	);
+	return { verdicts, weak };
+}
+function judgedClaims(claims: ClaimResult[], samples: VerdictAttempt[], measure: boolean): Judged {
+	const weak: string[] = [];
+	const verdicts = Object.fromEntries(
+		claims.map((claim) => {
+			const own = samples.filter((attempt) => attempt.claim === claim.claim);
+			const verdict = weighed(claimVerdict(claim, measure), weaknesses(own), weak);
+			if (verdict === "indicative" && claim.decision === "measured")
+				weak.push(`${claim.claim} is a rate with no plan to decide it`);
+			return [claim.claim, verdict];
+		}),
+	);
+	return { verdicts, weak };
+}
 interface ExitZeroEvidence {
 	input: VerdictInput;
 	tests: Record<string, RunVerdict>;
@@ -359,17 +396,14 @@ export function reduceVerdict(input: VerdictInput): VerdictResult {
 	const sampled = sampledClaims(input.attempts);
 	const isSampled = ({ claim }: VerdictAttempt) => claim !== undefined && sampled.has(claim);
 	const samples = input.attempts.filter(isSampled);
-	const grouped = [...attemptsByTest(input.attempts.filter((attempt) => !isSampled(attempt)))];
-	const tests = Object.fromEntries(
-		grouped.map(([testId, attempts]) => [testId, testVerdict(attempts)]),
-	);
+	const judged = judgedTests(input.attempts.filter((attempt) => !isSampled(attempt)));
+	const tests = judged.verdicts;
 	const claims = buildClaims(
 		[...attemptsByTest(samples).values()].map(claimSampleOf),
 		input.baselines,
 	);
-	const claimVerdicts = Object.fromEntries(
-		claims.map((claim) => [claim.claim, claimVerdict(claim, input.measureRepeats === true)]),
-	);
+	const decided = judgedClaims(claims, samples, input.measureRepeats === true);
+	const claimVerdicts = decided.verdicts;
 	const ran = Object.values(tests).filter((value) => value !== "skipped_only");
 	const present = new Set([
 		...ran,
@@ -392,12 +426,13 @@ export function reduceVerdict(input: VerdictInput): VerdictResult {
 		notRun: testsNeverStarted(input),
 		unreadableBaselines: input.unreadableBaselines ?? [],
 		...(verdict === "indicative" && input.allowIndicative ? { indicativeAllowed: true } : {}),
+		// Reasons belong to a run that is indicative; a worse verdict already says what went wrong.
+		weakConditions: verdict === "indicative" ? [...new Set([...judged.weak, ...decided.weak])] : [],
 	};
 }
 const SENTENCES: Record<RunVerdict, string> = {
 	passed: "Passed",
-	indicative:
-		"Indicative: rates are reported below, with no plan to decide them, so nothing passed",
+	indicative: "Indicative: nothing failed, but the evidence cannot carry a pass",
 	agent_failed: "Failed: the agent did not meet a check",
 	control_survived:
 		"Failed: a control that must fail passed, so its test cannot tell good from bad",
@@ -427,8 +462,10 @@ export function verdictNotes({
 	notRun = 0,
 	unreadableBaselines = [],
 	indicativeAllowed,
+	weakConditions = [],
 }: VerdictResult): string[] {
 	return [
+		...weakConditions.map((condition) => `Not a pass: ${condition}`),
 		...(indicativeAllowed ? ["Exit 0 only because --allow-indicative was given"] : []),
 		...(notRun > 0 ? [`${notRun} tests never started`] : []),
 		...(unreadableBaselines.length

@@ -80,7 +80,19 @@ describe("baselines", () => {
 		const changed = record({ observedModel: "new-model" });
 		const samples = Array.from({ length: 27 }, () => sample("failed", { record: changed }));
 		const [claim] = buildClaims(samples, { claim: baseline });
-		expect(claim?.baseline).toEqual({ status: "new_conditions" });
+		expect(claim?.baseline).toMatchObject({
+			status: "new_conditions",
+			previous: { passed: baseline.passed, total: baseline.total },
+			changed: ["observedModel"],
+		});
+	});
+	it("says what changed and what the baseline was, though nothing compares it", () => {
+		const changed = record({ observedModel: "new-model" });
+		const samples = Array.from({ length: 27 }, () => sample("failed", { record: changed }));
+		const [claim] = buildClaims(samples, { claim: baseline });
+		expect(claimLines(claim ?? ({} as never)).join("\n")).toContain(
+			`conditions changed or are unknown: observedModel, so no baseline applies; the baseline was ${baseline.passed} of ${baseline.total}`,
+		);
 	});
 });
 

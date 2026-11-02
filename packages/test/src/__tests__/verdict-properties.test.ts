@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import fc from "fast-check";
+import { attemptRecords, recordWeaknesses } from "../sdk/claim-strength.js";
 import {
 	reduceVerdict,
 	type VerdictAttempt,
@@ -20,6 +21,13 @@ const MESSAGES = [
 	"TypeError: Cannot read properties of undefined",
 	"AgentOutcomeError: error_max_turns",
 ];
+const STRONG_RECORD = {
+	host: "claude",
+	calibrated: true,
+	modelPinned: true,
+	userConfig: "excluded",
+	confinement: "host-enforced",
+};
 const TYPED = /^(AgentInfrastructureError|UnearnedResultError|ConditionsUnknownError)\b/;
 const WORKER_CRASH = { message: "Error: worker process exited unexpectedly (code 1)" };
 
@@ -34,6 +42,9 @@ const operation = fc.record({
 			{ kind: "agent" },
 			{ kind: "runtime" },
 			{ kind: "run" },
+			{ record: STRONG_RECORD },
+			{ record: { ...STRONG_RECORD, calibrated: false } },
+			{ record: { ...STRONG_RECORD, userConfig: "may-load" } },
 		),
 		{ maxLength: 2 },
 	),
@@ -141,6 +152,9 @@ const passesOnEvidence: Property = (run, { verdict }) =>
 const blamesOnlyOnEvidence: Property = (run, { exitCode }) =>
 	exitCode !== 1 ||
 	run.attempts.some((attempt) => attempt.survivedControl || chargeableToAgent(attempt));
+const passesOnlyUnderStrongConditions: Property = (run, { verdict }) =>
+	verdict !== "passed" ||
+	run.attempts.flatMap(attemptRecords).every((record) => recordWeaknesses(record).length === 0);
 const orderFree: Property = (run, { verdict }) =>
 	reduceVerdict({ ...run, attempts: [...run.attempts].reverse() }).verdict === verdict;
 const unplannedRateNeverPasses: Property = (run, { claimVerdicts = {} }) =>
@@ -166,6 +180,8 @@ describe("reduceVerdict properties", () => {
 		expect(counterexample(passesOnEvidence)).toBeUndefined());
 	it("blames the agent only for a recorded check failure or a control that survived", () =>
 		expect(counterexample(blamesOnlyOnEvidence)).toBeUndefined());
+	it("passes only when every run's recorded conditions can carry a pass", () =>
+		expect(counterexample(passesOnlyUnderStrongConditions)).toBeUndefined());
 	it("does not depend on the order the attempts arrive in", () =>
 		expect(counterexample(orderFree)).toBeUndefined());
 	it("a rate with no plan never passes, however it went", () =>
