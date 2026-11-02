@@ -24,10 +24,10 @@ async function leavesNothingBehind(agent: AgentFixture) {
 test("the instructions stop what they started", async ({ agent }) => {
 	await leavesNothingBehind(agent);
 });
-test("control: with a stop script that does nothing, the same test fails", async ({
-	agent,
-}, info) => {
-	info.fail();
+test("control: with a stop script that does nothing, the same test fails", {
+	description: "The server still starts, so only what it leaves behind can fail.",
+	control: { mustFail: "No process is left behind." },
+}, async ({ agent }) => {
 	const sabotaged = agent.setup(async (workspace) => {
 		await writeFile(join(workspace.path, "stop.mjs"), 'console.log("Stopped.");\n');
 	});

@@ -10,9 +10,9 @@ import type {
 } from "@playwright/test/reporter";
 import { redactSecrets } from "@post-print/agent-harness";
 import { stripAnsi } from "../viewer/presentation.js";
-import { CHECK_OUTCOME_PREFIX, type CheckOutcome } from "./check-outcomes.js";
+import { CHECK_OUTCOME_PREFIX, type CheckOutcome, namedCheckFailed } from "./check-outcomes.js";
 import { type CriterionResult, ExecutionStore } from "./execution-store.js";
-import { NO_AGENT_ANNOTATION, SAMPLE_ANNOTATION } from "./sampling.js";
+import { CONTROL_ANNOTATION, NO_AGENT_ANNOTATION, SAMPLE_ANNOTATION } from "./sampling.js";
 import { storedValue } from "./stored-value.js";
 
 function executionInput() {
@@ -106,6 +106,10 @@ function failedCheckAfterAgent(result: TestResult, agentStartedAt: number | unde
 			step.startTime.getTime() >= agentStartedAt,
 	);
 }
+/** The check a control names, or undefined for a control that names none. */
+function controlCheck(test: TestCase): string | undefined {
+	return test.annotations.find(({ type }) => type === CONTROL_ANNOTATION)?.description;
+}
 function declaresNoAgent(test: TestCase): boolean {
 	return test.annotations.some(({ type }) => type === NO_AGENT_ANNOTATION);
 }
@@ -165,6 +169,12 @@ export default class ExecutionReporter implements Reporter {
 	private noteAgentStarted(attempt: string | undefined, at: number | undefined) {
 		if (attempt && at !== undefined && !this.agentStartedAt.has(attempt))
 			this.agentStartedAt.set(attempt, at);
+	}
+	private namedCheck(test: TestCase, result: TestResult) {
+		const mustFail = controlCheck(test);
+		if (mustFail === undefined) return {};
+		const checks = this.checks.get(attemptId(test, result)) ?? [];
+		return { namedCheckFailed: namedCheckFailed(mustFail, checks) };
 	}
 	private noteCheck(attempt: string, json: string) {
 		try {
@@ -230,6 +240,7 @@ export default class ExecutionReporter implements Reporter {
 					result,
 					declaresNoAgent(test) ? 0 : this.agentStartedAt.get(attemptId(test, result)),
 				),
+				...this.namedCheck(test, result),
 				durationMs: result.duration,
 				errors: errorData(result),
 				criterionResults: criterionData(

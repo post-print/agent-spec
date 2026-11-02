@@ -51,6 +51,7 @@ const attemptFields = fc.record(
 		expectedFailure: fc.boolean(),
 		survivedControl: fc.boolean(),
 		checkFailed: fc.boolean(),
+		namedCheckFailed: fc.boolean(),
 		timedOut: fc.boolean(),
 		errors: fc.array(error, { maxLength: 2 }),
 		operations: fc.array(operation, { maxLength: 2 }),
@@ -115,7 +116,10 @@ function chargeableToAgent(attempt: VerdictAttempt): boolean {
 function passedOnItsOwn(attempt: VerdictAttempt): boolean {
 	if (attempt.status === "passed") return !attempt.survivedControl;
 	return (
-		attempt.expectedFailure === true && attempt.checkFailed === true && chargeableToAgent(attempt)
+		attempt.expectedFailure === true &&
+		attempt.checkFailed === true &&
+		attempt.namedCheckFailed !== false &&
+		chargeableToAgent(attempt)
 	);
 }
 

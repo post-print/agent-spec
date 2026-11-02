@@ -2,12 +2,15 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TestInfo } from "@playwright/test";
+import { namedCheckFailed, reportedOutcomes } from "./check-outcomes.js";
 import type { ComparisonSubject, SampleAnnotation, SampleOutcome } from "./claims.js";
 import { planIsDecided } from "./pass-rate.js";
 import { sampleOutcome } from "./verdict.js";
 
 export const SAMPLE_ANNOTATION = "agent-test.sample";
 export const NO_AGENT_ANNOTATION = "agent-test.no-agent";
+/** A control's annotation; its description is the label of the check that must fail. */
+export const CONTROL_ANNOTATION = "agent-test.control";
 
 export interface SamplingDetails {
 	/** Run this test n times and report a rate. Pass a plan from `samplingPlan` to decide on it. */
@@ -101,6 +104,11 @@ function asRecordedError(error: unknown): { message: string } {
 function isFailedCheck(error: unknown): boolean {
 	return (error as { matcherResult?: unknown } | null)?.matcherResult !== undefined;
 }
+function namedCheckOf(info: TestInfo): { namedCheckFailed?: boolean } {
+	const mustFail = info.annotations.find(({ type }) => type === CONTROL_ANNOTATION)?.description;
+	if (mustFail === undefined) return {};
+	return { namedCheckFailed: namedCheckFailed(mustFail, reportedOutcomes()) };
+}
 /**
  * Asks the verdict how it will read this attempt, so the plan's stop follows its decision. A control
  * whose only failure was soft reads as no verdict here, which runs a sample more and never clears.
@@ -115,6 +123,7 @@ function outcomeOf({ info, runtime }: SampleRun, thrown: unknown[]): SampleOutco
 		survivedControl: expectedFailure && errors.length === 0,
 		// While the body runs, the test's own errors so far can only be soft checks that failed.
 		checkFailed: info.errors.length > 0 || thrown.some(isFailedCheck),
+		...namedCheckOf(info),
 		timedOut: info.status === "timedOut",
 		errors,
 		operations: runtime.reportedInfrastructureFailure()

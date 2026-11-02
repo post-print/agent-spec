@@ -13,9 +13,30 @@ export interface CheckOutcome {
 function recording(): boolean {
 	return process.env.AGENT_TEST_RECORDER === "1" || process.env.AGENT_TEST_VIEWER_EVENTS === "1";
 }
+/** This worker's own record of the running test's checks, for decisions made before it ends. */
+const outcomesByAttempt = new Map<string, CheckOutcome[]>();
+function attemptKey(): string | undefined {
+	try {
+		const { testId, retry } = test.info();
+		return `${testId}:${retry}`;
+	} catch {
+		return undefined;
+	}
+}
 function report(criterion: string, passed: boolean): void {
 	const outcome: CheckOutcome = { criterion, passed };
-	process.stdout.write(`${CHECK_OUTCOME_PREFIX}${JSON.stringify(outcome)}\n`);
+	const key = attemptKey();
+	if (key) outcomesByAttempt.set(key, [...(outcomesByAttempt.get(key) ?? []), outcome]);
+	if (recording()) process.stdout.write(`${CHECK_OUTCOME_PREFIX}${JSON.stringify(outcome)}\n`);
+}
+/** The labelled checks the running test has reported so far. */
+export function reportedOutcomes(): CheckOutcome[] {
+	const key = attemptKey();
+	return key ? (outcomesByAttempt.get(key) ?? []) : [];
+}
+/** Whether the check a control names is among those that failed. */
+export function namedCheckFailed(mustFail: string, outcomes: CheckOutcome[]): boolean {
+	return outcomes.some(({ criterion, passed }) => criterion === mustFail && !passed);
 }
 /** How many errors the test has so far. A soft check that fails adds one instead of throwing. */
 function recordedErrors(): number | undefined {
@@ -52,7 +73,7 @@ function settled(call: () => unknown, criterion: string, soft: boolean): unknown
 }
 /** Matchers that report whether the labelled check passed, through `.not`, `.resolves` and `.rejects`. */
 export function reportingOutcome<T>(matchers: T, criterion: unknown, soft: boolean): T {
-	if (typeof criterion !== "string" || !recording()) return matchers;
+	if (typeof criterion !== "string") return matchers;
 	if (typeof matchers !== "object" || matchers === null) return matchers;
 	return new Proxy(matchers, {
 		get(target, property, receiver) {

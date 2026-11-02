@@ -43,6 +43,8 @@ export interface VerdictAttempt {
 	survivedControl?: boolean;
 	/** An assertion failed, as opposed to the test throwing for some other reason. */
 	checkFailed?: boolean;
+	/** For a control that names its check: whether that check is the one that failed. */
+	namedCheckFailed?: boolean;
 	/** The runner stopped the test at its deadline. */
 	timedOut?: boolean;
 	errors: unknown[];
@@ -148,8 +150,10 @@ function failedAttemptVerdict(attempt: VerdictAttempt): RunVerdict {
 	if (typed) return typed;
 	// A failure with nothing recorded against it: the instrument lost what happened.
 	if (attempt.errors.length === 0) return "instrument_error";
-	// A control earns its result only on a failed check: a setup error shows nothing about the test.
-	if (attempt.expectedFailure && !attempt.checkFailed) return "vacuous";
+	// A control earns its result only on a failed check, and on the one it names when it names one:
+	// a setup error or a failed precondition shows nothing about the test.
+	if (attempt.expectedFailure && (!attempt.checkFailed || attempt.namedCheckFailed === false))
+		return "vacuous";
 	// Cleanup alone says nothing about the agent. Any other failure beside it still stands.
 	if (attempt.errors.every(isCleanupFailure)) return "infra_invalid";
 	return blamedSource(attempt);

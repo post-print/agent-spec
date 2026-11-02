@@ -158,6 +158,8 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["host reports hitting its limit", "agent_failed", 1],
 	["test code breaks after the agent ran", "author_error", 2],
 	["agent runs and nothing checks it", "vacuous", 2],
+	["named control fails on the check it names", "passed", 0],
+	["named control fails on a precondition instead", "vacuous", 2],
 	["only the prompt is checked", "vacuous", 2],
 	["a soft check on the run earns the pass", "passed", 0],
 	["a check on the final workspace earns the pass", "passed", 0],

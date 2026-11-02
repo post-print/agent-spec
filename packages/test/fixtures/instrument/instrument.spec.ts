@@ -63,6 +63,18 @@ test("a check on the final workspace earns the pass", async ({ agent }) => {
 	const run = await agent.run(scenario("GOOD"));
 	expect(run.workspace.changedPaths).toEqual([]);
 });
+const WRONG = {
+	description: "A control that names its check.",
+	control: { mustFail: "The output is wrong." },
+};
+test("named control fails on the check it names", WRONG, async ({ agent }) => {
+	expect((await agent.run(scenario("GOOD"))).output, "The output is wrong.").toBe("wrong");
+});
+test("named control fails on a precondition instead", WRONG, async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	expect(run.output, "A precondition holds.").toBe("precondition");
+	expect(run.output, "The output is wrong.").toBe("wrong");
+});
 test("host reports hitting its limit", async ({ agent }) => {
 	await agent.run(scenario("MAX_TURNS"));
 });

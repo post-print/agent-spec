@@ -25,8 +25,10 @@ async function startsFromTheInstructions(agent: AgentFixture) {
 test("the instructions start the project from nothing", async ({ agent }) => {
 	await startsFromTheInstructions(agent);
 });
-test("control: without the token step, the same test fails", async ({ agent }, info) => {
-	info.fail();
+test("control: without the token step, the same test fails", {
+	description: "The start is still cold, so only the project starting can fail.",
+	control: { mustFail: "The project started." },
+}, async ({ agent }) => {
 	const sabotaged = agent.setup(async (workspace) => {
 		const path = join(workspace.path, "README.md");
 		const readme = await readFile(path, "utf8");

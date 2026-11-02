@@ -303,3 +303,20 @@ describe("reduceVerdict on lost or mixed evidence", () => {
 		expect(reduce([sampled("a", 1), sampled("b")]).verdict).toBe("instrument_error");
 	});
 });
+
+describe("reduceVerdict on controls that name their check", () => {
+	const control = (namedCheckFailed: boolean) =>
+		attempt({
+			status: "failed",
+			expectedFailure: true,
+			checkFailed: true,
+			namedCheckFailed,
+			errors: [{ message: "Error: The agent called the tool." }],
+		});
+	it("a control that failed on the check it names counts as passing", () => {
+		expect(reduce([control(true)]).verdict).toBe("passed");
+	});
+	it("a control that failed on another check, such as a precondition, proves nothing", () => {
+		expect(reduce([control(false)], 0)).toMatchObject({ verdict: "vacuous", exitCode: 2 });
+	});
+});

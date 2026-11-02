@@ -41,10 +41,10 @@ async function callsCorrectly(agent: AgentFixture) {
 test("a clear description gets the right arguments first", async ({ clear: agent }) => {
 	await callsCorrectly(agent);
 });
-test("control: a misleading description fails the same test", async ({
-	misleading: agent,
-}, info) => {
-	info.fail();
+test("control: a misleading description fails the same test", {
+	description: "Only the description changes, so the first call's argument is what fails.",
+	control: { mustFail: "The first call has the right argument." },
+}, async ({ misleading: agent }) => {
 	await callsCorrectly(agent);
 });
 test(
