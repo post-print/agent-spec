@@ -86,7 +86,7 @@ await writeFile(
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, z, type Run } from "@post-print/agent-test";
-import { customAgent } from "@post-print/agent-harness";
+import { customAgent, parseClaudeStream } from "@post-print/agent-harness";
 const fake = customAgent({adapter: new URL("../fake-agent.mjs", import.meta.url).href, options: {}});
 const test = describe("installed resources", ({agent, judge}) => ({
  coder: agent({agent: fake, workspace: "./project"}).setup(async workspace => {
@@ -104,6 +104,8 @@ test("installed SDK", async ({coder, accuracy}) => {
  // @ts-expect-error The schema must not collapse to any.
  const invalid: string = evaluation.output.correct;
  expect(typed).toBe(true);
+ const parsed = parseClaudeStream('{"type":"result","subtype":"success","is_error":false,"result":"Mina"}');
+ expect(parsed.artifacts.claudeRawStatus).toBeDefined();
 });
 `,
 );

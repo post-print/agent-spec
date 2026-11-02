@@ -47,6 +47,7 @@ export {
 	toolPathsOutsideWorkspace,
 } from "./sealed-workspace.js";
 export { ShellSegment, shellPayload, shellSegments, shellTokens } from "./shell-paths.js";
+export { parseClaudeStream, parseCodexStream } from "./stream-parsers.js";
 export {
 	AgentHost,
 	AgentMessage,
