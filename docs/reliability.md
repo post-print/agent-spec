@@ -28,7 +28,7 @@ A control proves a test could have gone the other way. There are two shapes.
 | Behavior control | A scripted host does the wrong thing against the real suites. A correct script must pass and each bad one must fail on the named check. | Offline, in `bun run test:sdk:contracts`. Listed in `agent-suites/controls/manifest.ts`. |
 | Subject control | The subject is sabotaged and a real agent runs. | Live, in `bun run test:controls`. |
 
-Write a subject control as the same check under a broken subject, marked with `info.fail()`. A control earns its result only when an `expect` fails after an agent operation started. If it passes on any attempt or in any sample, the run ends as `control_survived` and exits 1, even for a rate with no plan. If the host broke, or the test threw for another reason such as a setup error, the run has no verdict. `agent-suites/reference/` holds one working example for each question type: discovery, clarity, cold start, teardown, and judges.
+Write a subject control as the same check under a broken subject, marked with `info.fail()`. A control earns its result only when an `expect` fails the test after an agent operation started. A check the test caught does not count. If it passes on any attempt or in any sample, the run ends as `control_survived` and exits 1, even for a rate with no plan. If the host broke, or the test threw for another reason such as a setup error, the run has no verdict. `agent-suites/reference/` holds one working example for each question type: discovery, clarity, cold start, teardown, and judges.
 
 ## Exit codes
 
@@ -43,7 +43,7 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |
 | 2 | `infra_invalid` | The host or runner failed, so nothing is known about the agent. |
 | 2 | `conditions_unknown` | The run cannot show what a test asked about, a comparison's arms differ beyond its subject or one has no verdict, or a sampled run found a baseline file it cannot read. |
-| 2 | `vacuous` | A test finished without earning its result: no agent operation completed, a test failed before any started, or a control failed for a reason other than a check. |
+| 2 | `vacuous` | A test finished without earning its result: no agent operation completed, a test failed before any host started, for example on a missing workspace or skill, or a control failed for a reason other than a check. |
 | 2 | `flaky` | A test failed and then passed on retry. Every attempt is kept. |
 | 2 | `skipped_only` | No test ran. |
 | 2 | `interrupted` | The run was stopped, or a test it set out to run never started, for example under `--max-failures`. |

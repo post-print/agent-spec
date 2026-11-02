@@ -3,13 +3,14 @@ import { isDeepStrictEqual } from "node:util";
 import { expect as base } from "@playwright/test";
 import { type ShellSegment, shellPayload, shellSegments } from "@post-print/agent-harness";
 import { consumeCriterionOperations } from "./criterion-provenance.js";
-import { ConditionsUnknownError, offeredTool, type RunExposure } from "./run-record.js";
+import { ConditionsUnknownError, listedTool, offeredTool, type RunExposure } from "./run-record.js";
 import { snapshotBudget } from "./snapshot-storage.js";
 import type { Run } from "./types.js";
 
 const FILE_PROTOCOL = /^file:\/\//;
 const COMMAND_TOOL = /shell|bash|terminal|exec|command/i;
-const READ_TOOL = /read/i;
+/** A word in a tool's name: read_file or NotebookRead, not list_threads or spreadsheet. */
+const READ_TOOL = /(?:^|[^a-zA-Z])[Rr]ead|Read/;
 const SEARCH_TOOL = /^(grep|glob)$/i;
 const SKILL_TOOL = /^skill$/i;
 const GLOB_CHARS = /[*?[{]/;
@@ -298,6 +299,8 @@ function catalogGap(exposure: RunExposure, tool: string): string | undefined {
 	return `the catalog comes from asking MCP servers, so built-in tools are not known. To ask about an MCP tool, name it mcp__<server>__${tool}`;
 }
 function hasBeenOffered(exposure: RunExposure, tool: string): boolean {
+	// A tool on the list was offered, whatever else is missing. Only "not offered" needs the whole list.
+	if (listedTool(exposure, tool)) return true;
 	const gap = catalogGap(exposure, tool);
 	if (gap)
 		throw new ConditionsUnknownError(`Cannot tell whether the agent was offered ${tool}: ${gap}.`);

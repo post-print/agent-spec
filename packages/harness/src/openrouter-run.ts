@@ -206,9 +206,10 @@ function incompleteStreamFailure(stream: OpenRouterStream): AgentInfrastructureE
 			"OpenRouter response ended without [DONE]",
 			"capture_incomplete",
 		);
-	if (stream.answer || stream.finishReason) return undefined;
+	// An empty reply must not satisfy a negative check, whatever finish reason came with it.
+	if (stream.answer) return undefined;
 	return new AgentInfrastructureError(
-		"OpenRouter response finished with no reply",
+		`OpenRouter response finished with no reply (${stream.finishReason ?? "no finish reason"})`,
 		"capture_incomplete",
 	);
 }
@@ -257,7 +258,7 @@ function validationFailure(options: OpenRouterRunOptions): OpenRouterRunResult |
 	}
 	if (options.model?.trim()) return undefined;
 	trace.artifacts.openrouterError = "openrouter() requires a model";
-	return { status: "failed", trace };
+	return { status: "failed", trace, failureCode: "host_exit" };
 }
 
 /** Whatever streamed before a failure stays in the trace as evidence. */

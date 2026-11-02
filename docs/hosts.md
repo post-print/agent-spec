@@ -47,7 +47,7 @@ Classification reads what the host itself reports: Claude's `api_error_status` a
 
 Codex emits `error` for retryable stream problems such as "Reconnecting... 1/5" as well as for fatal ones, so its turn's terminal event decides. An `error` followed by `turn.completed` completes the run and leaves the message in `artifacts.openaiRecoveredErrors`. An `error` with no later terminal event fails as `host_exit`, or with the code its message names. OpenRouter's `finish_reason` other than `error`, such as `length`, completes the run and is kept in `artifacts.openrouterFinishReason`.
 
-Failure messages, failure artifacts, and stored results are redacted of common secret shapes: `sk-` and GitHub, AWS, and Slack tokens, JWTs, passwords in URLs, bearer tokens, and values assigned to names such as `apiKey`, `token`, or `password`, in JSON or plain text. This is pattern matching, not a guarantee.
+Failure messages, failure artifacts, and stored results are redacted of common secret shapes, apart from what Playwright writes itself, such as terminal output and `error-context.md`: `sk-` and GitHub, AWS, and Slack tokens, JWTs, passwords in URLs, bearer tokens, and values assigned to names such as `apiKey`, `token`, or `password`, in JSON or plain text. This is pattern matching, not a guarantee.
 
 Codex runs copy the login into a temporary home, `agent-harness-openai-home-*`, which records its owner. A later run removes homes over an hour old whose owner is gone. A home with no owner record, including one from an older version, is left alone.
 
@@ -71,7 +71,7 @@ Every completed run carries `run.record`, also stored by operation in the execut
 | Codex | `host-enforced` | No | Denied unless `networkAccess: true` |
 | Cursor and custom adapters | `detect-only` | No | Not established |
 
-`run.exposure` states what the agent was offered. Its `source` is `host` when the host listed every tool, `mcp-query` when the harness asked each MCP server for its tools and so built-in tools are not known, and `unknown` when neither worked. `expect(run).toHaveBeenOffered("tool")` throws `ConditionsUnknownError` in either direction when the catalog is unknown or partial, or a server is not connected. Under `mcp-query`, ask about an MCP tool by listed name or `mcp__<server>__<tool>`; other names refuse because built-ins are not known, so a discovery test cannot pass or fail on a run that cannot show what was offered.
+`run.exposure` states what the agent was offered. Its `source` is `host` when the host listed every tool, `mcp-query` when the harness asked each MCP server for its tools and so built-in tools are not known, and `unknown` when neither worked. `expect(run).toHaveBeenOffered("tool")` answers yes for a tool on the list, and otherwise throws `ConditionsUnknownError` in either direction when the catalog is unknown or partial, or a server is not connected. Under `mcp-query`, ask about an MCP tool by listed name or `mcp__<server>__<tool>`; other names refuse because built-ins are not known, so a discovery test cannot pass or fail on a run that cannot show what was offered.
 
 The viewer marks a result `Unconfined` when the host only detects escapes, `Model unpinned` when no definition names a model, and `Uncalibrated` when this host version has no passing host probe in `.agent-test/calibration`.
 

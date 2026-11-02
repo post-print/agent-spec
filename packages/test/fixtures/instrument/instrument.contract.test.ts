@@ -164,6 +164,10 @@ const SCENARIOS: [title: string, verdict: string, exitCode: number][] = [
 	["control fails before the agent runs", "vacuous", 2],
 	["check fails before the agent runs", "vacuous", 2],
 	["worker process crashes", "infra_invalid", 2],
+	["setup workspace is missing", "vacuous", 2],
+	["agent leaves a read-only folder", "passed", 0],
+	["control catches its own failed check, then throws", "vacuous", 2],
+	["control fails softly before the agent runs", "vacuous", 2],
 	["failed check quotes the agent saying Test timeout of 100ms exceeded.", "agent_failed", 1],
 	["failed check quotes the agent saying Agent worker exited", "agent_failed", 1],
 	["failed check quotes the agent saying Agent session cancelled", "agent_failed", 1],
@@ -259,5 +263,36 @@ describe("results that have not been earned through the real runner", () => {
 			"1",
 		]);
 		expect(verdict.claims[0]?.arms[0]).toMatchObject({ passed: 0, failed: 1, total: 1 });
+	}, 60_000);
+});
+describe("failures that say nothing about the agent, or say it plainly", () => {
+	it("a rate in which no sample reached a host has no verdict", async () => {
+		const { verdict, exitCode } = await runScenario(
+			"instrument setup workspace is missing in a rate",
+		);
+		expect(verdict.claims[0]?.arms[0]).toMatchObject({ total: 0, noVerdict: 2 });
+		expect(exitCode).toBe(2);
+	}, 60_000);
+	it("a sample's first failure stands although the runner calls it flaky", async () => {
+		const { verdict, exitCode } = await runScenario(
+			"instrument rates flagged plan passes on retry \\[",
+			["--retries", "1"],
+		);
+		expect(verdict.verdict).toBe("agent_failed");
+		expect(exitCode).toBe(1);
+	}, 60_000);
+	it("a real failure is not undone by the host breaking on retry", async () => {
+		const { verdict, exitCode } = await runScenario(
+			"instrument check fails, then the host fails on retry$",
+			["--retries", "1"],
+		);
+		expect(verdict.verdict).toBe("agent_failed");
+		expect(exitCode).toBe(1);
+	}, 60_000);
+	it("a secret in a failed check is not stored", async () => {
+		const { summary } = await runScenario("instrument secret in a failed check$");
+		const stored = JSON.stringify(summary?.attempts[0]?.errors);
+		expect(stored).toContain("[redacted]");
+		expect(stored).not.toContain(["sk", "abcdefghijklmnopqrst"].join("-"));
 	}, 60_000);
 });

@@ -59,7 +59,7 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		onEvent: (event) => {
 			writes = writes.then(() => appendFile(path, `${JSON.stringify(withoutSecrets(event))}\n`));
 			if (process.env.AGENT_TEST_VIEWER_EVENTS === "1" || process.env.AGENT_TEST_RECORDER === "1")
-				process.stdout.write(`@@agent-test:${JSON.stringify(event)}\n`);
+				process.stdout.write(`@@agent-test:${JSON.stringify({ ...event, at: Date.now() })}\n`);
 		},
 	});
 	return {
@@ -83,9 +83,9 @@ async function runEarnedBody(
 		await body();
 	} catch (error) {
 		const skipping = info.expectedStatus === "skipped";
-		if (noAgent || skipping || !runtime.failedBeforeAnyOperation()) throw error;
+		if (noAgent || skipping || !runtime.failedBeforeAnyHostStarted()) throw error;
 		throw new UnearnedResultError(
-			`The test failed before any agent operation started: ${(error as Error).message}`,
+			`The test failed before any agent started: ${(error as Error).message}`,
 		);
 	}
 	runtime.assertResultEarned({ noAgent });

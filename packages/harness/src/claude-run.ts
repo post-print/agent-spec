@@ -16,6 +16,7 @@ import {
 } from "./claude-capture.js";
 import {
 	CAPTURE_INCOMPLETE,
+	codeForHostText,
 	codeForProviderStatus,
 	hostProcessFailure,
 	spawnHostProcess,
@@ -537,7 +538,13 @@ async function finishClaudeRun(
 function claudeApiFailureCode(acc: ClaudeTraceAccumulator): AgentInfrastructureCode | undefined {
 	if (acc.apiError && CLAUDE_AUTH_API_ERRORS.has(acc.apiError)) return "auth";
 	if (acc.apiError && CLAUDE_PROVIDER_API_ERRORS.has(acc.apiError)) return "provider_unavailable";
-	return acc.apiErrorStatus === undefined ? undefined : codeForProviderStatus(acc.apiErrorStatus);
+	const byStatus =
+		acc.apiErrorStatus === undefined ? undefined : codeForProviderStatus(acc.apiErrorStatus);
+	if (byStatus) return byStatus;
+	// A request too big to send can be what the agent did, such as reading too much. Anything else
+	// Claude names as a failed API call means the model never answered.
+	if (acc.apiErrorStatus === 400 || !(acc.apiError || acc.apiErrorStatus)) return undefined;
+	return codeForHostText(acc.resultText) ?? "host_exit";
 }
 function throwClaudeRunError(error: unknown, acc: ClaudeTraceAccumulator, bin: string): never {
 	const partial = stashTrace(acc);

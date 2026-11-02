@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
+
 // A scripted Claude Code. The prompt names a scenario, so the real runner and capture code run.
 const prompt = process.argv.join(" ");
 const say = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -20,6 +22,8 @@ if (process.argv.includes("--version")) {
 	process.exit(0);
 }
 if (prompt.includes("SCENARIO_EMPTY")) process.exit(0);
+if (prompt.includes("SCENARIO_READ_ONLY_FOLDER"))
+	execSync("mkdir -p locked/sub && touch locked/sub/file && chmod -R a-w locked");
 if (prompt.includes("SCENARIO_GARBAGE")) {
 	process.stdout.write("not json\n");
 	process.exit(0);

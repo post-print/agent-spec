@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type AgentDefinition,
+	AgentInfrastructureError,
 	type AgentTrace,
 	assertInsideWorkspace,
 	createAgentSession,
@@ -22,7 +23,12 @@ import {
 import { recordedFailure } from "./failure.js";
 import { evaluate } from "./judge.js";
 import { OperationLedger } from "./operation-ledger.js";
-import { buildRunRecord, runExposure, runRecordBase } from "./run-record.js";
+import {
+	buildRunRecord,
+	ConditionsUnknownError,
+	runExposure,
+	runRecordBase,
+} from "./run-record.js";
 import {
 	preserveSourceChanges,
 	releaseSnapshots,
@@ -132,6 +138,36 @@ function captureRun(input: CaptureInput): Omit<Run, "continue"> {
 	};
 }
 
+interface FinishedTurn {
+	id: string;
+	name: string;
+	directory: string;
+	input: RunInput;
+	trace: AgentTrace;
+	initial: Awaited<ReturnType<typeof snapshot>>;
+	start: number;
+	continuation: (prompt: string) => Promise<Run>;
+}
+/** The agent's turn is over. If keeping its evidence fails, that failure is the runner's. */
+async function recordingRun(record: () => Promise<Run>): Promise<Run> {
+	try {
+		return await record();
+	} catch (error) {
+		if (error instanceof ConditionsUnknownError) throw error;
+		throw new AgentInfrastructureError(
+			`The run finished but could not be recorded: ${(error as Error).message}`,
+			"capture_incomplete",
+		);
+	}
+}
+/** The agent's work is finished and judged. A failure to clean up after it says nothing about it. */
+class RunnerCleanupError extends AggregateError {
+	constructor(errors: unknown[]) {
+		super(errors, `Agent fixture cleanup failed: ${errors.map(String).join("; ")}`);
+		this.name = "RunnerCleanupError";
+	}
+}
+
 function finalAssistantMessage(trace: AgentTrace): string {
 	return trace.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? "";
 }
@@ -170,8 +206,8 @@ export class TestRuntime {
 	assertResultEarned(options: { noAgent: boolean }): void {
 		this.ledger.assertResultEarned(options);
 	}
-	failedBeforeAnyOperation(): boolean {
-		return this.ledger.failedBeforeAnyOperation();
+	failedBeforeAnyHostStarted(): boolean {
+		return this.ledger.failedBeforeAnyHostStarted();
 	}
 	reportedInfrastructureFailure(): boolean {
 		return this.ledger.reportedInfrastructureFailure();
@@ -204,6 +240,7 @@ export class TestRuntime {
 				const invocationIndex = this.nextInvocationIndex++;
 				return this.track(async () => {
 					const definition = this.forTest(configuredAgent(this.options.judge, agentSettings));
+					this.ledger.noteHostStarted();
 					const id = crypto.randomUUID();
 					let startedEvaluation: { prompt: string; schema: unknown } | undefined;
 					let result;
@@ -329,28 +366,24 @@ export class TestRuntime {
 		);
 		const start = performance.now();
 		this.announceRun(id, name, input);
-		const observed = input.settings.observeEnvironment;
-		const baseline = input.environmentBaseline;
+		this.ledger.noteHostStarted();
 		try {
 			const trace = await session.run(withContext(prompt, context), (event) =>
 				this.options.onEvent?.({ runId: id, type: "agent", value: event }),
 			);
 			assertInsideWorkspace(trace, workspace.path);
-			const environment =
-				observed && baseline
-					? await observeEnvironment({ baseline, workspace: workspace.path, observe: observed })
-					: undefined;
-			this.survivors.push(...(environment?.stoppablePids ?? []));
-			const final = await snapshot(workspace.path, join(directory, "final"), this.snapshotStorage);
-			await this.preserveChanges({ initial, final, directory });
-			const record = await this.runRecord(input, trace, initial);
-			const durationMs = Math.round(performance.now() - start);
-			const captured = { ...input, environment, record, name, artifact: directory, id };
-			const result: Run = {
-				...captureRun({ ...captured, trace, initial, final, durationMs }),
-				continue: (options) => continuation(options.prompt),
-			};
-			await writeJson(join(directory, "run.json"), result);
+			const result = await recordingRun(() =>
+				this.recordFinishedTurn({
+					id,
+					name,
+					directory,
+					input,
+					trace,
+					initial,
+					start,
+					continuation,
+				}),
+			);
 			this.options.onEvent?.({ runId: id, type: "complete", value: result });
 			return trackOperationOutput(result);
 		} catch (error) {
@@ -360,6 +393,27 @@ export class TestRuntime {
 			await this.captureFailure({ workspace, directory, initial });
 			throw error;
 		}
+	}
+	private async recordFinishedTurn(turn: FinishedTurn): Promise<Run> {
+		const { id, name, directory, input, trace, initial, start, continuation } = turn;
+		const { workspace, session, settings, environmentBaseline: baseline } = input;
+		const observed = settings.observeEnvironment;
+		const environment =
+			observed && baseline
+				? await observeEnvironment({ baseline, workspace: workspace.path, observe: observed })
+				: undefined;
+		this.survivors.push(...(environment?.stoppablePids ?? []));
+		const final = await snapshot(workspace.path, join(directory, "final"), this.snapshotStorage);
+		await this.preserveChanges({ initial, final, directory });
+		const record = await this.runRecord(input, trace, initial);
+		const durationMs = Math.round(performance.now() - start);
+		const captured = { ...input, session, environment, record, name, artifact: directory, id };
+		const result: Run = {
+			...captureRun({ ...captured, trace, initial, final, durationMs }),
+			continue: (options) => continuation(options.prompt),
+		};
+		await writeJson(join(directory, "run.json"), result);
+		return result;
 	}
 	private async runRecord(
 		input: RunInput,
@@ -427,6 +481,6 @@ export class TestRuntime {
 		} catch (error) {
 			errors.push(error);
 		}
-		if (errors.length) throw new AggregateError(errors, "Agent fixture cleanup failed");
+		if (errors.length) throw new RunnerCleanupError(errors);
 	}
 }

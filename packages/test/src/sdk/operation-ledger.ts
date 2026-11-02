@@ -59,6 +59,7 @@ export class OperationLedger {
 		[];
 	private readonly escapes = new Set<WorkspaceEscapeError>();
 	private infrastructureFailed = false;
+	private hostStarted = false;
 
 	record<T>(underlying: Promise<T>): Promise<T> {
 		const operation = new ObservedOperation<T>((resolve, reject) => {
@@ -86,9 +87,13 @@ export class OperationLedger {
 		return this.infrastructureFailed;
 	}
 
-	/** A test that failed before any agent operation started failed in its own setup. */
-	failedBeforeAnyOperation(): boolean {
-		return this.operations.length === 0;
+	noteHostStarted(): void {
+		this.hostStarted = true;
+	}
+
+	/** A test that failed before any host was asked anything failed in its own setup. */
+	failedBeforeAnyHostStarted(): boolean {
+		return !this.hostStarted;
 	}
 
 	/** Throws when the test body finished without earning its result. */

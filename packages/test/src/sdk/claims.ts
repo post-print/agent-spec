@@ -140,10 +140,11 @@ function comparisonConflict(arms: ClaimArm[], samples: ClaimSample[], subject?: 
 }
 /** A plan clears only on passes: a sample with no verdict could still have been a failure. */
 function decisionOf(arms: ClaimArm[], sample?: SampleAnnotation): ClaimResult["decision"] {
+	const flagAt = sample?.flagAt;
+	if (flagAt !== undefined && arms.some(({ failed }) => failed >= flagAt)) return "flagged";
 	if (arms.some(({ total }) => total === 0)) return "no_verdict";
-	if (sample?.flagAt === undefined) return "measured";
-	const { flagAt, n } = sample;
-	if (arms.some(({ failed }) => failed >= flagAt)) return "flagged";
+	if (sample?.flagAt === undefined || flagAt === undefined) return "measured";
+	const { n } = sample;
 	return arms.every(({ passed }) => n - passed < flagAt) ? "clear" : "no_verdict";
 }
 function compared(arms: ClaimArm[], samples: ClaimSample[], subject?: ComparisonSubject) {

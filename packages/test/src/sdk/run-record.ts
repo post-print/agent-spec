@@ -88,9 +88,12 @@ function namesTool(tool: OfferedTool, requested: string): boolean {
 		tool.name.endsWith(`__${requested}`)
 	);
 }
+export function listedTool(exposure: RunExposure, requested: string): boolean {
+	return exposure.tools.some((tool) => namesTool(tool, requested));
+}
 /** Whether the agent was offered a tool. An unknown catalog answers neither yes nor no. */
 export function offeredTool(exposure: RunExposure, requested: string): boolean {
-	if (exposure.tools.some((tool) => namesTool(tool, requested))) return true;
+	if (listedTool(exposure, requested)) return true;
 	if (exposure.source === "unknown")
 		throw new ConditionsUnknownError(
 			`Cannot tell whether the agent was offered ${requested}: this run recorded no tool catalog.`,

@@ -262,3 +262,48 @@ rates(
 		await agent.run(scenario(variant === "a" ? "GOOD" : "EMPTY"));
 	},
 );
+const missingWorkspace = describe("instrument setup", ({ agent }) => ({
+	missing: agent({ workspace: "./no-such-folder" }),
+}));
+missingWorkspace("workspace is missing", async ({ missing }) => {
+	await missing.run(scenario("GOOD"));
+});
+missingWorkspace(
+	"workspace is missing in a rate",
+	{ description: "No sample reached a host.", samples: 2 },
+	async ({ missing }) => {
+		await missing.run(scenario("GOOD"));
+	},
+);
+test("agent leaves a read-only folder", async ({ agent }) => {
+	expect((await agent.run(scenario("READ_ONLY_FOLDER"))).output).toBe("done");
+});
+test("control catches its own failed check, then throws", async ({ agent }, info) => {
+	info.fail();
+	await agent.run(scenario("GOOD"));
+	try {
+		expect("caught").toBe("elsewhere");
+	} catch {
+		throw new Error("The fixture could not be prepared");
+	}
+});
+test("control fails softly before the agent runs", async ({ agent }, info) => {
+	info.fail();
+	expect.soft("setup").toBe("ready");
+	await agent.run(scenario("GOOD"));
+});
+rates(
+	"flagged plan passes on retry",
+	{ description: "A sample's first failure stands.", samples: { n: 2, flagAt: 1 } },
+	async ({ agent }, info) => {
+		expect((await agent.run(scenario("GOOD"))).output).toBe(info.retry === 0 ? "wrong" : "done");
+	},
+);
+test("check fails, then the host fails on retry", async ({ agent }, info) => {
+	const { output } = await agent.run(scenario(info.retry === 0 ? "GOOD" : "EMPTY"));
+	expect(output).toBe("wrong");
+});
+test("secret in a failed check", async ({ agent }) => {
+	await agent.run(scenario("GOOD"));
+	expect(["sk", "abcdefghijklmnopqrst"].join("-")).toBe("done");
+});

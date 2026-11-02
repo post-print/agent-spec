@@ -146,7 +146,7 @@ describe("offered tools with no complete catalog", () => {
 			tasksListed,
 			{ server: "notes", status: "failed", error: "boom" },
 		]);
-		refuses(partial, "get_task");
+		expect(withExposure(partial)).toHaveBeenOffered("get_task");
 		refuses(partial, "search_notes");
 	});
 
@@ -154,7 +154,7 @@ describe("offered tools with no complete catalog", () => {
 		for (const status of ["pending", "failed", "needs-auth", undefined]) {
 			const report = { tools: ["Bash"], mcpServers: [{ name: "tasks", status }] };
 			refuses(runExposure(report, [tasksListed]), "mcp__tasks__get_task");
-			refuses(runExposure(report, [tasksListed]), "Bash");
+			expect(withExposure(runExposure(report, [tasksListed]))).toHaveBeenOffered("Bash");
 		}
 	});
 
@@ -492,3 +492,10 @@ function recordedRun(toolCall: AgentTrace["toolCalls"][number]): Run {
 	};
 	return run;
 }
+
+describe("tools with no recorded arguments", () => {
+	it("a tool whose name only contains the letters of read is not a read", () => {
+		const listing = recordedRun({ name: "mcp__records__list_threads" });
+		expect(listing).not.toHaveAccessedPath("records/TASK-101.md");
+	});
+});

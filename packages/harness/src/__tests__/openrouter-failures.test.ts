@@ -122,10 +122,9 @@ describe("a complete OpenRouter stream", () => {
 		expect(failure).toBeUndefined();
 		expect(trace?.artifacts.droppedOutputLines).toBe("1");
 	});
-	it("a model that finished without text is a completed empty reply", async () => {
-		const { trace, failure } = await run("silent-model");
-		expect(failure).toBeUndefined();
-		expect(trace?.messages.filter((message) => message.role === "assistant")).toEqual([]);
+	it("a model that finished without text did not answer", async () => {
+		const { failure } = await run("silent-model");
+		expect(failure).toMatchObject({ code: "capture_incomplete" });
 	});
 });
 

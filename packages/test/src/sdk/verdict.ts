@@ -13,6 +13,7 @@ import {
 const NOT_EARNED = /^UnearnedResultError\b/;
 const INFRASTRUCTURE = /^AgentInfrastructureError\b|^AgentSessionCancelledError\b/;
 const CONDITIONS_UNKNOWN = /^ConditionsUnknownError\b/;
+const RUNNER_CLEANUP = /^RunnerCleanupError\b/;
 const WORKER_CRASH = /^Error: worker process exited unexpectedly \(/;
 
 export type RunVerdict =
@@ -117,6 +118,8 @@ function failedAttemptVerdict(attempt: VerdictAttempt): RunVerdict {
 	if (workerCrashed(attempt) || operationReportedInfrastructure(attempt)) return "infra_invalid";
 	// A control earns its result only on a failed check: a setup error shows nothing about the test.
 	if (attempt.expectedFailure && !attempt.checkFailed) return "vacuous";
+	// A failed check still stands if cleanup also failed; alone, cleanup says nothing about the agent.
+	if (!attempt.checkFailed && failedWith(attempt, RUNNER_CLEANUP)) return "infra_invalid";
 	return "agent_failed";
 }
 /** An expected failure only counts when a check failed, not when the host or runner did. */
@@ -129,6 +132,13 @@ function passedAttempt(attempt: VerdictAttempt): boolean {
 		failedAttemptVerdict(attempt) === "agent_failed"
 	);
 }
+function failedTheAgent(attempt: VerdictAttempt): boolean {
+	return (
+		attempt.status === "failed" &&
+		!passedAttempt(attempt) &&
+		failedAttemptVerdict(attempt) === "agent_failed"
+	);
+}
 /** One test across all its retries. A pass after a failure stays visible as flaky. */
 function testVerdict(attempts: VerdictAttempt[]): RunVerdict {
 	if (attempts.some(({ survivedControl }) => survivedControl)) return "control_survived";
@@ -137,6 +147,8 @@ function testVerdict(attempts: VerdictAttempt[]): RunVerdict {
 	);
 	if (last.status === "skipped") return "skipped_only";
 	if (last.status === "interrupted" || last.status === "running") return "interrupted";
+	// A real failure on one try is not undone by the host breaking on the next.
+	if (!passedAttempt(last) && attempts.some(failedTheAgent)) return "agent_failed";
 	if (!passedAttempt(last)) return failedAttemptVerdict(last);
 	return attempts.every(passedAttempt) ? "passed" : "flaky";
 }
@@ -164,8 +176,8 @@ function attemptsByTest(attempts: VerdictAttempt[]): Map<string, VerdictAttempt[
 /** The attempts and the runner must tell the same story, or neither can be believed. */
 function runnerDisagrees(verdict: RunVerdict, input: VerdictInput, tolerated: boolean): boolean {
 	if (EXIT_CODES[verdict] === 0 && input.runnerExitCode !== 0) return !tolerated;
-	// The runner calls a control that survived and then failed on retry flaky, and exits 0.
-	if (verdict === "control_survived") return false;
+	// The runner exits 0 on a pass after a retry. The first verdict decides here, so that is no conflict.
+	if (input.attempts.some(({ retry }) => retry > 0)) return false;
 	return EXIT_CODES[verdict] === 1 && input.runnerExitCode === 0;
 }
 function runVerdict(present: Set<RunVerdict>, input: VerdictInput, tolerated: boolean): RunVerdict {
@@ -227,13 +239,13 @@ function failedRepeatVerdict({ arms }: ClaimResult): RunVerdict | undefined {
 /** Asking for repeats is not asking for a rate: a gate using --repeat-each must still go red. */
 function claimVerdict(claim: ClaimResult, measureRepeats: boolean): RunVerdict {
 	if (claim.controlsSurvived > 0) return "control_survived";
+	if (claim.decision === "flagged") return "agent_failed";
 	if (claim.comparisonRefused) return "conditions_unknown";
 	if (claim.baseline.status === "same_conditions" && claim.baseline.regressed)
 		return "agent_failed";
 	if (claim.decision === "no_verdict") return "infra_invalid";
 	const repeat = claim.declared || measureRepeats ? undefined : failedRepeatVerdict(claim);
 	if (repeat) return repeat;
-	if (claim.decision === "flagged") return "agent_failed";
 	return claim.decision === "clear" ? "passed" : "measured";
 }
 function testsNeverStarted({ attempts, plannedTests = [] }: VerdictInput): number {

@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ownerIsActive, type ProcessOwner, processOwner } from "./process-owner.js";
@@ -42,6 +42,22 @@ export async function recoverOwnedRoots(
 		const manifest = await readManifest(path, rootKind);
 		if (!manifest) continue;
 		if (!(await canRecover(manifest, minimumAgeMs))) continue;
+		await removeOwnedTree(path);
+	}
+}
+
+/** An agent can leave read-only folders, as Go module caches are. They are still ours to remove. */
+async function makeWritable(path: string): Promise<void> {
+	const stats = await lstat(path);
+	if (!stats.isDirectory()) return;
+	await chmod(path, stats.mode | 0o700);
+	for (const name of await readdir(path)) await makeWritable(join(path, name));
+}
+export async function removeOwnedTree(path: string): Promise<void> {
+	try {
+		await rm(path, { recursive: true, force: true });
+	} catch {
+		await makeWritable(path);
 		await rm(path, { recursive: true, force: true });
 	}
 }
