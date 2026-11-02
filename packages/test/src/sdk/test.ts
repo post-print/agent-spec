@@ -58,7 +58,9 @@ async function runtimeOwner(defaults: Defaults, info: TestInfo) {
 		testFile: info.file,
 		remainingTestMs: () => (info.timeout === 0 ? undefined : startedAt + info.timeout - Date.now()),
 		onEvent: (event) => {
-			writes = writes.then(() => appendFile(path, `${JSON.stringify(withoutSecrets(event))}\n`));
+			// Serialized now: the event as it happened, read before the test can see the run.
+			const line = `${JSON.stringify(withoutSecrets(event))}\n`;
+			writes = writes.then(() => appendFile(path, line));
 			if (process.env.AGENT_TEST_VIEWER_EVENTS === "1" || process.env.AGENT_TEST_RECORDER === "1")
 				process.stdout.write(`@@agent-test:${JSON.stringify({ ...event, at: Date.now() })}\n`);
 		},

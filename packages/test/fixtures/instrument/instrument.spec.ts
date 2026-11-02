@@ -49,6 +49,20 @@ test("test code breaks after the agent ran", async ({ agent }) => {
 	const parsed = JSON.parse("{}") as { answer?: { text: string } };
 	expect(run.output.length + (parsed.answer as { text: string }).text.length).toBeGreaterThan(0);
 });
+test("agent runs and nothing checks it", async ({ agent }) => {
+	await agent.run(scenario("GOOD"));
+});
+test("only the prompt is checked", async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	expect(run.prompt).toContain("SCENARIO");
+});
+test("a soft check on the run earns the pass", async ({ agent }) => {
+	expect.soft((await agent.run(scenario("GOOD"))).output).toBe("done");
+});
+test("a check on the final workspace earns the pass", async ({ agent }) => {
+	const run = await agent.run(scenario("GOOD"));
+	expect(run.workspace.changedPaths).toEqual([]);
+});
 test("host reports hitting its limit", async ({ agent }) => {
 	await agent.run(scenario("MAX_TURNS"));
 });
@@ -173,7 +187,7 @@ rates(
 		subject: "prompt",
 	},
 	async ({ agent }, _info, variant) => {
-		await agent.run(scenario("GOOD"));
+		expect((await agent.run(scenario("GOOD"))).output).toBe("done");
 		expect(variant, "This arm passes.").toBe("good");
 	},
 );
@@ -186,7 +200,7 @@ rates(
 		subject: "workspace",
 	},
 	async ({ agent }, _info, variant) => {
-		await agent.run({ prompt: `SCENARIO_GOOD ${variant}` });
+		expect((await agent.run({ prompt: `SCENARIO_GOOD ${variant}` })).output).toBe("done");
 	},
 );
 test("control survives", async ({ agent }, info) => {
@@ -264,7 +278,7 @@ rates(
 		subject: "prompt",
 	},
 	async ({ agent }, _info, variant) => {
-		await agent.run(scenario(variant === "a" ? "GOOD" : "EMPTY"));
+		expect((await agent.run(scenario(variant === "a" ? "GOOD" : "EMPTY"))).output).toBe("done");
 	},
 );
 const missingWorkspace = describe("instrument setup", ({ agent }) => ({

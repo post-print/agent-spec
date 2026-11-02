@@ -1,4 +1,5 @@
 import { WorkspaceEscapeError } from "@post-print/agent-harness";
+import { wasChecked } from "./criterion-provenance.js";
 import { isInfrastructureFailure } from "./failure.js";
 import type { Run } from "./types.js";
 
@@ -55,8 +56,12 @@ type OperationState = "pending" | "fulfilled" | "rejected";
 
 /** Every agent and judge operation of one test, so a result can only come from work that happened. */
 export class OperationLedger {
-	private readonly operations: { operation: ObservedOperation<unknown>; state: OperationState }[] =
-		[];
+	private readonly operations: {
+		operation: ObservedOperation<unknown>;
+		state: OperationState;
+		/** The run or evaluation it produced, so a check on it can be found. */
+		id?: string;
+	}[] = [];
 	private readonly escapes = new Set<WorkspaceEscapeError>();
 	private infrastructureFailed = false;
 	private hostStarted = false;
@@ -65,13 +70,15 @@ export class OperationLedger {
 		const operation = new ObservedOperation<T>((resolve, reject) => {
 			underlying.then(resolve, reject);
 		});
-		const entry = { operation, state: "pending" as OperationState };
+		const entry: (typeof this.operations)[number] = { operation, state: "pending" };
 		this.operations.push(entry);
 		// Internal bookkeeping must not count as the test observing the outcome.
 		Promise.prototype.then.call(operation, undefined, () => undefined);
 		underlying.then(
-			() => {
+			(value) => {
 				entry.state = "fulfilled";
+				const { id } = (value ?? {}) as { id?: unknown };
+				if (typeof id === "string") entry.id = id;
 			},
 			(error: unknown) => {
 				entry.state = "rejected";
@@ -102,10 +109,15 @@ export class OperationLedger {
 		const escapes = [...this.escapes];
 		const unacknowledged = escapes.find((error) => !acknowledgedEscapes.has(error));
 		if (unacknowledged) throw unacknowledged;
-		if (options.noAgent) return;
-		if (escapes.length === 0 && !this.operations.some(({ state }) => state === "fulfilled"))
+		if (options.noAgent || escapes.length > 0) return;
+		const fulfilled = this.operations.filter(({ state }) => state === "fulfilled");
+		if (fulfilled.length === 0)
 			throw new UnearnedResultError(
 				"The test finished without a completed agent operation, so its result says nothing about an agent. Declare noAgent: true if that is intended.",
+			);
+		if (!fulfilled.some(({ id }) => id !== undefined && wasChecked(id)))
+			throw new UnearnedResultError(
+				"The test passed without a check on any agent or judge result, so its result says nothing about an agent. Check a run or evaluation with agent-test's expect after reading it.",
 			);
 	}
 

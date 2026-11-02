@@ -129,6 +129,7 @@ Use `Promise.all` for independent concurrent tasks or ordinary awaits for sequen
 A passing test body is not enough for a pass. The test also fails when:
 
 - no agent or judge operation completed, unless the test declares `noAgent: true` because it checks only the runner;
+- no check ran on what a completed operation produced. A check counts when agent-test's `expect` (also `expect.soft` and `expect.poll`) runs after the test read the run's `output`, `trace`, `conversation`, `toolCalls`, `workspace`, `environment` or `usage`, or an evaluation's `output`, or when the run itself is the value checked, as in `expect(run).toHaveCalledTool(...)`. The prompt, `record` and `exposure` are the test's own inputs and conditions, so checking only them does not count. An `expect` imported from `@playwright/test` is not seen;
 - a run that was never awaited or handled failed or was still in progress when the body ended;
 - it caught a `WorkspaceEscapeError` without using `expectWorkspaceEscape`.
 

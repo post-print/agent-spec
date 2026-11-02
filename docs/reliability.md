@@ -45,7 +45,7 @@ The CLI exit code comes from one verdict, stored in the execution summary and re
 | 1 | `control_survived` | A control that must fail passed, so its test cannot tell good from bad. |
 | 2 | `infra_invalid` | The host or runner failed, so nothing is known about the agent. |
 | 2 | `conditions_unknown` | The run cannot show what a test asked about, a comparison's arms differ beyond its subject or one has no verdict, or a sampled run found a baseline file it cannot read. |
-| 2 | `vacuous` | A test finished without earning its result: no agent operation completed, a run failed before its host started, for example on a missing workspace or skill or an exhausted snapshot budget, or a control failed for a reason other than a check. |
+| 2 | `vacuous` | A test finished without earning its result: no agent operation completed, no check ran on what one produced, a run failed before its host started, for example on a missing workspace or skill or an exhausted snapshot budget, or a control failed for a reason other than a check. |
 | 2 | `flaky` | A test failed and then passed on retry. Every attempt is kept. |
 | 2 | `skipped_only` | No test ran. |
 | 2 | `interrupted` | The run was stopped, a test it set out to run never started, for example under `--max-failures`, or an attempt never finished. |

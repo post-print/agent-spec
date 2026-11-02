@@ -2,7 +2,7 @@ import { basename, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { expect as base } from "@playwright/test";
 import { type ShellSegment, shellPayload, shellSegments } from "@post-print/agent-harness";
-import { consumeCriterionOperations } from "./criterion-provenance.js";
+import { consumeCriterionOperations, noteCheck } from "./criterion-provenance.js";
 import { ConditionsUnknownError, listedTool, offeredTool, type RunExposure } from "./run-record.js";
 import { snapshotBudget } from "./snapshot-storage.js";
 import type { Run } from "./types.js";
@@ -490,9 +490,24 @@ function isOperationResult(value: unknown): value is { id: string } {
 	);
 }
 
+function checking(argumentsList: unknown[]): void {
+	recordCriterionOwners(argumentsList[0], argumentsList[1]);
+	const [actual] = argumentsList;
+	noteCheck(isOperationResult(actual) ? actual.id : undefined);
+}
+/** Soft and polled checks are checks too, so they reach the same record. */
+const CHECK_VARIANTS = new Set<PropertyKey>(["soft", "poll"]);
 export const expect = new Proxy(extendedExpect, {
 	apply(target, thisArg, argumentsList) {
-		recordCriterionOwners(argumentsList[0], argumentsList[1]);
+		checking(argumentsList);
 		return Reflect.apply(target, thisArg, argumentsList);
+	},
+	get(target, property, receiver) {
+		const value: unknown = Reflect.get(target, property, receiver);
+		if (!CHECK_VARIANTS.has(property) || typeof value !== "function") return value;
+		return (...argumentsList: unknown[]) => {
+			checking(argumentsList);
+			return Reflect.apply(value, target, argumentsList);
+		};
 	},
 });
