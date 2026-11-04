@@ -29,7 +29,7 @@ jobs:
       - name: Mutation audit of the verdict code
         run: bun run test:mutation 2>&1 | tee mutation.log
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-audit
           path: |
@@ -97,7 +97,7 @@ jobs:
             --config agent-test.nightly.config.ts --verdict-grade 2>&1 | tee controls.log
 
       - if: always() && steps.credentials.outputs.missing != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-live-proof
           path: |
