@@ -205,21 +205,31 @@ function mcpToolOutcome(item: OpenaiThreadItem): { succeeded?: boolean } {
 		return { succeeded: false };
 	return item.status === "completed" ? { succeeded: true } : {};
 }
+const WEB_URL = /^https?:\/\/\S+$/i;
 /**
  * Codex's web search item names its action. A search becomes `WebSearch` and a page open
  * `WebFetch`, the names Claude's own web tools use, so suites can check either host the same way.
  */
+/** The page a web search item opened, or undefined when it searched. */
+function openedPage(item: OpenaiThreadItem): { url: string; pattern?: string } | undefined {
+	const action = item.action ?? {};
+	if (action.type === "open_page" || action.type === "find_in_page")
+		return action.url
+			? { url: action.url, ...(action.pattern ? { pattern: action.pattern } : {}) }
+			: undefined;
+	// Codex 0.154 reports a page open as action "other" with the page's URL as the query.
+	if (action.type !== "search" && item.query && WEB_URL.test(item.query))
+		return { url: item.query };
+	return undefined;
+}
 function applyWebSearch(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 	const action = item.action ?? {};
-	if (action.type === "open_page" || action.type === "find_in_page") {
-		if (!action.url) return;
-		acc.toolCalls.push({
-			name: "WebFetch",
-			args: { url: action.url, ...(action.pattern ? { pattern: action.pattern } : {}) },
-			seq: acc.nextSeq++,
-		});
+	const page = openedPage(item);
+	if (page) {
+		acc.toolCalls.push({ name: "WebFetch", args: page, seq: acc.nextSeq++ });
 		return;
 	}
+	if (action.type === "open_page" || action.type === "find_in_page") return;
 	const query = action.query || item.query || action.queries?.[0];
 	if (!query) return;
 	acc.toolCalls.push({
