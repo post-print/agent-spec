@@ -127,6 +127,8 @@ async function runBuiltin(input: InitializeInput, prompt: string): Promise<HostR
 				model: agent.options.model,
 				sandbox: readOnly ? "read-only" : "workspace-write",
 				networkAccess: agent.options.networkAccess,
+				webSearch: agent.options.webSearch,
+				shell: agent.options.shell,
 				outputSchema: input.outputSchema,
 			});
 		case "claude":

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { claude, cursor, openai } from "../agent-definition.js";
 
 import {
 	buildOpenaiExecArgs,
@@ -72,6 +73,36 @@ it("buildOpenaiExecArgs › enables network only when a writable run opts in", (
 		networkAccess: true,
 	});
 	expect(args).toContain("permissions.agent_test.network.enabled=true");
+});
+
+it("buildOpenaiExecArgs › turns on live web search and removes the shell on request", () => {
+	const args = buildOpenaiExecArgs({
+		prompt: "Find the paper.",
+		cwd: "/tmp/agent-harness-seal-test",
+		webSearch: true,
+		shell: false,
+	});
+	expect(args).toContain('web_search="live"');
+	expect(args).toContain("features.shell_tool=false");
+	expect(args).toContain("features.unified_exec=false");
+	expect(args.at(-1)).toBe("Find the paper.");
+});
+
+it("buildOpenaiExecArgs › keeps Codex's own web search and shell when unset", () => {
+	const args = buildOpenaiExecArgs({ prompt: "Fix it.", cwd: "/tmp/agent-harness-seal-test" });
+	expect(args.some((arg) => arg.startsWith("web_search="))).toBe(false);
+	expect(args).not.toContain("features.shell_tool=false");
+	const off = buildOpenaiExecArgs({ prompt: "Fix it.", cwd: "/tmp/x", webSearch: false });
+	expect(off).toContain('web_search="disabled"');
+});
+
+it("openai › accepts webSearch and shell, which other hosts refuse", () => {
+	expect(openai({ webSearch: true, shell: false }).options).toMatchObject({
+		webSearch: true,
+		shell: false,
+	});
+	expect(() => claude({ webSearch: true })).toThrow("webSearch is not supported by claude");
+	expect(() => cursor({ shell: false })).toThrow("shell is not supported by cursor");
 });
 
 it("buildOpenaiExecArgs › omits --ignore-user-config when user skills are allowed", () => {
