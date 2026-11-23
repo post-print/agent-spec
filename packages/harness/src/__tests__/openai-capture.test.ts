@@ -83,6 +83,7 @@ it("openai-capture › records web searches as WebSearch and page opens as WebFe
 		`{"type":"item.completed","item":{"id":"item_2","type":"web_search","query":"postprint.net","action":{"type":"search","query":"postprint.net"}}}`,
 		`{"type":"item.completed","item":{"id":"item_3","type":"web_search","query":"","action":{"type":"open_page","url":"https://postprint.net/"}}}`,
 		`{"type":"item.completed","item":{"id":"item_4","type":"web_search","query":"","action":{"type":"other"}}}`,
+		`{"type":"item.completed","item":{"id":"item_5","type":"web_search","query":"https://arxiv.org/abs/1706.03762","action":{"type":"other"}}}`,
 	];
 	for (const line of lines) {
 		const event = parseOpenaiJsonlLine(line);
@@ -92,5 +93,6 @@ it("openai-capture › records web searches as WebSearch and page opens as WebFe
 	expect(trace.toolCalls.map(({ name, args }) => ({ name, args }))).toEqual([
 		{ name: "WebSearch", args: { query: "postprint.net" } },
 		{ name: "WebFetch", args: { url: "https://postprint.net/" } },
+		{ name: "WebFetch", args: { url: "https://arxiv.org/abs/1706.03762" } },
 	]);
 });
