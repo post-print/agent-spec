@@ -34,6 +34,17 @@ export interface OpenaiThreadItem {
 	result?: unknown;
 	error?: unknown;
 	status?: string;
+	query?: string;
+	action?: OpenaiWebSearchAction;
+}
+
+/** What a Codex `web_search` item did: a search, a page open, or a find within a page. */
+export interface OpenaiWebSearchAction {
+	type?: string;
+	query?: string;
+	queries?: string[];
+	url?: string;
+	pattern?: string;
 }
 
 export interface OpenaiTraceAccumulator extends TraceAccumulator {
@@ -194,6 +205,29 @@ function mcpToolOutcome(item: OpenaiThreadItem): { succeeded?: boolean } {
 		return { succeeded: false };
 	return item.status === "completed" ? { succeeded: true } : {};
 }
+/**
+ * Codex's web search item names its action. A search becomes `WebSearch` and a page open
+ * `WebFetch`, the names Claude's own web tools use, so suites can check either host the same way.
+ */
+function applyWebSearch(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
+	const action = item.action ?? {};
+	if (action.type === "open_page" || action.type === "find_in_page") {
+		if (!action.url) return;
+		acc.toolCalls.push({
+			name: "WebFetch",
+			args: { url: action.url, ...(action.pattern ? { pattern: action.pattern } : {}) },
+			seq: acc.nextSeq++,
+		});
+		return;
+	}
+	const query = action.query || item.query || action.queries?.[0];
+	if (!query) return;
+	acc.toolCalls.push({
+		name: "WebSearch",
+		args: { query, ...(action.queries?.length ? { queries: action.queries } : {}) },
+		seq: acc.nextSeq++,
+	});
+}
 function applyItem(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 	const type = (item.type ?? "").toLowerCase();
 	if (type === "agent_message" && item.text) {
@@ -210,6 +244,10 @@ function applyItem(acc: OpenaiTraceAccumulator, item: OpenaiThreadItem): void {
 	}
 	if (type === "file_change") {
 		applyFileChanges(acc, item);
+		return;
+	}
+	if (type === "web_search") {
+		applyWebSearch(acc, item);
 		return;
 	}
 	if (type === "mcp_tool_call" && (item.tool || item.server)) applyMcpTool(acc, item);

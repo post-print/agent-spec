@@ -19,6 +19,16 @@ export interface AgentOptions {
 	mcpServers?: Record<string, McpServerConfig>;
 	networkAccess?: boolean;
 	/**
+	 * OpenAI Codex only: give the agent Codex's live web search (`web_search="live"`). Searches and
+	 * page opens appear in `run.toolCalls` as `WebSearch` and `WebFetch`. Defaults to Codex's own.
+	 */
+	webSearch?: boolean;
+	/**
+	 * OpenAI Codex only: `false` removes Codex's shell tools, so the agent cannot run commands.
+	 * Defaults to true.
+	 */
+	shell?: boolean;
+	/**
 	 * Claude only: the built-in tools the agent may use, passed as `--tools`. `[]` leaves only
 	 * the suite's MCP tools. Omit for the default coding tool set.
 	 */
@@ -61,6 +71,8 @@ export interface OpenRouterAgentOptions
 		| "auth"
 		| "mcpServers"
 		| "networkAccess"
+		| "webSearch"
+		| "shell"
 		| "tools"
 		| "loadProjectContext"
 		| "allowUnixSockets"
@@ -160,6 +172,7 @@ const CLAUDE_ONLY_OPTIONS = [
 	"confinement",
 	"allowedTools",
 ] as const;
+const OPENAI_ONLY_OPTIONS = ["webSearch", "shell"] as const;
 /** An unsandboxed Claude may run only the tools its definition names. */
 function refuseUnboundedConfinement(options: AgentOptions): void {
 	if (options.allowedTools?.some((rule) => !rule.trim()))
@@ -175,6 +188,8 @@ function builtin(host: BuiltinAgentHost, options: AgentOptions = {}): AgentDefin
 	const unsupported = CLAUDE_ONLY_OPTIONS.find((name) => options[name] !== undefined);
 	if (host !== "claude" && unsupported)
 		throw new Error(`${unsupported} is not supported by ${host}`);
+	const openaiOnly = OPENAI_ONLY_OPTIONS.find((name) => options[name] !== undefined);
+	if (host !== "openai" && openaiOnly) throw new Error(`${openaiOnly} is not supported by ${host}`);
 	refuseUnboundedConfinement(options);
 	return definition({
 		host,

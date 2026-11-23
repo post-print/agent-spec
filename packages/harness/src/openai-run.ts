@@ -83,6 +83,10 @@ export interface OpenaiRunOptions {
 	includeGlobalSkills?: boolean;
 	/** Allow network access in a workspace-write sandbox. Default false. */
 	networkAccess?: boolean;
+	/** Turn Codex's live web search on (`true`) or off (`false`). Omit for Codex's default. */
+	webSearch?: boolean;
+	/** `false` removes Codex's shell tools. Default true. */
+	shell?: boolean;
 	/** Absolute paths the agent may neither read nor write (the caller checkout). */
 	protectedPaths?: readonly string[];
 	/** Folders outside the workspace the agent may read. */
@@ -362,6 +366,16 @@ export function codexAcceptsSchema(schema: object): boolean {
 	return root.type === "object" && isStrictNode(root);
 }
 
+/** `-c` overrides for Codex's web search and shell tools; none when both keep Codex's default. */
+export function codexToolArgs(options: { webSearch?: boolean; shell?: boolean }): string[] {
+	const args: string[] = [];
+	if (options.webSearch !== undefined)
+		args.push("-c", `web_search="${options.webSearch ? "live" : "disabled"}"`);
+	if (options.shell === false)
+		args.push("-c", "features.shell_tool=false", "-c", "features.unified_exec=false");
+	return args;
+}
+
 export function buildOpenaiExecArgs(options: {
 	prompt: string;
 	cwd: string;
@@ -370,6 +384,8 @@ export function buildOpenaiExecArgs(options: {
 	mcpServers?: Record<string, McpServerConfig>;
 	includeGlobalSkills?: boolean;
 	networkAccess?: boolean;
+	webSearch?: boolean;
+	shell?: boolean;
 	protectedPaths?: readonly string[];
 	/** Folders outside the workspace the agent may read. */
 	allowedRoots?: readonly string[];
@@ -398,6 +414,7 @@ export function buildOpenaiExecArgs(options: {
 	];
 	// Reviewers get no project instructions: only the evaluation prompt and their own context.
 	if (readOnly) args.push("--skip-git-repo-check", "-c", "project_doc_max_bytes=0");
+	args.push(...codexToolArgs(options));
 	args.push(...buildOpenaiMcpConfigArgs(options.mcpServers));
 	const model =
 		options.model?.trim() ||
@@ -651,6 +668,8 @@ export async function runOpenaiAgent(options: OpenaiRunOptions): Promise<OpenaiR
 		mcpServers: resolveMcpServers(options.mcpServers, { cwd: options.cwd }),
 		includeGlobalSkills: options.includeGlobalSkills === true,
 		networkAccess: options.networkAccess === true,
+		webSearch: options.webSearch,
+		shell: options.shell,
 		protectedPaths: options.protectedPaths,
 		allowedRoots: options.allowedRoots,
 		outputSchemaPath: schemaFile?.path,
